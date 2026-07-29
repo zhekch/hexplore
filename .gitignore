@@ -39,6 +39,11 @@ src/imported-cells.json
 
 # Local Claude Code settings (personal permissions); .claude/ itself is shared
 .claude/settings.local.json
+.claude/worktrees/
+
+# iCloud conflict copies ("main 2.js") — this project sits under a synced ~/Documents
+* [0-9].*
+
 
 # Logs
 *.log
