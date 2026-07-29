@@ -34,6 +34,7 @@ import { terrainStyle, satelliteStyle } from './basemap.js';
 import { mountKomoot } from './komoot-ui.js';
 import { mountStrava } from './strava-ui.js';
 import { mountSync } from './sync-ui.js';
+import { mountSettings } from './settings-ui.js';
 import { mountBackup } from './backup-ui.js';
 import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
@@ -1396,6 +1397,7 @@ let routeInfo = null; // set by mountRouteInfo() once the DOM is wired
 let homeAssistant = null; // set by mountHomeAssistant()
 let colorPicker = null; // set by mountColorPicker()
 let stravaUi = null; // set by mountStrava()
+let backupUi = null; // set by mountBackup()
 let selectedRoute = null;
 
 function saveRoutesPref() {
@@ -3496,10 +3498,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     isSolo: (route) => soloRoute === route.id,
   });
 
-  // "Import locations" in the base-map menu: parses the file in the browser,
-  // previews what it found, then merges the cells server-side.
+  // The file importer, first entry behind "Import & sync": parses the file in
+  // the browser, previews what it found, then merges the cells server-side.
   const importer = mountImport({
     onKomoot: () => komootUi.open(),
+    onClose: () => sync?.open(),
     knownCells: () => visited,
     knownSources: () => [...new Set([...cellMeta.values()].flat().map((m) => m.source))],
     onImported: async ({ routes = false } = {}) => {
@@ -3514,14 +3517,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       updateLayersUi();
     },
   });
-  document.getElementById('import-open').addEventListener('click', () => {
-    setMenuOpen(false);
-    importer.open();
-  });
-
-  // Sync: one door in front of every app the map can pull from. Each entry
-  // hands off to its own dialog and comes back here on Back.
+  // Two doors, split by which way the data is going: everything that brings it
+  // in behind one, everything that takes it back out behind the other. Each
+  // entry hands off to its own dialog and comes back to its hub on Back.
   let sync = null;
+  let settings = null;
   homeAssistant = mountHomeAssistant({
     onSynced: () => hydrateVisited(),
     onClose: () => sync?.open(),
@@ -3578,10 +3578,21 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       sync?.setStravaStatus(text);
     },
   });
-  sync = mountSync({ homeAssistant, strava: stravaUi });
+  // Backups are the one entry in Sync that goes the other way: everything else
+  // pulls data in, this writes the whole database out on a schedule.
+  backupUi = mountBackup({
+    onClose: () => settings?.open(),
+    onStatus: () => settings?.setBackupStatus(backupUi.summary()),
+  });
+  sync = mountSync({ homeAssistant, strava: stravaUi, files: importer });
+  settings = mountSettings({ backup: backupUi });
   document.getElementById('sync-open').addEventListener('click', () => {
     setMenuOpen(false);
     sync.open();
+  });
+  document.getElementById('settings-open').addEventListener('click', () => {
+    setMenuOpen(false);
+    settings.open();
   });
 
   const stats = mountStats({
@@ -3603,7 +3614,30 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     },
     // The dialog edits the same objects routeList holds, so only the drawn
     // labels need refreshing — same as the card on the map.
-    onRouteEdited: () => updateRoutesUi(),
+    onRouteEdited: (route, before) => {
+      updateRoutesUi();
+      if (!before) return;
+      const after = { name: route.name, sport: route.sport, source: route.source, sportGuessed: route.sportGuessed };
+      // Applying a set of values *is* the same operation in both directions, so
+      // undo and redo are one function pointed at two snapshots.
+      const apply = async (vals) => {
+        await auth.updateRoute(route.id, { name: vals.name, sport: vals.sport, source: vals.source });
+        Object.assign(route, vals);
+        updateRoutesUi();
+      };
+      // Say which edit it was: "renaming" is wrong for a route you only refiled
+      // under a different app, and a toast that describes the wrong change is
+      // worse than one that says nothing.
+      const title = before.name ? `“${before.name}”` : 'a route';
+      const what = before.name !== after.name
+        ? `renaming ${title}`
+        : before.sport !== after.sport
+          ? `changing the activity of ${title}`
+          : before.source !== after.source
+            ? `refiling ${title}`
+            : `editing ${title}`;
+      history.push(what, () => apply(before), () => apply(after));
+    },
     onRouteDeleted: async (route) => {
       if (!(await removeRoute(route))) throw new Error('Could not remove that route.');
     },
@@ -3647,6 +3681,42 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   // Geometry, colors and the first reveal are set up in installGrid() when the
   // style finishes loading (and again after every basemap switch).
 }
+
+// --- Undo / redo, from the keyboard -------------------------------------------
+// Cmd/Ctrl-Z and Cmd/Ctrl-Shift-Z (Ctrl-Y too, which is what Windows hands
+// tell their fingers). Every one of them says out loud what it just did — on a
+// map the change is often off screen, or a cell too small to see move, and a
+// silent undo is indistinguishable from one that did nothing.
+function isTypingIn(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  // Renaming a route keeps its own undo. Taking Ctrl-Z away from a text field
+  // to undo something on the map behind it would be the wrong answer twice.
+  return el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+window.addEventListener('keydown', async (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+  const key = e.key.toLowerCase();
+  if (key !== 'z' && key !== 'y') return;
+  if (isTypingIn(e.target)) return;
+  e.preventDefault();
+  const forward = key === 'y' || e.shiftKey;
+  if (!authed) {
+    showToast('Sign in to change the map', { tone: 'quiet' });
+    return;
+  }
+  try {
+    const label = forward ? await history.redo() : await history.undo();
+    if (label) showToast(`${forward ? 'Redid' : 'Undid'} ${label}`);
+    // Nothing on the stack is an answer, not a failure — said quietly.
+    else showToast(forward ? 'Nothing to redo' : 'Nothing to undo', { tone: 'quiet' });
+  } catch (err) {
+    // The entry stays on the stack (see src/history.js), so this is worth
+    // trying again once the server is back.
+    showToast(`Couldn't ${forward ? 'redo' : 'undo'} that — ${err.message ?? err}`);
+  }
+});
 
 // --- "the server has gone" banner ---------------------------------------------
 // Every API call reports whether it got an answer (src/auth.js), so this only
@@ -3712,9 +3782,19 @@ mountAuth({
     homeAssistant?.refresh();
     // Coming back from Strava's OAuth redirect reopens the dialog on the result.
     if (!(await stravaUi?.handleReturn())) stravaUi?.refresh();
+    // …and the backup schedule, for the row in Sync. Only the account that made
+    // the map may read it; anyone else's row says so.
+    backupUi?.refresh();
+    // Whatever was on the stack was somebody else's map, or this one before it
+    // was re-read from the server. Either way there is nothing here to take
+    // back any more.
+    history.clear();
   },
   onLoggedOut: () => {
     authed = false;
+    // Undo history belongs to the account that just left too, and every entry
+    // in it is an instruction to change *their* map.
+    history.clear();
     // These belong to the account that just left, not to this browser.
     hiddenSports = new Set();
     sportColors = new Map();
