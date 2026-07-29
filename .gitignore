@@ -54,3 +54,6 @@ yarn-error.log*
 .vscode/
 .idea/
 *.swp
+
+# Worktrees created by Claude Code sessions
+.claude/worktrees/

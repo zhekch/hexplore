@@ -29,13 +29,22 @@ function when(sec) {
   return dayFmt.format(new Date(ms));
 }
 
+// "tomorrow at 04:00" rather than "at 04:00", which next to a line that already
+// says "At 04:00 every day" tells you nothing you didn't just read. Which day
+// it lands on is the part that isn't obvious.
 function soon(sec) {
   if (!sec) return 'not scheduled';
-  const ms = sec * 1000;
-  const inMs = ms - Date.now();
+  const at = new Date(sec * 1000);
+  const inMs = at.getTime() - Date.now();
   if (inMs < 60 * 1000) return 'in a moment';
-  if (inMs < 22 * 3600 * 1000) return `at ${timeFmt.format(new Date(ms))}`;
-  return dayTimeFmt.format(new Date(ms));
+  const midnight = new Date();
+  midnight.setHours(24, 0, 0, 0);
+  const time = timeFmt.format(at);
+  if (at < midnight) return `today at ${time}`;
+  const dayAfter = new Date(midnight);
+  dayAfter.setDate(dayAfter.getDate() + 1);
+  if (at < dayAfter) return `tomorrow at ${time}`;
+  return dayTimeFmt.format(at);
 }
 
 // Sizes are in the megabytes-to-gigabytes range and only ever glanced at.
@@ -122,6 +131,10 @@ export function mountBackup({ onClose, onStatus } = {}) {
   const closeBtn = $('backup-close');
 
   let status = null;
+  // Why there is no status, when there isn't one. A second account on the same
+  // instance is refused in words, and those words are worth showing rather than
+  // replacing with "not set up".
+  let refusal = '';
   let busy = false;
 
   const showErr = (m) => {
@@ -236,6 +249,7 @@ export function mountBackup({ onClose, onStatus } = {}) {
   function fill(next) {
     status = next;
     if (status) {
+      refusal = '';
       enabledBox.checked = status.enabled;
       keepSel.value = String(status.keep);
       const parts = decomposeCron(status.cron);
@@ -258,8 +272,10 @@ export function mountBackup({ onClose, onStatus } = {}) {
       // A second account on the same instance gets 403 here, which is not an
       // error so much as an answer: backups belong to whoever made the map.
       status = null;
+      refusal = String(e.message ?? e);
       renderStatus();
-      showErr(String(e.message ?? e));
+      showErr(refusal);
+      onStatus?.(null);
     }
   }
 
@@ -305,6 +321,11 @@ export function mountBackup({ onClose, onStatus } = {}) {
           : `Nothing to back up — ${out.reason ?? 'the map has not changed'}.`;
       noteEl.textContent = said;
       noteEl.hidden = false;
+      // The dialog is taller than its scroll area, so the answer to the button
+      // you just pressed lands below the fold — which reads as nothing having
+      // happened, and "nothing changed, so nothing was written" is exactly the
+      // answer this feature exists to give.
+      noteEl.scrollIntoView({ block: 'nearest' });
     } catch (e) {
       showErr(String(e.message ?? e));
     } finally {
@@ -346,7 +367,7 @@ export function mountBackup({ onClose, onStatus } = {}) {
     refresh: load,
     /** One line for that row: what's scheduled, or that nothing is. */
     summary() {
-      if (!status) return 'Not set up';
+      if (!status) return refusal || 'Not set up';
       if (!status.enabled) return 'Switched off';
       const kept = status.files?.length ?? 0;
       return `${describeCron(status.cron)} · ${kept} kept`;

@@ -90,8 +90,10 @@ function parseExpanded(name, bytes) {
  * @param {() => string[]}    opts.knownSources sources already present in the account
  * @param {(what:{routes:boolean}) => Promise<void>} opts.onImported called after a successful import
  * @param {() => void} [opts.onKomoot] hand off to the Komoot link dialog
+ * @param {() => void} [opts.onClose] called when it is dismissed with Back, so
+ *   the dialog that opened it can come back
  */
-export function mountImport({ knownCells, knownSources, onImported, onKomoot }) {
+export function mountImport({ knownCells, knownSources, onImported, onKomoot, onClose }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('import-overlay');
   const fileInput = $('import-file');
@@ -539,7 +541,14 @@ export function mountImport({ knownCells, knownSources, onImported, onKomoot }) 
       runImport();
     }
   });
-  cancelBtn.addEventListener('click', close);
+  // Back returns to the dialog that opened this one; the X and Escape close the
+  // whole stack, the way they do everywhere else. Finishing an import closes it
+  // too (the button turns into Done) — landing back on the picker after a file
+  // has gone in would be asking "what next?" when the answer is "look at it".
+  cancelBtn.addEventListener('click', () => {
+    close();
+    onClose?.();
+  });
   closeBtn.addEventListener('click', close);
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay && !busy) close();

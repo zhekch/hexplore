@@ -111,21 +111,26 @@
               </svg>
               <span>Routes and statistics</span>
             </button>
-            <button type="button" class="menu-action" id="import-open">
+            <!-- Two doors, split by which way the data is going. Everything
+                 that brings where-you've-been *in* is behind the first, whether
+                 it arrives as a file you picked or as an app the server keeps
+                 asking; everything that takes it back out, and the settings for
+                 doing that, is behind the second. -->
+            <button type="button" class="menu-action" id="sync-open">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 15V3" />
                 <path d="m8 7 4-4 4 4" />
                 <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
               </svg>
-              <span>Import locations</span>
+              <span>Import &amp; sync<small id="sync-menu-note">Files, Home Assistant, Strava</small></span>
             </button>
-            <button type="button" class="menu-action" id="sync-open">
+            <button type="button" class="menu-action" id="settings-open">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.6-4.2" />
-                <path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 7.6 4.2" />
-                <path d="M20 3v4.5h-4.5M4 21v-4.5h4.5" />
+                <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+                <circle cx="16" cy="7" r="2" />
+                <circle cx="10" cy="17" r="2" />
               </svg>
-              <span>Sync<small id="sync-menu-note">Home Assistant, Strava</small></span>
+              <span>Export &amp; settings<small id="settings-menu-note">Backups</small></span>
             </button>
             <!-- Last, because it changes what a tap on the map *does* rather
                  than opening anything, and it is the one switch you leave off. -->
@@ -301,7 +306,7 @@
         </label>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="import-cancel">Cancel</button>
+          <button type="button" class="modal-btn" id="import-cancel">Back</button>
           <button type="button" class="modal-btn primary" id="import-go" disabled>Import</button>
         </div>
       </div>
@@ -311,8 +316,8 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Sync</div>
-            <div class="modal-sub">Pull from an app instead of exporting a file by hand.</div>
+            <div class="modal-title">Import &amp; sync</div>
+            <div class="modal-sub">Everything that brings where you've been onto the map — once from a file, or on a schedule from an app.</div>
           </div>
           <button class="cell-info-close" id="sync-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -322,6 +327,21 @@
         </div>
 
         <div class="sync-options">
+          <button type="button" class="sync-option" data-sync="files">
+            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 15V3" />
+              <path d="m8 7 4-4 4 4" />
+              <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+            </svg>
+            <span class="sync-option-text">
+              <b>Files</b>
+              <small id="sync-files-note">GPX, KML, FIT, ZIP — or a Komoot link</small>
+            </span>
+            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m9 5 7 7-7 7" />
+            </svg>
+          </button>
+
           <button type="button" class="sync-option" data-sync="ha">
             <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M3 10.5 12 3l9 7.5" />
@@ -353,9 +373,45 @@
             </svg>
           </button>
 
-          <!-- The one entry here that goes the other way: everything else pulls
-               data in, this writes it out. -->
-          <button type="button" class="sync-option" data-sync="backup">
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="modal-btn primary" id="sync-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- The other direction. Export has nothing in it yet and says so rather
+         than being hidden: it is half the reason this dialog exists, and a door
+         you can see is not the same as one that isn't there. -->
+    <div class="modal-overlay" id="settings-overlay" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">Export &amp; settings</div>
+            <div class="modal-sub">Getting your map back out again, and how this instance looks after it.</div>
+          </div>
+          <button class="cell-info-close" id="settings-close" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="sync-options">
+          <button type="button" class="sync-option" data-settings="export" disabled>
+            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="m8 11 4 4 4-4" />
+              <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+            </svg>
+            <span class="sync-option-text">
+              <b>Export</b>
+              <small>Nothing here yet — the way out is a backup, below</small>
+            </span>
+          </button>
+
+          <button type="button" class="sync-option" data-settings="backup">
             <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <ellipse cx="12" cy="6" rx="7.5" ry="3" />
               <path d="M4.5 6v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6" />
@@ -363,7 +419,7 @@
             </svg>
             <span class="sync-option-text">
               <b>Backups</b>
-              <small id="sync-backup-note">Not set up</small>
+              <small id="settings-backup-note">Not set up</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -372,7 +428,7 @@
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn primary" id="sync-done">Done</button>
+          <button type="button" class="modal-btn primary" id="settings-done">Done</button>
         </div>
       </div>
     </div>
