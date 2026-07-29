@@ -38,7 +38,11 @@ import { mountSettings } from './settings-ui.js';
 import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
 import { activeDays } from './trips.js';
-import { loadRegions, regionsLoaded, regionAt, regionGeometry, mergeRegions } from './regions.js';
+import {
+  loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
+  loadFineRegions, fineRegionsLoaded,
+} from './regions.js';
+import { asMulti, unionGeometries } from './polygon.js';
 import { mountBackup } from './backup-ui.js';
 import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
@@ -495,21 +499,42 @@ const blobCur = createBlobLayer(map, 'blob');
 // dissolve inside the canvas itself, so the layer just sits at full opacity
 // ('none'); only a crossing to or from the vector country level makes the
 // whole layer fade.
-let blobRole = 'none'; // 'none' | 'in' | 'out'
+// 'off' is for a crossing the canvas has no part in — vector → vector, where
+// both sides are polygons. Without it the incoming ramp drives the canvas back
+// up to full strength underneath them, which is only invisible because it
+// happens to have been cleared.
+let blobRole = 'none'; // 'none' | 'in' | 'out' | 'off'
 
-// Which side of a crossfade the vector `hex` layers are on. Normally they hold
-// whatever is coming in ('in'). Going country → blob they hold what is going
-// *out*, and the incoming side is the canvas — which needs no vector source at
-// all, so the countries can stay put and fade where they already are instead of
-// being copied onto `hex-prev`. That copy re-parsed and re-tiled the same
-// geometry the map had already drawn, at the exact moment it was supposed to be
-// fading out smoothly.
-let hexRole = 'in'; // 'in' | 'out' | 'warm'
+// There are two vector sources, `hex` and `hex-prev`, and either of them can be
+// the live one. That is what lets two *vector* levels hand over to each other —
+// regions giving way to countries — the same way a hex level and a vector level
+// already do. `hex-prev` used to be a permanently empty scaffold: the outgoing
+// side was always either the canvas or `hex` itself, and copying geometry onto
+// the second source re-parsed and re-tiled what the map had already drawn, at
+// the exact moment it was supposed to be fading out smoothly.
+//
+// It still isn't copied. On a vector → vector crossing the outgoing level stays
+// exactly where it is and the *incoming* one is built on the other source —
+// which has to be parsed either way — and the two swap places. Nothing is
+// re-tiled that was already on screen.
+//
+// Each source carries its own role:
+//   'in'    the live level, or the one fading in
+//   'out'   the level fading out
+//   'warm'  geometry pre-tiled for a crossing that hasn't happened yet, pinned
+//           invisible until it is genuinely the incoming side
+//   'idle'  empty
+const vecRole = { '': 'in', '-prev': 'idle' };
+let vecLive = ''; // the suffix whose source holds the live level
+const vecIdle = () => (vecLive === '' ? '-prev' : '');
+// The layer the vector trios are inserted before, so they can be re-stacked
+// without being re-added. Set by installGrid.
+let vecInsertBefore = undefined;
 
-// What the `hex` source actually holds, so a repeat of the same data can be
-// skipped (see setHexData). Declared up here because the fade helpers below
-// reach for it before updateGrid's state block is evaluated.
-let hexData = EMPTY;
+// What each source actually holds, so a repeat of the same data can be skipped
+// (see setVecData). Declared up here because the fade helpers below reach for
+// it before updateGrid's state block is evaluated.
+const vecHeld = { '': EMPTY, '-prev': EMPTY };
 
 const hexToRgb = (hex) => {
   const n = parseInt(hex.slice(1), 16);
@@ -643,19 +668,37 @@ function setVectorFade(suffix, f) {
   map.setPaintProperty(`hex-bound-line${suffix}`, 'line-opacity', SHOW_REGION_BORDERS ? 0.9 * f : 0);
 }
 
+// The vector half of the incoming ramp. Separate because a crossfade that has
+// just landed needs the layers re-pinned *without* touching the canvas: the
+// canvas has finished fading out under a vector level and must stay out, and
+// driving it back up here is how the blob ends up drawn underneath the
+// countries at full strength.
+function pinVectors(f) {
+  for (const sfx of ['', '-prev']) {
+    if (vecRole[sfx] === 'in') setVectorFade(sfx, f);
+    else if (vecRole[sfx] !== 'out') setVectorFade(sfx, 0);
+  }
+}
+
 // The incoming ramp: whichever layers hold the level being faded in.
 function applyFade(f) {
-  if (hexRole === 'in') setVectorFade('', f);
-  // 'warm' means `hex` is holding country geometry purely so the map has it
-  // tiled before the crossing — it must stay invisible until it is the
-  // incoming side, and every path through here has to keep pinning it down.
-  else if (hexRole === 'warm') setVectorFade('', 0);
-  if (blobRole !== 'out') blobCur.setOpacity(regionOpacity() * f);
+  for (const sfx of ['', '-prev']) {
+    if (vecRole[sfx] === 'in') setVectorFade(sfx, f);
+    // 'warm' means the source is holding geometry purely so the map has it
+    // tiled before a crossing — it must stay invisible until it is genuinely
+    // the incoming side, and every path through here has to keep pinning it
+    // down. 'idle' is empty, but pinning it costs nothing and means an
+    // abandoned fade can never leave a stale layer half lit.
+    else if (vecRole[sfx] !== 'out') setVectorFade(sfx, 0);
+  }
+  if (blobRole !== 'out' && blobRole !== 'off') blobCur.setOpacity(regionOpacity() * f);
 }
-// The outgoing ramp.
+// The outgoing ramp. Drives whichever source is on the way out — `hex` handing
+// over to the canvas, or either source handing over to the other.
 function applyPrevFade(f) {
-  setVectorFade('-prev', f);
-  if (hexRole === 'out') setVectorFade('', f);
+  for (const sfx of ['', '-prev']) {
+    if (vecRole[sfx] === 'out') setVectorFade(sfx, f);
+  }
   if (blobRole === 'out') blobCur.setOpacity(regionOpacity() * f);
 }
 
@@ -958,7 +1001,53 @@ function rollUpPainted(id) {
 // worth doing, not worth bolting on. See ARCHITECTURE.md.
 const REGION_FROM_LEVEL = 2;
 
-const areaFC = { region: EMPTY, country: EMPTY };
+// The two coarsest steps are not hexagons. Level 4's cells are ~73 km across,
+// which says nothing a canton doesn't say better — and "which cantons have I
+// been to" is a question with an answer, where "which 73 km squares" is not.
+const REGION_LEVEL = MAX_LEVEL;
+const FIRST_VECTOR_LEVEL = REGION_LEVEL;
+
+/** True for the levels drawn as real polygons rather than as a blurred sheet. */
+const isVectorLevel = (L) => L === REGION_LEVEL || L === COUNTRY_LEVEL;
+/** Which dataset a vector level draws. */
+const vectorKindOf = (L) => (L === COUNTRY_LEVEL ? 'country' : 'region');
+/** Is that dataset in memory yet? */
+const areaReady = (kind) => (kind === 'region' ? regionsLoaded() && countriesLoaded() : countriesLoaded());
+
+// The vector level a zoom is heading towards from `level`, or null when the
+// next step is a hex level (the blob warm-up handles that side).
+function neighbourVectorLevel(level, zoom) {
+  if (level === REGION_LEVEL) {
+    // Zooming out towards countries; zooming in leads to a blob level, which
+    // needs no vector geometry at all.
+    return zoom < levelBoundary(REGION_LEVEL) + 1.2 ? COUNTRY_LEVEL : null;
+  }
+  if (level === COUNTRY_LEVEL) return REGION_LEVEL;
+  return null;
+}
+// Marks a "region" that is really a whole country, for the countries the
+// admin-1 dataset doesn't subdivide. The prefix can't collide: real region ids
+// are "Country/Name".
+const WHOLE_COUNTRY = '\u0000country:';
+
+// Three caches, not two: the regions are held at both resolutions, because the
+// coarse geometry is the right thing to tile when you are looking at a
+// continent and the wrong thing when you are looking at a valley.
+const areaFC = { region: EMPTY, regionFine: EMPTY, country: EMPTY };
+
+// Past this zoom, region outlines are being read rather than glanced at, and the
+// overview set's ~1 km simplification starts to show — a canton border cutting
+// a straight line across the lake it actually follows. Only reachable with
+// Detail pinned to Region: on Auto, this level never survives past ~z5.
+const REGION_FINE_ZOOM = 7;
+
+// Whether the fine geometry should be used *right now*. It has to be both
+// fetched and worth using: switching to it at world zoom would cost 8 MB of
+// tiling to draw detail smaller than a pixel.
+const useFineRegions = () => fineRegionsLoaded() && map.getZoom() >= REGION_FINE_ZOOM;
+
+// Which cache a request lands in.
+const areaCacheKey = (kind) => (kind === 'region' && useFineRegions() ? 'regionFine' : kind);
 let countryDirty = true;
 const cellCountryMemo = new Map(); // coarse "col/row" -> country id (centers never move)
 const cellRegionMemo = new Map(); //  finer  "col/row" -> region id
@@ -968,7 +1057,33 @@ const cellRegionMemo = new Map(); //  finer  "col/row" -> region id
 // western-hemisphere cells (Portugal, Spain, the Americas) land near +350°.
 const wrapLng = (lng) => ((lng + 180) % 360 + 360) % 360 - 180;
 
-function buildAreaFC(kind) {
+// One area's geometry, whichever dataset it came from.
+function areaGeometry(kind, id, fine) {
+  if (id.startsWith(WHOLE_COUNTRY)) return countryGeometry(id.slice(WHOLE_COUNTRY.length));
+  return kind === 'region' ? regionGeometry(id, fine) : countryGeometry(id);
+}
+
+// Dissolve the lit areas into one shape. Countries go straight to their own
+// merge; regions may include whole-country stand-ins, so those are collected
+// separately and unioned with the rest.
+function mergeAreas(kind, litIds, fine) {
+  if (kind !== 'region') return mergeCountries(litIds);
+  const plain = new Set();
+  const extra = [];
+  for (const id of litIds) {
+    if (id.startsWith(WHOLE_COUNTRY)) {
+      const g = countryGeometry(id.slice(WHOLE_COUNTRY.length));
+      if (g) extra.push(asMulti(g));
+    } else {
+      plain.add(id);
+    }
+  }
+  if (!extra.length) return mergeRegions(plain, fine);
+  const merged = mergeRegions(plain, fine);
+  return unionGeometries([...(merged.fill.length ? [merged.fill] : []), ...extra]);
+}
+
+function buildAreaFC(kind, fine = false) {
   // Resolve from a rolled-up level rather than from every fine cell: a couple
   // hundred point-in-polygon tests instead of tens of thousands, which is what
   // was freezing the page.
@@ -988,7 +1103,24 @@ function buildAreaFC(kind) {
       const country = countryIdAt(lngW, lat);
       // The region lookup is handed the country, which drops all but a couple
       // of dozen of the 4,553 shapes before any geometry is touched.
-      cid = isRegionKind ? (country ? regionAt(lngW, lat, country)?.id ?? null : null) : country;
+      // A handful of countries have no admin-1 entry in the dataset at all
+      // (microstates, some dependencies). Falling through to null would make
+      // them *vanish* at the region level while still being lit one level
+      // further out, which reads as a rendering bug and is one. The country
+      // itself stands in as its own region — the honest answer for a place
+      // that isn't subdivided.
+      //
+      // It has to be exactly that narrow. regionNear() snaps the border and
+      // coastal slivers where the two datasets disagree, so a miss here means
+      // the country really has no regions — an earlier version stood the whole
+      // country in on any miss, and one stray cell in a 1 km sliver off the
+      // Ligurian coast coloured in the entire of Italy underneath its cantons.
+      cid = isRegionKind
+        ? (country
+            ? (regionNear(lngW, lat, country)?.id
+               ?? (regionsInCountry(country) === 0 ? `${WHOLE_COUNTRY}${country}` : null))
+            : null)
+        : country;
       memo.set(key, cid);
     }
     if (!cid) continue;
@@ -1037,7 +1169,7 @@ function buildAreaFC(kind) {
     }
     const features = [];
     for (const [id, stat] of perCountry) {
-      const geometry = isRegionKind ? regionGeometry(id) : countryGeometry(id);
+      const geometry = areaGeometry(kind, id, fine);
       if (geometry) {
         features.push({ type: 'Feature', properties: { k: 1, v: heat(stat, range) }, geometry });
       }
@@ -1045,7 +1177,7 @@ function buildAreaFC(kind) {
     return { type: 'FeatureCollection', features };
   }
 
-  const { fill, rings } = isRegionKind ? mergeRegions(litIds) : mergeCountries(litIds);
+  const { fill, rings } = mergeAreas(kind, litIds, fine);
   const features = [];
   if (fill.length) {
     features.push({ type: 'Feature', properties: { k: 1 }, geometry: { type: 'MultiPolygon', coordinates: fill } });
@@ -1073,13 +1205,15 @@ function ensureAreaFC(kind) {
   }
   if (countryDirty) {
     areaFC.region = EMPTY;
+    areaFC.regionFine = EMPTY;
     areaFC.country = EMPTY;
     countryDirty = false;
   }
-  // Built on demand and then held: setHexData() tells "same data" from "rebuilt"
+  const slot = areaCacheKey(kind);
+  // Built on demand and then held: setVecData() tells "same data" from "rebuilt"
   // by identity, and re-feeding a source it already holds re-tiles the world.
-  if (areaFC[kind] === EMPTY) areaFC[kind] = buildAreaFC(kind);
-  return areaFC[kind];
+  if (areaFC[slot] === EMPTY) areaFC[slot] = buildAreaFC(kind, slot === 'regionFine');
+  return areaFC[slot];
 }
 
 // Initial (empty) light-up so litSets/countryDirty exist before the map draws;
@@ -1292,7 +1426,13 @@ window.visitedMap = {
   // The two vector levels, on demand — handy for asking why a zoom-out is
   // showing nothing without having to reason about the crossfade state machine.
   areas: (kind = 'region') => ensureAreaFC(kind),
-  state: () => ({ level: currentLevel, asBlob: currentAsBlob, hexRole, hexEmpty: hexData === EMPTY }),
+  state: () => ({
+    level: currentLevel,
+    asBlob: currentAsBlob,
+    live: vecLive,
+    roles: { ...vecRole },
+    held: { '': vecHeld[''] !== EMPTY, '-prev': vecHeld['-prev'] !== EMPTY },
+  }),
   visited,
   cellMeta,
   idAt: (lng, lat) => cellIdAt({ lng, lat }),
@@ -1324,7 +1464,11 @@ function cellSizeKm(level) {
   return `≈ ${Math.round(km * 1000)} m`;
 }
 const cellSizeLabel = (level) =>
-  level == null || level === COUNTRY_LEVEL ? 'country' : `${cellSizeKm(level)} cell`;
+  level == null || level === COUNTRY_LEVEL
+    ? 'country'
+    : level === REGION_LEVEL
+      ? 'region'
+      : `${cellSizeKm(level)} cell`;
 
 // Roll the provenance of every stored cell inside (L, col, row) into one
 // summary plus a per-source breakdown.
@@ -2246,7 +2390,10 @@ const LEVEL_HYSTERESIS = 0.28;
 // does zoomed in: regions are built by iterating the marked cells, not the
 // viewport, so the only thing it asks for is what you have already marked.
 const DETAIL_KEY = 'visited-map:detail:v1';
-const DETAIL_CHOICES = [0, null, COUNTRY_LEVEL];
+// Region joins the two ends now that it is a real thing to look at rather than
+// one of the in-between hex sizes: "which cantons have I been to" is a question
+// with an answer, where "which 73 km squares" was not.
+const DETAIL_CHOICES = [0, null, REGION_LEVEL, COUNTRY_LEVEL];
 
 function savedDetail() {
   const raw = localStorage.getItem(DETAIL_KEY);
@@ -2268,9 +2415,9 @@ let skipHysteresis = false;
 // The menu speaks in tokens ('auto', '1'…'4', 'country'); everything else in
 // levels, with null for auto.
 const detailToken = (L) =>
-  L == null ? 'auto' : L === COUNTRY_LEVEL ? 'country' : String(L);
+  L == null ? 'auto' : L === COUNTRY_LEVEL ? 'country' : L === REGION_LEVEL ? 'region' : String(L);
 const detailFromToken = (t) =>
-  t === 'auto' ? null : t === 'country' ? COUNTRY_LEVEL : Number(t);
+  t === 'auto' ? null : t === 'country' ? COUNTRY_LEVEL : t === 'region' ? REGION_LEVEL : Number(t);
 
 function setDetailLevel(next) {
   if (next === detailLevel) return;
@@ -2475,7 +2622,7 @@ function regionFeatures(boundary) {
 // the whole window), so cost stays proportional to the number of marked
 // cells no matter how far out the map is zoomed.
 function buildGrid(bb, L) {
-  if (L === COUNTRY_LEVEL) return ensureAreaFC('country');
+  if (isVectorLevel(L)) return ensureAreaFC(vectorKindOf(L));
   const R = radiusOf(L);
   const colSp = 1.5 * R;
   const rowSp = SQRT3 * R;
@@ -2681,14 +2828,34 @@ function stopVectorFade() {
   fade.timeout = null;
   fade.cur = 1;
   fade.prev = 0;
-  // Abandoning a country → blob crossfade leaves the countries sitting on
-  // `hex` at a partial opacity that applyFade() would no longer touch. Hand the
-  // layer back to the incoming role and put it back at full strength, or the
-  // next level that lands there starts out invisible.
-  if (hexRole === 'out') {
-    hexRole = 'warm';
-    applyFade(1);
-    applyPrevFade(0);
+  // Abandoning a crossfade leaves the outgoing side at a partial opacity that
+  // neither ramp would touch again. Settle every source that was on its way
+  // out: the live one keeps its geometry and goes back to being warm (the next
+  // level may cross straight back), the other is emptied, or an aborted fade
+  // leaves real geometry tiled on a source nothing will ever clear.
+  settleOutgoing();
+  pinVectors(1);
+  applyPrevFade(0);
+}
+
+// Put every 'out' source somewhere a steady state can live with.
+function settleOutgoing() {
+  for (const sfx of ['', '-prev']) {
+    if (vecRole[sfx] !== 'out') continue;
+    if (sfx === vecLive) {
+      // Vector → blob: the geometry has finished fading out where it stood.
+      // Keep it tiled and pinned invisible rather than dropping it — the map is
+      // now one level from crossing straight back, and re-parsing it at that
+      // moment is exactly the stall this avoids.
+      vecRole[sfx] = 'warm';
+    } else {
+      // Vector → vector: this source has handed over, and what it is holding is
+      // precisely the level one step back the way we came. Keep it tiled and
+      // pinned invisible rather than emptying it and warming the same geometry
+      // back a moment later — two re-tiles for no gain. warmVector() releases
+      // it once the zoom is clear of the boundary.
+      vecRole[sfx] = 'warm';
+    }
   }
 }
 
@@ -2703,19 +2870,13 @@ function animateFade(curFrom, curTo, prevFrom, prevTo, duration = 480, cross = f
     applyFade(curTo);
     applyPrevFade(prevTo);
     if (prevTo === 0) {
-      map.getSource('hex-prev').setData(EMPTY);
       // A blob that was fading out has handed over to the vector level.
       if (blobRole === 'out') blobCur.clear();
-      blobRole = 'none';
-      if (hexRole === 'out') {
-        // The countries have finished fading out where they stood. Keep them
-        // tiled and pinned invisible rather than dropping them: the map is now
-        // sitting one level from crossing straight back, and re-parsing them at
-        // that moment is exactly the stall this avoids. warmCountries() lets
-        // them go once the zoom is clear of the boundary.
-        hexRole = 'warm';
-        applyFade(curTo); // pins hex-fill at 0 for the warm role
-      }
+      blobRole = isVectorLevel(currentLevel) ? 'off' : 'none';
+      // warmVector() lets a warmed source go once the zoom is clear of the
+      // boundary it was warmed for.
+      settleOutgoing();
+      pinVectors(curTo); // re-pins whatever just became 'warm' or 'idle'
     }
   };
   const tick = (now) => {
@@ -2754,10 +2915,38 @@ const WORLD_COVERAGE = { xMin: -Infinity, xMax: Infinity, yMin: -Infinity, yMax:
 // viewport-independent, so it was both heavy and pure waste, landing right on top
 // of the crossfade it was competing with. ensureCountryFC() hands back a stable
 // object while nothing has changed, so identity tells "same data" from "rebuilt".
-function setHexData(fc) {
-  if (fc === hexData) return;
-  hexData = fc;
-  map.getSource('hex').setData(fc);
+function setVecData(sfx, fc) {
+  if (fc === vecHeld[sfx]) return;
+  vecHeld[sfx] = fc;
+  map.getSource(`hex${sfx}`).setData(fc);
+}
+
+/** Put geometry on whichever source is currently live. */
+const setHexData = (fc) => setVecData(vecLive, fc);
+
+// The three vector layers of one source, bottom to top.
+const VEC_LAYERS = ['hex-fill', 'hex-bound-glow', 'hex-bound-line'];
+// The first layer that must stay *above* the visited wash. See
+// raiseVectorLayers().
+const VEC_ANCHOR = 'trip-fill';
+
+// Put one source's layers above the other's. crossPrev() derives the outgoing
+// opacity on the assumption that the incoming layer composites *over* the
+// outgoing one; when the two swap places that assumption has to be re-seated or
+// the composite sags in the middle of every region ↔ country crossing — the
+// exact flash crossPrev exists to remove. moveLayer only reorders, it never
+// re-tiles.
+function raiseVectorLayers(sfx) {
+  // Anchored to the trip highlight rather than to the first symbol layer.
+  // Everything added at `firstSymbol` after the two vector trios — the trip
+  // outline, and the selection ring above it — has to stay above the visited
+  // wash; moving the wash to `firstSymbol` would lift it over both, and the
+  // trip you just clicked would disappear under the countries.
+  const anchor = map.getLayer(VEC_ANCHOR) ? VEC_ANCHOR : vecInsertBefore;
+  if (!anchor) return;
+  for (const id of VEC_LAYERS) {
+    if (map.getLayer(`${id}${sfx}`)) map.moveLayer(`${id}${sfx}`, anchor);
+  }
 }
 
 // Crossing into the country level has to ramp opacity on geometry the map has
@@ -2769,42 +2958,88 @@ function setHexData(fc) {
 // The other direction never had this problem: there the countries are already
 // on `hex` and simply fade out where they stand, which is why zoom-in looked
 // right while zoom-out did not.
-const COUNTRY_WARM_ZOOM = levelBoundary(MAX_LEVEL) + 1.2;
+const VECTOR_WARM_ZOOM = levelBoundary(FIRST_VECTOR_LEVEL - 1) + 1.2;
 // Releasing the tiles again needs its own, much higher threshold. Anything
 // close to the warm one churns: zooming around a boundary would drop and
 // re-parse 800 KB every time it was crossed. Keep it clear of the L3 ↔ L4
 // boundary too, so ordinary zooming between those levels never touches it.
-const COUNTRY_COOL_ZOOM = levelBoundary(MAX_LEVEL - 1) + 1;
+const VECTOR_COOL_ZOOM = levelBoundary(FIRST_VECTOR_LEVEL - 2) + 1;
 
-function warmCountries(level, asBlob) {
+// Zoomed in far enough that region outlines are being read rather than glanced
+// at: fetch the fine geometry, once, and rebuild with it when it lands.
+function considerFineRegions(level) {
+  if (level !== REGION_LEVEL || fineRegionsLoaded() || fineLoadPending) return;
+  if (map.getZoom() < REGION_FINE_ZOOM) return;
+  fineLoadPending = true;
+  loadFineRegions()
+    .then(() => {
+      fineLoadPending = false;
+      areaFC.regionFine = EMPTY; // build it at the new resolution
+      updateGrid(true);
+    })
+    .catch(() => {
+      fineLoadPending = false; // an 8 MB fetch that failed is not fatal
+    });
+}
+
+function warmVector(level, asBlob) {
   const zoom = map.getZoom();
-  // Only safe while the live level lives on the canvas. Without blob support
-  // `hex` carries the actual regions and must not be borrowed for anything.
-  // Pinned to a hex level, the country crossing can never happen — there is
-  // nothing to prepare for, so don't parse the boundaries at all.
-  if (asBlob && detailLevel == null && zoom < COUNTRY_WARM_ZOOM) {
-    // Only ever borrow `hex` when it is idle — mid-crossfade it is holding a
+  // Pinned to a hex level, no crossing can happen — there is nothing to prepare
+  // for, so don't parse any boundaries at all.
+  if (detailLevel != null) return;
+
+  if (asBlob) {
+    // On a blob level, approaching the first vector level. Pre-tile it on the
+    // live vector source, which is idle while the canvas carries the map.
+    if (zoom >= VECTOR_WARM_ZOOM) {
+      // Far enough away to give the tiles back — but only the data goes. The
+      // role stays 'warm': the source is not the live surface at a blob level
+      // either way, and raising its opacity here is a flash waiting to happen,
+      // because setVecData() returns as soon as the worker has been *told*
+      // about the new data while the tiles on screen are still the old ones for
+      // a frame or two.
+      if (zoom > VECTOR_COOL_ZOOM) {
+        for (const sfx of ['', '-prev']) {
+          if (vecRole[sfx] === 'warm') setVecData(sfx, EMPTY);
+        }
+      }
+      return;
+    }
+    // Only ever borrow a source when it is idle — mid-crossfade it is holding a
     // level that is still on screen.
-    // 'in' (idle blob level) and 'warm' (already borrowed, possibly cooled back
-    // to empty) are both fine to load into. Only 'out' is off limits — there the
-    // countries are still on screen, fading.
-    if (hexRole === 'out' || !countriesLoaded()) return;
-    const fc = ensureAreaFC('country');
-    if (fc === hexData) return;
+    if (vecRole[vecLive] === 'out') return;
+    const kind = vectorKindOf(FIRST_VECTOR_LEVEL);
+    if (!areaReady(kind)) return;
+    const fc = ensureAreaFC(kind);
+    if (fc === vecHeld[vecLive]) return;
     // Pin the layer down *before* handing it the geometry, never after.
-    hexRole = 'warm';
-    setVectorFade('', 0);
-    setHexData(fc);
-  } else if (hexRole === 'warm' && zoom > COUNTRY_COOL_ZOOM) {
-    // Far enough away to give the tiles back — but only the data goes. The role
-    // stays 'warm', because `hex` is not the live surface at a blob level
-    // either way and raising its opacity here is a flash waiting to happen:
-    // setHexData() returns as soon as the worker has been *told* about the
-    // empty data, while the tiles on screen are still the countries for another
-    // frame or two. hex-fill only becomes visible again when it is genuinely
-    // the incoming side, at the country level.
-    setHexData(EMPTY);
+    vecRole[vecLive] = 'warm';
+    setVectorFade(vecLive, 0);
+    setVecData(vecLive, fc);
+    return;
   }
+
+  // On a vector level, approaching the *other* vector level. Its geometry has
+  // to be tiled on the idle source before the crossing, or the crossing spends
+  // its first frames parsing instead of fading — the same stall the blob →
+  // vector warm-up above exists to remove.
+  const next = neighbourVectorLevel(level, zoom);
+  const idle = vecIdle();
+  if (vecRole[idle] === 'out') return; // it is still fading; leave it alone
+  if (next == null) {
+    if (vecRole[idle] === 'warm') {
+      setVecData(idle, EMPTY);
+      vecRole[idle] = 'idle';
+    }
+    return;
+  }
+  const kind = vectorKindOf(next);
+  if (!areaReady(kind)) return;
+  const fc = ensureAreaFC(kind);
+  if (fc === vecHeld[idle] && vecRole[idle] === 'warm') return;
+  vecRole[idle] = 'warm';
+  setVectorFade(idle, 0);
+  setVecData(idle, fc);
 }
 
 function coverageContainsView() {
@@ -2821,13 +3056,14 @@ function coverageContainsView() {
 // Set while the country boundaries are being fetched, so a zoom gesture doesn't
 // queue one callback per frame.
 let countryLoadPending = false;
+let fineLoadPending = false;
 
 // Load with ?debuglevels to have every committed level change logged with the
 // zoom it happened at. A single zoom gesture should produce exactly one line;
 // two or three means the level decision itself is oscillating (LEVEL_HYSTERESIS
 // too tight) rather than the crossfade misbehaving.
 const DEBUG_LEVELS = new URLSearchParams(location.search).has('debuglevels');
-const levelName = (L) => (L === COUNTRY_LEVEL ? 'country' : `L${L}`);
+const levelName = (L) => (L === COUNTRY_LEVEL ? 'country' : L === REGION_LEVEL ? 'region' : `L${L}`);
 
 function updateGrid(force = false) {
   // The hex sources briefly don't exist while a new basemap style loads.
@@ -2848,23 +3084,27 @@ function updateGrid(force = false) {
   // over before it lands would dissolve the hexes into an empty map and then
   // pop the countries in a beat later — two visible changes for one zoom. Hold
   // the coarsest hex level until the data is there; the fetch re-runs this.
-  if (level === COUNTRY_LEVEL && !countriesLoaded()) {
+  if (isVectorLevel(level) && !areaReady(vectorKindOf(level))) {
     if (!countryLoadPending) {
       countryLoadPending = true;
-      loadCountries().then(() => {
+      Promise.all([loadCountries(), loadRegions()]).then(() => {
         countryLoadPending = false;
         updateGrid(true);
       });
     }
-    level = currentLevel != null && currentLevel <= MAX_LEVEL ? currentLevel : MAX_LEVEL;
+    // Hold the finest thing that is definitely drawable — a hex level, never
+    // another vector one, or a zoom-out with cold data would sit on a level
+    // that cannot render either.
+    level = currentLevel != null && !isVectorLevel(currentLevel) ? currentLevel : FIRST_VECTOR_LEVEL - 1;
   }
 
   updateHud(level);
   // Hex levels go through the blob canvas; the country level stays vector.
-  const asBlob = BLOBS && level !== COUNTRY_LEVEL && blobCur.isInstalled();
+  const asBlob = BLOBS && !isVectorLevel(level) && blobCur.isInstalled();
   // Before the early-outs: the whole point is to have this done well ahead of
   // the crossing, and a zoom that never leaves its level still approaches one.
-  warmCountries(level, asBlob);
+  warmVector(level, asBlob);
+  considerFineRegions(level);
   const levelChanged = level !== currentLevel;
   // The blob canvas is a raster: zooming inside one level stretches it, so
   // repaint once the zoom has drifted enough for that to show — but never in
@@ -2902,7 +3142,7 @@ function updateGrid(force = false) {
     // right moment, which is what used to make a single zoom look like two
     // level changes in a row.
     blobCur.beginTransition();
-    if (hexRole === 'in') setHexData(fc); // 'warm' is holding the countries ready
+    if (vecRole[vecLive] === 'in') setHexData(fc); // 'warm' is holding the next level ready
     paintBlob(); // composes at t = 0 — still showing the outgoing level
     blobRole = 'none';
     applyFade(1);
@@ -2914,22 +3154,60 @@ function updateGrid(force = false) {
     // outgoing already holds a valid texture — nothing is copied, so there is
     // no frame where the old level is missing.
     stopBlobFade();
+    // Vector → vector: neither side is the canvas. The outgoing level stays
+    // exactly where it is and the incoming one is built on the other source,
+    // then the two swap places — nothing already on screen is re-tiled.
+    if (!asBlob && !currentAsBlob) {
+      const from = vecLive;
+      const to = vecIdle();
+      // The canvas sits this one out — and is put away, in case a stale
+      // texture is still on it.
+      blobRole = 'off';
+      blobCur.setOpacity(0);
+      blobCur.clear();
+      setVecData(to, fc); // a warmed source already holds it; this is then free
+      // The incoming layer has to composite *over* the outgoing one, or
+      // crossPrev's derivation sags in the middle of the crossing.
+      raiseVectorLayers(to);
+      vecLive = to;
+      vecRole[to] = 'in';
+      vecRole[from] = 'out';
+      applyFade(0);
+      applyPrevFade(1);
+      animateFade(0, 1, 1, 0, LEVEL_FADE_MS, true);
+      currentAsBlob = asBlob;
+      paintedZoom = map.getZoom();
+      currentLevel = level;
+      coverage = WORLD_COVERAGE;
+      if (selection && lastInfoLngLat) showCellInfoAt(lastInfoLngLat);
+      return;
+    }
     blobRole = currentAsBlob ? 'out' : 'in';
     // Blob → country: the countries are new data and have to be loaded onto
     // `hex` as the incoming side. Country → blob: the incoming side is the
     // canvas, so `hex` keeps the countries it has already tiled and fades them
     // out in place — nothing is re-parsed, so nothing blinks.
-    hexRole = currentAsBlob ? 'in' : 'out';
+    vecRole[vecLive] = currentAsBlob ? 'in' : 'out';
     applyFade(0);
     applyPrevFade(1);
-    if (hexRole === 'in') setHexData(fc);
+    if (vecRole[vecLive] === 'in') setHexData(fc);
     if (asBlob) paintBlob();
     animateFade(0, 1, 1, 0, LEVEL_FADE_MS, true);
   } else {
-    // While hexRole is 'out' the vector layers are showing the outgoing
-    // countries; feeding them the new level's (empty) data would erase them
-    // mid-fade. animateFade's finish() takes care of it.
-    if (hexRole === 'in') setHexData(fc);
+    // While the live source is 'out' its layers are showing the outgoing level;
+    // feeding them the new level's (empty) data would erase them mid-fade.
+    // animateFade's finish() takes care of it.
+    if (vecRole[vecLive] === 'in') setHexData(fc);
+    // A vector level that was arrived at without a crossing — Detail pinned to
+    // Region or Country, which is also what a reload restores — never ran the
+    // hand-over that puts the canvas away, so it sat at full opacity underneath
+    // the polygons. Empty, so invisible; but a stale texture there would show,
+    // and "invisible because it happens to be blank" is not a state to rely on.
+    if (!asBlob && blobRole !== 'out' && blobRole !== 'off') {
+      blobRole = 'off';
+      blobCur.setOpacity(0);
+      blobCur.clear();
+    }
     if (asBlob) paintBlob();
     // A blob that is mid-fade-out is still on screen: clearing its canvas here
     // would erase it instantly and turn the hand-over to the country level into
@@ -2943,7 +3221,9 @@ function updateGrid(force = false) {
   // Country geometry is global — it doesn't depend on where the viewport is,
   // so nothing about a pan or zoom can invalidate it. Claiming the whole world
   // as covered keeps the move handler from re-running this at all.
-  coverage = level === COUNTRY_LEVEL ? WORLD_COVERAGE : bb;
+  // Both vector levels draw viewport-independent geometry, so they claim the
+  // whole world as their coverage and a pan never rebuilds them.
+  coverage = isVectorLevel(level) ? WORLD_COVERAGE : bb;
 
   // The info card describes a cell at a particular level, so a zoom that
   // changes the level re-resolves it against the bigger (or smaller) hex.
@@ -3090,7 +3370,11 @@ const detailNow = document.getElementById('detail-now');
 function updateDetailNow(level = currentLevel) {
   if (level == null) return;
   detailNow.textContent =
-    level === COUNTRY_LEVEL ? 'Showing whole countries' : `Showing ${cellSizeKm(level)} cells`;
+    level === COUNTRY_LEVEL
+      ? 'Showing whole countries'
+      : level === REGION_LEVEL
+        ? 'Showing whole regions'
+        : `Showing ${cellSizeKm(level)} cells`;
 }
 
 // --- Basemap / overlay controls ----------------------------------------------
@@ -3355,13 +3639,23 @@ function installGrid() {
     blobCur.install(firstSymbol, 0);
   }
 
+  // Where the vector layers are inserted, kept for raiseVectorLayers().
+  vecInsertBefore = firstSymbol;
   for (const suffix of ['-prev', '']) {
     const src = `hex${suffix}`;
     // A style swap recreates the sources empty, so forget what the old ones
     // held — including any pre-warmed country geometry, which is gone with them.
     if (suffix === '') {
-      hexData = EMPTY;
-      hexRole = 'in';
+      // A style swap recreates every source empty, so forget what they held —
+      // including any pre-warmed geometry, which is gone with them. blobRole
+      // has to go back too: a basemap change mid-crossfade would otherwise
+      // leave it stale, and both ramps branch on it.
+      vecHeld[''] = EMPTY;
+      vecHeld['-prev'] = EMPTY;
+      vecRole[''] = 'in';
+      vecRole['-prev'] = 'idle';
+      vecLive = '';
+      blobRole = 'none';
     }
     map.addSource(src, { type: 'geojson', data: EMPTY, tolerance: 0 });
     map.addLayer({

@@ -144,6 +144,121 @@ function patchLayer(layer, overrides) {
   }
 }
 
+
+// --- The zoom diet ------------------------------------------------------------
+// Terrain and Satellite are both built from OpenFreeMap's style, which labels
+// everything it has and gates almost none of it: every one of its place tiers —
+// hamlet, suburb, village, town, city — has no `minzoom` at all, so village
+// names are drawn at world zoom, and `highway_minor` starts at z8, which puts
+// every lane in a canton on screen while you are looking at a country.
+//
+// Light (CARTO Voyager) is the one that reads cleanly, and it is disciplined
+// about exactly this: hamlets at z12, villages at z10, towns at z8, cities from
+// z4 by rank, road names from z13, minor roads from z13. These are those gates,
+// applied to the layers OpenFreeMap gives the same job to. Nothing is
+// recoloured here and nothing is added — labels and roads simply stop arriving
+// before they can be read.
+const LABEL_GATES = {
+  place_other: 13, //     hamlets and localities
+  place_suburb: 12,
+  place_village: 11,
+  place_town: 7,
+  place_city: 6,
+  place_city_large: 4,
+  place_state: 5,
+  place_country_other: 4,
+  place_country_minor: 3,
+  place_country_major: 2,
+  water_name: 5,
+};
+
+// Roads. The motorway tier already carries a sensible gate upstream (z6); it is
+// the ones below it that arrive far too early.
+const ROAD_GATES = {
+  highway_path: 15,
+  highway_minor: 13,
+  road_pier: 14,
+  railway: 11,
+};
+
+// The real offender is `highway_major_subtle`, which OpenFreeMap draws from z6
+// with primary, secondary, tertiary AND trunk all in the one layer: 225 road
+// features on screen at z9 where Light draws 71. Light gets that number by
+// splitting the classes and gating each one — trunk early, primary at z8,
+// secondary at z11, tertiary later still — so these are those gates, applied
+// class by class inside the filter the layer already has.
+//
+// Zoom in a filter is only evaluated at integer zooms, which for a road
+// appearing is exactly the right granularity.
+const ROAD_CLASS_GATES = [
+  ['trunk', 0],
+  ['primary', 8],
+  ['secondary', 11],
+  ['tertiary', 13],
+];
+
+// The layers whose filter is `class in (primary, secondary, tertiary, trunk)`.
+const MAJOR_ROAD_LAYERS = new Set([
+  'highway_major_subtle',
+  'highway_major_casing',
+  'highway_major_inner',
+]);
+
+// Light keeps its roads on the map when you zoom out, but barely visible — the
+// network is there to orient by, not to be read, and that restraint is most of
+// why it feels calm at world zoom. OpenFreeMap draws the same lines at full
+// strength from z0, so on a zoomed-out terrain or satellite map the roads were
+// the loudest thing on screen while Light's had faded to a whisper.
+const ROAD_FADE = ['interpolate', ['linear'], ['zoom'], 3, 0.05, 6, 0.22, 9, 0.7, 11, 1];
+
+function gateRoadClasses(layer) {
+  layer.filter = [
+    'all',
+    ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false],
+    [
+      'any',
+      ...ROAD_CLASS_GATES.map(([cls, z]) =>
+        (z ? ['all', ['==', ['get', 'class'], cls], ['>=', ['zoom'], z]] : ['==', ['get', 'class'], cls])),
+    ],
+  ];
+}
+
+// Names and markings that a map of where you have been never needed. Street
+// names are unreadable at the zooms this map is mostly used at, and OpenFreeMap
+// gives them no minzoom either — so "A1" was being drawn from halfway across
+// the country.
+const LABEL_DROP = new Set([
+  'highway_name_other',
+  'highway_name_motorway',
+  'road_oneway',
+  'road_oneway_opposite',
+]);
+
+/**
+ * Put a built style on the same zoom diet Light keeps. Returns the layers that
+ * survive, in order, so the caller can decide what else to do with them.
+ *
+ * @param {object} style a MapLibre style object, modified in place
+ */
+function applyZoomDiet(style) {
+  const kept = [];
+  for (const layer of style.layers) {
+    if (LABEL_DROP.has(layer.id)) continue;
+    const gate = LABEL_GATES[layer.id] ?? ROAD_GATES[layer.id];
+    // Never *lower* an upstream gate — this is a diet, not a redesign.
+    if (gate !== undefined && (layer.minzoom ?? 0) < gate) layer.minzoom = gate;
+    if (MAJOR_ROAD_LAYERS.has(layer.id)) gateRoadClasses(layer);
+    // Every road tier fades out as the map zooms out. Railways and piers ride
+    // along: they are the same kind of clutter at the same zooms.
+    if (layer.type === 'line' && /^(highway|railway|road_)/.test(layer.id)) {
+      patchLayer(layer, { paint: { 'line-opacity': ROAD_FADE } });
+    }
+    kept.push(layer);
+  }
+  style.layers = kept;
+  return kept;
+}
+
 /**
  * OpenFreeMap's dark style, recoloured into something that isn't black.
  * @returns {Promise<object>} a MapLibre style object
@@ -181,6 +296,11 @@ export async function terrainStyle() {
   if (buildingAt > firstSymbol && firstSymbol > -1) {
     style.layers.splice(firstSymbol, 0, ...style.layers.splice(buildingAt, 1));
   }
+
+  // Labels and minor roads on the same zoom diet Light keeps — see
+  // applyZoomDiet(). Done after the recolouring, which is keyed by layer id and
+  // must see every layer.
+  applyZoomDiet(style);
 
   // Shaded relief. The source is already declared and unused; putting it just
   // above the background gives the land some shape at the zooms where this map
@@ -239,12 +359,21 @@ export async function satelliteStyle() {
   // map is usually at, they clutter the imagery, and OpenFreeMap gives them no
   // minzoom at all — so "A1" and every lane name were still being drawn from
   // halfway across the country. One-way arrows go for the same reason.
+  // Belt and braces with LABEL_DROP in the diet: these are the four that must
+  // never reach a photograph, whatever the diet is tuned to next.
   const DROP_LABELS = new Set([
     'highway_name_other',
     'highway_name_motorway',
     'road_oneway',
     'road_oneway_opposite',
   ]);
+
+  // Over a photograph the road network has to be thinner still: the imagery is
+  // the subject, and every lane drawn on top of it turns an aerial photo into a
+  // road map with a photo behind it. So the diet's gates apply, and then only
+  // the tiers you actually orient by survive at all.
+  applyZoomDiet(style);
+  const SAT_ROADS = /^(highway_motorway|highway_major|boundary)/;
 
   const keep = [];
   for (const layer of style.layers) {
@@ -261,7 +390,7 @@ export async function satelliteStyle() {
         layout: { 'text-transform': 'none' },
       });
       keep.push(layer);
-    } else if (layer.type === 'line' && /^(highway|boundary)/.test(layer.id)) {
+    } else if (layer.type === 'line' && SAT_ROADS.test(layer.id)) {
       // Roads and borders only, and quietly: enough to orient by, not enough to
       // draw over what the imagery is showing. White at any real strength turns
       // an aerial photo into a road map with a photo behind it.
@@ -270,7 +399,10 @@ export async function satelliteStyle() {
           'line-color': /^boundary/.test(layer.id)
             ? 'rgba(255, 255, 255, 0.34)'
             : 'rgba(230, 236, 240, 0.2)',
-          'line-opacity': 1,
+          // Boundaries hold their strength — at world zoom they are the only
+          // thing telling you which country you are looking at. Roads take the
+          // diet's fade, so zooming out quietens them the way Light does.
+          'line-opacity': /^boundary/.test(layer.id) ? 1 : ROAD_FADE,
         },
       });
       keep.push(layer);

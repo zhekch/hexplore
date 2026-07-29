@@ -26,10 +26,16 @@ import { bboxOfGeometry } from './lib/geo-filter.mjs';
 
 const SRC =
   'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson';
-// One more decimal than countries.json would double the file for detail no
-// statistic can use: a region is only ever asked "is this cell inside you?",
-// and a cell is ~900 m across. Two decimals is ~1 km.
-const DECIMALS = 2;
+
+// Two builds from the same source: the overview set that ships for the region
+// zoom level, and a fine one fetched only when someone pins Region and zooms in,
+// where a 6 km-simplified canton border is visibly wrong.
+// `npm run build:regions:hi` writes the second.
+const HI = process.env.REGIONS_HI === '1';
+// Two decimals (~1 km) for the overview set: a region is only ever asked "is
+// this cell inside you?" there, and a cell is ~900 m across. The fine set is
+// drawn at street zooms, so it gets three (~100 m).
+const DECIMALS = HI ? 3 : 2;
 // Slivers this small are rounding artefacts of the line above, not places.
 const MIN_RING_POINTS = 4;
 // How hard to simplify, as a fraction of each region's own size.
@@ -40,16 +46,16 @@ const MIN_RING_POINTS = 4;
 // would then never be credited for. So each region is simplified relative to
 // its own bounding box and clamped, which spends the bytes where the shape is
 // big enough for anyone to notice.
-const SIMPLIFY_FRACTION = Number(process.env.SIMPLIFY_FRACTION ?? 0.02);
-const SIMPLIFY_MIN_DEG = Number(process.env.SIMPLIFY_MIN_DEG ?? 0.003); // ~330 m
-const SIMPLIFY_MAX_DEG = Number(process.env.SIMPLIFY_MAX_DEG ?? 0.06); //  ~6.6 km
+const SIMPLIFY_FRACTION = Number(process.env.SIMPLIFY_FRACTION ?? (HI ? 0.003 : 0.02));
+const SIMPLIFY_MIN_DEG = Number(process.env.SIMPLIFY_MIN_DEG ?? (HI ? 0.0004 : 0.003)); // ~45 m / ~330 m
+const SIMPLIFY_MAX_DEG = Number(process.env.SIMPLIFY_MAX_DEG ?? (HI ? 0.008 : 0.06)); //  ~900 m / ~6.6 km
 // A piece of a multipolygon smaller than this share of the region's largest
 // piece is a rock, a sandbank or a rounding artefact. The largest piece is
 // always kept, so no region can vanish.
 const MIN_PART_SHARE = 0.004;
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const outFile = path.join(root, 'src', 'regions.json');
+const outFile = path.join(root, 'src', HI ? 'regions-hi.json' : 'regions.json');
 
 const round = (n) => +n.toFixed(DECIMALS);
 

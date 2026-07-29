@@ -3,10 +3,9 @@
 // it is dynamic-imported: Vite splits it into its own chunk that only loads
 // the first time the map zooms out far enough to show countries — nothing is
 // paid for it on a normal phone-sized session that never zooms all the way out.
-import polygonClipping from 'polygon-clipping';
 // The point-in-polygon and area maths is shared with the admin-1 regions
 // (src/regions.js), which asks the same questions of the same shape of data.
-import { inPolygon, asMulti, ringAreaM2 } from './polygon.js';
+import { inPolygon, asMulti, ringAreaM2, unionGeometries } from './polygon.js';
 
 let COUNTRIES = null; // [{ id, bbox:[w,s,e,n], geometry }]
 let loading = null;
@@ -96,11 +95,5 @@ export function mergeCountries(litIds) {
   for (const c of COUNTRIES) {
     if (litIds.has(c.id)) geoms.push(asMulti(c.geometry));
   }
-  if (!geoms.length) return { fill: [], rings: [] };
-  const merged = polygonClipping.union(geoms[0], ...geoms.slice(1)); // MultiPolygon
-  const rings = [];
-  for (const poly of merged) {
-    for (const ring of poly) rings.push(ring);
-  }
-  return { fill: merged, rings };
+  return unionGeometries(geoms);
 }

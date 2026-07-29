@@ -31,11 +31,17 @@ src/imported-cells.json
 !.env.example
 
 # Generated map data. Committed by default so a clone runs without network:
-#   npm run build:countries → src/countries.json (Natural Earth, public domain)
-#   npm run build:places    → src/places.json    (GeoNames CC BY 4.0 + Natural Earth)
-# Uncomment to keep them out of the repo and rebuild locally instead.
+#   npm run build:countries  → src/countries.json  (Natural Earth, public domain)
+#   npm run build:places     → src/places.json     (GeoNames CC BY 4.0 + Natural Earth)
+#   npm run build:regions    → src/regions.json    (Natural Earth admin-1)
+#   npm run build:regions:hi → src/regions-hi.json (the same, at ~100 m; 8 MB)
+# Uncomment to keep them out of the repo and rebuild locally instead. The fine
+# region set is the one worth considering: it is 8 MB and only ever fetched by
+# someone pinning Detail to Region and zooming in.
 # src/countries.json
 # src/places.json
+# src/regions.json
+# src/regions-hi.json
 
 # Local Claude Code settings (personal permissions); .claude/ itself is shared
 .claude/settings.local.json

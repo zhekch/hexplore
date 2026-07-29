@@ -15,6 +15,7 @@
     "build:countries": "node scripts/build-countries.mjs",
     "build:places": "node scripts/build-places.mjs",
     "build:regions": "node scripts/build-regions.mjs",
+    "build:regions:hi": "REGIONS_HI=1 node scripts/build-regions.mjs",
     "filter:countries": "node scripts/apply-territory-filter.mjs"
   },
   "dependencies": {

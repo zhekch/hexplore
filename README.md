@@ -175,9 +175,18 @@ line underneath always says what it means in English. Every copy can be
 downloaded, because a backup that never leaves the machine isn't one. They
 belong to the account that made the map.
 
+**Zooming out** goes from hexagons to shapes you recognise: at about z5 the grid
+gives way to **regions** — cantons, states, départements — and one step further
+out to whole countries. *Detail* pins any of those: the finest grid, Region, or
+Country. Pinned to Region and zoomed in, the outlines sharpen from ~1 km to
+~100 m once the finer boundary set has been fetched (8 MB, and only ever
+fetched then).
+
 **Looks.** Four basemaps (dark, terrain, light, satellite), one accent colour or
 a shading by **visits**, **first seen**, or **type** — a colour per app the data
-came from. *Detail* pins the cell size, from the finest grid to whole countries.
+came from. Terrain and Satellite are kept to the same label and road density as
+Light, and roads on all of them fade out as you zoom away rather than shouting
+over the map.
 
 ## Rebuilding the map data
 

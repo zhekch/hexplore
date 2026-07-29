@@ -15,12 +15,20 @@
 // there's a grid index below: the country lookup can afford to scan its ~250
 // bboxes for every one of ~20k cells, and this one cannot.
 
-import polygonClipping from 'polygon-clipping';
-import { inPolygon, asMulti, ringAreaM2 } from './polygon.js';
+import { inPolygon, asMulti, ringAreaM2, unionGeometries } from './polygon.js';
 
 let REGIONS = null; // [{ id, name, country, bbox:[w,s,e,n], geometry }]
 let index = null; //   "gx/gy" → region indices whose bbox touches that tile
 let loading = null;
+
+// The fine set: the same regions at ~100 m instead of ~1 km, 8 MB against 2.5.
+// Fetched only when someone is looking at region outlines close up, where the
+// overview set's simplification is visibly wrong — a canton border cutting
+// across a lake it follows. Nothing else ever pays for it, and *nothing* is
+// resolved against it: which region a cell belongs to is decided once, on the
+// overview set, so the answer can't change under you when the fine one lands.
+let FINE = null; // id → geometry
+let fineLoading = null;
 
 // 5° tiles: ~550 km, comfortably bigger than all but a handful of regions, so
 // most land in one or two buckets. Small enough that a bucket holds a few
@@ -51,6 +59,7 @@ function buildIndex() {
 }
 
 export const regionsLoaded = () => REGIONS !== null;
+export const fineRegionsLoaded = () => FINE !== null;
 
 /** Kick off (or reuse) the one-time fetch. Resolves when the data is ready. */
 export function loadRegions() {
@@ -62,6 +71,18 @@ export function loadRegions() {
     });
   }
   return loading;
+}
+
+/** Kick off (or reuse) the one-time fetch of the fine geometry. */
+export function loadFineRegions() {
+  if (!fineLoading) {
+    fineLoading = import('./regions-hi.json').then((m) => {
+      FINE = new Map();
+      for (const r of m.default) FINE.set(r.id, r.geometry);
+      return FINE;
+    });
+  }
+  return fineLoading;
 }
 
 /**
@@ -96,6 +117,45 @@ export function regionAt(lng, lat, country) {
   return null;
 }
 
+/**
+ * The region for a point, snapping to the nearest one in the same country when
+ * the point falls inside no region at all.
+ *
+ * Those gaps are real and unavoidable: the country outlines are rounded to
+ * ~1 km and each region is simplified relative to its own size, so along
+ * coastlines and national borders the two datasets disagree by a sliver. A
+ * sweep of Italy finds 1.5% of inland points inside no region, Switzerland 4%.
+ * Treating a sliver as "this country has no regions" is what made a single
+ * stray cell colour in the whole of Italy underneath the cantons — so a miss
+ * snaps to the region it is a sliver outside of, which is the honest answer for
+ * ground that is 1 km from a border.
+ *
+ * @returns {{id:string, name:string, country:string}|null}
+ */
+export function regionNear(lng, lat, country) {
+  const exact = regionAt(lng, lat, country);
+  if (exact || !REGIONS || !country) return exact;
+  let best = null;
+  let bestKey = [Infinity, Infinity];
+  for (const r of REGIONS) {
+    if (r.country !== country) continue;
+    const [w, s, e, n] = r.bbox;
+    // Distance to the box, which is 0 for the overwhelmingly common case of a
+    // point that is inside the region's bbox and just outside its simplified
+    // outline. Ties then go to whichever region's middle is closest.
+    const dx = lng < w ? w - lng : lng > e ? lng - e : 0;
+    const dy = lat < s ? s - lat : lat > n ? lat - n : 0;
+    const box = Math.hypot(dx, dy);
+    if (box > bestKey[0]) continue;
+    const mid = Math.hypot(lng - (w + e) / 2, lat - (s + n) / 2);
+    if (box < bestKey[0] || mid < bestKey[1]) {
+      bestKey = [box, mid];
+      best = r;
+    }
+  }
+  return best;
+}
+
 const areaMemo = new Map();
 
 /** Land area of one region in km², or 0 if it isn't in the dataset. */
@@ -124,28 +184,30 @@ export function regionsInCountry(country) {
 
 export const regionCount = () => REGIONS?.length ?? 0;
 
-/** One region's raw geometry — used by the heat maps, which colour each region
- *  separately instead of dissolving them together. */
-export const regionGeometry = (id) => REGIONS?.find((r) => r.id === id)?.geometry ?? null;
+/**
+ * One region's raw geometry — used by the heat maps, which colour each region
+ * separately instead of dissolving them together.
+ *
+ * @param {string} id
+ * @param {boolean} [fine] prefer the fine geometry if it has been fetched
+ */
+export function regionGeometry(id, fine = false) {
+  if (fine && FINE?.has(id)) return FINE.get(id);
+  return REGIONS?.find((r) => r.id === id)?.geometry ?? null;
+}
 
 /**
  * Union the lit regions into one dissolved shape, exactly as the country level
  * does: touching cantons merge with no border between them. Returns the fill
  * and every boundary ring for the outline.
  */
-export function mergeRegions(litIds) {
+export function mergeRegions(litIds, fine = false) {
   if (!REGIONS || !litIds.size) return { fill: [], rings: [] };
   const geoms = [];
   for (const r of REGIONS) {
-    if (litIds.has(r.id)) geoms.push(asMulti(r.geometry));
+    if (litIds.has(r.id)) geoms.push(asMulti(regionGeometry(r.id, fine) ?? r.geometry));
   }
-  if (!geoms.length) return { fill: [], rings: [] };
-  const merged = polygonClipping.union(geoms[0], ...geoms.slice(1));
-  const rings = [];
-  for (const poly of merged) {
-    for (const ring of poly) rings.push(ring);
-  }
-  return { fill: merged, rings };
+  return unionGeometries(geoms);
 }
 
 /**

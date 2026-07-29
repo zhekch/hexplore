@@ -725,16 +725,39 @@ dynamic-imported, like the countries and the place names. Douglas–Peucker runs
 *before* rounding, or it would be measuring the 1 km lattice the rounding just
 made rather than the coastline underneath.
 
-**Not a zoom level, yet.** The obvious next move is to draw regions where the
-coarsest hex level is now — at ~73 km a cell says nothing a canton doesn't say
-better. The geometry for it builds correctly (`buildAreaFC('region')`), and it
-is not wired up, because rendering it means *two* vector levels and the
-crossfade machinery below assumes exactly one: `hex` carries the vector side
-while the blob canvas carries the other, so a region → country crossing puts
-both sides on the same source and the outgoing one is never handed over — the
-layer stays pinned at zero opacity and the map goes blank. Doing it properly
-means giving `hex-prev` real geometry so vector → vector can crossfade like
-everything else. Worth doing; not worth bolting on.
+**Regions are the second-coarsest zoom level.** Level 4's hexagons were ~73 km
+across, which says nothing a canton doesn't say better — "which cantons have I
+been to" is a question with an answer where "which 73 km squares" is not. So the
+two coarsest steps of the map are polygons: cantons, then countries. *Detail →
+Region* pins that level the way *Country* pins the one above it.
+
+That needed the crossfade machinery to grow a second vector level, which is what
+had blocked it before (see **Two vector levels**, below).
+
+**Resolution is per-level, and the fine set is on demand.** The committed set is
+simplified to ~1 km, which is right for a level that normally lives at z4–5 and
+visibly wrong when Detail is pinned to Region and you zoom into a valley: a
+canton border cuts a straight line across the lake it actually follows. So there
+is a second build at ~100 m (`npm run build:regions:hi`, 8 MB against 2.5) that
+is fetched *only* when the region level is live and the zoom is past
+`REGION_FINE_ZOOM` (7) — unreachable on Auto, where this level never survives
+past ~z5. Zooming back out returns to the coarse geometry rather than tiling
+detail smaller than a pixel. Nothing is ever *resolved* against the fine set:
+which region a cell belongs to is decided once, on the overview set, so the
+answer cannot change under you when the fine one lands.
+
+**Border slivers snap; only genuinely unsubdivided countries stand in for
+themselves.** The country outlines are rounded to ~1 km and each region is
+simplified relative to its own size, so along coastlines and national borders
+the two datasets disagree by a sliver: a sweep of Italy finds 1.5% of inland
+points inside no region at all, Switzerland 4%. `regionNear()` snaps those to
+the region they are a sliver outside of. An earlier version treated any miss as
+"this country has no regions" and stood the whole country in — so a single cell
+in a 1 km gap off the Ligurian coast coloured in the entire of Italy underneath
+its cantons, while Spain looked fine because none of its cells happened to land
+in one. The whole-country stand-in now fires only when
+`regionsInCountry(country) === 0`, which is the microstates and a few
+dependencies.
 
 **Lookups are indexed**: fourteen times as many shapes as the country set is too
 many to scan per cell. A 5° grid buckets them, and `regionAt()` is handed the
@@ -743,6 +766,67 @@ candidates before any geometry is touched. `src/polygon.js` holds the
 point-in-polygon and area maths both datasets share — answering the same two
 questions twice in two files is how they slowly stop agreeing about which side
 of a border a cell is on.
+
+
+## Two vector levels
+
+Two of the levels are polygons rather than hexagons, and they have to hand over
+to each other. That is what `hex-prev` is for — and until regions arrived it was
+a permanently empty scaffold, because the outgoing side was always either the
+blob canvas or `hex` itself.
+
+**Each vector source carries its own role**, and the two ramps read those rather
+than assuming which surface is which:
+
+| role | meaning |
+| --- | --- |
+| `in` | the live level, or the one fading in |
+| `out` | the level fading out |
+| `warm` | geometry pre-tiled for a crossing that hasn't happened, pinned invisible |
+| `idle` | empty |
+
+`applyFade` drives every `in` source and pins everything else; `applyPrevFade`
+drives every `out` source. `blobRole` gained `off` for the crossing the canvas
+has no part in — without it the incoming ramp drove the canvas back to full
+strength underneath the polygons, which was only invisible because it happened
+to have been cleared.
+
+**Nothing is copied.** On a region → country crossing the outgoing level stays
+exactly where it is and the *incoming* one is built on the other source — which
+has to be parsed either way — and the two swap places. That is the whole reason
+the old code refused to put geometry on `hex-prev`: copying the outgoing side
+re-tiles what the map has already drawn, at the moment it is supposed to be
+fading out smoothly.
+
+**The live trio is restacked on top** (`raiseVectorLayers`), because `crossPrev`
+derives the outgoing opacity on the assumption that the incoming layer
+composites *over* the outgoing one. Swap the sources without re-seating that and
+the composite sags in the middle of every crossing — the exact flash `crossPrev`
+exists to remove. It is anchored to `trip-fill`, not to the first symbol layer:
+everything inserted there after the two trios — the trip outline, the selection
+ring — has to stay above the visited wash, and anchoring to `firstSymbol` lifted
+the wash over both, so the trip you had just clicked disappeared under the
+countries. `moveLayer` only reorders; it never re-tiles.
+
+**Warming generalised.** `warmVector` pre-tiles the first vector level on the
+live source while a blob level is showing (as before), and — new — pre-tiles the
+*other* vector dataset on the idle source while a vector level is showing, so
+the region ↔ country crossing is a pure opacity ramp rather than a fade racing a
+parse. A source that has finished fading out keeps its geometry as `warm` rather
+than being emptied: it is precisely the level one step back the way you came.
+
+**What it is measured against.** A settled level must have something visible on
+it, no level may have the blob drawn *under* its polygons, and the composite
+must hold at the mode's alpha all the way across a crossing. Walking every
+boundary in both directions gives 18 settled states; the composite through a
+region ↔ country crossing holds at 0.30 from start to finish, in both
+directions.
+
+**One honest imperfection.** `crossPrev` holds the composite only where both
+sides paint. Regions are a strict subset of their countries, so during a
+crossing the ring where the country is lit and none of its regions are ramps
+instead of holding. That is two genuinely different shapes arriving and leaving,
+not a bug to be tuned out.
 
 ## Search
 
@@ -896,6 +980,35 @@ Both fall back to the plain dark basemap if their upstream can't be fetched, and
 the map opens on a bare background in roughly the right colour while a built
 style is being fetched — loading a *different* basemap first would be a wasted
 request and a visible flash of the wrong map.
+
+**Terrain and Satellite are on a zoom diet.** Both are built from OpenFreeMap's
+style, which labels everything it has and gates almost none of it: every place
+tier — hamlet, suburb, village, town, city — carries no `minzoom` at all, so
+village names were drawn at world zoom, and `highway_minor` starts at z8, which
+puts every lane in a canton on screen while you are looking at a country. Light
+(CARTO Voyager) is the one that reads cleanly and it is disciplined about exactly
+this, so `applyZoomDiet()` in `src/basemap.js` applies Voyager's gates to the
+layers OpenFreeMap gives the same job to: hamlets at z13, villages at z11, towns
+at z7, cities from z4 by rank, minor roads at z13, paths at z15. Street-name
+labels and one-way markings go entirely — unreadable at the zooms this map is
+used at, and OpenFreeMap gives them no gate either, so "A1" was being drawn from
+halfway across the country. At z7.5 that takes Terrain from 20 labels to 48,
+which is Voyager's own count to the label.
+
+The one layer that needed more than a gate is `highway_major_subtle`, which draws
+primary, secondary, tertiary *and* trunk from z6 in a single layer: 225 road
+features on screen at z9 where Voyager draws 71. Voyager gets that number by
+splitting the classes and gating each, so `gateRoadClasses()` does the same
+inside the filter the layer already has — trunk early, primary at z8, secondary
+at z11, tertiary at z13. Zoom in a filter is only evaluated at integer zooms,
+which for a road appearing is the right granularity.
+
+**Roads fade out as the map zooms out** (`ROAD_FADE`). Light keeps its network on
+the map at world zoom but barely visible, which is most of why it feels calm
+there; OpenFreeMap draws the same lines at full strength from z0, so on a
+zoomed-out terrain or satellite map the roads were the loudest thing on screen.
+The ramp is 0.05 at z3 to full by z11. Boundaries are exempt — at world zoom they
+are the only thing telling you which country you are looking at.
 
 **Tuning the visited wash per basemap**: each entry in `STYLES` (`src/main.js`)
 takes `cellAlpha` and `heatAlpha`, multipliers on the defaults in

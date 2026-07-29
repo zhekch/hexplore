@@ -1,4 +1,7 @@
-// Point-in-polygon and ring area, shared by the two boundary datasets.
+import polygonClipping from 'polygon-clipping';
+
+// Point-in-polygon, dissolving and ring area, shared by the two boundary
+// datasets.
 //
 // Countries (src/countries.js) and admin-1 regions (src/regions.js) ask exactly
 // the same two questions of exactly the same shape of data, and answering them
@@ -36,6 +39,19 @@ export function inPolygon(lng, lat, rings) {
     if (inRing(lng, lat, rings[i])) return false;
   }
   return true;
+}
+
+/** Dissolve a list of geometries into one shape, and hand back every boundary
+ *  ring with it. Both boundary datasets merge their lit shapes exactly this
+ *  way — touching areas join with no border between them. */
+export function unionGeometries(geoms) {
+  if (!geoms.length) return { fill: [], rings: [] };
+  const merged = polygonClipping.union(geoms[0], ...geoms.slice(1));
+  const rings = [];
+  for (const poly of merged) {
+    for (const ring of poly) rings.push(ring);
+  }
+  return { fill: merged, rings };
 }
 
 /** Normalize either geometry kind to MultiPolygon coordinates. */

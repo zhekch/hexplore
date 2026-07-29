@@ -8,7 +8,7 @@
 
 import { SQRT3, radiusOf, cellCenter, project, MAX_LEVEL } from './hexgrid.js';
 import { loadCountries, countryIdAt, countryAreaKm2, countryCount } from './countries.js';
-import { loadRegions, regionAt, regionAreaKm2, regionsInCountry } from './regions.js';
+import { loadRegions, regionNear, regionAreaKm2, regionsInCountry } from './regions.js';
 
 // Earth's land surface, the yardstick for "% of the world" (oceans excluded —
 // covering the Pacific isn't a goal anyone has).
@@ -76,7 +76,10 @@ export async function computeStats(cellIds, cellMeta) {
       e.km2 += area;
       byCountry.set(country, e);
 
-      const region = regionAt(wrapLng(lng), lat, country);
+      // Snapping, not exact: a cell 1 km off a canton's simplified coastline
+      // belongs to that canton, and dropping it would quietly under-count the
+      // coast of every country.
+      const region = regionNear(wrapLng(lng), lat, country);
       if (region) {
         const r = byRegion.get(region.id) ?? { name: region.name, country, cells: 0, km2: 0 };
         r.cells++;
