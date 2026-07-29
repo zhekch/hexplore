@@ -1,0 +1,3540 @@
+:root {
+  color-scheme: dark;
+  /* The ⓘ button in the layers menu, and the gap it keeps from the control it
+     annotates — so every row that carries one insets its control by the same
+     amount and they line up down the panel. */
+  /* Vertical rhythm between the menu's rows, segmented controls and buttons. */
+  --menu-row-gap: 10px;
+}
+
+html,
+body,
+#map {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
+    Inter, sans-serif;
+  background: #0b0b10;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hud {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 10;
+  user-select: none;
+}
+
+/* Collapsed state: a round glass pencil button */
+.hud-pencil {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  appearance: none;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    transform 0.15s ease;
+}
+
+.hud-pencil:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.hud-pencil:active {
+  transform: scale(0.94);
+}
+
+/* display:grid above would defeat the hidden attribute */
+.hud-pencil[hidden] {
+  display: none;
+}
+
+/* Expanded state: the visionOS-style glass card */
+.hud-panel {
+  min-width: 220px;
+  padding: 16px 20px 14px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  backdrop-filter: blur(26px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 16px 44px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  transform-origin: top left;
+  animation: hud-pop 0.22s ease;
+}
+
+@keyframes hud-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.hud-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.hud-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.hud-done {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.hud-done:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.hud-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+  padding: 3px 0;
+}
+
+.hud-row b {
+  color: #fff;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-color-row {
+  align-items: center;
+}
+
+.hud-color-row input[type='color'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 36px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.hud-color-row input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 3px;
+}
+
+.hud-color-row input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.hud-hint {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* The attribution has the top-right corner to itself. It used to share the
+   bottom-right one with the geolocate button, which meant the button had to be
+   lifted clear of it and the two still crowded each other on a phone. */
+.maplibregl-ctrl-top-right {
+  top: 0;
+  right: 0;
+}
+
+.maplibregl-ctrl-top-right .maplibregl-ctrl-attrib {
+  margin: 14px 20px 0 0;
+}
+
+/* Glassy map controls (geolocate button), bottom right — the thumb-reachable
+   corner on desktop and on a phone alike. */
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
+  background: rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  margin: 0 20px 20px 0;
+  overflow: hidden;
+}
+
+/* The geolocate button moves between the map's own corner and the layers
+   cluster (phones — see main.js), so everything about the button itself has to
+   apply in both places. Only the glass around it differs. */
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button,
+.layers-cluster .maplibregl-ctrl-group button {
+  width: 40px;
+  height: 40px;
+  background-color: transparent;
+}
+
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button:hover,
+.layers-cluster .maplibregl-ctrl-group button:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Re-tint the dark default icons for the dark glass; hue-rotate keeps the
+   active (blue) geolocate states looking blue after inversion. */
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
+.layers-cluster .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Small screens: tighter margins, panel fits the viewport */
+@media (max-width: 480px) {
+  .hud {
+    top: 12px;
+    left: 12px;
+  }
+
+  .hud-panel {
+    min-width: 0;
+    width: min(280px, calc(100vw - 24px));
+  }
+
+}
+
+/* Layers control (bottom-left glass button + pop-up menu) */
+.layers {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  user-select: none;
+}
+
+/* Holds the menu button, and on a phone the geolocate button as well — main.js
+   moves it in below 560px. Wide screens leave the two in opposite corners, so
+   here the cluster is just a wrapper and the glass stays on the button. */
+.layers-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.layers-btn {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  appearance: none;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    transform 0.15s ease;
+}
+
+.layers-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.layers-btn:active {
+  transform: scale(0.94);
+}
+
+.layers-menu {
+  /* A real width, not a minimum. Shrink-to-fit meant the widest child decided
+     how wide the menu was, so a Type legend with a dozen sources stretched it
+     across the screen instead of wrapping — `flex-wrap` can't help inside a
+     parent that grows to max-content. Fixing the width makes wrapping work and
+     keeps the menu the same size in every mode. */
+  width: 272px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  backdrop-filter: blur(26px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 16px 44px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  transform-origin: bottom left;
+  animation: hud-pop 0.2s ease;
+}
+
+.layers-menu[hidden] {
+  display: none;
+}
+
+/* Menu sections */
+.menu-scroll {
+  max-height: min(72vh, 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* No rail, on any device. The menu is a glass panel a few rows tall, and an
+     8px track down its right edge reads as a seam in it — it also stole the
+     width that kept the swatches clear of the rounded corner. Scrolling itself
+     is untouched: wheel, trackpad and drag all still work. */
+  scrollbar-width: none;
+}
+
+.menu-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.menu-section + .menu-section,
+.menu-scroll > .layers-account {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.menu-heading,
+.layers-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 8px;
+}
+
+/* A labelled group *inside* a section — "Detail" and "Color by" under
+   Appearance. Deliberately not a .menu-heading: three uppercase headings in a
+   row would read as three sections and undo the grouping. This is the same
+   weight as a .menu-row label, so a titled control group and a plain switch
+   look like siblings, which is what they are. */
+.menu-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 16px 0 7px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+/* What the Detail buttons are actually producing right now. The numbers mean
+   nothing on their own, and a cell's ground size depends on the latitude on
+   screen, so the size is read out rather than printed on the buttons. */
+.detail-now {
+  margin-top: var(--menu-row-gap);
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A card parked beside the menu (or above it on a phone), outside the scrolling
+   panel so opening one never resizes or scrolls anything. The colour picker is
+   the only thing that uses it now — see .color-panel. */
+.menu-popover {
+  position: fixed;
+  z-index: 30;
+  width: min(268px, calc(100vw - 24px));
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(24, 28, 38, 0.94);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  backdrop-filter: blur(24px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.78);
+  animation: note-pop 0.16s ease;
+}
+
+.menu-popover[hidden] {
+  display: none;
+}
+
+.menu-popover b {
+  color: #fff;
+  font-weight: 600;
+}
+
+@keyframes note-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.menu-section {
+  position: relative;
+}
+
+/* Holds either the color picker or the legend at a constant height, so
+   switching coloring modes doesn't resize the menu. */
+.menu-slot {
+  position: relative;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+}
+
+.menu-slot > * {
+  width: 100%;
+}
+
+
+/* Segmented controls (base map, coloring) */
+.seg {
+  display: flex;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 13px;
+  padding: 3px;
+}
+
+.seg-wrap {
+  flex-wrap: wrap;
+}
+
+/* A segmented control following a row of its own (the coloring modes under
+   "Train tracks") keeps the same rhythm as everything else in the section. */
+.menu-row + .seg,
+.menu-action + .seg {
+  margin-top: var(--menu-row-gap);
+}
+
+.seg-btn {
+  flex: 1 1 auto;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+/* Seven choices are more than a 272px row holds, and letting them wrap strands
+   the widest one alone on a line of its own. Grid instead: five equal columns
+   for the top row, and the last two buttons split the bottom one. In Detail
+   that keeps the hex sizes together as the scale they are, with the two
+   choices that aren't a hex size (Auto, whole countries) underneath. */
+.seg-btn.active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* Heat-map legend */
+.legend {
+  width: 100%;
+}
+
+/* Type mode's legend: a swatch per source instead of a gradient. Two columns
+   that wrap, so more sources make the slot taller rather than the menu wider —
+   the menu's width is fixed and the slot's height is only a minimum. */
+.legend-keys {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 10px;
+  align-content: center;
+  width: 100%;
+  padding: 2px 0;
+}
+
+.legend-keys[hidden] {
+  display: none;
+}
+
+/* One long name shouldn't get a column to itself while the rest pair up. */
+.legend-keys.wide {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.legend-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* A name too long for its column is clipped, not allowed to widen the grid —
+   the full text is in the title attribute. */
+.legend-key span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend-key i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.legend-empty {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.legend[hidden] {
+  display: none;
+}
+
+/* The hairline is an inset shadow, not a border, on purpose. With a border the
+   gradient's *positioning* area is the padding box while its *painting* area is
+   the border box, so the 1px strip down each side falls outside the gradient
+   and gets filled by the background tiling — which wraps the ramp around and
+   puts a sliver of the hot end on the left and the cold end on the right.
+   An inset shadow keeps one box, so the ramp starts and ends exactly at the
+   edges. (main.js sets background-image, not the background shorthand, so the
+   no-repeat below can't be reset out from under it.) */
+.legend-bar {
+  height: 8px;
+  border-radius: 5px;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.legend-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* Rows with a control on the right (checkbox, color, select) */
+.menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: var(--menu-row-gap);
+  box-sizing: border-box;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* A row with a note beside it is inset by the ⓘ; a row without one runs to the
+   panel edge. Within a section the rows agree, which is what makes the columns
+   read as deliberate: the appearance rows all end flush right, and everything
+   under "Your map" — both toggles and both action buttons — ends at the ⓘ. */
+.menu-row[hidden] {
+  display: none;
+}
+
+.menu-row input[type='checkbox'] {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin: 0; /* the UA's default margin is what knocked these out of column */
+  accent-color: #60acff;
+  cursor: pointer;
+}
+
+/* The heading already spaces itself from what follows, so the first row under
+   one doesn't add its own — otherwise a section that opens with a row sits
+   lower than one that opens with a segmented control. */
+.menu-heading + .menu-row,
+.menu-heading + .menu-action {
+  margin-top: 0;
+}
+
+/* Splits "Your map" in two without drawing a second rule across the panel:
+   above it, what is painted on the map; below it, the panels that open over
+   it. Whitespace is enough — a border here would read as a new section. */
+.menu-gap {
+  margin-top: 22px;
+}
+
+.menu-row span {
+  min-width: 0;
+}
+
+.menu-row small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.menu-row input[type='color'],
+.layers-color-row input[type='color'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 36px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.menu-row input[type='color']::-webkit-color-swatch-wrapper,
+.layers-color-row input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 3px;
+}
+
+.menu-row input[type='color']::-webkit-color-swatch,
+.layers-color-row input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+
+/* Account row inside the base-map menu (shown once signed in) */
+.layers-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 13px;
+}
+
+.layers-account[hidden] {
+  display: none;
+}
+
+.layers-account-name {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layers-account-logout {
+  appearance: none;
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.layers-account-logout:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Menu action buttons (Statistics, Import locations) */
+.menu-action {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.92);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.menu-action:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.menu-action svg {
+  flex: none;
+  opacity: 0.85;
+}
+
+/* View-mode info card: what's inside the cell you just tapped */
+.cell-info {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 12;
+  width: min(320px, calc(100vw - 40px));
+  box-sizing: border-box;
+  padding: 14px 16px 12px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  backdrop-filter: blur(26px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 16px 44px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  user-select: none;
+  animation: card-rise 0.22s ease;
+}
+
+.cell-info[hidden] {
+  display: none;
+}
+
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.cell-info-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.cell-info-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.cell-info-coord {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+.cell-info-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  appearance: none;
+  /* Chrome gives every <button> `padding: 1px 6px`. With box-sizing: border-box
+     that leaves a 12px-wide content box inside a 26px button, so the 15px icon
+     overflows it — and `place-items: center` centres it in the *content* box,
+     landing the ✕ about 1.3px right of where it looks like it should be. */
+  padding: 0;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.cell-info-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.cell-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+  padding: 3px 0;
+}
+
+.cell-info-row b {
+  color: #fff;
+  font-weight: 600;
+  text-align: right;
+}
+
+.cell-info-sources-head[hidden] {
+  display: none;
+}
+
+.cell-info-sources-head {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 5px;
+}
+
+.cell-info-source {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12.5px;
+  padding: 2px 0;
+}
+
+.cell-info-source-name {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell-info-source-meta {
+  flex: none;
+  text-align: right;
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Tap-a-route card: same glass as the cell card, with actions at the bottom */
+.route-info-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* Three equal columns. `flex: 1` alone did not do it: a flex item's default
+   `min-width: auto` refuses to shrink below its own text, so "Zoom to route"
+   stayed wider than its siblings however the basis was set. Releasing that is
+   what makes the widths actually equal — and it is why the first button is
+   labelled "Zoom": at a 320px card three equal columns are ~90px each, and the
+   longer label does not fit in one. */
+.route-info-actions .modal-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 6px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.modal-btn.danger {
+  border-color: rgba(255, 122, 105, 0.55);
+  background: rgba(255, 122, 105, 0.9);
+  color: #2a0b06;
+}
+
+.modal-btn.danger:hover {
+  background: rgba(255, 122, 105, 1);
+}
+
+/* Modal (import dialog) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(6, 8, 14, 0.5);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-card {
+  width: min(400px, 100%);
+  /* A grid item's default `min-width: auto` refuses to shrink below its
+     min-content width. The routes tab's own content floors that around 390px,
+     so on a narrow phone the card stayed wider than the screen and — being
+     centred — hung off BOTH edges at once. */
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 22px 22px 18px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(30px) saturate(170%);
+  backdrop-filter: blur(30px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  animation: hud-pop 0.22s ease;
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.modal-sub {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.55);
+  margin-top: 4px;
+}
+
+.import-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 22px 16px;
+  border-radius: 18px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.import-drop:hover,
+.import-drop.over {
+  background: rgba(96, 172, 255, 0.12);
+  border-color: rgba(96, 172, 255, 0.6);
+  color: #fff;
+}
+
+/* The explainer that used to live behind the ⓘ in the menu. Quieter than the
+   dialog's own text — it is there to be read once, not every time. */
+.import-note {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.import-note[hidden] {
+  display: none;
+}
+
+.import-note b {
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+}
+
+.import-report {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.import-report[hidden] {
+  display: none;
+}
+
+.import-file-line {
+  color: rgba(255, 255, 255, 0.62);
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-file-line.bad {
+  color: #ff8a80;
+}
+
+.import-summary {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.import-summary-main {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.import-summary-sub {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 2px;
+}
+
+.import-error {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: #ff8a80;
+}
+
+.import-error[hidden] {
+  display: none;
+}
+
+.import-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.import-row[hidden] {
+  display: none;
+}
+
+.import-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.import-row small {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.import-row select {
+  appearance: none;
+  flex: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+}
+
+.import-row select option {
+  color: #0f172a;
+}
+
+.import-row input[type='checkbox'] {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  accent-color: #60acff;
+  cursor: pointer;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.modal-btn {
+  appearance: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.modal-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.modal-btn:active {
+  transform: scale(0.98);
+}
+
+.modal-btn.primary {
+  border-color: rgba(96, 172, 255, 0.5);
+  background: rgba(96, 172, 255, 0.9);
+  color: #05121f;
+}
+
+.modal-btn.primary:hover {
+  background: rgba(96, 172, 255, 1);
+}
+
+.modal-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}
+
+/* Custom color picker — the app's own, in place of the OS colour panel */
+.color-swatch {
+  flex: none;
+  width: 38px;
+  height: 24px;
+  appearance: none;
+  padding: 0;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: var(--swatch, #60acff);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.15s ease;
+}
+
+/* Not a scale: the swatch sits flush with the right edge of its row, and
+   `.menu-scroll` has `overflow-y: auto` — which per spec makes overflow-x a
+   scroll container too — so anything that grows outward gets its right-hand
+   sliver clipped. Brightening the rim gives the same "this is live" feedback
+   without leaving the box. */
+.color-swatch:hover {
+  border-color: rgba(255, 255, 255, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 0 0 3px rgba(255, 255, 255, 0.1);
+}
+
+/* The open state reads as a ring *inside* the swatch. An outer ring was clipped
+   on its right-hand side: the swatch sits flush with the row's edge, and the
+   menu's scroll container crops anything drawn past it. */
+.color-swatch.active {
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.9),
+    inset 0 0 0 3px rgba(0, 0, 0, 0.25);
+}
+
+/* The panel reuses the popover's glass; only its insides are its own. */
+.color-panel {
+  width: 212px;
+  padding: 12px;
+}
+
+.cp-area {
+  position: relative;
+  height: 116px;
+  border-radius: 12px;
+  background: var(--cp-hue, #60acff);
+  cursor: crosshair;
+  outline: none;
+  /* Deliberately NOT overflow: hidden — that clipped the knob into a corner
+     fragment whenever it reached an edge. The two gradient layers round
+     themselves off instead. */
+}
+
+/* White → transparent across, then transparent → black down: the standard
+   saturation/brightness field, done with two gradients over the hue. */
+.cp-area-sat,
+.cp-area-val {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.cp-area-sat {
+  background: linear-gradient(to right, #fff, rgba(255, 255, 255, 0));
+}
+
+.cp-area-val {
+  background: linear-gradient(to top, #000, rgba(0, 0, 0, 0));
+}
+
+.cp-area:focus-visible,
+.cp-hue:focus-visible {
+  box-shadow: 0 0 0 2px rgba(96, 172, 255, 0.9);
+}
+
+/* The knobs travel over (track − knob), not over the full track, so at 0% and
+   100% they sit flush inside their track instead of half hanging off it. The
+   value they report is unchanged; only where the circle is drawn. */
+.cp-knob {
+  position: absolute;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  left: calc(var(--kx, 0) * (100% - 16px));
+  top: calc(var(--ky, 0) * (100% - 16px));
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 2px 6px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.cp-hue {
+  position: relative;
+  height: 16px;
+  margin-top: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none;
+  background: linear-gradient(
+    to right,
+    #f00 0%,
+    #ff0 17%,
+    #0f0 33%,
+    #0ff 50%,
+    #00f 67%,
+    #f0f 83%,
+    #f00 100%
+  );
+}
+
+.cp-hue-knob {
+  position: absolute;
+  box-sizing: border-box;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  left: calc(var(--kx, 0) * (100% - 16px));
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid #fff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 2px 6px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.cp-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.cp-preview {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.cp-hex {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  padding: 6px 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  outline: none;
+}
+
+.cp-hex:focus {
+  border-color: rgba(96, 172, 255, 0.7);
+}
+
+.cp-presets {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.cp-preset {
+  appearance: none;
+  padding: 0;
+  height: 18px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+/* A small nudge, not a jump — at 1.12 the swatches shoved their neighbours
+   around and the row read as unstable under the cursor. */
+.cp-preset:hover {
+  transform: scale(1.05);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+/* Editing a saved route, in place of its rows */
+.route-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.route-edit[hidden] {
+  display: none;
+}
+
+.route-edit .ha-label {
+  margin: 8px 0 2px;
+}
+
+.route-edit .auth-input,
+.route-edit select {
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 11px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  outline: none;
+}
+
+.route-edit select option {
+  color: #0f172a;
+}
+
+.route-info-actions .modal-btn[hidden] {
+  display: none;
+}
+
+/* Sync: the picker that fronts Home Assistant / Komoot / Strava */
+.sync-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.sync-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.sync-option:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.sync-option:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.sync-option-icon {
+  flex: none;
+  opacity: 0.85;
+}
+
+.sync-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sync-option-text b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.sync-option-text small {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-option-go {
+  flex: none;
+  opacity: 0.4;
+}
+
+.sync-option-soon {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Home Assistant dialog */
+/* A menu button that carries a status line under its label */
+.menu-action span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.menu-action small {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The dialog can outgrow a phone once a long device list is in it, so the
+   fields scroll and the title and buttons stay put. */
+.ha-scroll {
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  margin: 4px -6px 0;
+  padding: 0 6px;
+}
+
+/* Once there's more below the fold, fade the last few pixels out so the panel
+   reads as scrollable instead of as if it simply ended there. The class is put
+   on by the dialog, since CSS can't tell whether a box overflows. */
+.ha-scroll.more {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+
+.ha-scroll.more.at-end {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.ha-field {
+  margin-top: 14px;
+}
+
+/* The "make yourself an app first" preamble in the Strava dialog */
+.ha-help {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ha-steps {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ha-steps b {
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 600;
+}
+
+.ha-steps code {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  color: #fff;
+}
+
+.ha-steps a {
+  color: #7cbcff;
+}
+
+.ha-setup[hidden] {
+  display: none;
+}
+
+.ha-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ha-label small {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.ha-scroll .auth-input {
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: 12px;
+}
+
+.ha-devices {
+  margin-top: 16px;
+}
+
+.ha-devices[hidden] {
+  display: none;
+}
+
+.ha-devices-head {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.ha-devices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ha-device {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ha-device:hover {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.ha-device input[type='checkbox'] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  accent-color: #60acff;
+  cursor: pointer;
+}
+
+.ha-device span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.ha-device b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ha-device small {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* A tracker with no coordinates right now — pickable, but it may be a
+   router-based one that never reports any. */
+.ha-device.dim b {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.ha-devices-note {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.ha-status {
+  margin-top: 14px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ha-status[hidden] {
+  display: none;
+}
+
+.ha-status b {
+  color: #fff;
+  font-weight: 600;
+}
+
+.ha-status .bad {
+  color: #ff8a80;
+}
+
+/* Statistics dialog */
+.stats-tabs {
+  margin-top: 14px;
+}
+
+.stats-tabs .seg-btn {
+  padding: 5px 10px;
+}
+
+.stats-body {
+  margin-top: 14px;
+  max-height: min(58vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+.stats-loading {
+  padding: 22px 4px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Label and value, but the value can be a long date span. Let the pair wrap
+   rather than setting a width floor the card then has to honour. */
+.stats-row {
+  flex-wrap: wrap;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* One saved route in the Routes tab — a whole row is the target, since the
+   thing you want after reading it is always "show me that one". */
+.stats-route {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  margin-top: 6px;
+  padding: 8px 11px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.stats-route:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.stats-route-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stats-route-main b {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-route-main i {
+  font-style: normal;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-route-far {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-row b {
+  color: #fff;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Sub-heading inside the routes list when it's grouped by app: the app's name
+   on the left, what it adds up to on the right. Lighter than .stats-head —
+   these sit under one, not beside one. */
+.stats-group {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+/* The app's name gives way before its totals do — "Ride with GPS" can lose its
+   tail, "14 routes · 1,284 km" reads as nonsense half-shown. */
+.stats-group span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-group i {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+  flex: none;
+}
+
+.stats-head {
+  margin: 14px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Title on the left, sort control on the right — but the sort control grew a
+   third option ("By app") and its buttons can't shrink, so on a narrow phone
+   the pair no longer fits on one line. Let it wrap instead of squeezing the
+   title to nothing or pushing the control past the edge. */
+.stats-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.stats-head-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Compact segmented control for the country sort */
+.seg-mini {
+  padding: 2px;
+  border-radius: 10px;
+}
+
+.seg-mini .seg-btn {
+  font-size: 10.5px;
+  letter-spacing: 0.2px;
+  text-transform: none;
+  padding: 3px 9px;
+  border-radius: 8px;
+}
+
+.stats-bar-row {
+  margin-bottom: 9px;
+}
+
+.stats-bar-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.stats-bar-head b {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-bar {
+  height: 5px;
+  margin: 4px 0 3px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.stats-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #60acff, #8fd0ff);
+}
+
+.stats-bar-note {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+/* Cells first seen per year */
+.stats-years {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 84px;
+  padding-top: 4px;
+}
+
+.stats-year {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  min-width: 0;
+}
+
+.stats-year i {
+  width: 100%;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, #8fd0ff, #4b83d8);
+}
+
+.stats-year span {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Phones: the controls collect in one thumb-reachable stack at bottom right,
+   and the menu becomes a bottom sheet with the stack tucked away behind it. */
+@media (max-width: 560px) {
+  .cell-info {
+    bottom: 20px;
+    width: calc(100vw - 24px);
+  }
+
+  .layers {
+    left: auto;
+    right: 12px;
+    bottom: 12px;
+    align-items: flex-end;
+  }
+
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-attrib {
+    margin: 12px 12px 0 0;
+  }
+
+  .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
+    margin: 0 12px 12px 0;
+    border-radius: 15px;
+  }
+
+  /* One container, two buttons: the menu on top, "my location" under it, with
+     a hairline between. main.js has moved the geolocate control in here, so the
+     glass belongs to the cluster and its children go flat and transparent —
+     two backdrop-filtered pills touching would show a doubled seam. */
+  .layers-cluster {
+    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    overflow: hidden;
+  }
+
+  .layers-cluster .layers-btn,
+  .layers-cluster .maplibregl-ctrl-group {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+
+  .layers-cluster .maplibregl-ctrl-group {
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+  }
+
+  /* The whole pill would shift under the finger; light up the pressed half
+     instead, the way the geolocate button already does. */
+  .layers-cluster .layers-btn:active {
+    transform: none;
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  /* Match the menu button above it (.layers-btn is already 46px). */
+  .layers-cluster .maplibregl-ctrl-group button {
+    width: 46px;
+    height: 46px;
+  }
+
+  /* The pencil sits above the cluster (two 46px buttons and the hairline). */
+  .hud {
+    top: auto;
+    left: auto;
+    right: 12px;
+    bottom: 117px;
+  }
+
+  /* Editing: the panel takes over as a bottom sheet. */
+  body.editing .hud {
+    right: 0;
+    left: 0;
+    bottom: 0;
+  }
+
+  .hud-panel {
+    min-width: 0;
+    width: auto;
+    margin: 0 12px 12px;
+    border-radius: 24px;
+  }
+
+  /* The edit panel owns the bottom of the screen, so the stack steps aside
+     until you tap Done. */
+  body.editing .cell-info,
+  body.editing .layers,
+  body.editing .maplibregl-ctrl-bottom-right {
+    display: none;
+  }
+
+  /* Menu open: hide the floating buttons and dock the menu at the bottom. */
+  body.menu-open .layers-cluster,
+  body.menu-open .hud,
+  body.menu-open .maplibregl-ctrl-bottom-right,
+  body.menu-open .cell-info {
+    display: none;
+  }
+
+  body.menu-open .layers {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .layers-menu {
+    width: 100%;
+    box-sizing: border-box;
+    transform-origin: bottom center;
+  }
+
+  .menu-scroll {
+    max-height: min(64vh, 520px);
+  }
+
+  .modal-overlay {
+    padding: 12px;
+  }
+
+  .modal-card {
+    border-radius: 24px;
+  }
+}
+
+/* Auth gate: login / register overlay */
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(6, 8, 14, 0.55);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.auth-overlay[hidden] {
+  display: none;
+}
+
+.auth-card {
+  width: min(340px, 100%);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 28px 26px 22px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(30px) saturate(170%);
+  backdrop-filter: blur(30px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  animation: hud-pop 0.24s ease;
+}
+
+.auth-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.auth-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 6px;
+}
+
+.auth-input {
+  appearance: none;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 14px;
+  padding: 11px 14px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.auth-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.auth-input:focus {
+  border-color: rgba(96, 172, 255, 0.8);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.auth-error {
+  font-size: 12.5px;
+  color: #ff8a80;
+  margin: -2px 2px 0;
+}
+
+.auth-error[hidden] {
+  display: none;
+}
+
+.auth-submit {
+  appearance: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 11px 14px;
+  margin-top: 4px;
+  border-radius: 13px;
+  border: 1px solid rgba(96, 172, 255, 0.5);
+  background: rgba(96, 172, 255, 0.9);
+  color: #05121f;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.auth-submit:hover {
+  background: rgba(96, 172, 255, 1);
+}
+
+.auth-submit:active {
+  transform: scale(0.98);
+}
+
+.auth-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-switch {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-top: 4px;
+}
+
+.auth-switch-btn {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #60acff;
+  cursor: pointer;
+  padding: 0;
+}
+
+.auth-switch-btn:hover {
+  text-decoration: underline;
+}
+
+/* Quiet, glassy attribution */
+.maplibregl-ctrl-attrib {
+  background: rgba(10, 10, 16, 0.45) !important;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-radius: 10px;
+}
+
+.maplibregl-ctrl-attrib a,
+.maplibregl-ctrl-attrib {
+  color: rgba(255, 255, 255, 0.5) !important;
+  font-size: 10.5px;
+}
+
+/* Light basemap chrome. The controls sit over pale land and water, so use a
+   brighter, more opaque glass surface with dark text and icons. */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+[data-theme='light'] .hud-pencil,
+[data-theme='light'] .layers-btn {
+  background: rgba(248, 250, 252, 0.86);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow:
+    0 8px 24px rgba(15, 23, 42, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  color: rgba(15, 23, 42, 0.9);
+}
+
+[data-theme='light'] .hud-pencil:hover,
+[data-theme='light'] .layers-btn:hover {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+[data-theme='light'] .hud-panel,
+[data-theme='light'] .layers-menu {
+  background: rgba(248, 250, 252, 0.9);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow:
+    0 16px 44px rgba(15, 23, 42, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  color: rgba(15, 23, 42, 0.94);
+}
+
+[data-theme='light'] .hud-done {
+  background: rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+
+[data-theme='light'] .hud-done:hover {
+  background: rgba(15, 23, 42, 0.14);
+}
+
+[data-theme='light'] .hud-row,
+[data-theme='light'] .seg-btn {
+  color: rgba(15, 23, 42, 0.68);
+}
+
+[data-theme='light'] .hud-row b,
+[data-theme='light'] .seg-btn.active {
+  color: #0f172a;
+}
+
+[data-theme='light'] .menu-subhead {
+  color: rgba(15, 23, 42, 0.82);
+}
+
+[data-theme='light'] .hud-hint,
+[data-theme='light'] .menu-heading,
+[data-theme='light'] .layers-heading {
+  color: rgba(15, 23, 42, 0.56);
+}
+
+[data-theme='light'] .hud-hint,
+[data-theme='light'] .menu-row {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .hud-color-row input[type='color'],
+[data-theme='light'] .menu-row input[type='color'],
+[data-theme='light'] .layers-color-row input[type='color'] {
+  border-color: rgba(15, 23, 42, 0.25);
+}
+
+[data-theme='light'] .layers-color-row {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .seg {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .seg-btn.active {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 1px 4px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+[data-theme='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
+  background: rgba(248, 250, 252, 0.86);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
+}
+
+[data-theme='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button:hover,
+[data-theme='light'] .layers-cluster .maplibregl-ctrl-group button:hover {
+  background-color: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
+[data-theme='light'] .layers-cluster .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: none;
+}
+
+/* The phone-only cluster, in light. It has to come after the rules above:
+   `[data-theme='light'] .layers-btn` is as specific as the cluster's own
+   neutralizing rule, so the one that wins is whichever is written last. */
+@media (max-width: 560px) {
+  [data-theme='light'] .layers-cluster {
+    background: rgba(248, 250, 252, 0.86);
+    border-color: rgba(15, 23, 42, 0.16);
+    box-shadow:
+      0 8px 24px rgba(15, 23, 42, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  }
+
+  [data-theme='light'] .layers-cluster .layers-btn {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  [data-theme='light'] .layers-cluster .layers-btn:active {
+    background: rgba(15, 23, 42, 0.08);
+  }
+
+  [data-theme='light'] .layers-cluster .maplibregl-ctrl-group {
+    border-top-color: rgba(15, 23, 42, 0.12);
+  }
+}
+
+[data-theme='light'] .maplibregl-ctrl-attrib {
+  background: rgba(248, 250, 252, 0.8) !important;
+}
+
+[data-theme='light'] .maplibregl-ctrl-attrib a,
+[data-theme='light'] .maplibregl-ctrl-attrib {
+  color: rgba(15, 23, 42, 0.62) !important;
+}
+
+[data-theme='light'] .layers-account {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .layers-account-name {
+  color: rgba(15, 23, 42, 0.9);
+}
+
+[data-theme='light'] .layers-account-logout {
+  background: rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+
+[data-theme='light'] .layers-account-logout:hover {
+  background: rgba(15, 23, 42, 0.14);
+}
+
+[data-theme='light'] .menu-action,
+[data-theme='light'] .cell-info-close,
+[data-theme='light'] .modal-btn {
+  background: rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+
+[data-theme='light'] .menu-action:hover,
+[data-theme='light'] .cell-info-close:hover,
+[data-theme='light'] .modal-btn:hover {
+  background: rgba(15, 23, 42, 0.14);
+}
+
+[data-theme='light'] .cell-info,
+[data-theme='light'] .modal-card {
+  background: rgba(248, 250, 252, 0.92);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow:
+    0 16px 44px rgba(15, 23, 42, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  color: rgba(15, 23, 42, 0.94);
+}
+
+[data-theme='light'] .cell-info-coord,
+[data-theme='light'] .cell-info-row,
+[data-theme='light'] .cell-info-source-meta,
+[data-theme='light'] .cell-info-sources-head,
+[data-theme='light'] .modal-sub,
+[data-theme='light'] .import-file-line,
+[data-theme='light'] .import-summary-sub,
+[data-theme='light'] .import-row small,
+[data-theme='light'] .menu-row small {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+[data-theme='light'] .route-info-actions {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .modal-btn.danger {
+  color: #fff;
+  background: rgba(214, 62, 42, 0.92);
+  border-color: rgba(214, 62, 42, 0.6);
+}
+
+[data-theme='light'] .modal-btn.danger:hover {
+  background: rgba(214, 62, 42, 1);
+}
+
+[data-theme='light'] .cell-info-row b,
+[data-theme='light'] .cell-info-source-name,
+[data-theme='light'] .import-summary-main {
+  color: #0f172a;
+}
+
+[data-theme='light'] .cell-info-sources-head,
+[data-theme='light'] .import-summary {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .import-drop {
+  border-color: rgba(15, 23, 42, 0.24);
+  background: rgba(15, 23, 42, 0.04);
+  color: rgba(15, 23, 42, 0.7);
+}
+
+[data-theme='light'] .import-drop:hover,
+[data-theme='light'] .import-drop.over {
+  background: rgba(96, 172, 255, 0.14);
+  border-color: rgba(96, 172, 255, 0.7);
+  color: #0f172a;
+}
+
+[data-theme='light'] .import-row select {
+  background: rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.16);
+  color: #0f172a;
+}
+
+[data-theme='light'] .modal-overlay {
+  background: rgba(226, 232, 242, 0.55);
+}
+
+[data-theme='light'] .ha-help,
+[data-theme='light'] .ha-steps {
+  color: rgba(15, 23, 42, 0.6);
+}
+
+[data-theme='light'] .ha-steps b {
+  color: rgba(15, 23, 42, 0.9);
+}
+
+[data-theme='light'] .ha-steps code {
+  background: rgba(15, 23, 42, 0.1);
+  color: #0f172a;
+}
+
+[data-theme='light'] .ha-steps a {
+  color: #1e63c8;
+}
+
+[data-theme='light'] .menu-action small,
+[data-theme='light'] .ha-label small,
+[data-theme='light'] .ha-device small,
+[data-theme='light'] .ha-devices-note,
+[data-theme='light'] .ha-status {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-theme='light'] .ha-device,
+[data-theme='light'] .sync-option {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.05);
+  color: #0f172a;
+}
+
+[data-theme='light'] .ha-device:hover,
+[data-theme='light'] .sync-option:hover:not(:disabled) {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .sync-option-text small,
+[data-theme='light'] .sync-option-soon {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-theme='light'] .sync-option-soon {
+  background: rgba(15, 23, 42, 0.1);
+}
+
+[data-theme='light'] .ha-device.dim b {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-theme='light'] .ha-status {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .ha-status b {
+  color: #0f172a;
+}
+
+[data-theme='light'] .ha-status .bad {
+  color: #c0392b;
+}
+
+[data-theme='light'] .modal-btn.primary {
+  border-color: rgba(96, 172, 255, 0.5);
+  background: rgba(96, 172, 255, 0.9);
+  color: #05121f;
+}
+
+[data-theme='light'] .import-error,
+[data-theme='light'] .import-file-line.bad {
+  color: #c0392b;
+}
+
+[data-theme='light'] .import-note,
+[data-theme='light'] .detail-now,
+[data-theme='light'] .legend-note,
+[data-theme='light'] .stats-loading,
+[data-theme='light'] .stats-row,
+[data-theme='light'] .stats-head,
+[data-theme='light'] .stats-bar-note,
+[data-theme='light'] .stats-year span {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+[data-theme='light'] .import-note b,
+[data-theme='light'] .legend-labels,
+[data-theme='light'] .legend-key,
+[data-theme='light'] .stats-bar-head {
+  color: rgba(15, 23, 42, 0.86);
+}
+
+[data-theme='light'] .legend-empty {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-theme='light'] .stats-row b {
+  color: #0f172a;
+}
+
+[data-theme='light'] .menu-popover {
+  background: rgba(252, 253, 255, 0.96);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.28);
+  color: rgba(15, 23, 42, 0.72);
+}
+
+[data-theme='light'] .menu-popover b {
+  color: #0f172a;
+}
+
+[data-theme='light'] .color-swatch {
+  border-color: rgba(15, 23, 42, 0.24);
+}
+
+[data-theme='light'] .color-swatch.active {
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.95),
+    inset 0 0 0 3px rgba(15, 23, 42, 0.35);
+}
+
+[data-theme='light'] .route-edit .auth-input,
+[data-theme='light'] .route-edit select {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.16);
+  color: #0f172a;
+}
+
+[data-theme='light'] .cp-hex {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.16);
+  color: #0f172a;
+}
+
+[data-theme='light'] .cp-preview,
+[data-theme='light'] .cp-preset {
+  border-color: rgba(15, 23, 42, 0.2);
+}
+
+[data-theme='light'] .menu-section + .menu-section,
+[data-theme='light'] .menu-scroll > .layers-account,
+[data-theme='light'] .stats-head {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .legend-bar {
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.2);
+}
+
+[data-theme='light'] .stats-bar {
+  background: rgba(15, 23, 42, 0.1);
+}
+
+[data-theme='light'] .stats-route {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.05);
+}
+
+[data-theme='light'] .stats-route:hover {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .stats-route-main b,
+[data-theme='light'] .stats-route-far {
+  color: #0f172a;
+}
+
+[data-theme='light'] .stats-route-main i {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+[data-theme='light'] .stats-group {
+  color: rgba(15, 23, 42, 0.9);
+}
+
+[data-theme='light'] .stats-group i {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-theme='light'] .auth-overlay {
+  background: rgba(226, 232, 242, 0.6);
+}
+
+[data-theme='light'] .auth-card {
+  background: rgba(248, 250, 252, 0.92);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow:
+    0 24px 60px rgba(15, 23, 42, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  color: rgba(15, 23, 42, 0.94);
+}
+
+[data-theme='light'] .auth-sub {
+  color: rgba(15, 23, 42, 0.6);
+}
+
+[data-theme='light'] .auth-switch {
+  color: rgba(15, 23, 42, 0.6);
+}
+
+[data-theme='light'] .auth-error {
+  color: #c0392b;
+}
+
+[data-theme='light'] .auth-input {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: rgba(15, 23, 42, 0.16);
+  color: #0f172a;
+}
+
+[data-theme='light'] .auth-input::placeholder {
+  color: rgba(15, 23, 42, 0.4);
+}
+
+[data-theme='light'] .auth-submit {
+  color: #06121f;
+}
+
+/* --- Touch devices: don't let iOS zoom the page on focus ---------------------
+   Safari on iOS zooms the whole page in when you focus a control whose text is
+   smaller than 16px, and leaves you zoomed afterwards — which is what made the
+   login field lurch as you typed. The usual workaround, maximum-scale=1 in the
+   viewport meta, also disables pinch-zoom permanently; on a map that is a much
+   worse trade. Sizing the controls at 16px on touch devices avoids the trigger
+   instead, and changes nothing on a desktop. */
+@media (pointer: coarse) {
+  /* Touch devices have no persistent scrollbar of their own, so a permanent
+     8px track is a desktop habit that just eats width. (The layers menu drops
+     its rail everywhere — see .menu-scroll.) */
+  .stats-body,
+  .ha-scroll {
+    scrollbar-width: none;
+  }
+
+  .stats-body::-webkit-scrollbar,
+  .ha-scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
+  .auth-input,
+  .ha-scroll .auth-input,
+  .cp-hex,
+  .import-row select,
+  input[type='text'],
+  input[type='password'],
+  input[type='url'],
+  input[type='email'],
+  input[type='number'],
+  input[type='search'],
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* --- "the server has gone" banner -------------------------------------------
+   Top-centre, above everything, but not a modal: the map still works and is
+   still worth looking at — the only thing that has stopped is saving. Sitting
+   over the map rather than blocking it is the honest shape for that. */
+.offline-bar {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  padding: 10px 12px 10px 14px;
+  border-radius: 16px;
+  background: rgba(58, 14, 12, 0.86);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid rgba(255, 122, 105, 0.5);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+  color: #ffd9d4;
+  animation: offline-drop 0.24s ease;
+}
+
+.offline-bar[hidden] {
+  display: none;
+}
+
+@keyframes offline-drop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.offline-bar svg {
+  flex: none;
+  color: #ff9d92;
+}
+
+.offline-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.offline-text b {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.offline-text small {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: rgba(255, 217, 212, 0.85);
+}
+
+.offline-retry {
+  flex: none;
+  appearance: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.offline-retry:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.offline-retry:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* On a phone the banner spans the width; the pencil/menu stack is bottom-right
+   so nothing collides. */
+@media (max-width: 560px) {
+  .offline-bar {
+    left: 12px;
+    right: 12px;
+    transform: none;
+    max-width: none;
+    animation: none;
+  }
+}
+
+[data-theme='light'] .offline-bar {
+  background: rgba(255, 244, 242, 0.95);
+  border-color: rgba(214, 62, 42, 0.4);
+  color: #7a1c12;
+}
+
+[data-theme='light'] .offline-text b {
+  color: #7a1c12;
+}
+
+[data-theme='light'] .offline-text small {
+  color: rgba(122, 28, 18, 0.8);
+}
+
+[data-theme='light'] .offline-bar svg {
+  color: #c0392b;
+}
+
+[data-theme='light'] .offline-retry {
+  border-color: rgba(122, 28, 18, 0.28);
+  background: rgba(122, 28, 18, 0.1);
+  color: #7a1c12;
+}
+
+/* --- One route, opened from the Routes list ------------------------------- */
+/* Tapping a route opens it here rather than flying the map to it, so the panel
+   needs a way back and a heading of its own. */
+.stats-back {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 5px 10px 5px 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.82);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stats-back:hover {
+  background: rgba(255, 255, 255, 0.11);
+  color: #fff;
+}
+
+.stats-detail-title {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: #fff;
+  /* A route named after a file can be long, and it has a whole panel to use. */
+  overflow-wrap: anywhere;
+}
+
+.stats-detail-sub {
+  margin: 2px 0 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  overflow-wrap: anywhere;
+}
+
+/* The edit form and its buttons are the ones the map card already uses; inside
+   the dialog they only need room above them. */
+.stats-body .route-edit,
+.stats-body .route-info-actions {
+  margin-top: 12px;
+}
+
+/* A Komoot paste is usually several links, so the field is a textarea — but it
+   should still look and sit like the single-line inputs beside it. */
+.komoot-urls {
+  resize: vertical;
+  min-height: 68px;
+  line-height: 1.45;
+  font-family: inherit;
+}
+
+/* The per-tour lines in a bulk lookup carry their date and distance underneath,
+   so they can't stay on one clipped line the way a filename does. */
+.import-file-line small {
+  display: block;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
+}
+
+.import-report .import-file-line:has(small) {
+  white-space: normal;
+  padding: 4px 0;
+}
+
+/* Files accumulate across drops, so the preview needs a way back to none. */
+.import-clear {
+  appearance: none;
+  float: right;
+  margin: -2px 0 4px 8px;
+  padding: 3px 9px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.import-clear:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+/* "No file? Paste Komoot links instead" — a second way in, under the drop zone.
+   Quieter than a real action button: it's an alternative, not the main path. */
+.import-alt {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.72);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.import-alt:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.import-alt svg {
+  flex: none;
+  opacity: 0.8;
+}
+
+/* --- Saved routes: per-activity options ----------------------------------- */
+/* Folded behind a chevron. There is one row per activity and a map can easily
+   have a dozen, which would push everything below it out of the menu. */
+/* Sits in the same two columns the rows above it use: the label starts flush
+   with "Saved routes", and the chevron lands in the checkbox column — so it
+   runs to the panel edge, as every row in this section now does. */
+.menu-expand {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: var(--menu-row-gap);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* `display: flex` above beats the UA sheet's `[hidden] { display: none }`, so
+   without this the chevron shows on an account with no routes to sort. */
+.menu-expand[hidden] {
+  display: none;
+}
+
+.menu-expand:hover {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* The chevron is the width of a checkbox, centred where a checkbox would be. */
+.menu-expand svg {
+  flex: none;
+  width: 17px;
+}
+
+.menu-expand svg {
+  transition: transform 0.18s ease;
+}
+
+.menu-expand.open svg {
+  transform: rotate(180deg);
+}
+
+.routes-options {
+  margin-top: 4px;
+  padding: 6px 4px 2px;
+}
+
+.routes-options[hidden] {
+  display: none;
+}
+
+.route-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 9px;
+}
+
+.route-option:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.route-option-eye {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+}
+
+.route-option-eye:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+/* A hidden activity stays legible but plainly off. */
+.route-option-eye.off {
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.route-option:has(.route-option-eye.off) .route-option-name,
+.route-option:has(.route-option-eye.off) i {
+  opacity: 0.42;
+}
+
+.route-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.route-option i {
+  flex: none;
+  font-style: normal;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* The app's own swatch button (.color-swatch), sized down for a list row. */
+.route-option-color {
+  width: 28px;
+  height: 20px;
+  border-radius: 7px;
+}
+
+.route-option-reset {
+  appearance: none;
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.66);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.route-option-reset:hover {
+  background: rgba(255, 255, 255, 0.11);
+  color: #fff;
+}
+
+/* The little outline beside each route in the list. Drawn from the cached
+   thumb (src/routes.js), not from the real geometry — the list never loads
+   that. `vector-effect` keeps the stroke one pixel wide however the 0–100 box
+   is scaled, which is what stops a short route looking like a fat blob. */
+.stats-route-thumb {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  overflow: visible;
+}
+
+.stats-route-thumb polyline {
+  fill: none;
+  stroke: rgba(255, 145, 71, 0.9);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.stats-route:hover .stats-route-thumb polyline {
+  stroke: #ff9147;
+}
+
+/* The row was two columns; with the outline it is three — and `space-between`
+   spreads the gaps across all of them, so the text drifted to wherever the
+   leftover space put it and no two rows started at the same place. Letting the
+   middle column take the free space pins every title to the same x, right
+   after the (fixed-width) outline. */
+.stats-route {
+  gap: 10px;
+}
+
+.stats-route-main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* --- Light mode for everything added since ------------------------------- */
+/* All of these were written against the dark panel and hard-coded white, which
+   on the light basemap is white-on-white — the per-activity section was simply
+   invisible. Same palette the rest of the light theme uses (#0f172a). */
+[data-theme='light'] .menu-expand {
+  color: rgba(15, 23, 42, 0.62);
+}
+
+[data-theme='light'] .menu-expand:hover {
+  color: #0f172a;
+}
+
+[data-theme='light'] .route-option:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+[data-theme='light'] .route-option-name {
+  color: rgba(15, 23, 42, 0.9);
+}
+
+[data-theme='light'] .route-option i {
+  color: rgba(15, 23, 42, 0.45);
+}
+
+[data-theme='light'] .route-option-eye {
+  color: rgba(15, 23, 42, 0.68);
+}
+
+[data-theme='light'] .route-option-eye:hover {
+  background: rgba(15, 23, 42, 0.1);
+  color: #0f172a;
+}
+
+[data-theme='light'] .route-option-eye.off {
+  color: rgba(15, 23, 42, 0.3);
+}
+
+[data-theme='light'] .route-option-color {
+  border-color: rgba(15, 23, 42, 0.25);
+}
+
+[data-theme='light'] .route-option-reset {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: rgba(15, 23, 42, 0.05);
+  color: rgba(15, 23, 42, 0.66);
+}
+
+[data-theme='light'] .route-option-reset:hover {
+  background: rgba(15, 23, 42, 0.11);
+  color: #0f172a;
+}
+
+/* The dialogs go light too, so their new pieces need the same treatment. */
+[data-theme='light'] .stats-back {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: rgba(15, 23, 42, 0.05);
+  color: rgba(15, 23, 42, 0.72);
+}
+
+[data-theme='light'] .stats-back:hover {
+  background: rgba(15, 23, 42, 0.11);
+  color: #0f172a;
+}
+
+[data-theme='light'] .stats-detail-title {
+  color: #0f172a;
+}
+
+[data-theme='light'] .stats-detail-sub {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-theme='light'] .import-alt {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.04);
+  color: rgba(15, 23, 42, 0.72);
+}
+
+[data-theme='light'] .import-alt:hover {
+  background: rgba(15, 23, 42, 0.09);
+  color: #0f172a;
+}
+
+[data-theme='light'] .import-clear {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: rgba(15, 23, 42, 0.05);
+  color: rgba(15, 23, 42, 0.66);
+}
+
+[data-theme='light'] .import-clear:hover {
+  background: rgba(15, 23, 42, 0.11);
+  color: #0f172a;
+}
+
+/* The outline needs to stay legible against a pale row, where the dark map's
+   softer orange washes out. */
+[data-theme='light'] .stats-route-thumb polyline {
+  stroke: rgba(214, 106, 31, 0.95);
+}
+
+[data-theme='light'] .stats-route:hover .stats-route-thumb polyline {
+  stroke: #c2560f;
+}
+
+[data-theme='light'] .import-file-line small {
+  color: rgba(15, 23, 42, 0.45);
+}
+
+/* "Open on Komoot" in a route's details. Sits in the value column like any
+   other row, but reads as a link. */
+.stats-link {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #7fb4ff;
+  text-decoration: none;
+}
+
+.stats-link:hover {
+  text-decoration: underline;
+}
+
+[data-theme='light'] .stats-link {
+  color: #1d5fd0;
+}
+
+/* --- One route isolated ---------------------------------------------------- */
+/* Shown on the map, not in a menu: isolation is a mode you can get into with
+   one tap from the routes list, so getting out of it has to be one tap too. */
+.route-solo {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(460px, calc(100vw - 28px));
+  padding: 7px 8px 7px 14px;
+  border-radius: 999px;
+  background: rgba(24, 28, 38, 0.92);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12.5px;
+}
+
+.route-solo[hidden] {
+  display: none;
+}
+
+#route-solo-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#route-solo-clear {
+  appearance: none;
+  flex: none;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#route-solo-clear:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* The card's own toggle, when this route is the only one drawn. */
+.route-info-actions .modal-btn.active {
+  background: rgba(96, 172, 255, 0.22);
+  border-color: rgba(96, 172, 255, 0.5);
+  color: #fff;
+}
+
+[data-theme='light'] .route-solo {
+  background: rgba(248, 250, 252, 0.94);
+  border-color: rgba(15, 23, 42, 0.16);
+  color: rgba(15, 23, 42, 0.9);
+}
+
+[data-theme='light'] #route-solo-clear {
+  border-color: rgba(15, 23, 42, 0.18);
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+[data-theme='light'] #route-solo-clear:hover {
+  background: rgba(15, 23, 42, 0.15);
+}
+
+
+
+/* --- The toast ---------------------------------------------------------------
+   What just happened, for two and a half seconds. It exists for Undo: on a map,
+   the thing that changed is often off screen or a cell too small to notice, so
+   an undo that says nothing looks exactly like an undo that did nothing.
+
+   Bottom centre on desktop — the menu button is bottom left, geolocate is
+   bottom right, and the middle is the one place nothing lives. */
+.toast {
+  position: fixed;
+  bottom: 26px;
+  left: 50%;
+  z-index: 118;
+  max-width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 9px 15px;
+  border-radius: 14px;
+  background: rgba(20, 22, 28, 0.82);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
+  pointer-events: none; /* it is never in the way of the map underneath */
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.toast[hidden] {
+  display: none;
+}
+
+.toast.toast-in {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* "Nothing left to undo" is an answer, not an event. */
+.toast.toast-quiet {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* On a phone the controls stack bottom right and the menu opens as a sheet from
+   the bottom, so down there is the one place this can't go. */
+@media (max-width: 560px) {
+  .toast {
+    bottom: auto;
+    top: 14px;
+    transform: translate(-50%, -8px);
+  }
+
+  .toast.toast-in {
+    transform: translate(-50%, 0);
+  }
+
+  /* …which is where the offline banner already is. It's the sibling before this
+     one in the markup, so when it's up, this drops below it. */
+  .offline-bar:not([hidden]) ~ .toast {
+    top: 92px;
+  }
+}
+
+[data-theme='light'] .toast {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+
+[data-theme='light'] .toast.toast-quiet {
+  color: rgba(15, 23, 42, 0.6);
+}
+
+/* --- Backups -----------------------------------------------------------------
+   The dialog is the ordinary modal; these are the parts that are its own. */
+
+/* The sentence under the schedule: what the expression the dialog is about to
+   save actually means, and when it next comes round. */
+.backup-when {
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  background: rgba(96, 172, 255, 0.1);
+  border: 1px solid rgba(96, 172, 255, 0.22);
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.backup-when-bad {
+  background: rgba(255, 138, 128, 0.1);
+  border-color: rgba(255, 138, 128, 0.3);
+  color: #ff8a80;
+}
+
+.backup-when:empty {
+  display: none;
+}
+
+/* Where the files are. Long, and nobody types it — it's there to be read once. */
+.backup-where {
+  margin-top: 6px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: rgba(255, 255, 255, 0.35);
+  overflow-wrap: anywhere;
+}
+
+.backup-files {
+  margin-top: 14px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.backup-files[hidden] {
+  display: none;
+}
+
+.backup-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.backup-file-name {
+  flex: 1;
+  min-width: 0;
+  color: #fff;
+}
+
+.backup-file-size {
+  flex: none;
+  color: rgba(255, 255, 255, 0.45);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A copy that never leaves the machine it's a copy of isn't a backup. */
+.backup-file-get {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #cfe4ff;
+  text-decoration: none;
+}
+
+.backup-file-get:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* What "Back up now" just did — including, deliberately, when it did nothing. */
+.backup-note {
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: #9fd0a0;
+}
+
+.backup-note[hidden] {
+  display: none;
+}
+
+.import-row input[type='time'] {
+  appearance: none;
+  flex: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+}
+
+[data-theme='light'] .backup-when {
+  color: rgba(15, 23, 42, 0.8);
+}
+
+[data-theme='light'] .backup-where {
+  color: rgba(15, 23, 42, 0.45);
+}
+
+[data-theme='light'] .backup-files {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .backup-file {
+  color: rgba(15, 23, 42, 0.7);
+}
+
+[data-theme='light'] .backup-file-name {
+  color: #0f172a;
+}
+
+[data-theme='light'] .backup-file-size {
+  color: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme='light'] .backup-file-get {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: rgba(15, 23, 42, 0.06);
+  color: #1d4ed8;
+}
+
+[data-theme='light'] .backup-note {
+  color: #1a7f37;
+}
+
+[data-theme='light'] .import-row input[type='time'] {
+  border-color: rgba(15, 23, 42, 0.16);
+  background: rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+}

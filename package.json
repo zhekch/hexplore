@@ -1,0 +1,26 @@
+{
+  "name": "visited-map",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite",
+    "dev:api": "node --watch server/index.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/index.js",
+    "test": "node scripts/test/net-guard.mjs && node scripts/test/guess-sport.mjs && node scripts/test/komoot-urls.mjs && node scripts/test/route-link.mjs && node scripts/test/routes-api.mjs && node scripts/test/reimport-sport.mjs && node scripts/test/prefs-sync.mjs",
+    "import": "node scripts/import-locations.mjs",
+    "build:countries": "node scripts/build-countries.mjs",
+    "build:places": "node scripts/build-places.mjs",
+    "filter:countries": "node scripts/apply-territory-filter.mjs"
+  },
+  "dependencies": {
+    "maplibre-gl": "^5.6.0",
+    "polygon-clipping": "^0.15.7"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}

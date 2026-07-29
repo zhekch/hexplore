@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Database — accounts, sessions, saved routes and every visited cell.
+# Created on first run at DB_PATH (defaults to ./data.db).
+data.db
+data.db-shm
+data.db-wal
+data.db-journal
+*.sqlite
+*.sqlite3
+
+# Snapshots written by the server to BACKUP_DIR (defaults to ./backups)
+backups/
+
+# Personal location exports dropped here for `npm run import`
+# (Google, Snapchat, Apple Photos, Strava, Komoot, GPX/KML/TCX …)
+import/*
+!import/.gitkeep
+
+# Visited cells built from those exports by `npm run import` —
+# derived from raw GPS points, so it is personal data too.
+src/imported-cells.json
+
+# Environment / secrets: REGISTRATION_CODE, HA_ALLOWED_HOSTS, ports, DB paths
+.env
+.env.*
+!.env.example
+
+# Generated map data. Committed by default so a clone runs without network:
+#   npm run build:countries → src/countries.json (Natural Earth, public domain)
+#   npm run build:places    → src/places.json    (GeoNames CC BY 4.0 + Natural Earth)
+# Uncomment to keep them out of the repo and rebuild locally instead.
+# src/countries.json
+# src/places.json
+
+# Local Claude Code settings (personal permissions); .claude/ itself is shared
+.claude/settings.local.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+.vscode/
+.idea/
+*.swp
