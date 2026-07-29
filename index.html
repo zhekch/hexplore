@@ -814,6 +814,15 @@
       <button type="button" class="offline-retry" id="offline-retry">Retry</button>
     </div>
 
+    <!-- Shown while something is being fetched that the map is waiting on — the
+         detailed region boundaries, which come one country at a time and can
+         take a moment on a first look. No panel behind it: it is a status, not a
+         dialog, and the map underneath is still perfectly usable. -->
+    <div class="busy" id="busy" hidden role="status" aria-live="polite">
+      <span class="busy-ring" aria-hidden="true"></span>
+      <span class="busy-text" id="busy-text">Loading…</span>
+    </div>
+
     <!-- What just happened, briefly. Undo's whole problem is that the thing it
          changed is often off screen or too small to notice, so it says what it
          did. A sibling of the offline bar on purpose: when both are up, the CSS

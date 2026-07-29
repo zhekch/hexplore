@@ -89,6 +89,7 @@ All optional — every one has a working default.
 | `PORT` | `3001` | Port for `npm start` |
 | `DB_PATH` | `./data.db` | Where the database lives |
 | `BACKUP_DIR` | `./backups` | Where scheduled backups are written |
+| `REGION_CACHE_DIR` | `./cache/regions` | Where detailed region boundaries are cached |
 | `COOKIE_SECURE` | auto | Forces the `Secure` cookie flag; already automatic over HTTPS |
 | `ALLOW_REGISTRATION` | off | Reopens registration after the first account |
 | `REGISTRATION_CODE` | — | Keeps registration open, behind an invite code |
@@ -188,9 +189,14 @@ canton edge follows the lake it actually follows. Nothing is fetched on Auto, or
 before you zoom in, and the request says only which country — never anything
 about your map.
 
-Some countries stay at the shipped resolution, because the detailed source
-divides them differently than this map does — Italy is one: it has provinces
-here and only regions there. The map declines rather than drawing you a shape
+Your server does the fetching and keeps a copy, so each country is only ever
+downloaded once however many times you look at it, and a small spinner sits at
+the top of the map while one is on its way.
+
+A few countries stay at the shipped resolution, because the detailed source
+divides them differently than this map does — Hungary is one: it counts city
+counties separately here and folds them into counties there, so about half of it
+sharpens and the rest doesn't. The map declines rather than drawing you a shape
 that isn't the one it counted.
 
 **Looks.** Four basemaps (dark, terrain, light, satellite), one accent colour or

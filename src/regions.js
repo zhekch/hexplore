@@ -47,13 +47,6 @@ let loading = null;
 // Git LFS, so every other route returns a 131-byte pointer instead of a
 // boundary, and github.com's own /raw/ redirect cannot be read cross-origin at
 // all. media.githubusercontent.com serves the real bytes with CORS.
-const GB_COMMIT = '9469f09';
-const gbFile = (iso, level) =>
-  `https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/${GB_COMMIT}/releaseData/gbOpen/${iso}/${level}/geoBoundaries-${iso}-${level}_simplified.geojson`;
-// The API is only asked how many units a level has — a 1.7 KB answer that saves
-// downloading the wrong file.
-const gbApi = (iso, level) => `https://www.geoboundaries.org/api/current/gbOpen/${iso}/${level}/`;
-
 // "Admin-1" does not mean the same thing in the two datasets, and the difference
 // is not a detail — it is the difference between a sharper canton and a fifth of
 // Italy colouring in.
@@ -70,12 +63,8 @@ const gbApi = (iso, level) => `https://www.geoboundaries.org/api/current/gbOpen/
 // levels has about as many units as we do is the one describing the same thing.
 // France then works (96 against 101) and Italy declines (20 against 110), which
 // is the honest answer — geoBoundaries has no Italian provinces to give.
-const GB_LEVELS = ['ADM1', 'ADM2'];
-// min(a,b)/max(a,b) must be at least this for two levels to be the same idea.
-const COUNT_MATCH = 0.6;
-// And each individual pair has to be about the same size, so a level that passed
-// the count test on average cannot still swap one region for a much bigger one.
-const AREA_MATCH = [0.3, 3.2];
+// Each pair has to be about the same size. See pairFineRegions().
+export const AREA_MATCH = [0.3, 3.2];
 
 let FINE = new Map(); // region id → detailed geometry
 const fineDone = new Set(); // iso codes fetched (or failed — don't retry a 404)
@@ -116,9 +105,9 @@ export const fineRegionsLoaded = () => FINE.size > 0;
 export const fineCountryKnown = (iso) => fineDone.has(iso) || finePending.has(iso);
 
 /** Kick off (or reuse) the one-time fetch. Resolves when the data is ready. */
-export function loadRegions() {
+export function loadRegions(data) {
   if (!loading) {
-    loading = import('./regions.json').then((m) => {
+    loading = (data ? Promise.resolve({ default: data }) : import('./regions.json')).then((m) => {
       REGIONS = m.default;
       buildIndex();
       return REGIONS;
@@ -127,7 +116,7 @@ export function loadRegions() {
   return loading;
 }
 
-const fold = (v) =>
+export const foldName = (v) =>
   String(v ?? '')
     .toLowerCase()
     .normalize('NFD')
@@ -135,12 +124,14 @@ const fold = (v) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
-// A point that is definitely inside a ring: the average of its vertices when
-// that lands inside, and otherwise a walk across the bounding box until
-// something does. Needed because the two datasets name the same place
-// differently often enough — Luzern/Lucerne, St. Gallen/Sankt Gallen — that
-// names alone cannot be trusted to pair them up.
-function pointInside(rings) {
+/**
+ * A point that is definitely inside a ring: the average of its vertices when
+ * that lands inside, and otherwise a walk across the bounding box until
+ * something does. Needed because the two datasets name the same place
+ * differently often enough — Luzern/Lucerne, St. Gallen/Sankt Gallen — that
+ * names alone cannot be trusted to pair them up.
+ */
+export function pointInside(rings) {
   const outer = rings[0];
   let x = 0;
   let y = 0;
@@ -170,8 +161,27 @@ function pointInside(rings) {
   return null;
 }
 
-// Square metres of a Polygon/MultiPolygon, holes subtracted.
-function geometryAreaM2(g) {
+/** Every region of one country — the pairing works through this list. */
+export function regionsOf(country) {
+  return (REGIONS ?? []).filter((r) => r.country === country);
+}
+
+let isoIndex = null;
+
+/**
+ * The country name this dataset uses for an ISO3 code. The detailed boundaries
+ * are requested by code and paired by name, so something has to bridge the two.
+ */
+export function countryForIso(iso) {
+  if (!isoIndex) {
+    isoIndex = new Map();
+    for (const r of REGIONS ?? []) if (r.iso) isoIndex.set(r.iso, r.country);
+  }
+  return isoIndex.get(iso) ?? null;
+}
+
+/** Square metres of a Polygon/MultiPolygon, holes subtracted. */
+export function geometryAreaM2(g) {
   let a = 0;
   for (const poly of asMulti(g)) {
     a += ringAreaM2(poly[0]);
@@ -180,93 +190,91 @@ function geometryAreaM2(g) {
   return a;
 }
 
-// Which of their levels describes the same thing we do. One small JSON request
-// per candidate; null when none of them does.
-async function chooseLevel(iso, mine) {
-  let best = null;
-  for (const level of GB_LEVELS) {
-    let count = 0;
-    try {
-      const res = await fetch(gbApi(iso, level));
-      if (!res.ok) continue;
-      count = Number((await res.json())?.admUnitCount) || 0;
-    } catch {
-      continue;
+/**
+ * Pair detailed boundary features against our regions for one country.
+ *
+ * Shared with the server, which does the fetching (see server/regions-fine.js):
+ * the browser cannot ask geoBoundaries directly — their API answers a level that
+ * doesn't exist with an error page carrying no CORS headers, so probing turns
+ * into console noise on a real origin — and one machine fetching each country
+ * once is politer to them than every browser doing it.
+ *
+ * Pairing is by name, then by geometry, then checked by size:
+ *
+ * - Names pair most of them for free. The two datasets agree on 24 of 26 Swiss
+ *   cantons and disagree on Luzern/Lucerne and St. Gallen/Sankt Gallen.
+ * - A name miss falls back to a point provably inside their polygon, looked up
+ *   in our own dataset.
+ * - And then every pair has to be about the same *size*. This is the guard that
+ *   matters: geoBoundaries' Italian ADM1 has five macro-regions, each of which
+ *   genuinely contains one of our 110 provinces' centres, so geometry alone
+ *   "paired" them and one province painted a fifth of the country.
+ *
+ * Partial answers are kept. Natural Earth counts Hungary's 23 city-counties as
+ * admin-1 units and geoBoundaries folds them into their counties, so twenty of
+ * our forty-three pair and the rest keep the overview shape — every drawn shape
+ * still being the right shape for what it represents.
+ *
+ * @param {string} country
+ * @param {Array<object>} features  GeoJSON features with a `shapeName`
+ * @returns {Map<string, object>} our region id → detailed geometry
+ */
+export function pairFineRegions(country, features) {
+  const byName = new Map();
+  for (const r of regionsOf(country)) byName.set(foldName(r.name), r.id);
+
+  const claimed = new Map();
+  for (const f of features ?? []) {
+    const g = f?.geometry;
+    if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
+    let id = byName.get(foldName(f.properties?.shapeName));
+    if (!id) {
+      const polys = asMulti(g);
+      let biggest = polys[0];
+      for (const poly of polys) if (poly[0].length > biggest[0].length) biggest = poly;
+      const pt = pointInside(biggest);
+      if (pt) id = regionAt(pt[0], pt[1], country)?.id;
     }
-    if (!count) continue;
-    const ratio = Math.min(count, mine) / Math.max(count, mine);
-    if (!best || ratio > best.ratio) best = { level, count, ratio };
+    if (!id || claimed.has(id)) continue; // one detailed shape per region
+
+    const theirs = geometryAreaM2(g);
+    const ours = regionAreaKm2(id) * 1e6;
+    if (!ours || !theirs) continue;
+    const ratio = theirs / ours;
+    if (ratio < AREA_MATCH[0] || ratio > AREA_MATCH[1]) continue;
+
+    claimed.set(id, g);
   }
-  return best && best.ratio >= COUNT_MATCH ? best : null;
+  return claimed;
+}
+
+/** Take detailed geometry the server worked out: { "<id>": geometry, … }. */
+export function addFineRegions(byId) {
+  let n = 0;
+  for (const [id, g] of Object.entries(byId ?? {})) {
+    if (g) {
+      FINE.set(id, g);
+      n++;
+    }
+  }
+  return n;
 }
 
 /**
- * Fetch one country's detailed boundaries and pair them with our regions.
- *
- * Resolves to how many regions gained detail. Never rejects: a country
- * geoBoundaries describes differently than we do is not an error, it just keeps
- * the overview geometry, and it is remembered so it isn't asked for twice.
- *
- * @param {string} iso  ISO3 country code, from our own region records
- * @param {string} country  the country name, to narrow the pairing lookup
+ * Ask our own server for one country's detailed boundaries. Never rejects: a
+ * country nobody has boundaries for at our granularity keeps the overview
+ * geometry, and is remembered so it isn't asked for twice.
  */
-export async function loadFineRegions(iso, country) {
+export async function loadFineRegions(iso) {
   if (!iso || fineDone.has(iso) || finePending.has(iso)) return 0;
   finePending.add(iso);
   try {
-    const mine = regionsInCountry(country);
-    if (!mine) return 0;
-    const pick = await chooseLevel(iso, mine);
-    if (!pick) return 0; // they don't have this country at our granularity
-
-    const res = await fetch(gbFile(iso, pick.level));
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const geo = await res.json();
-
-    // Name first — it pairs most of them for free — then geometry for the rest.
-    const byName = new Map();
-    const ours = [];
-    for (const r of REGIONS ?? []) {
-      if (r.country !== country) continue;
-      byName.set(fold(r.name), r.id);
-      ours.push(r);
-    }
-
-    const claimed = new Map(); // our id → their geometry, one each
-    for (const f of geo.features ?? []) {
-      const g = f.geometry;
-      if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
-      let id = byName.get(fold(f.properties?.shapeName));
-      if (!id) {
-        // Ask our own dataset which region a point inside theirs belongs to.
-        const polys = asMulti(g);
-        let biggest = polys[0];
-        for (const poly of polys) if (poly[0].length > biggest[0].length) biggest = poly;
-        const pt = pointInside(biggest);
-        if (pt) id = regionAt(pt[0], pt[1], country)?.id;
-      }
-      if (!id || claimed.has(id)) continue; // one detailed shape per region
-
-      // The size test. A pairing that replaces a province with the region
-      // containing it passes every other check — their polygon really does
-      // contain our centre, and the name lookup simply missed — and then paints
-      // five times the ground. This is what stops it.
-      const theirs = geometryAreaM2(g);
-      const oursM2 = regionAreaKm2(id) * 1e6;
-      if (!oursM2 || !theirs) continue;
-      const ratio = theirs / oursM2;
-      if (ratio < AREA_MATCH[0] || ratio > AREA_MATCH[1]) continue;
-
-      claimed.set(id, g);
-    }
-
-    // A level that only pairs a handful is describing something else; keeping
-    // those few would mean a country drawn at two resolutions at once.
-    if (claimed.size < Math.min(mine, pick.count) * COUNT_MATCH) return 0;
-    for (const [id, g] of claimed) FINE.set(id, g);
-    return claimed.size;
+    const res = await fetch(`/api/regions/${encodeURIComponent(iso)}`);
+    if (!res.ok) return 0;
+    const body = await res.json();
+    return addFineRegions(body?.regions);
   } catch {
-    return 0; // no detail for this country; the overview geometry stands
+    return 0;
   } finally {
     finePending.delete(iso);
     fineDone.add(iso);

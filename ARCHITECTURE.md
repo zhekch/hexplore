@@ -754,45 +754,55 @@ back out returns to the overview geometry rather than tiling detail smaller than
 a pixel. On Auto this is unreachable — that level never survives past ~z5 — so an
 ordinary session fetches nothing.
 
-Three details that are not obvious:
+**It happens on the server** (`server/regions-fine.js`), which was not the first
+attempt and is the right one for three reasons, each learned by getting it wrong:
 
-- **Nothing is *resolved* against the detailed set.** Which region a cell belongs
-  to is decided once, on the overview geometry, so the answer cannot change under
-  you when the fine one lands, and the per-cell memo stays valid.
-- **The URL is the LFS media host, pinned to a commit.** These files are stored
-  in Git LFS, so `raw.githubusercontent.com` and jsDelivr both return a
-  131-byte pointer instead of a boundary, and `github.com/…/raw/…` redirects to
-  something the browser refuses to read cross-origin. Only
-  `media.githubusercontent.com/media/…` serves the real bytes with CORS. The
-  commit is pinned so the data cannot change under a running map.
-- **The admin level is chosen by unit count, not by its name.** "Admin-1" does
-  not mean the same thing in the two datasets, and the difference is not
-  cosmetic. Natural Earth's admin-1 is *provinces* for Italy (110) and
-  *départements* for France (101); gbOpen's hierarchy is shifted for both —
-  Italy's ADM1 has **five** units and its ADM2 the twenty regions, France's ADM1
-  has thirteen régions and its ADM2 the ninety-six départements. Pairing 110
-  Italian provinces against five macro-regions put a fifth of Italy under one
-  province and it looked like a bug in the renderer: geometrically it *matched*,
-  because their polygon really does contain our province's centre. So each
-  candidate level is asked its `admUnitCount` first — a 1.7 KB request — and the
-  one with about as many units as we have is the one describing the same thing.
-  France works (96 against 101); Italy declines (20 against 110), which is the
-  honest answer, because geoBoundaries has no Italian provinces to give.
-- **Pairing is by name, then by geometry, then checked by area.** The two
-  datasets agree on 24 of 26 Swiss canton names and disagree on Luzern/Lucerne
-  and St. Gallen/Sankt Gallen, so a name miss falls back to taking a point
-  provably inside their polygon and asking our own dataset which region contains
-  it. Every pair is then required to be about the same *size* (0.3×–3.2×) and
-  each detailed shape may claim only one of our regions — the guard that stops a
-  level which passed the count test on average from still swapping one region for
-  a much larger one. A level that pairs only a handful is rejected outright,
-  because a country drawn at two resolutions at once is worse than one drawn
-  coarsely.
+- **The browser cannot do it.** geoBoundaries' API answers a level that doesn't
+  exist with an error page carrying no CORS headers, so probing for one prints
+  "blocked by CORS policy" on a real origin. It worked from localhost and failed
+  on the deployed site.
+- **One machine fetching each country once is politer than every browser doing
+  it**, and the answers are cached on disk (`REGION_CACHE_DIR`, default
+  `./cache/regions`). The upstream commit is pinned, so the data cannot change
+  and the cache never expires: a repeat request is 2–15 ms.
+- **Choosing the level takes several small requests** and the answer is the same
+  for everyone.
 
-This is the app's one runtime geometry fetch, and worth being explicit about: it
-is the same class of request as a basemap tile — a public boundary file, asked
-for by country code — and it carries no user data. The request says
-"Switzerland", not where you have been.
+The browser therefore asks `GET /api/regions/:ISO` and gets back
+`{ level, regions: { "<our id>": geometry } }` — session-gated, because an open
+proxy onto someone else's dataset is their bandwidth to spend.
+
+**The level is chosen by unit count, and it is not off by a constant.** "Admin-1"
+means something different in each dataset *per country*: Italy's provinces are our
+admin-1 and their **ADM3**, France's départements are ours and their **ADM2**,
+Switzerland's cantons are admin-1 in both. So every level is a candidate, each is
+asked its `admUnitCount`, and they are tried closest-count-first. Getting this
+wrong is not subtle — pairing our 110 Italian provinces against their five ADM1
+macro-regions put a fifth of Italy under one province, and it looked like a
+renderer bug: geometrically it *matched*, because their polygon really does
+contain our province's centre.
+
+**Partial answers are kept.** Natural Earth counts Hungary's 23 city-counties as
+admin-1 units and geoBoundaries folds them into their counties, so 17 of our 43
+pair and the rest keep the overview shape. Every drawn shape is still the right
+shape for what it represents, which is the test that matters — a level is only
+rejected when it pairs less than 40% of the smaller count, meaning it is
+describing something else entirely.
+
+**Pairing is by name, then geometry, then size.** The two datasets agree on 24 of
+26 Swiss cantons and disagree on Luzern/Lucerne and St. Gallen/Sankt Gallen, so a
+name miss falls back to a point provably inside their polygon, looked up in ours.
+Then every pair must be within 0.3×–3.2× on area and each detailed shape may
+claim only one of our regions — the guard that makes a wrong level harmless
+rather than catastrophic.
+
+**Nothing is *resolved* against the detailed set.** Which region a cell belongs to
+is decided once, on the overview geometry, so the answer cannot change under you
+when the fine one lands and the per-cell memo stays valid.
+
+What this buys, measured: Switzerland 26 of 26 regions, Italy 106 of 110, France
+96 of 101, Liechtenstein 11 of 11, Hungary 17 of 43. The drawn union of two
+Italian provinces goes from 342 points to 4,158.
 
 **Border slivers snap; only genuinely unsubdivided countries stand in for
 themselves.** The country outlines are rounded to ~1 km and each region is

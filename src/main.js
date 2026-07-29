@@ -46,6 +46,7 @@ import { asMulti, unionGeometries } from './polygon.js';
 import { mountBackup } from './backup-ui.js';
 import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
+import { busy } from './busy.js';
 import { routesToFC, totalLength, formatDistance, canonicalSport } from './routes.js';
 import { reconcilePrefs } from './prefs.js';
 import { loadPlaces, describeRoute } from './places.js';
@@ -1445,7 +1446,21 @@ window.visitedMap = {
     live: vecLive,
     roles: { ...vecRole },
     held: { '': vecHeld[''] !== EMPTY, '-prev': vecHeld['-prev'] !== EMPTY },
+    litRegions: litRegionIds?.size ?? null,
+    fine: fineRegionsLoaded(),
   }),
+  // Why a zoom-in is (or isn't) asking for detailed boundaries.
+  fineDebug: () => {
+    const b = map.getBounds();
+    const view = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+    return {
+      level: currentLevel,
+      zoom: map.getZoom(),
+      lit: litRegionIds ? [...litRegionIds] : null,
+      view: view.map((n) => +n.toFixed(2)),
+      candidates: litRegionIds ? countriesInView(litRegionIds, view) : null,
+    };
+  },
   visited,
   cellMeta,
   idAt: (lng, lat) => cellIdAt({ lng, lat }),
@@ -2992,11 +3007,16 @@ function considerFineRegions(level) {
   const view = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
   for (const { iso, country } of countriesInView(litRegionIds, view)) {
     if (fineCountryKnown(iso)) continue;
-    loadFineRegions(iso, country).then((paired) => {
-      if (!paired) return;
-      areaFC.regionFine = EMPTY; // rebuild at the new resolution
-      updateGrid(true);
-    });
+    // The ring at the top of the map, so a zoom that is about to sharpen doesn't
+    // look like one that isn't going to.
+    const done = busy(`Loading ${country} boundaries…`);
+    loadFineRegions(iso)
+      .then((paired) => {
+        if (!paired) return;
+        areaFC.regionFine = EMPTY; // rebuild at the new resolution
+        updateGrid(true);
+      })
+      .finally(done);
   }
 }
 

@@ -4140,3 +4140,69 @@ body {
 [data-theme='light'] .home-hit:hover {
   background: rgba(15, 23, 42, 0.07);
 }
+
+/* --- Busy ---------------------------------------------------------------------
+   Top centre, no background. It marks a fetch the map is waiting on — detailed
+   boundaries arrive one country at a time — and the map stays usable while it
+   spins, so anything more than a ring and a word would be overstating it. */
+.busy {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 122;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  pointer-events: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+  /* Over a satellite photo or a light basemap, plain text needs its own edge —
+     a shadow rather than a panel, so nothing is boxed in. */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  animation: busy-in 0.2s ease;
+}
+
+.busy[hidden] {
+  display: none;
+}
+
+@keyframes busy-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.busy-ring {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1.6px solid rgba(255, 255, 255, 0.28);
+  border-top-color: rgba(255, 255, 255, 0.9);
+  animation: busy-spin 0.7s linear infinite;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+@keyframes busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The offline banner owns this spot when it is up; step aside rather than
+   stacking on top of it. */
+.offline-bar:not([hidden]) ~ .busy {
+  top: 78px;
+}
+
+[data-theme='light'] .busy {
+  color: rgba(15, 23, 42, 0.8);
+  text-shadow: 0 1px 3px rgba(255, 255, 255, 0.7);
+}
+
+[data-theme='light'] .busy-ring {
+  border-color: rgba(15, 23, 42, 0.22);
+  border-top-color: rgba(15, 23, 42, 0.85);
+}

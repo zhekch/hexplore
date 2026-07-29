@@ -16,6 +16,10 @@ data.db-journal
 # Snapshots written by the server to BACKUP_DIR (defaults to ./backups)
 backups/
 
+# Detailed boundaries the server fetched and cached (REGION_CACHE_DIR).
+# Re-fetched on demand; nothing here is authored.
+cache/
+
 # Personal location exports dropped here for `npm run import`
 # (Google, Snapchat, Apple Photos, Strava, Komoot, GPX/KML/TCX …)
 import/*

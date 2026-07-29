@@ -31,6 +31,7 @@
 //   GET  /api/strava/callback?code&state   → 302 /?strava=…
 //   POST /api/strava/sync                  → {link,activities,…}| 401
 //   POST /api/strava/delete                → {ok}               | 401
+//   GET  /api/regions/:iso                 → {regions}          | 401
 //   GET  /api/backup                       → {backup}           | 401/403
 //   POST /api/backup {enabled,cron,keep}   → {backup}           | 401/403
 //   POST /api/backup/run                   → {status,backup}    | 401/403
@@ -56,7 +57,8 @@
 // the Secure flag (set this behind HTTPS), IMPORT_OWNER=<username> to merge the
 // baked-in imported history into that one account (default: unset — every new
 // account starts empty and nobody gets it auto-filled), BACKUP_DIR (default
-// ./backups) for where the timed copies of data.db are written.
+// ./backups) for where the timed copies of data.db are written,
+// REGION_CACHE_DIR (default ./cache/regions) for the detailed boundary cache.
 
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
@@ -84,6 +86,10 @@ import { isKomootTourUrl } from '../src/komoot.js';
 // Everything above is about getting data *in*. This is the one thing that
 // copies it back out again, on a schedule, without being asked.
 import { createBackups, isBackupName } from './backup.js';
+// Detailed region boundaries, fetched once per country and cached on disk. The
+// browser can't fetch these itself — see the module for why.
+import { createFineRegions } from './regions-fine.js';
+import { loadRegions } from '../src/regions.js';
 import { describeCron } from '../src/cron.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -92,6 +98,7 @@ const DB_PATH = process.env.DB_PATH || path.join(ROOT, 'data.db');
 const COOKIE_SECURE = process.env.COOKIE_SECURE === '1' || process.env.COOKIE_SECURE === 'true';
 const IMPORT_OWNER = process.env.IMPORT_OWNER || null;
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(ROOT, 'backups');
+const REGION_CACHE_DIR = process.env.REGION_CACHE_DIR || path.join(ROOT, 'cache', 'regions');
 const DIST = path.join(ROOT, 'dist');
 const SERVE_STATIC = existsSync(DIST);
 // Sessions are checked against this server-side now, not just handed to the
@@ -272,6 +279,19 @@ const backups = createBackups({
   dir: BACKUP_DIR,
   log: (msg) => console.log(`[visited-map] ${msg}`),
 });
+
+// Detailed region boundaries. The dataset the pairing works against is the same
+// file the browser ships with; Node needs it handed over rather than imported,
+// because a JSON import here would want an attribute Vite dislikes.
+const fineRegions = createFineRegions({
+  dir: REGION_CACHE_DIR,
+  log: (msg) => console.log(`[visited-map] regions: ${msg}`),
+});
+try {
+  loadRegions(JSON.parse(readFileSync(path.join(ROOT, 'src', 'regions.json'), 'utf8')));
+} catch (e) {
+  console.warn(`[visited-map] no region dataset (${e.message}) — detailed boundaries are off`);
+}
 
 const q = {
   insUser: db.prepare('INSERT INTO users(username, pass, created_at) VALUES(?, ?, ?)'),
@@ -1804,6 +1824,19 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       const info = q.delRoute.run(user.id, rowId);
       const route = row ? { ...routeOut(row), key: row.key } : null;
       return send(res, 200, { ok: true, removed: info.changes, route, total: routeCount(user) });
+    }
+
+    // Detailed boundaries for one country, worked out and cached server-side.
+    // Session-gated: it is a small proxy onto a public dataset, and an open one
+    // would be someone else's bandwidth to spend.
+    if (req.method === 'GET' && pathname.startsWith('/api/regions/')) {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const iso = pathname.slice('/api/regions/'.length).toUpperCase();
+      const out = await fineRegions.get(iso);
+      if (!out) return send(res, 400, { error: 'bad country code' });
+      // The upstream commit is pinned, so this answer can never change.
+      return send(res, 200, out, { 'Cache-Control': 'public, max-age=31536000, immutable' });
     }
 
     // --- Backups --------------------------------------------------------------
