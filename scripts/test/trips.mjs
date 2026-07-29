@@ -122,6 +122,21 @@ check(buildTrips(merge(homeCells, undated), []).length === 0, 'undated cells mak
 const fresh = buildTrips(augCells, [], { home: null });
 check(fresh.length === 1, 'a map with no home still finds its trip', `${fresh.length}`);
 
+// --- The western hemisphere ---------------------------------------------------
+// Cell columns count east from the antimeridian, so a projected cell centre in
+// Iceland is longitude 338, not −22 — and a bounding box from 338 to 338.1 asks
+// the map to frame the planet. This is the bug that made clicking a trip zoom
+// all the way out.
+console.log('\nlongitudes');
+const iceland = patch(-21.94, 64.15, 5, T('2025-06-03'), T('2025-06-09'));
+const ice = buildTrips(merge(homeCells, iceland), []);
+check(ice.length === 1, 'a trip in the western hemisphere is found');
+check(ice[0].bbox[0] >= -180 && ice[0].bbox[2] <= 180, 'and its box is in real longitudes',
+  ice[0].bbox.map((n) => n.toFixed(1)).join(', '));
+check(Math.abs(ice[0].center[0] + 21.94) < 1, 'centred where it actually is', String(ice[0].center[0]));
+check(ice[0].bbox[2] - ice[0].bbox[0] < 2, 'and no wider than the place it covers',
+  String(ice[0].bbox[2] - ice[0].bbox[0]));
+
 // --- The calendar -------------------------------------------------------------
 console.log('\ndays');
 const days = activeDays(merge(homeCells, augCells), [route]);

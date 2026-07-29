@@ -711,6 +711,50 @@
       </div>
     </div>
 
+    <!-- Where you live. Everything in the Trips tab is measured from it — what
+         counts as away, how far each trip went, what is a trip at all — so the
+         guess has to be correctable, and by something more precise than a
+         guess: a place by name, or the middle of the map you are looking at. -->
+    <div class="modal-overlay" id="home-overlay" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">Where you live</div>
+            <div class="modal-sub">Trips are the days you spent away from here, so this decides what counts as one.</div>
+          </div>
+          <button class="cell-info-close" id="home-close" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="ha-status" id="home-current"></div>
+
+        <div class="ha-field">
+          <label class="ha-label" for="home-search">Search for a town<small>Looked up on this machine, like everywhere else in the app</small></label>
+          <input class="auth-input" id="home-search" type="text" placeholder="Bern"
+            autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
+        </div>
+        <div class="home-hits" id="home-hits"></div>
+
+        <button type="button" class="home-here" id="home-here">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 21s-7-6.2-7-11a7 7 0 1 1 14 0c0 4.8-7 11-7 11Z" />
+            <circle cx="12" cy="10" r="2.4" />
+          </svg>
+          Use the middle of the map
+        </button>
+
+        <div class="import-error" id="home-error" hidden></div>
+
+        <div class="modal-actions">
+          <button type="button" class="modal-btn danger" id="home-clear" hidden>Use the guess</button>
+          <button type="button" class="modal-btn" id="home-back">Back</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Search. Deliberately at the top of the screen rather than centred: the
          answers push downwards as you type, and the map underneath stays
          visible, which is where the answer is going to land. -->

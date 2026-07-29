@@ -7,8 +7,10 @@ import { computeStats, EARTH_LAND_KM2 } from './stats.js';
 import { sourceLabel, IMPORT_SOURCES } from './locations.js';
 import { formatDistance, formatDuration, totalLength, thumbSegments } from './routes.js';
 import { auth } from './auth.js';
-import { buildTrips, nameTrips, dayKey } from './trips.js';
-import { loadPlaces, nearestTown, lakeAround } from './places.js';
+import { buildTrips, nameTrips, findHome, dayKey } from './trips.js';
+import { loadPlaces, nearestTown } from './places.js';
+import { loadCountries, countryIdAt } from './countries.js';
+import { loadRegions, regionAt } from './regions.js';
 import { isKomootTourUrl } from './komoot.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -40,6 +42,9 @@ const pct = (v) =>
  * @param {() => Array<object>} opts.routes saved routes (newest first)
  * @param {(route:object) => void} opts.onShowRoute  take me to this one
  * @param {(trip:object) => void} [opts.onShowTrip]   take me to this trip
+ * @param {() => ({lng:number,lat:number,name:string}|null)} [opts.home] the
+ *   home you confirmed, or null to use the one worked out from the cells
+ * @param {(home:object|null) => Promise<void>} [opts.onSetHome] change it
  * @param {(route:object, before:object) => void} [opts.onRouteEdited] after a successful
  *   save, with the values it had before it — that's what Undo needs
  * @param {(route:object) => Promise<void>} [opts.onRouteDeleted] remove it everywhere
@@ -51,6 +56,8 @@ export function mountStats({
   routes = () => [],
   onShowRoute,
   onShowTrip,
+  home = () => null,
+  onSetHome,
   onRouteEdited,
   onRouteDeleted,
   knownSources,
@@ -760,14 +767,12 @@ export function mountStats({
     body.append(loading);
     await new Promise((r) => setTimeout(r, 20)); // let the dialog paint first
 
-    const list = buildTrips(meta(), routes());
-    // Naming needs the 2 MB place dataset. The trips are already complete
-    // without it, so it is awaited here rather than blocking the derivation.
+    const set = home();
+    const list = buildTrips(meta(), routes(), set ? { home: set } : {});
     try {
-      await loadPlaces();
-      nameTrips(list, nearestTown, lakeAround);
+      await nameThem(list);
     } catch {
-      for (const t of list) t.name = t.name || 'Away';
+      for (const t of list) t.name = t.name || 'Somewhere';
     }
     lastTrips = list;
 
@@ -786,8 +791,9 @@ export function mountStats({
     body.append(
       row('Trips', String(list.length)),
       row('Days away', away.toLocaleString()),
-      row('Furthest', `${Math.max(...list.map((t) => t.farKm)).toLocaleString()} km`, 'from where you usually are'),
+      row('Furthest', `${Math.max(...list.map((t) => t.farKm)).toLocaleString()} km`, 'from home'),
     );
+    body.append(homeRow(list));
     body.append(headRow('Every trip'));
 
     const wrap = document.createElement('div');
@@ -812,6 +818,57 @@ export function mountStats({
       wrap.append(el);
     }
     body.append(wrap);
+  }
+
+  // Everything in this tab is measured from home: what counts as away, how far
+  // each trip went, and therefore what is a trip at all. A guess about
+  // something that personal has to be visible and correctable, so it says which
+  // it is and offers the change.
+  function homeRow(list) {
+    const set = home();
+    const el = document.createElement('div');
+    el.className = 'home-row';
+    el.innerHTML = '<span class="home-text"><b></b><small></small></span>';
+    el.querySelector('b').textContent = set?.name || guessedHomeName || 'Not worked out yet';
+    el.querySelector('small').textContent = set
+      ? 'Home, as you set it'
+      : 'Home, guessed from the cells you visit most';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'home-set';
+    btn.textContent = set ? 'Change' : 'Set home';
+    btn.addEventListener('click', () => {
+      close();
+      onSetHome?.(set);
+    });
+    el.append(btn);
+    return el;
+  }
+
+  let guessedHomeName = '';
+
+  // Town, then region, then country — the three datasets that already ship, each
+  // a lazy chunk. Loaded together because a trip name wants all three and the
+  // first one to answer wins.
+  async function nameThem(list) {
+    await Promise.all([loadPlaces(), loadCountries(), loadRegions()]);
+    const at = (lng, lat) => {
+      const country = countryIdAt(lng, lat);
+      return {
+        town: nearestTown(lng, lat)?.name,
+        region: country ? regionAt(lng, lat, country)?.name : undefined,
+        country: country ?? undefined,
+      };
+    };
+    nameTrips(list, at);
+    // The row above the list says where home came out, which is the only way to
+    // notice that it is wrong.
+    const guess = home() ?? findHome(meta());
+    if (guess) {
+      const p = at(guess.lng, guess.lat);
+      guessedHomeName = p.town || p.region || p.country || '';
+    }
   }
 
   function tripWhen(t) {
@@ -901,12 +958,12 @@ export function mountStats({
     /** Derive them now (for the search palette on a cold start). */
     async ensureTrips() {
       if (!lastTrips) {
-        const list = buildTrips(meta(), routes());
+        const set = home();
+        const list = buildTrips(meta(), routes(), set ? { home: set } : {});
         try {
-          await loadPlaces();
-          nameTrips(list, nearestTown, lakeAround);
+          await nameThem(list);
         } catch {
-          for (const t of list) t.name = t.name || 'Away';
+          for (const t of list) t.name = t.name || 'Somewhere';
         }
         lastTrips = list;
       }

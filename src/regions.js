@@ -15,6 +15,7 @@
 // there's a grid index below: the country lookup can afford to scan its ~250
 // bboxes for every one of ~20k cells, and this one cannot.
 
+import polygonClipping from 'polygon-clipping';
 import { inPolygon, asMulti, ringAreaM2 } from './polygon.js';
 
 let REGIONS = null; // [{ id, name, country, bbox:[w,s,e,n], geometry }]
@@ -122,3 +123,49 @@ export function regionsInCountry(country) {
 }
 
 export const regionCount = () => REGIONS?.length ?? 0;
+
+/** One region's raw geometry — used by the heat maps, which colour each region
+ *  separately instead of dissolving them together. */
+export const regionGeometry = (id) => REGIONS?.find((r) => r.id === id)?.geometry ?? null;
+
+/**
+ * Union the lit regions into one dissolved shape, exactly as the country level
+ * does: touching cantons merge with no border between them. Returns the fill
+ * and every boundary ring for the outline.
+ */
+export function mergeRegions(litIds) {
+  if (!REGIONS || !litIds.size) return { fill: [], rings: [] };
+  const geoms = [];
+  for (const r of REGIONS) {
+    if (litIds.has(r.id)) geoms.push(asMulti(r.geometry));
+  }
+  if (!geoms.length) return { fill: [], rings: [] };
+  const merged = polygonClipping.union(geoms[0], ...geoms.slice(1));
+  const rings = [];
+  for (const poly of merged) {
+    for (const ring of poly) rings.push(ring);
+  }
+  return { fill: merged, rings };
+}
+
+/**
+ * Regions whose name matches, for the search box. Returns nothing when the
+ * dataset isn't loaded rather than loading it: 2.5 MB is not a reasonable price
+ * for a keystroke, and by the time anyone searches, the trips have usually
+ * pulled it in already.
+ */
+export function searchRegions(query, limit = 3) {
+  if (!REGIONS) return [];
+  const q = String(query ?? '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  const hits = [];
+  for (const r of REGIONS) {
+    const name = r.name.toLowerCase();
+    const at = name.indexOf(q);
+    if (at < 0) continue;
+    hits.push({ rank: name === q ? 0 : at === 0 ? 1 : 2, name: r.name, country: r.country, bbox: r.bbox, kind: 'region' });
+    if (hits.length > 400) break;
+  }
+  hits.sort((a, b) => a.rank - b.rank || a.name.length - b.name.length);
+  return hits.slice(0, limit);
+}

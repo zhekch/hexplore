@@ -13,6 +13,8 @@
 // coordinate anywhere.
 
 import { loadPlaces, searchPlaces } from './places.js';
+import { searchRegions } from './regions.js';
+import { searchCountries } from './countries.js';
 import { dayKey, dayDetail } from './trips.js';
 import { formatDistance } from './routes.js';
 
@@ -110,6 +112,7 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
     place: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 1 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.4"/></svg>',
     trip: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19c4-1 6-9 9-9s4 4 9 3"/><circle cx="3" cy="19" r="1.6"/><circle cx="21" cy="13" r="1.6"/></svg>',
     route: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20c0-6 6-4 6-9a3 3 0 0 0-6 0"/><path d="M13 4h6v6"/><path d="M19 4l-6 6"/></svg>',
+    area: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5 9 5l6 2.5L21 5v11.5L15 19l-6-2.5L3 19Z"/><path d="M9 5v11.5M15 7.5V19"/></svg>',
     day: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>',
   };
 
@@ -170,14 +173,19 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
 
     const lower = q.toLowerCase();
 
-    const tripHits = trips().filter((t) => t.name.toLowerCase().includes(lower)).slice(0, 4);
+    // Match a trip on everything it is called *and* everything it is in: typing
+    // "switzerland" should find the week in Zermatt, and typing "valais"
+    // should too, even though neither word is in its name.
+    const tripHits = trips()
+      .filter((t) => `${t.name} ${t.place ?? ''} ${t.country ?? ''}`.toLowerCase().includes(lower))
+      .slice(0, 4);
     if (tripHits.length) {
       resultsEl.append(section('Trips'));
       for (const t of tripHits) addTrip(t);
     }
 
     const routeHits = routes()
-      .filter((r) => `${r.name} ${r.place ?? ''}`.toLowerCase().includes(lower))
+      .filter((r) => `${r.name} ${r.place ?? ''} ${r.sport ?? ''}`.toLowerCase().includes(lower))
       .slice(0, 5);
     if (routeHits.length) {
       resultsEl.append(section('Routes'));
@@ -190,6 +198,27 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
           onPick: () => {
             close();
             onRoute?.(r);
+          },
+        });
+        resultsEl.append(el);
+        items.push({ el, pick: () => el.click() });
+      }
+    }
+
+    // Whole regions and countries, when the boundary data is already in memory
+    // (deriving the trips pulls it in). Framing a canton is a different request
+    // from flying to a town in it, and both are things people type.
+    const areaHits = [...searchRegions(q, 3), ...searchCountries(q, 2)];
+    if (areaHits.length) {
+      resultsEl.append(section('Regions and countries'));
+      for (const a of areaHits) {
+        const el = resultRow({
+          icon: ICON.area,
+          title: a.name,
+          sub: a.kind === 'region' ? a.country : 'Country',
+          onPick: () => {
+            close();
+            onPlace?.({ lng: (a.bbox[0] + a.bbox[2]) / 2, lat: (a.bbox[1] + a.bbox[3]) / 2 }, { bounds: a.bbox });
           },
         });
         resultsEl.append(el);
@@ -220,9 +249,9 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
     if (!items.length) {
       resultsEl.append(
         note(
-          searchPlaces.length && q.length < 2
+          q.length < 2
             ? 'Keep typing…'
-            : `Nothing matches “${q}”. Try a town, a route name, or a date like 2024-08-12.`,
+            : `Nothing matches “${q}”. Try a town, a canton or country, a route name, an activity, or a date like 2024-08-12.`,
         ),
       );
     }

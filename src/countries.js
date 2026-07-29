@@ -66,6 +66,23 @@ export function countryAreaKm2(id) {
 
 export const countryCount = () => COUNTRIES?.length ?? 0;
 
+/** Countries whose name matches, for the search box. Same deal as regions:
+ *  nothing until the dataset is already in memory. */
+export function searchCountries(query, limit = 2) {
+  if (!COUNTRIES) return [];
+  const q = String(query ?? '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  const hits = [];
+  for (const c of COUNTRIES) {
+    const name = String(c.id).toLowerCase();
+    const at = name.indexOf(q);
+    if (at < 0) continue;
+    hits.push({ rank: name === q ? 0 : at === 0 ? 1 : 2, name: c.id, bbox: c.bbox, kind: 'country' });
+  }
+  hits.sort((a, b) => a.rank - b.rank || a.name.length - b.name.length);
+  return hits.slice(0, limit);
+}
+
 // One country's raw geometry — used by the heat maps, which color countries
 // individually instead of dissolving them together.
 export const countryGeometry = (id) => COUNTRIES?.find((c) => c.id === id)?.geometry ?? null;

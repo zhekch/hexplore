@@ -394,6 +394,69 @@ Disconnecting throws the token away and leaves the cells it brought in, since
 those came from real fixes. Setting `COOKIE_SECURE=1` and putting the whole
 thing behind HTTPS/Tailscale is the sane way to host this.
 
+## Backups
+
+Everything behind the other door pulls data in. This writes it out: on a schedule,
+the server takes a copy of `data.db` — every account's cells and their
+provenance, the saved routes, the Home Assistant token — and keeps the last few
+beside it. Until now the only way that file existed twice was if you thought to
+copy it.
+
+**It only copies when something changed.** A map nobody edited for a week
+should leave one file behind, not seven identical ones, so two separate tests
+stand between a tick and a new file:
+
+- **The source file's size and mtime.** Nothing written since the last look
+  means nothing to copy. One `stat()`, and it's the usual answer.
+- **The hash of the copy itself.** `VACUUM INTO` rebuilds a database from its
+  logical contents, so two vacuums of the same data produce byte-identical
+  files — even after a write that added a row and deleted it again. A copy that
+  hashes the same as the newest kept one is thrown away and counted as
+  *skipped*, not kept. The dialog shows both counts, which is the feature
+  explaining itself: "12 kept · 39 skipped as unchanged".
+
+The bookkeeping — when it last ran, what the last copy hashed to — lives in a
+`.backup-state.json` beside the backups rather than in a table. That is not
+tidiness: writing "I took a backup at 04:00" *into* `data.db` is itself a change
+to `data.db`, so the next tick would see a modified file, copy it, write that
+down, and never skip anything again. The test caught exactly that.
+
+Nothing touches the bytes directly. `VACUUM INTO` asks SQLite for a consistent,
+compacted copy while the server is still running, which is the difference
+between a file that opens and a file that opens missing half a transaction. It
+is synchronous — the one place this server blocks on purpose — because SQLite
+has to see a stable database to write a copy of one. A few megabytes is a few
+milliseconds, and it runs at 04:00 by default for the day it isn't.
+
+**The schedule is a cron expression, whichever way you set it.** The picker
+(*every day at 04:00*, *every week on Sunday*) composes one; *Custom* takes one
+typed, five fields, `*/15` and `mon-fri` and `@daily` included. There is only
+ever one string in the database, and the line under the field says what it means
+in English — *"At 03:00 on Mondays, Tuesdays, Wednesdays, Thursdays and
+Fridays — next tomorrow at 03:00 AM"* — worked out by the same parser
+(`src/cron.js`) the server schedules from. An expression it cannot phrase
+honestly is shown back as itself rather than as a guess: a wrong description is
+worse than none. Times are local, and the day the clocks go forward still gets
+its backup rather than silently missing one.
+
+A missed run is taken. If the machine was asleep or the server was down at
+04:00, the first tick after boot notices that the last run predates the last
+firing and takes one then — the same catching-up the Home Assistant poller does.
+
+Retention is by count (3 to 90, default 14). Pruning only ever removes files the
+server itself wrote — the names are matched against a pattern, so pointing
+`BACKUP_DIR` at a directory with other things in it can't eat them.
+
+Each copy can be **downloaded**, because a backup that never leaves the machine
+it's a copy of is not a backup. That link is the most sensitive route in the
+app — the file is the whole database — so backups belong to the account that
+made the map (the first one), and every other account is refused in words.
+
+`npm test` covers the parser (leap days, the `13th or Friday` rule, the clock
+change), and the engine: that the copy opens as a database with all the cells in
+it, that an untouched map produces no second file, that a write which changed
+nothing produces no second file either, and that retention counts.
+
 ## Saved routes
 
 The visited map is about *ground covered*, which throws away the shape of the
@@ -556,6 +619,47 @@ loaded, and the result is sent back once.
   lands underneath every street and chops the route into dashes; `labelStart()`
   in `src/main.js` aims past the last non-symbol layer instead.
 
+## Taking it back
+
+**Ctrl-Z / ⌘-Z undoes, Ctrl-Shift-Z / ⌘-Shift-Z redoes** (and Ctrl-Y, which is
+what Windows hands tell their fingers). It covers the edits that change what the
+map holds: marking a cell, a whole Ctrl-sweep of painting, clearing an area, and
+deleting or renaming a saved route.
+
+**Every one of them says what it did** — *"Undid clearing 80 cells"*, *"Redid
+deleting “Thunersee loop”"* — in a small line at the bottom of the map. This is
+not decoration. On a map the thing that changed is often off screen, or a cell
+too small to watch move, so an undo that says nothing looks exactly like an undo
+that did nothing, and the natural response is to press it again. One slot, not a
+stack: holding the shortcut down reads as one message counting backwards rather
+than twelve notifications piling up.
+
+**Undoing a clear puts the rows back, not the cells.** Clearing drops every
+source's claim on a cell — the dates, the visit counts, which app it came from —
+and re-adding the id would bring it back as a bare manual mark having quietly
+thrown away all of it. So the page keeps what those cells knew (it already holds
+it, to draw the card) and hands it back whole to `POST /api/cells/restore`,
+`added_at` included: a cell that has been on the map since March does not come
+back reading as new. Deleting a route is the same problem in a different shape —
+the routes layer is lazy, so the line may never have been loaded — which is why
+`POST /api/routes/delete` answers with the whole row, geometry and all, and Undo
+posts that copy straight back.
+
+A sweep is one entry, not four hundred. A gesture that lit nothing new isn't an
+edit and doesn't go on the stack at all.
+
+Anything queued is sent first. Edits are debounced (a Ctrl-sweep is one request,
+not one per cell), and an undo that raced its own queue would restore cells that
+a stale delete then removed half a second later — so the queue is flushed and
+acknowledged before the inverse goes out. If the server can't be reached the
+undo doesn't happen, says so, and stays on the stack to try again.
+
+The stack is in memory, and it belongs to this page and this account: signing out
+or reloading starts again with nothing to undo. One that outlived the page would
+be offering to undo an edit against a map that may have changed on your phone
+since, and *undo* has to mean the thing it says. Typing in a field keeps its own
+undo — the shortcut is left alone there.
+
 ## Trips
 
 The object between a cell and a route: a run of days spent well away from where
@@ -620,6 +724,17 @@ then never be credited for. Sized per region, all 4,553 survive in 2.5 MB —
 dynamic-imported, like the countries and the place names. Douglas–Peucker runs
 *before* rounding, or it would be measuring the 1 km lattice the rounding just
 made rather than the coastline underneath.
+
+**Not a zoom level, yet.** The obvious next move is to draw regions where the
+coarsest hex level is now — at ~73 km a cell says nothing a canton doesn't say
+better. The geometry for it builds correctly (`buildAreaFC('region')`), and it
+is not wired up, because rendering it means *two* vector levels and the
+crossfade machinery below assumes exactly one: `hex` carries the vector side
+while the blob canvas carries the other, so a region → country crossing puts
+both sides on the same source and the outgoing one is never handed over — the
+layer stays pinned at zero opacity and the map goes blank. Doing it properly
+means giving `hex-prev` real geometry so vector → vector can crossfade like
+everything else. Worth doing; not worth bolting on.
 
 **Lookups are indexed**: fourteen times as many shapes as the country set is too
 many to scan per cell. A 5° grid buckets them, and `regionAt()` is handed the

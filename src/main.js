@@ -36,7 +36,9 @@ import { mountStrava } from './strava-ui.js';
 import { mountSync } from './sync-ui.js';
 import { mountSettings } from './settings-ui.js';
 import { mountSearch } from './search-ui.js';
+import { mountHome } from './home-ui.js';
 import { activeDays } from './trips.js';
+import { loadRegions, regionsLoaded, regionAt, regionGeometry, mergeRegions } from './regions.js';
 import { mountBackup } from './backup-ui.js';
 import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
@@ -935,33 +937,59 @@ function rollUpPainted(id) {
   return true;
 }
 
-// --- Country level: which countries are lit, merged into one shape ----------
-// The merge (a polygon union) is only recomputed when the lit set changes AND
-// the country level is actually on screen, so painting hexes never pays for it.
-let countryFC = EMPTY;
+// --- Area levels: which countries (or regions) are lit, merged into one shape --
+// The two coarsest steps of the map are not hexagons at all. Zoom out past the
+// finest levels and the grid gives way to the shapes people actually think in:
+// cantons, states and départements first, then whole countries. The merge (a
+// polygon union) is only recomputed when the lit set changes AND that level is
+// actually on screen, so painting hexes never pays for it.
+//
+// Regions are resolved from a *finer* roll-up than countries. A 73 km cell
+// centre is a fine proxy for "which country", and a terrible one for a canton
+// of 37 km²: Basel-Stadt would never light up at all. Level 2 (~8 km) costs
+// more lookups and is the smallest thing the region set can honestly answer.
+//
+// The region half of this builds correct geometry and is not yet wired to a
+// zoom level. Rendering it would mean two vector levels, and the crossfade
+// machinery below assumes exactly one: `hex` carries the vector side and the
+// blob canvas carries the other, so a region → country crossing puts both sides
+// on the same source and the outgoing one is never handed over. Doing it
+// properly means giving `hex-prev` real geometry for vector → vector fades —
+// worth doing, not worth bolting on. See ARCHITECTURE.md.
+const REGION_FROM_LEVEL = 2;
+
+const areaFC = { region: EMPTY, country: EMPTY };
 let countryDirty = true;
 const cellCountryMemo = new Map(); // coarse "col/row" -> country id (centers never move)
+const cellRegionMemo = new Map(); //  finer  "col/row" -> region id
 
 // Longitudes come back from cellCenter() in [0,360) because cell columns are
 // stored normalized; fold them into [-180,180] before the country lookup, or
 // western-hemisphere cells (Portugal, Spain, the Americas) land near +350°.
 const wrapLng = (lng) => ((lng + 180) % 360 + 360) % 360 - 180;
 
-function buildCountryFC() {
-  // Resolve countries from the coarsest lit cells (~50 km) rather than every
-  // fine cell: a couple hundred point-in-country tests instead of tens of
-  // thousands, which is what was freezing the page.
+function buildAreaFC(kind) {
+  // Resolve from a rolled-up level rather than from every fine cell: a couple
+  // hundred point-in-polygon tests instead of tens of thousands, which is what
+  // was freezing the page.
+  const isRegionKind = kind === 'region';
+  const fromLevel = isRegionKind ? REGION_FROM_LEVEL : MAX_LEVEL;
+  const memo = isRegionKind ? cellRegionMemo : cellCountryMemo;
   const litIds = new Set();
   const perCountry = new Map(); // id → rolled-up stats, for the heat maps
-  for (const [key, stat] of litSets[MAX_LEVEL]) {
-    let cid = cellCountryMemo.get(key);
+  for (const [key, stat] of litSets[fromLevel]) {
+    let cid = memo.get(key);
     if (cid === undefined) {
       const sep = key.indexOf('/');
       const col = +key.slice(0, sep);
       const row = +key.slice(sep + 1);
-      const [lng, lat] = project(cellCenter(MAX_LEVEL, col, row));
-      cid = countryIdAt(wrapLng(lng), lat);
-      cellCountryMemo.set(key, cid);
+      const [lng, lat] = project(cellCenter(fromLevel, col, row));
+      const lngW = wrapLng(lng);
+      const country = countryIdAt(lngW, lat);
+      // The region lookup is handed the country, which drops all but a couple
+      // of dozen of the 4,553 shapes before any geometry is touched.
+      cid = isRegionKind ? (country ? regionAt(lngW, lat, country)?.id ?? null : null) : country;
+      memo.set(key, cid);
     }
     if (!cid) continue;
     litIds.add(cid);
@@ -1009,7 +1037,7 @@ function buildCountryFC() {
     }
     const features = [];
     for (const [id, stat] of perCountry) {
-      const geometry = countryGeometry(id);
+      const geometry = isRegionKind ? regionGeometry(id) : countryGeometry(id);
       if (geometry) {
         features.push({ type: 'Feature', properties: { k: 1, v: heat(stat, range) }, geometry });
       }
@@ -1017,7 +1045,7 @@ function buildCountryFC() {
     return { type: 'FeatureCollection', features };
   }
 
-  const { fill, rings } = mergeCountries(litIds);
+  const { fill, rings } = isRegionKind ? mergeRegions(litIds) : mergeCountries(litIds);
   const features = [];
   if (fill.length) {
     features.push({ type: 'Feature', properties: { k: 1 }, geometry: { type: 'MultiPolygon', coordinates: fill } });
@@ -1030,20 +1058,28 @@ function buildCountryFC() {
 
 // Cached country FeatureCollection. If the data hasn't loaded yet, kick off the
 // (one-time) fetch and refresh once it arrives; show nothing until then.
-function ensureCountryFC() {
-  if (!countriesLoaded()) {
-    loadCountries().then(() => {
+function ensureAreaFC(kind) {
+  const ready = kind === 'region' ? regionsLoaded() && countriesLoaded() : countriesLoaded();
+  if (!ready) {
+    // Both, for regions: a region is only ever looked up inside the country the
+    // cell already resolved to.
+    Promise.all(kind === 'region' ? [loadRegions(), loadCountries()] : [loadCountries()]).then(() => {
       cellCountryMemo.clear();
+      cellRegionMemo.clear();
       countryDirty = true;
       updateGrid(true);
     });
     return EMPTY;
   }
   if (countryDirty) {
-    countryFC = buildCountryFC();
+    areaFC.region = EMPTY;
+    areaFC.country = EMPTY;
     countryDirty = false;
   }
-  return countryFC;
+  // Built on demand and then held: setHexData() tells "same data" from "rebuilt"
+  // by identity, and re-feeding a source it already holds re-tiles the world.
+  if (areaFC[kind] === EMPTY) areaFC[kind] = buildAreaFC(kind);
+  return areaFC[kind];
 }
 
 // Initial (empty) light-up so litSets/countryDirty exist before the map draws;
@@ -1224,6 +1260,7 @@ function storedUnder(L, col, row) {
 }
 
 function toggleCell(id) {
+  clearTripHighlight();
   const [L, col, row] = id.split('/').map(Number);
   if (litSets[L].has(`${col}/${row}`)) {
     // Clear everything stored beneath (or at) this cell. Iterate a copy: the
@@ -1252,6 +1289,10 @@ function toggleCell(id) {
 // Debug hooks — handy in devtools for poking at cells and their provenance.
 window.visitedMap = {
   toggle: toggleCell,
+  // The two vector levels, on demand — handy for asking why a zoom-out is
+  // showing nothing without having to reason about the crossfade state machine.
+  areas: (kind = 'region') => ensureAreaFC(kind),
+  state: () => ({ level: currentLevel, asBlob: currentAsBlob, hexRole, hexEmpty: hexData === EMPTY }),
   visited,
   cellMeta,
   idAt: (lng, lat) => cellIdAt({ lng, lat }),
@@ -1476,7 +1517,13 @@ let prefsStamp = Number(localStorage.getItem(PREFS_STAMP_KEY)) || 0;
 let prefsDirty = false; // a local change the server has not acknowledged
 let pushViewTimer = null;
 
-const prefsPayload = () => ({ v: 1, updatedAt: prefsStamp, accent, routeView: routeViewJson() });
+// Where you live. Worked out from the cells that get visited most (src/trips.js)
+// until you say otherwise, and then it's whatever you said — a guess about
+// something this personal should be correctable, and everything about the trip
+// list is measured from it.
+let homePlace = null; // { lng, lat, name } | null = use the guess
+
+const prefsPayload = () => ({ v: 1, updatedAt: prefsStamp, accent, routeView: routeViewJson(), home: homePlace });
 
 /** Note a local change: stamp it, mirror it locally, and schedule the push. */
 function touchPrefs() {
@@ -1536,6 +1583,10 @@ document.addEventListener('visibilitychange', () => {
 /** Adopt a set of preferences wholesale — from the server, or from a reset. */
 function adoptPrefs(prefs) {
   if (prefs.routeView && typeof prefs.routeView === 'object') adoptRouteView(prefs.routeView);
+  const h = prefs.home;
+  homePlace = h && Number.isFinite(+h.lng) && Number.isFinite(+h.lat)
+    ? { lng: +h.lng, lat: +h.lat, name: String(h.name ?? '').slice(0, 80) }
+    : null;
   if (/^#[0-9a-f]{6}$/i.test(String(prefs.accent ?? ''))) {
     accent = String(prefs.accent).toLowerCase();
     colorPicker?.set(accent); // the swatch, and the panel behind it
@@ -1779,6 +1830,39 @@ function fitBboxOnMap(b) {
     ],
     { padding: 60, maxZoom: 13, duration: 800 },
   );
+}
+
+// --- The trip you picked -------------------------------------------------------
+// Highlighting is the whole answer to "which of this is the trip?": the blob
+// underneath is every cell you have ever lit, and twelve scattered patches of
+// it do not say *Iceland, last August*. Drawn from the trip's own cell list, so
+// picking a trip from a single day still shows the whole trip.
+let highlightedTrip = null;
+
+function tripHighlightFC(cellIds) {
+  const features = [];
+  for (const id of cellIds ?? []) {
+    const [L, col, row] = id.split('/').map(Number);
+    if (!Number.isFinite(L) || L > MAX_LEVEL) continue;
+    const [cx, cy] = cellCenter(L, col, row);
+    const ring = fullHexOffsets(radiusOf(L)).map(([dx, dy]) => project([cx + dx, cy + dy]));
+    ring.push([...ring[0]]);
+    features.push({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+function showTripOnMap(trip) {
+  highlightedTrip = trip?.id ?? null;
+  const src = map.getSource('trip');
+  if (!src) return;
+  src.setData(trip ? tripHighlightFC(trip.cells) : EMPTY);
+}
+
+// Any edit or a new look at the map drops it — it marks one answer to one
+// question, and it should not still be sitting there afterwards.
+function clearTripHighlight() {
+  if (highlightedTrip) showTripOnMap(null);
 }
 
 function zoomToRoute(route) {
@@ -2391,7 +2475,7 @@ function regionFeatures(boundary) {
 // the whole window), so cost stays proportional to the number of marked
 // cells no matter how far out the map is zoomed.
 function buildGrid(bb, L) {
-  if (L === COUNTRY_LEVEL) return ensureCountryFC();
+  if (L === COUNTRY_LEVEL) return ensureAreaFC('country');
   const R = radiusOf(L);
   const colSp = 1.5 * R;
   const rowSp = SQRT3 * R;
@@ -2705,7 +2789,7 @@ function warmCountries(level, asBlob) {
     // to empty) are both fine to load into. Only 'out' is off limits — there the
     // countries are still on screen, fading.
     if (hexRole === 'out' || !countriesLoaded()) return;
-    const fc = ensureCountryFC();
+    const fc = ensureAreaFC('country');
     if (fc === hexData) return;
     // Pin the layer down *before* handing it the geometry, never after.
     hexRole = 'warm';
@@ -3296,6 +3380,19 @@ function installGrid() {
     }, firstSymbol);
   }
 
+  // The trip you picked, outlined over everything else. A trip is ground rather
+  // than a line, so there is nothing to select the way a route is selected —
+  // showing one means drawing the cells it covered and flying there.
+  map.addSource('trip', { type: 'geojson', data: EMPTY, tolerance: 0 });
+  map.addLayer({
+    id: 'trip-fill', type: 'fill', source: 'trip',
+    paint: { 'fill-color': '#ffd166', 'fill-opacity': 0.16 },
+  }, firstSymbol);
+  map.addLayer({
+    id: 'trip-glow', type: 'line', source: 'trip', layout: lineLayout,
+    paint: { 'line-color': '#ffd166', 'line-opacity': 0.5, 'line-width': 6, 'line-blur': 6 },
+  }, firstSymbol);
+
   // Saved routes go above the regions *and* above the basemap's own lines: a
   // line you actually walked reading as if it ran under the streets looks like
   // a bug. `promoteId` makes the route's own id the feature id, so the selected
@@ -3628,6 +3725,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       else map.flyTo({ center: [lngLat.lng, lngLat.lat], zoom: 11, duration: 900 });
     },
     onTrip: (trip) => {
+      showTripOnMap(trip);
       fitBboxOnMap(trip.bbox);
       showToast(`${trip.name} · ${trip.cells.length.toLocaleString()} cells`);
     },
@@ -3650,10 +3748,24 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     search.open();
   });
 
+  // Setting home re-derives every trip, so the panel is reopened on the tab it
+  // came from rather than left to go stale behind the dialog.
+  const homeUi = mountHome({
+    center: () => map.getCenter(),
+    onSet: async (home) => {
+      homePlace = home;
+      touchPrefs();
+      await pushPrefs();
+    },
+    onClose: () => stats.open('trips'),
+  });
+
   const stats = mountStats({
     cells: () => visited,
     meta: () => cellMeta,
     routes: () => routeList,
+    home: () => homePlace,
+    onSetHome: (existing) => homeUi.open(existing),
     // Picking a route in the list opens it in the dialog; "Show on map" is the
     // one that closes the panel, switches the layer on and flies there.
     onShowRoute: async (route) => {
@@ -3671,6 +3783,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // means framing it. The toast names it because the map itself can't —
     // twelve scattered blobs don't say "Iceland, last August".
     onShowTrip: (trip) => {
+      showTripOnMap(trip);
       fitBboxOnMap(trip.bbox);
       showToast(`${trip.name} · ${trip.cells.length.toLocaleString()} cells`);
     },
@@ -3861,6 +3974,7 @@ mountAuth({
     hiddenSports = new Set();
     sportColors = new Map();
     renderedSports = '';
+    homePlace = null;
     // Preferences belong to the account too, so the next person to sign in on
     // this browser gets their own colours rather than inheriting these — and
     // the stamp has to go with them, or their (older) copy would look stale and

@@ -50,6 +50,14 @@ const DAY = 86400;
 const R_KM = 6371;
 const DEG = Math.PI / 180;
 
+// Cell columns count eastwards from the antimeridian, so projecting a cell
+// centre gives a longitude in 0…360 — 338 for Reykjavík, not −22. Everything
+// here compares and bounds longitudes, and a box from 338 to 338.1 asks the map
+// to frame the whole planet: clicking a trip anywhere in the western hemisphere
+// zoomed all the way out. The country statistics already wrap for the same
+// reason; this is that, applied at the point the coordinate is made.
+const wrapLng = (lng) => ((((lng + 180) % 360) + 360) % 360) - 180;
+
 export function distanceKm(aLng, aLat, bLng, bLat) {
   const dLat = (bLat - aLat) * DEG;
   const dLng = (bLng - aLng) * DEG;
@@ -132,7 +140,10 @@ function events(cellMeta, routes) {
       // put a trip where there wasn't one.
       const at = e.firstAt || e.lastAt;
       if (!at) continue;
-      if (!lngLat) lngLat = project(cellCenter(L, col, row));
+      if (!lngLat) {
+        const p = project(cellCenter(L, col, row));
+        lngLat = [wrapLng(p[0]), p[1]];
+      }
       out.push({ at, lng: lngLat[0], lat: lngLat[1], cell: id });
       // Both ends, whenever they differ. A cell you passed through in March and
       // again in September belongs to two trips; a cell seen on the Friday and
@@ -147,7 +158,7 @@ function events(cellMeta, routes) {
     const at = r.firstAt || r.lastAt;
     if (!at) continue;
     const b = r.bounds ?? [];
-    const lng = b.length === 4 ? (b[0] + b[2]) / 2 : null;
+    const lng = b.length === 4 ? wrapLng((b[0] + b[2]) / 2) : null;
     const lat = b.length === 4 ? (b[1] + b[3]) / 2 : null;
     if (lng === null || !Number.isFinite(lng)) continue;
     out.push({ at, lng, lat, route: r });
@@ -251,24 +262,35 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
 }
 
 /**
- * Give each trip a name from the ground it covered.
+ * Give each trip a name: the place, then the country it is in.
  *
- * Kept apart from buildTrips because the place dataset is a 2 MB browser chunk
- * loaded on demand: trips can be counted, dated and drawn without it, and only
- * naming has to wait.
+ * "Zermatt, Switzerland" — a label, not a description. Route names get the
+ * descriptive treatment ("Bern → Thun", "Thunersee loop") because a route *is*
+ * a shape and the shape is the point; a trip is a week somewhere, and the only
+ * thing worth saying about it is where.
+ *
+ * The chain is deliberate. A town beats the region it is in, a region beats the
+ * country, and only genuinely remote ground — the middle of an ocean, an
+ * icefield, a desert with no settlement within 30 km — falls through to
+ * something vaguer, and then says *what kind* of nowhere it was rather than
+ * "Away". A name that can't distinguish two trips isn't a name.
  *
  * @param {Array<object>} trips
- * @param {(lng:number, lat:number) => {name:string}|null} nearestTown
- * @param {(bounds:Array) => string|null} [lakeAround]
+ * @param {(lng:number, lat:number) => {town?:string, region?:string, country?:string}} placeAt
  */
-export function nameTrips(trips, nearestTown, lakeAround) {
+export function nameTrips(trips, placeAt) {
   for (const t of trips) {
-    // The routes went where you meant to go; the cells include the motorway
-    // getting there. So a route's own place name wins when there is one.
-    const fromRoute = t.routes.find((r) => r.place)?.place;
-    const town = nearestTown?.(t.center[0], t.center[1]);
-    const lake = lakeAround?.(t.bbox);
-    t.name = fromRoute || town?.name || lake || 'Away';
+    const at = placeAt?.(t.center[0], t.center[1]) ?? {};
+    const where = at.town || at.region || at.country || '';
+    t.place = where;
+    t.country = at.country ?? '';
+    t.name = where
+      ? (at.country && where !== at.country ? `${where}, ${at.country}` : where)
+      // No town, no region, no country under the middle of it. That is either
+      // water or somewhere with nothing on the map, and saying which is more
+      // use than saying "Away" — which was every western-hemisphere trip back
+      // when their coordinates came out unwrapped, and told you nothing.
+      : 'At sea or off the map';
   }
   return trips;
 }
