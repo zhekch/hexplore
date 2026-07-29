@@ -765,12 +765,29 @@ Three details that are not obvious:
   something the browser refuses to read cross-origin. Only
   `media.githubusercontent.com/media/…` serves the real bytes with CORS. The
   commit is pinned so the data cannot change under a running map.
-- **Pairing is by name, then by geometry.** geoBoundaries and Natural Earth agree
-  on 24 of 26 Swiss canton names and disagree on Luzern/Lucerne and
-  St. Gallen/Sankt Gallen, so names alone cannot be trusted: what fails to match
-  falls back to taking a point provably inside their polygon and asking our own
-  dataset which region contains it. No name table, and it works for countries
-  nobody has checked by hand.
+- **The admin level is chosen by unit count, not by its name.** "Admin-1" does
+  not mean the same thing in the two datasets, and the difference is not
+  cosmetic. Natural Earth's admin-1 is *provinces* for Italy (110) and
+  *départements* for France (101); gbOpen's hierarchy is shifted for both —
+  Italy's ADM1 has **five** units and its ADM2 the twenty regions, France's ADM1
+  has thirteen régions and its ADM2 the ninety-six départements. Pairing 110
+  Italian provinces against five macro-regions put a fifth of Italy under one
+  province and it looked like a bug in the renderer: geometrically it *matched*,
+  because their polygon really does contain our province's centre. So each
+  candidate level is asked its `admUnitCount` first — a 1.7 KB request — and the
+  one with about as many units as we have is the one describing the same thing.
+  France works (96 against 101); Italy declines (20 against 110), which is the
+  honest answer, because geoBoundaries has no Italian provinces to give.
+- **Pairing is by name, then by geometry, then checked by area.** The two
+  datasets agree on 24 of 26 Swiss canton names and disagree on Luzern/Lucerne
+  and St. Gallen/Sankt Gallen, so a name miss falls back to taking a point
+  provably inside their polygon and asking our own dataset which region contains
+  it. Every pair is then required to be about the same *size* (0.3×–3.2×) and
+  each detailed shape may claim only one of our regions — the guard that stops a
+  level which passed the count test on average from still swapping one region for
+  a much larger one. A level that pairs only a handful is rejected outright,
+  because a country drawn at two resolutions at once is worse than one drawn
+  coarsely.
 
 This is the app's one runtime geometry fetch, and worth being explicit about: it
 is the same class of request as a basemap tile — a public boundary file, asked

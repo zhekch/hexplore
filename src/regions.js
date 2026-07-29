@@ -48,8 +48,34 @@ let loading = null;
 // boundary, and github.com's own /raw/ redirect cannot be read cross-origin at
 // all. media.githubusercontent.com serves the real bytes with CORS.
 const GB_COMMIT = '9469f09';
-const gbUrl = (iso) =>
-  `https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/${GB_COMMIT}/releaseData/gbOpen/${iso}/ADM1/geoBoundaries-${iso}-ADM1_simplified.geojson`;
+const gbFile = (iso, level) =>
+  `https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/${GB_COMMIT}/releaseData/gbOpen/${iso}/${level}/geoBoundaries-${iso}-${level}_simplified.geojson`;
+// The API is only asked how many units a level has — a 1.7 KB answer that saves
+// downloading the wrong file.
+const gbApi = (iso, level) => `https://www.geoboundaries.org/api/current/gbOpen/${iso}/${level}/`;
+
+// "Admin-1" does not mean the same thing in the two datasets, and the difference
+// is not a detail — it is the difference between a sharper canton and a fifth of
+// Italy colouring in.
+//
+// Natural Earth's admin-1 is provinces for Italy (110) and départements for
+// France (101). geoBoundaries' gbOpen hierarchy is shifted for both: Italy's
+// ADM1 has *five* units and its ADM2 has the twenty regions; France's ADM1 has
+// thirteen régions and its ADM2 the ninety-six départements. Pairing our 110
+// Italian provinces against five macro-regions is what put a fifth of the
+// country under one province — geometrically it "matched", because their polygon
+// genuinely contains our province's centre.
+//
+// So the level is chosen by unit count rather than by name: whichever of their
+// levels has about as many units as we do is the one describing the same thing.
+// France then works (96 against 101) and Italy declines (20 against 110), which
+// is the honest answer — geoBoundaries has no Italian provinces to give.
+const GB_LEVELS = ['ADM1', 'ADM2'];
+// min(a,b)/max(a,b) must be at least this for two levels to be the same idea.
+const COUNT_MATCH = 0.6;
+// And each individual pair has to be about the same size, so a level that passed
+// the count test on average cannot still swap one region for a much bigger one.
+const AREA_MATCH = [0.3, 3.2];
 
 let FINE = new Map(); // region id → detailed geometry
 const fineDone = new Set(); // iso codes fetched (or failed — don't retry a 404)
@@ -144,12 +170,42 @@ function pointInside(rings) {
   return null;
 }
 
+// Square metres of a Polygon/MultiPolygon, holes subtracted.
+function geometryAreaM2(g) {
+  let a = 0;
+  for (const poly of asMulti(g)) {
+    a += ringAreaM2(poly[0]);
+    for (let i = 1; i < poly.length; i++) a -= ringAreaM2(poly[i]);
+  }
+  return a;
+}
+
+// Which of their levels describes the same thing we do. One small JSON request
+// per candidate; null when none of them does.
+async function chooseLevel(iso, mine) {
+  let best = null;
+  for (const level of GB_LEVELS) {
+    let count = 0;
+    try {
+      const res = await fetch(gbApi(iso, level));
+      if (!res.ok) continue;
+      count = Number((await res.json())?.admUnitCount) || 0;
+    } catch {
+      continue;
+    }
+    if (!count) continue;
+    const ratio = Math.min(count, mine) / Math.max(count, mine);
+    if (!best || ratio > best.ratio) best = { level, count, ratio };
+  }
+  return best && best.ratio >= COUNT_MATCH ? best : null;
+}
+
 /**
  * Fetch one country's detailed boundaries and pair them with our regions.
  *
  * Resolves to how many regions gained detail. Never rejects: a country
- * geoBoundaries doesn't have is not an error, it just keeps the overview
- * geometry, and it is remembered so it isn't asked for twice.
+ * geoBoundaries describes differently than we do is not an error, it just keeps
+ * the overview geometry, and it is remembered so it isn't asked for twice.
  *
  * @param {string} iso  ISO3 country code, from our own region records
  * @param {string} country  the country name, to narrow the pairing lookup
@@ -158,35 +214,57 @@ export async function loadFineRegions(iso, country) {
   if (!iso || fineDone.has(iso) || finePending.has(iso)) return 0;
   finePending.add(iso);
   try {
-    const res = await fetch(gbUrl(iso));
+    const mine = regionsInCountry(country);
+    if (!mine) return 0;
+    const pick = await chooseLevel(iso, mine);
+    if (!pick) return 0; // they don't have this country at our granularity
+
+    const res = await fetch(gbFile(iso, pick.level));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const geo = await res.json();
 
     // Name first — it pairs most of them for free — then geometry for the rest.
     const byName = new Map();
+    const ours = [];
     for (const r of REGIONS ?? []) {
-      if (r.country === country) byName.set(fold(r.name), r.id);
+      if (r.country !== country) continue;
+      byName.set(fold(r.name), r.id);
+      ours.push(r);
     }
 
-    let paired = 0;
+    const claimed = new Map(); // our id → their geometry, one each
     for (const f of geo.features ?? []) {
       const g = f.geometry;
       if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
       let id = byName.get(fold(f.properties?.shapeName));
       if (!id) {
         // Ask our own dataset which region a point inside theirs belongs to.
-        const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
-        // The biggest piece, so an offshore island doesn't decide it.
-        let best = polys[0];
-        for (const poly of polys) if (poly[0].length > best[0].length) best = poly;
-        const pt = pointInside(best);
+        const polys = asMulti(g);
+        let biggest = polys[0];
+        for (const poly of polys) if (poly[0].length > biggest[0].length) biggest = poly;
+        const pt = pointInside(biggest);
         if (pt) id = regionAt(pt[0], pt[1], country)?.id;
       }
-      if (!id) continue;
-      FINE.set(id, g);
-      paired++;
+      if (!id || claimed.has(id)) continue; // one detailed shape per region
+
+      // The size test. A pairing that replaces a province with the region
+      // containing it passes every other check — their polygon really does
+      // contain our centre, and the name lookup simply missed — and then paints
+      // five times the ground. This is what stops it.
+      const theirs = geometryAreaM2(g);
+      const oursM2 = regionAreaKm2(id) * 1e6;
+      if (!oursM2 || !theirs) continue;
+      const ratio = theirs / oursM2;
+      if (ratio < AREA_MATCH[0] || ratio > AREA_MATCH[1]) continue;
+
+      claimed.set(id, g);
     }
-    return paired;
+
+    // A level that only pairs a handful is describing something else; keeping
+    // those few would mean a country drawn at two resolutions at once.
+    if (claimed.size < Math.min(mine, pick.count) * COUNT_MATCH) return 0;
+    for (const [id, g] of claimed) FINE.set(id, g);
+    return claimed.size;
   } catch {
     return 0; // no detail for this country; the overview geometry stands
   } finally {

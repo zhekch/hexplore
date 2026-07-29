@@ -188,6 +188,11 @@ canton edge follows the lake it actually follows. Nothing is fetched on Auto, or
 before you zoom in, and the request says only which country — never anything
 about your map.
 
+Some countries stay at the shipped resolution, because the detailed source
+divides them differently than this map does — Italy is one: it has provinces
+here and only regions there. The map declines rather than drawing you a shape
+that isn't the one it counted.
+
 **Looks.** Four basemaps (dark, terrain, light, satellite), one accent colour or
 a shading by **visits**, **first seen**, or **type** — a colour per app the data
 came from. Terrain and Satellite are kept to the same label and road density as
