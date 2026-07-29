@@ -3539,3 +3539,468 @@ body {
   background: rgba(15, 23, 42, 0.06);
   color: #0f172a;
 }
+
+/* --- Search -------------------------------------------------------------------
+   A field over the map rather than a dialog in the middle of it: the answers
+   push downwards as you type and the map stays visible underneath, which is
+   where whatever you pick is about to happen. */
+.search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 8vh 16px 16px;
+  background: rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.search-overlay[hidden] {
+  display: none;
+}
+
+.search-card {
+  width: min(520px, 100%);
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  background: rgba(24, 26, 32, 0.86);
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  backdrop-filter: blur(26px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: search-in 0.16s ease;
+}
+
+@keyframes search-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 12px 12px 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.search-bar-icon {
+  flex: none;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  color: #fff;
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.search-cal-btn,
+.search-close {
+  flex: none;
+  appearance: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.search-cal-btn:hover,
+.search-close:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+/* The calendar is the point of the button, so it says when it's the one
+   showing rather than leaving you to notice the grid appear. */
+.search-cal-btn.on {
+  background: rgba(96, 172, 255, 0.28);
+  border-color: rgba(96, 172, 255, 0.5);
+  color: #fff;
+}
+
+.search-results {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding: 6px;
+}
+
+.search-results::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.search-section {
+  padding: 9px 10px 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.search-note {
+  padding: 14px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.search-hit {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: #fff;
+  cursor: pointer;
+}
+
+.search-hit:hover,
+.search-hit.active {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.search-hit-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.search-hit-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.search-hit-text b {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit-text small {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit-right {
+  flex: none;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.45);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- The calendar -------------------------------------------------------------
+   Its own grid rather than <input type="date">. The native picker is an opaque
+   OS panel that cannot show which days have anything on them, and that — "which
+   weekend was that?" — is the only reason to open a calendar here at all. */
+.search-calendar {
+  padding: 10px 12px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.search-calendar[hidden] {
+  display: none;
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.cal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.cal-nav {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+}
+
+.cal-nav:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.cal-weekday {
+  padding: 2px 0 4px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.cal-day {
+  position: relative;
+  appearance: none;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+
+.cal-day.cal-blank {
+  cursor: default;
+}
+
+.cal-day:hover:not(.cal-blank) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* A day with something on it is the only thing anyone is looking for in here,
+   so it is the one that is lit rather than merely dotted. */
+.cal-day.has {
+  color: #fff;
+  font-weight: 600;
+  background: rgba(96, 172, 255, 0.16);
+}
+
+.cal-day i {
+  position: absolute;
+  bottom: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.cal-day.has i {
+  background: rgba(96, 172, 255, 0.9);
+}
+
+/* A day you recorded a ride on is a different kind of day from one that only
+   added ground, and the dot is where that fits without a legend. */
+.cal-day.has-route i {
+  background: #7ee0a0;
+}
+
+.cal-day.today {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.cal-day.picked {
+  background: rgba(96, 172, 255, 0.55);
+  color: #fff;
+}
+
+/* --- Trips --------------------------------------------------------------------
+   Derived, not stored, so a row is a reading of the map rather than a record —
+   which is why it is a button that takes you there and has nothing to edit. */
+.trip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: #fff;
+  cursor: pointer;
+}
+
+.trip-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.trip-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.trip-main b {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trip-main small,
+.trip-side small {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.trip-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.trip-side b {
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Region lists get long on a well-travelled map; the panel opens on the
+   leaders and this is the way past them. */
+.stats-more {
+  appearance: none;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.8);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stats-more:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+@media (max-width: 560px) {
+  .search-overlay {
+    padding: 12px 10px;
+    align-items: flex-start;
+  }
+
+  .search-card {
+    max-height: 88vh;
+  }
+}
+
+[data-theme='light'] .search-card {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .search-input,
+[data-theme='light'] .search-hit,
+[data-theme='light'] .cal-title,
+[data-theme='light'] .trip-row {
+  color: #0f172a;
+}
+
+[data-theme='light'] .search-input::placeholder,
+[data-theme='light'] .search-section,
+[data-theme='light'] .search-note,
+[data-theme='light'] .search-hit-text small,
+[data-theme='light'] .search-hit-right,
+[data-theme='light'] .trip-main small,
+[data-theme='light'] .trip-side small {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-theme='light'] .search-bar,
+[data-theme='light'] .search-calendar {
+  border-bottom-color: rgba(15, 23, 42, 0.1);
+}
+
+[data-theme='light'] .search-hit-icon,
+[data-theme='light'] .search-cal-btn,
+[data-theme='light'] .search-close,
+[data-theme='light'] .cal-nav,
+[data-theme='light'] .stats-more {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.12);
+  color: rgba(15, 23, 42, 0.7);
+}
+
+[data-theme='light'] .search-hit:hover,
+[data-theme='light'] .search-hit.active,
+[data-theme='light'] .trip-row:hover,
+[data-theme='light'] .cal-day:hover:not(.cal-blank) {
+  background: rgba(15, 23, 42, 0.07);
+}
+
+[data-theme='light'] .cal-day {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-theme='light'] .cal-day.has {
+  color: #0f172a;
+  background: rgba(37, 99, 235, 0.14);
+}
+
+[data-theme='light'] .cal-weekday {
+  color: rgba(15, 23, 42, 0.4);
+}
+
+[data-theme='light'] .cal-day.picked {
+  background: rgba(37, 99, 235, 0.75);
+  color: #fff;
+}

@@ -172,6 +172,75 @@ export function describeRoute(route) {
   return town ?? lake;
 }
 
+// --- Searching by name --------------------------------------------------------
+// The dataset already sits in memory to name routes; asking it the question the
+// other way round — *where is Trondheim* — costs nothing extra and means the
+// map's search box never sends a coordinate or a keystroke to a geocoder.
+
+// A match that only *contains* the query is worth this fraction of one that
+// starts the name. See searchPlaces for why it is a weight and not a tier.
+const CONTAINED_WEIGHT = 0.25;
+
+// An exact name is the answer, whatever it is called and however small it is.
+const EXACT_SCORE = 1e12;
+
+const score = (exact, prefix, popThousands) =>
+  (exact ? EXACT_SCORE : 0) + Math.max(1, popThousands) * (prefix ? 1 : CONTAINED_WEIGHT);
+
+const fold = (s) =>
+  String(s ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ''); // so "zurich" finds "Zürich"
+
+/**
+ * Places whose name starts with (or contains) the query, best first.
+ *
+ * Ranked by where the match sits in the name *and* by size, as one score
+ * rather than one after the other. Position alone puts a dozen Yorktons above
+ * New York; size alone puts New York above York. So an exact name always wins,
+ * and after that each place scores its population with a match that merely
+ * contains the query counted at a quarter — enough that eight million people
+ * outrank a prefix match on a village, and not enough that "bern" answers with
+ * Berlin.
+ *
+ * @param {string} query
+ * @param {number} [limit]
+ * @returns {Array<{name:string, lng:number, lat:number, pop:number, kind:'town'|'lake'}>}
+ */
+export function searchPlaces(query, limit = 8) {
+  if (!TOWNS) return [];
+  const q = fold(query).trim();
+  if (q.length < 2) return [];
+  const hits = [];
+  for (let i = 0; i < TOWNS.length; i++) {
+    const t = TOWNS[i];
+    const name = fold(t[0]);
+    const at = name.indexOf(q);
+    if (at < 0) continue;
+    hits.push({ score: score(name === q, at === 0, t[3] || 0), pop: t[3] || 0, name: t[0], lng: t[1], lat: t[2], kind: 'town' });
+    if (hits.length > 4000) break; // a one-letter query is not a search
+  }
+  for (const l of LAKES ?? []) {
+    const name = fold(l[0]);
+    const at = name.indexOf(q);
+    if (at < 0) continue;
+    hits.push({
+      // A lake has no population; give it the weight of a small town so it
+      // ranks with the places rather than always last.
+      score: score(name === q, at === 0, 12),
+      pop: 0,
+      name: l[0],
+      lng: (l[1] + l[3]) / 2,
+      lat: (l[2] + l[4]) / 2,
+      bounds: [l[1], l[2], l[3], l[4]],
+      kind: 'lake',
+    });
+  }
+  hits.sort((a, b) => b.score - a.score || a.name.length - b.name.length);
+  return hits.slice(0, limit).map(({ score: _, ...rest }) => rest);
+}
+
 /**
  * Names that carry nothing a place name wouldn't say better: empty, a bare
  * date or time, or one of the words exporters reach for when they have nothing.

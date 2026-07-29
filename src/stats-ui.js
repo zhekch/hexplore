@@ -7,6 +7,8 @@ import { computeStats, EARTH_LAND_KM2 } from './stats.js';
 import { sourceLabel, IMPORT_SOURCES } from './locations.js';
 import { formatDistance, formatDuration, totalLength, thumbSegments } from './routes.js';
 import { auth } from './auth.js';
+import { buildTrips, nameTrips, dayKey } from './trips.js';
+import { loadPlaces, nearestTown, lakeAround } from './places.js';
 import { isKomootTourUrl } from './komoot.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -37,6 +39,7 @@ const pct = (v) =>
  * @param {() => Map<string, Array>} opts.meta provenance by cell id
  * @param {() => Array<object>} opts.routes saved routes (newest first)
  * @param {(route:object) => void} opts.onShowRoute  take me to this one
+ * @param {(trip:object) => void} [opts.onShowTrip]   take me to this trip
  * @param {(route:object, before:object) => void} [opts.onRouteEdited] after a successful
  *   save, with the values it had before it — that's what Undo needs
  * @param {(route:object) => Promise<void>} [opts.onRouteDeleted] remove it everywhere
@@ -47,6 +50,7 @@ export function mountStats({
   meta,
   routes = () => [],
   onShowRoute,
+  onShowTrip,
   onRouteEdited,
   onRouteDeleted,
   knownSources,
@@ -64,6 +68,11 @@ export function mountStats({
   };
   let sortBy = 'share';
   let last = null; // the most recent stats, for re-sorting without recomputing
+  // A map of one country can have a hundred regions in it, which is a scroll
+  // nobody asked for on the way to the rest of the panel.
+  const REGION_PREVIEW = 8;
+  let regionsExpanded = false;
+  let lastTrips = null; // the last derivation, so the search palette can reuse it
 
   // "What did I do most recently" and "what was the big one" are both fair
   // questions to open the list with.
@@ -615,6 +624,12 @@ export function mountStats({
       row('Share of Earth’s land', pct(s.worldPct), `${EARTH_LAND_KM2.toLocaleString()} km² total`),
       row('Countries', `${s.countries.length} of ${s.countryTotal}`),
     );
+    if (s.regions?.length) {
+      // Counted against the countries you have been to rather than against the
+      // world: "12 of 4,553" is a number nobody can feel, and every region in a
+      // country you've already visited is one you could plausibly go and see.
+      body.append(row('Regions', `${s.regions.length} of ${s.regionsReachable}`, 'states, provinces, cantons'));
+    }
     if (seen.length) {
       body.append(
         row('History spans', seen.length === 2 && seen[0] !== seen[1] ? `${seen[0]} – ${seen[1]}` : seen[0]),
@@ -655,6 +670,58 @@ export function mountStats({
       body.append(list);
     }
 
+    if (s.regions.length) {
+      body.append(
+        headRow(
+          'Coverage by region',
+          sortSeg(SORTS, sortBy, (key) => {
+            sortBy = key;
+            const at = body.scrollTop;
+            render(last);
+            body.scrollTop = at;
+          }),
+        ),
+      );
+      const optR = SORTS[sortBy];
+      const rankedR = [...s.regions].sort(optR.sort);
+      const maxKm2R = rankedR[0]?.km2 || 1;
+      const listR = document.createElement('div');
+      listR.className = 'stats-list';
+      // Long enough to be its own panel on a well-travelled map, so it opens on
+      // the leaders and says how many more there are.
+      const shown = regionsExpanded ? rankedR : rankedR.slice(0, REGION_PREVIEW);
+      for (const r of shown) {
+        listR.append(
+          bar(
+            r.name,
+            sortBy === 'area' ? km2(r.km2) : pct(r.pct),
+            optR.of(r, maxKm2R),
+            // The country is the sub-line, not the title: you know you were in
+            // Valais, and two countries can both have a Córdoba.
+            sortBy === 'area'
+              ? `${r.country} · ${pct(r.pct)} of ${km2(r.totalKm2)}`
+              : `${r.country} · ${km2(r.km2)} of ${km2(r.totalKm2)}`,
+          ),
+        );
+      }
+      body.append(listR);
+      if (rankedR.length > REGION_PREVIEW) {
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'stats-more';
+        more.textContent = regionsExpanded
+          ? 'Show fewer'
+          : `Show all ${rankedR.length} regions`;
+        more.addEventListener('click', () => {
+          regionsExpanded = !regionsExpanded;
+          const at = body.scrollTop;
+          render(last);
+          body.scrollTop = at;
+        });
+        body.append(more);
+      }
+    }
+
     if (s.sources.length) {
       body.append(headRow('Where the cells came from'));
       for (const src of s.sources) {
@@ -678,6 +745,84 @@ export function mountStats({
       }
       body.append(chart);
     }
+  }
+
+  // --- Trips ------------------------------------------------------------------
+  // Derived, not stored (see src/trips.js): the list is worked out from the
+  // dates the cells and routes already carry, every time the tab is opened. It
+  // costs a sweep of the map and buys a view of it organised the way anyone
+  // actually remembers going places.
+  async function renderTrips() {
+    body.replaceChildren();
+    const loading = document.createElement('div');
+    loading.className = 'stats-loading';
+    loading.textContent = 'Working out where you went…';
+    body.append(loading);
+    await new Promise((r) => setTimeout(r, 20)); // let the dialog paint first
+
+    const list = buildTrips(meta(), routes());
+    // Naming needs the 2 MB place dataset. The trips are already complete
+    // without it, so it is awaited here rather than blocking the derivation.
+    try {
+      await loadPlaces();
+      nameTrips(list, nearestTown, lakeAround);
+    } catch {
+      for (const t of list) t.name = t.name || 'Away';
+    }
+    lastTrips = list;
+
+    body.replaceChildren();
+    if (!list.length) {
+      const empty = document.createElement('div');
+      empty.className = 'stats-loading';
+      empty.textContent = meta().size
+        ? 'No trips yet — a trip is a run of days spent well away from where you usually are. Import some dated history and they appear here.'
+        : 'Nothing on the map yet.';
+      body.append(empty);
+      return;
+    }
+
+    const away = list.reduce((n, t) => n + t.days, 0);
+    body.append(
+      row('Trips', String(list.length)),
+      row('Days away', away.toLocaleString()),
+      row('Furthest', `${Math.max(...list.map((t) => t.farKm)).toLocaleString()} km`, 'from where you usually are'),
+    );
+    body.append(headRow('Every trip'));
+
+    const wrap = document.createElement('div');
+    wrap.className = 'stats-list';
+    for (const t of list) {
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'trip-row';
+      el.innerHTML =
+        '<span class="trip-main"><b></b><small></small></span><span class="trip-side"><b></b><small></small></span>';
+      el.querySelector('.trip-main b').textContent = t.name;
+      el.querySelector('.trip-main small').textContent = tripWhen(t);
+      el.querySelector('.trip-side b').textContent = `${t.cells.length.toLocaleString()} cells`;
+      el.querySelector('.trip-side small').textContent = [
+        t.routes.length ? `${t.routes.length} route${t.routes.length === 1 ? '' : 's'}` : '',
+        t.lengthM ? formatDistance(t.lengthM) : '',
+      ].filter(Boolean).join(' · ') || `${t.farKm} km away`;
+      el.addEventListener('click', () => {
+        close();
+        onShowTrip?.(t);
+      });
+      wrap.append(el);
+    }
+    body.append(wrap);
+  }
+
+  function tripWhen(t) {
+    const a = new Date(t.start * 1000);
+    const b = new Date(t.end * 1000);
+    const one = dayKey(t.start) === dayKey(t.end);
+    const long = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    const short = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
+    return one
+      ? long.format(a)
+      : `${short.format(a)} – ${long.format(b)} · ${t.days} day${t.days === 1 ? '' : 's'}`;
   }
 
   // --- Tabs -------------------------------------------------------------------
@@ -720,6 +865,7 @@ export function mountStats({
     }
     body.scrollTop = 0;
     if (tab === 'routes') renderRoutes();
+    else if (tab === 'trips') renderTrips();
     else showCells();
   }
 
@@ -746,6 +892,26 @@ export function mountStats({
   return {
     open,
     close,
+    /**
+     * The trips as last derived, or null if the tab has never been opened.
+     * The search palette asks for these rather than deriving its own — one
+     * reading of the data, so a trip has the same name in both places.
+     */
+    trips: () => lastTrips,
+    /** Derive them now (for the search palette on a cold start). */
+    async ensureTrips() {
+      if (!lastTrips) {
+        const list = buildTrips(meta(), routes());
+        try {
+          await loadPlaces();
+          nameTrips(list, nearestTown, lakeAround);
+        } catch {
+          for (const t of list) t.name = t.name || 'Away';
+        }
+        lastTrips = list;
+      }
+      return lastTrips;
+    },
     // Straight to one route, from the card on the map: open the dialog on the
     // Routes tab with that route already showing.
     openRoute(route) {

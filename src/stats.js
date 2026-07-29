@@ -8,6 +8,7 @@
 
 import { SQRT3, radiusOf, cellCenter, project, MAX_LEVEL } from './hexgrid.js';
 import { loadCountries, countryIdAt, countryAreaKm2, countryCount } from './countries.js';
+import { loadRegions, regionAt, regionAreaKm2, regionsInCountry } from './regions.js';
 
 // Earth's land surface, the yardstick for "% of the world" (oceans excluded —
 // covering the Pacific isn't a goal anyone has).
@@ -38,13 +39,20 @@ function fillYearGaps(pairs) {
  * Crunch the visited set into coverage numbers. Loads the country dataset on
  * first use (the same ~1.4 MB chunk the country zoom level pulls in).
  *
+ * Admin-1 regions are counted in the same sweep as countries, because the
+ * expensive part is projecting each cell centre and that is paid once either
+ * way. The region dataset is a second lazy chunk; a lookup is given the country
+ * the cell already resolved to, which drops all but a couple of dozen of the
+ * 4,500 shapes before any geometry is touched.
+ *
  * @param {Iterable<string>} cellIds visited cell ids ("L/col/row")
  * @param {Map<string, Array>} cellMeta id → provenance entries
  */
 export async function computeStats(cellIds, cellMeta) {
-  await loadCountries();
+  await Promise.all([loadCountries(), loadRegions()]);
 
   const byCountry = new Map(); // id → { cells, km2 }
+  const byRegion = new Map(); //  id → { name, country, cells, km2 }
   const bySource = new Map(); // source → cells
   let cells = 0;
   let km2 = 0;
@@ -67,6 +75,14 @@ export async function computeStats(cellIds, cellMeta) {
       e.cells++;
       e.km2 += area;
       byCountry.set(country, e);
+
+      const region = regionAt(wrapLng(lng), lat, country);
+      if (region) {
+        const r = byRegion.get(region.id) ?? { name: region.name, country, cells: 0, km2: 0 };
+        r.cells++;
+        r.km2 += area;
+        byRegion.set(region.id, r);
+      }
     } else {
       oceanKm2 += area; // coastal cells whose center falls just offshore
     }
@@ -94,6 +110,19 @@ export async function computeStats(cellIds, cellMeta) {
     // bar answers, and ground covered is right there in the sub-line.
     .sort((a, b) => b.pct - a.pct || b.km2 - a.km2);
 
+  const regions = [...byRegion.entries()]
+    .map(([id, e]) => {
+      const total = regionAreaKm2(id);
+      return { id, name: e.name, country: e.country, cells: e.cells, km2: e.km2, totalKm2: total, pct: total ? (e.km2 / total) * 100 : 0 };
+    })
+    .sort((a, b) => b.pct - a.pct || b.km2 - a.km2);
+
+  // "12 of 4,553 in the world" is a number nobody can feel. The denominator
+  // that means something is the countries you have actually been to: every
+  // region in them is one you could plausibly go and see.
+  let regionsReachable = 0;
+  for (const c of byCountry.keys()) regionsReachable += regionsInCountry(c);
+
   return {
     cells,
     km2,
@@ -101,6 +130,8 @@ export async function computeStats(cellIds, cellMeta) {
     worldPct: (km2 / EARTH_LAND_KM2) * 100,
     countries,
     countryTotal: countryCount(),
+    regions,
+    regionsReachable,
     sources: [...bySource.entries()].map(([key, n]) => ({ key, cells: n })).sort((a, b) => b.cells - a.cells),
     years: fillYearGaps([...byYear.entries()].sort((a, b) => a[0] - b[0])),
     firstAt,

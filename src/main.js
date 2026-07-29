@@ -35,6 +35,8 @@ import { mountKomoot } from './komoot-ui.js';
 import { mountStrava } from './strava-ui.js';
 import { mountSync } from './sync-ui.js';
 import { mountSettings } from './settings-ui.js';
+import { mountSearch } from './search-ui.js';
+import { activeDays } from './trips.js';
 import { mountBackup } from './backup-ui.js';
 import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
@@ -1761,6 +1763,22 @@ function showRouteInfo(route) {
   closeCellInfo();
   setSelectedRoute(route.id);
   routeInfo?.show(route);
+}
+
+// Frame a [w, s, e, n] box with the same padding a route gets. Trips and
+// searched-for lakes are both "here is an area, look at it" — the only thing
+// zoomToRoute does that this doesn't is read the box off a route.
+function fitBboxOnMap(b) {
+  if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) return;
+  // A single-cell trip has no extent at all; give it something to fit.
+  const pad = Math.max(0.02, (b[2] - b[0]) * 0.08, (b[3] - b[1]) * 0.08);
+  map.fitBounds(
+    [
+      [b[0] - pad, b[1] - pad],
+      [b[2] + pad, b[3] + pad],
+    ],
+    { padding: 60, maxZoom: 13, duration: 800 },
+  );
 }
 
 function zoomToRoute(route) {
@@ -3595,6 +3613,43 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     settings.open();
   });
 
+  // Search: one field over the map for the three things it holds — a place to
+  // go and look at, a route you remember the name of, and a day you remember
+  // the date of.
+  // Cmd/Ctrl-K is handled inside the palette (it has to be, to toggle itself
+  // closed); this is the same job for every other way in.
+  const search = mountSearch({
+    trips: () => stats.trips() ?? [],
+    routes: () => routeList,
+    days: () => activeDays(cellMeta, routeList),
+    meta: () => cellMeta,
+    onPlace: (lngLat, { bounds } = {}) => {
+      if (bounds?.length === 4) fitBboxOnMap(bounds);
+      else map.flyTo({ center: [lngLat.lng, lngLat.lat], zoom: 11, duration: 900 });
+    },
+    onTrip: (trip) => {
+      fitBboxOnMap(trip.bbox);
+      showToast(`${trip.name} · ${trip.cells.length.toLocaleString()} cells`);
+    },
+    onRoute: async (route) => {
+      if (!routesOn) setRoutesOn(true);
+      if (!routeGeom) await loadRoutes(true);
+      setSoloRoute(route.id);
+      zoomToRoute(route);
+      showRouteInfo(routeList.find((r) => r.id === route.id) ?? route);
+    },
+    // However it was opened — the button or Cmd-K — the trips fill in behind
+    // the field rather than in front of it. Deriving them is a sweep of the map
+    // and a 2 MB dataset, and making you wait to type is the wrong way round.
+    onOpen: () => {
+      stats.ensureTrips().then(() => search.refresh()).catch(() => {});
+    },
+  });
+  document.getElementById('search-btn').addEventListener('click', () => {
+    setMenuOpen(false);
+    search.open();
+  });
+
   const stats = mountStats({
     cells: () => visited,
     meta: () => cellMeta,
@@ -3611,6 +3666,13 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       setSoloRoute(route.id);
       zoomToRoute(route);
       showRouteInfo(routeList.find((r) => r.id === route.id) ?? route);
+    },
+    // A trip is ground, not a line: there is nothing to select, so showing one
+    // means framing it. The toast names it because the map itself can't —
+    // twelve scattered blobs don't say "Iceland, last August".
+    onShowTrip: (trip) => {
+      fitBboxOnMap(trip.bbox);
+      showToast(`${trip.name} · ${trip.cells.length.toLocaleString()} cells`);
     },
     // The dialog edits the same objects routeList holds, so only the drawn
     // labels need refreshing — same as the card on the map.
