@@ -815,6 +815,28 @@ country-shaped blob with a straight line where its border should be — and, bec
 the stand-in has no country code, it could never fetch detail either. Both
 datasets now carry `adm0_a3` and every region lookup takes a code.
 
+**A resolution change has to defeat the early-out.** `updateGrid` returns early
+when nothing about the view changed, and the region level claims the whole world
+as its coverage — so a zoom that crossed the resolution threshold was swallowed
+entirely. Whatever had last fed the coarse geometry (a basemap swap at low zoom,
+a colouring change, the first pass at the level) left the map coarse *for good*,
+and no amount of zooming brought the detail back. The swap is a change in what
+should be on screen, exactly like a level change, so it belongs in the same test:
+`resolutionChanged` compares what the source is actually **holding** (`fedFine`)
+against what the zoom now wants.
+
+Tracking the *cache* instead would be the same mistake one level down — the fine
+geometry can be built and cached while the map is still showing the coarse shape,
+which is precisely how an earlier verification of this convinced itself the swap
+worked. Measure the source.
+
+**The detail fetch runs twice per pass, on purpose.** `considerFineRegions()` is
+called before the early-outs, so panning into a country whose detail isn't loaded
+still asks for it; and again after the geometry is built, because on the *first*
+pass at this level there is no list of lit regions yet and the earlier call has
+nothing to ask about. Without the second call, switching Detail to Region while
+already zoomed in did nothing until the camera was nudged.
+
 **Resolution is sticky between two thresholds.** The detailed geometry comes in
 at `REGION_FINE_ZOOM` (7) and is dropped again below `REGION_COARSE_ZOOM` (6.4),
 rather than both happening at one number. Swapping resolution re-tiles the

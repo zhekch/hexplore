@@ -1063,6 +1063,8 @@ const REGION_ATTRIB =
 // draw detail far smaller than a pixel. Sticky between the two thresholds, so
 // nudging the zoom around the boundary doesn't re-tile the source repeatedly.
 let fineActive = false;
+// Whether the live source is currently holding the detailed region geometry.
+let fedFine = false;
 function useFineRegions() {
   if (!fineRegionsLoaded()) {
     fineActive = false;
@@ -3161,6 +3163,8 @@ function updateGrid(force = false) {
   // Before the early-outs: the whole point is to have this done well ahead of
   // the crossing, and a zoom that never leaves its level still approaches one.
   warmVector(level, asBlob);
+  // Before the early-outs, so panning into a country whose detail isn't loaded
+  // still asks for it even when nothing else about the view changed.
   considerFineRegions(level);
   const levelChanged = level !== currentLevel;
   // The blob canvas is a raster: zooming inside one level stretches it, so
@@ -3170,8 +3174,16 @@ function updateGrid(force = false) {
   // visible pop; the existing image scales with the map perfectly well until
   // they let go.
   const zoomDrift = currentAsBlob && Math.abs(map.getZoom() - paintedZoom) > 0.3;
-  if (!force && !levelChanged && !zoomDrift && coverageContainsView()) return;
-  if (!force && !levelChanged && zoomDrift && coverageContainsView() && map.isMoving()) return;
+  // The region level draws at two resolutions and swaps between them on zoom —
+  // and it claims the whole world as its coverage, so without this the early-out
+  // below swallows the swap: zooming in after anything else had fed the coarse
+  // geometry left the map coarse for good, whatever you did to the camera. It is
+  // a change of what should be on screen, exactly like a level change, so it
+  // belongs in the same test.
+  const wantFine = level === REGION_LEVEL && useFineRegions();
+  const resolutionChanged = level === REGION_LEVEL && wantFine !== fedFine;
+  if (!force && !levelChanged && !resolutionChanged && !zoomDrift && coverageContainsView()) return;
+  if (!force && !levelChanged && !resolutionChanged && zoomDrift && coverageContainsView() && map.isMoving()) return;
 
   const fc = asBlob ? EMPTY : buildGrid(bb, level);
 
@@ -3272,9 +3284,21 @@ function updateGrid(force = false) {
     else if (blobRole !== 'out') blobCur.clear();
   }
 
+  // Again, now that the region shapes have actually been built. The call above
+  // runs before buildGrid, so on the *first* pass at this level there is no list
+  // of lit regions yet and it has nothing to ask about — which is why switching
+  // Detail to Region while already zoomed in used to do nothing until the camera
+  // was nudged. Idempotent: a country already asked for is skipped.
+  considerFineRegions(level);
+
   currentAsBlob = asBlob;
   paintedZoom = map.getZoom();
   currentLevel = level;
+  // What the source is actually holding, which is the thing the early-out above
+  // has to compare against. Tracking the *cache* instead would be the same
+  // mistake in a different place: the fine geometry can be built and cached
+  // while the map is still showing the coarse shape.
+  fedFine = wantFine;
   // Country geometry is global — it doesn't depend on where the viewport is,
   // so nothing about a pan or zoom can invalidate it. Claiming the whole world
   // as covered keeps the move handler from re-running this at all.
@@ -3713,6 +3737,7 @@ function installGrid() {
       vecRole['-prev'] = 'idle';
       vecLive = '';
       blobRole = 'none';
+      fedFine = false;
     }
     // The attribution control reads this off the source, which is also the only
     // safe place to set it — poking the live source object and firing a
