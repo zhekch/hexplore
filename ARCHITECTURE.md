@@ -1,104 +1,16 @@
-# Hexplore
+# Hexplore — architecture notes
 
-An interactive world map covered in a hexagonal grid, where you mark the places
-you've been. Cells are hexagons in storage but never look like it — they're
-blurred and re-cut into soft blobs that flow together, so a map of your life
-reads as spilled ink rather than a spreadsheet.
+How the map is built and why it is built that way: the reasoning behind the
+non-obvious code, the constraints that shaped it, and the dead ends that are
+worth not walking down twice.
 
-Point it at your location history and it fills itself in.
+For what the app does and how to run it, see [README.md](README.md).
 
----
+An interactive world map covered by a hexagonal grid tied to real geographic
+coordinates, rendered with MapLibre GL on a dark basemap with a visionOS-style
+glass look. Click hexagons to mark places you've visited.
 
-## What it does
-
-- **Click to mark.** Turn on editing and paint cells. The base cell is about
-  900 m across; marks roll up, so a single visited cell lights its whole
-  country when you zoom out.
-- **Soft blobs, not tiles.** Marked areas are drawn as discs, blurred, and cut
-  at a fixed alpha — neighbouring cells merge and blend their colours.
-- **Import your history.** GPX, KML, TCX, FIT, GeoJSON, CSV, Google Timeline,
-  Snapchat, Apple Photos, or a whole Strava ZIP. Parsed **in your browser** —
-  the files never leave your machine, only the cells they resolve to.
-- **Sync automatically.** Home Assistant (polled by the server on a schedule),
-  Strava (after a one-time sign-in), Komoot (one tour at a time).
-- **Saved routes.** Tracks from your imports are kept as lines, named after
-  where they went and what sport they look like.
-- **Four basemaps** — dark, terrain, light, satellite. Colour the map with a
-  single accent, or shade each cell by **visits**, by **first seen**, or by
-  **type** (a colour per app the data came from).
-- **Ask any area what it knows.** Tap a blob for when you were there, how many
-  visits, and which app it came from.
-- **Undo and redo**, with a line naming what it just took back — worth having
-  when the thing that changed is off-screen.
-- **Backups.** The server copies the database on a schedule — nightly at 04:00
-  by default, keeping the last 14 copies.
-- **Private by default.** Accounts, sessions, and registration that closes
-  itself after the first user.
-
-## Requirements
-
-- **Node 24 or newer.** The database is the built-in `node:sqlite`, which needs
-  no flag from Node 24 on (on Node 22 you'd have to add `--experimental-sqlite`).
-- Nothing else. No external database, no API keys to start, and no build step
-  for the map data — it's committed.
-
-## Quick start
-
-```sh
-npm install
-npm run dev
-```
-
-Open <http://localhost:5173> and register an account. **The first account on an
-empty database is always allowed**, and registration closes itself afterwards.
-
-To reach it from your phone on the same network:
-
-```sh
-npm run dev -- --host
-```
-
-`npm run dev` runs the Vite dev server and the API together (ports 5173 and
-3001); Vite proxies `/api` to the API, so you only ever open the one URL.
-
-## Running it for real
-
-```sh
-npm run build     # production bundle → dist/
-npm start         # one process serving dist/ + the API on port 3001
-```
-
-The app needs the Node server — static hosting isn't enough, since accounts,
-cells and routes live in SQLite (`data.db`) and the Home Assistant poller runs
-server-side.
-
-For a private personal deployment, putting `tailscale serve` in front of
-`npm start` gives you an HTTPS URL reachable only from your own devices. HTTPS
-is worth having: the **my location** button needs it anywhere but localhost.
-
-### Configuration
-
-All optional — every one has a working default.
-
-| Variable | Default | What it does |
-| --- | --- | --- |
-| `PORT` | `3001` | Port for `npm start` |
-| `DB_PATH` | `./data.db` | Where the database lives |
-| `BACKUP_DIR` | `./backups` | Where scheduled backups are written |
-| `COOKIE_SECURE` | auto | Forces the `Secure` cookie flag; already automatic over HTTPS |
-| `ALLOW_REGISTRATION` | off | Reopens registration after the first account |
-| `REGISTRATION_CODE` | — | Keeps registration open, behind an invite code |
-| `MIN_PASSWORD_LEN` | `10` | Minimum password length |
-| `IMPORT_OWNER` | — | Account the offline importer's cells belong to |
-| `HA_BLOCK_PRIVATE` | off | Restricts Home Assistant to public addresses only |
-| `HA_ALLOWED_HOSTS` | — | Comma-separated allowlist of Home Assistant hosts |
-
-## Getting your data in
-
-**Menu → Import locations**, then drop your export files — any number, in any
-combination, added a few at a time until you're ready. Formats are detected
-from the contents rather than the extension, and each file keeps its own
-provenance, so the map can tell you later which app a cell came from.
+## How it works
 
 - **Startup view**: the viewer's approximate **IP-based location** (fetched
   client-side from geojs.io / ipwho.is, so it works from localhost too; VPNs
@@ -119,10 +31,8 @@ provenance, so the map can tell you later which app a cell came from.
   that area instead. Set `EDIT_ENABLED = false` in `src/main.js` to ship a
   fully view-only build (no pencil, no editing, at all).
 - **Menu**: one glass button (bottom left on desktop) opens sections for the
-  base map, coloring, and your map (saved routes, editing, statistics, and two
-  doors split by which way the data is going — **Import & sync** for everything
-  that puts where you've been on the map, **Export & settings** for getting it
-  back out and the schedule that does so).
+  base map, coloring, and your map (saved routes, editing, statistics, import,
+  sync).
   The **ⓘ**
   buttons open a floating note beside the menu — nothing expands inline, and
   swapping coloring modes swaps the color picker for the legend inside a
@@ -263,7 +173,7 @@ provenance, so the map can tell you later which app a cell came from.
 
 ## Import location history
 
-Open the menu (bottom left) → **Import & sync** → **Files**, then pick or drop
+Open the base-map menu (bottom left) → **Import locations**, then pick or drop
 your export files. **Any number at once, and a few at a time** — select a
 folder's worth of GPX, drop a mixed pile of KML and FIT one by one as you find
 them, or hand it a whole Strava ZIP and it expands the archive itself. Files
@@ -327,23 +237,16 @@ merges **once** (keyed by the file's timestamp) into the account named by the
 in-app importer is the normal path — and the only one that saves routes, since
 routes belong to an account rather than to the repo.
 
-## Import & sync
+## Sync
 
-Menu → **Import & sync** is the one door in front of everything that puts where
-you've been onto the map. Both halves are behind it because from the outside
-they are one question — *how does my history get in?* — and whether the answer
-is a file you picked or a server that fetches it every quarter of an hour is an
-implementation detail you shouldn't need to know to find the button:
+Menu → **Sync** is the door in front of every app the map can pull from, as
+opposed to files you export by hand:
 
 | | |
 | --- | --- |
-| **Files** | Anything you export by hand — GPX, KML, TCX, FIT, a Strava ZIP, a Google Timeline dump. Parsed in the browser; see [Import location history](#import-location-history) |
-| **Komoot** | One tour at a time, from a share link, fetched by your browser — inside the file importer, since it also imports once rather than staying connected |
 | **Home Assistant** | Followed on a schedule by the server, so the map keeps filling in on its own |
+| **Komoot** | One tour at a time, from a share link, fetched by your browser |
 | **Strava** | Your activities, brought across on a schedule after a one-time sign-in |
-
-What goes the *other* way — backups, and eventually an export — lives behind the
-second door, [Export & settings](#export--settings).
 
 ### Strava
 
@@ -450,7 +353,7 @@ a readable message rather than assuming a shape.
 Every other source is a file you remember to export. Home Assistant is the one
 the server goes and fetches by itself, so the map keeps filling in on its own.
 
-Import & sync → **Home Assistant**: paste the address you open Home Assistant at and a
+Sync → **Home Assistant**: paste the address you open Home Assistant at and a
 long-lived access token (your profile → Security → bottom of the page), press
 **Connect**, and tick the devices to follow. From then on the server asks your
 instance what those `device_tracker` / `person` entities did since it last
@@ -489,76 +392,6 @@ the dialog shows an empty field for a connection that already has one.
 Disconnecting throws the token away and leaves the cells it brought in, since
 those came from real fixes. Setting `COOKIE_SECURE=1` and putting the whole
 thing behind HTTPS/Tailscale is the sane way to host this.
-
-## Export & settings
-
-Menu → **Export & settings** is the other door. **Export** is listed and
-disabled: there is nothing behind it yet, and a row that says so is more honest
-than a menu that quietly grows one later — it points at the backup below, which
-is the way out today. **Backups** is the rest of this section.
-
-### Backups
-
-Everything behind the other door pulls data in. This writes it out: on a schedule,
-the server takes a copy of `data.db` — every account's cells and their
-provenance, the saved routes, the Home Assistant token — and keeps the last few
-beside it. Until now the only way that file existed twice was if you thought to
-copy it.
-
-**It only copies when something changed.** A map nobody edited for a week
-should leave one file behind, not seven identical ones, so two separate tests
-stand between a tick and a new file:
-
-- **The source file's size and mtime.** Nothing written since the last look
-  means nothing to copy. One `stat()`, and it's the usual answer.
-- **The hash of the copy itself.** `VACUUM INTO` rebuilds a database from its
-  logical contents, so two vacuums of the same data produce byte-identical
-  files — even after a write that added a row and deleted it again. A copy that
-  hashes the same as the newest kept one is thrown away and counted as
-  *skipped*, not kept. The dialog shows both counts, which is the feature
-  explaining itself: "12 kept · 39 skipped as unchanged".
-
-The bookkeeping — when it last ran, what the last copy hashed to — lives in a
-`.backup-state.json` beside the backups rather than in a table. That is not
-tidiness: writing "I took a backup at 04:00" *into* `data.db` is itself a change
-to `data.db`, so the next tick would see a modified file, copy it, write that
-down, and never skip anything again. The test caught exactly that.
-
-Nothing touches the bytes directly. `VACUUM INTO` asks SQLite for a consistent,
-compacted copy while the server is still running, which is the difference
-between a file that opens and a file that opens missing half a transaction. It
-is synchronous — the one place this server blocks on purpose — because SQLite
-has to see a stable database to write a copy of one. A few megabytes is a few
-milliseconds, and it runs at 04:00 by default for the day it isn't.
-
-**The schedule is a cron expression, whichever way you set it.** The picker
-(*every day at 04:00*, *every week on Sunday*) composes one; *Custom* takes one
-typed, five fields, `*/15` and `mon-fri` and `@daily` included. There is only
-ever one string in the database, and the line under the field says what it means
-in English — *"At 03:00 on Mondays, Tuesdays, Wednesdays, Thursdays and
-Fridays — next tomorrow at 03:00 AM"* — worked out by the same parser
-(`src/cron.js`) the server schedules from. An expression it cannot phrase
-honestly is shown back as itself rather than as a guess: a wrong description is
-worse than none. Times are local, and the day the clocks go forward still gets
-its backup rather than silently missing one.
-
-A missed run is taken. If the machine was asleep or the server was down at
-04:00, the first tick after boot notices that the last run predates the last
-firing and takes one then — the same catching-up the Home Assistant poller does.
-
-Retention is by count (3 to 90, default 14). Pruning only ever removes files the
-server itself wrote — the names are matched against a pattern, so pointing
-`BACKUP_DIR` at a directory with other things in it can't eat them.
-
-Each copy can be **downloaded**, because a backup that never leaves the machine
-it's a copy of is not a backup. That link is the most sensitive route in the
-app — the file is the whole database — so backups belong to the account that
-made the map (the first one), and every other account is refused in words.
-
-`npm test` covers the parser (leap days, the `13th or Friday` rule, the clock
-change), and the engine: that the copy opens as a database with all the cells in
-it, that an untouched map produces no second file, that a write which changed
-nothing produces no second file either, and that retention counts.
 
 ## Saved routes
 
@@ -732,65 +565,19 @@ inside the hexagon you tapped. Cells, their sources and their dates live in
 SQLite on the server (`cell_sources`), per account; saved routes live beside
 them in `routes`.
 
-
-## Taking it back
-
-**Ctrl-Z / ⌘-Z undoes, Ctrl-Shift-Z / ⌘-Shift-Z redoes** (and Ctrl-Y, which is
-what Windows hands tell their fingers). It covers the edits that change what the
-map holds: marking a cell, a whole Ctrl-sweep of painting, clearing an area, and
-deleting or renaming a saved route.
-
-**Every one of them says what it did** — *"Undid clearing 80 cells"*, *"Redid
-deleting “Thunersee loop”"* — in a small line at the bottom of the map. This is
-not decoration. On a map the thing that changed is often off screen, or a cell
-too small to watch move, so an undo that says nothing looks exactly like an undo
-that did nothing, and the natural response is to press it again. One slot, not a
-stack: holding the shortcut down reads as one message counting backwards rather
-than twelve notifications piling up.
-
-**Undoing a clear puts the rows back, not the cells.** Clearing drops every
-source's claim on a cell — the dates, the visit counts, which app it came from —
-and re-adding the id would bring it back as a bare manual mark having quietly
-thrown away all of it. So the page keeps what those cells knew (it already holds
-it, to draw the card) and hands it back whole to `POST /api/cells/restore`,
-`added_at` included: a cell that has been on the map since March does not come
-back reading as new. Deleting a route is the same problem in a different shape —
-the routes layer is lazy, so the line may never have been loaded — which is why
-`POST /api/routes/delete` answers with the whole row, geometry and all, and Undo
-posts that copy straight back.
-
-A sweep is one entry, not four hundred. A gesture that lit nothing new isn't an
-edit and doesn't go on the stack at all.
-
-Anything queued is sent first. Edits are debounced (a Ctrl-sweep is one request,
-not one per cell), and an undo that raced its own queue would restore cells that
-a stale delete then removed half a second later — so the queue is flushed and
-acknowledged before the inverse goes out. If the server can't be reached the
-undo doesn't happen, says so, and stays on the stack to try again.
-
-The stack is in memory, and it belongs to this page and this account: signing out
-or reloading starts again with nothing to undo. One that outlived the page would
-be offering to undo an edit against a map that may have changed on your phone
-since, and *undo* has to mean the thing it says. Typing in a field keeps its own
-undo — the shortcut is left alone there.
-
 ## Run & host
 
 ```sh
-npm run build:countries   # Natural Earth boundaries
-npm run build:places      # GeoNames towns + Natural Earth lakes
-```
-
-## Tests
-
-```sh
-npm test
+npm install
+npm run dev          # Vite + API together (http://localhost:5173)
+npm run dev -- --host  # …and reachable from your phone on the same network
+npm run build        # production bundle → dist/
+npm start            # one process serving dist/ and the API (port 3001)
 ```
 
 Accounts and cells live in SQLite (`data.db`, via `node:sqlite` — no npm
 dependencies), so the app needs the Node server, not just static hosting. Env:
-`PORT`, `DB_PATH`, `BACKUP_DIR` (default `./backups`), `COOKIE_SECURE=1`
-behind HTTPS, `IMPORT_OWNER` for the
+`PORT`, `DB_PATH`, `COOKIE_SECURE=1` behind HTTPS, `IMPORT_OWNER` for the
 offline import above. For a private personal deployment, `tailscale serve` in
 front of `npm start` gives you an HTTPS URL (which the "my location" button
 requires) reachable only from your own devices.
