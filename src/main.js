@@ -18,6 +18,7 @@ import {
 import {
   loadCountries,
   countriesLoaded,
+  countryAt,
   countryIdAt,
   mergeCountries,
   countryGeometry,
@@ -1044,6 +1045,12 @@ let litRegionIds = null;
 // a straight line across the lake it actually follows. Only reachable with
 // Detail pinned to Region: on Auto, this level never survives past ~z5.
 const REGION_FINE_ZOOM = 7;
+// …and back to the overview geometry below this. The gap is deliberate: swapping
+// resolution re-tiles the source, so a zoom that hovers on the threshold would
+// re-tile on every wobble. Same idea as LEVEL_HYSTERESIS, for the same reason —
+// and it is the zoom-out that matters on an older device, where the point of
+// dropping back to a few hundred points is that the map stays smooth.
+const REGION_COARSE_ZOOM = 6.4;
 
 // Boundary credits. Natural Earth is public domain and asks for nothing;
 // geoBoundaries composites national survey data (swisstopo for Switzerland) and
@@ -1052,9 +1059,20 @@ const REGION_ATTRIB =
   '<a href="https://www.geoboundaries.org/" target="_blank" rel="noopener noreferrer">geoBoundaries</a>';
 
 // Whether the fine geometry should be used *right now*. It has to be both
-// fetched and worth using: switching to it at world zoom would cost 8 MB of
-// tiling to draw detail smaller than a pixel.
-const useFineRegions = () => fineRegionsLoaded() && map.getZoom() >= REGION_FINE_ZOOM;
+// fetched and worth using: at world zoom it would cost a great deal of tiling to
+// draw detail far smaller than a pixel. Sticky between the two thresholds, so
+// nudging the zoom around the boundary doesn't re-tile the source repeatedly.
+let fineActive = false;
+function useFineRegions() {
+  if (!fineRegionsLoaded()) {
+    fineActive = false;
+    return false;
+  }
+  const zoom = map.getZoom();
+  if (zoom >= REGION_FINE_ZOOM) fineActive = true;
+  else if (zoom < REGION_COARSE_ZOOM) fineActive = false;
+  return fineActive;
+}
 
 // Which cache a request lands in.
 const areaCacheKey = (kind) => (kind === 'region' && useFineRegions() ? 'regionFine' : kind);
@@ -1110,7 +1128,8 @@ function buildAreaFC(kind, fine = false) {
       const row = +key.slice(sep + 1);
       const [lng, lat] = project(cellCenter(fromLevel, col, row));
       const lngW = wrapLng(lng);
-      const country = countryIdAt(lngW, lat);
+      const at = countryAt(lngW, lat);
+      const country = at?.id ?? null;
       // The region lookup is handed the country, which drops all but a couple
       // of dozen of the 4,553 shapes before any geometry is touched.
       // A handful of countries have no admin-1 entry in the dataset at all
@@ -1126,9 +1145,9 @@ function buildAreaFC(kind, fine = false) {
       // country in on any miss, and one stray cell in a 1 km sliver off the
       // Ligurian coast coloured in the entire of Italy underneath its cantons.
       cid = isRegionKind
-        ? (country
-            ? (regionNear(lngW, lat, country)?.id
-               ?? (regionsInCountry(country) === 0 ? `${WHOLE_COUNTRY}${country}` : null))
+        ? (at
+            ? (regionNear(lngW, lat, at.iso)?.id
+               ?? (regionsInCountry(at.iso) === 0 ? `${WHOLE_COUNTRY}${country}` : null))
             : null)
         : country;
       memo.set(key, cid);

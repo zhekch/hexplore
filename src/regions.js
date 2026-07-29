@@ -161,9 +161,16 @@ export function pointInside(rings) {
   return null;
 }
 
-/** Every region of one country — the pairing works through this list. */
-export function regionsOf(country) {
-  return (REGIONS ?? []).filter((r) => r.country === country);
+/**
+ * Every region of one country, found by ISO3 code.
+ *
+ * By code, never by name: Natural Earth's admin-0 and admin-1 files disagree on
+ * twelve country names (Czechia/Czech Republic, eSwatini/Swaziland,
+ * Cabo Verde/Cape Verde…). Joining on the name meant those countries had "no
+ * regions", which the region level then drew as one flat country-shaped blob.
+ */
+export function regionsOf(iso) {
+  return (REGIONS ?? []).filter((r) => r.iso === iso);
 }
 
 let isoIndex = null;
@@ -215,13 +222,13 @@ export function geometryAreaM2(g) {
  * our forty-three pair and the rest keep the overview shape — every drawn shape
  * still being the right shape for what it represents.
  *
- * @param {string} country
+ * @param {string} iso  ISO3 country code
  * @param {Array<object>} features  GeoJSON features with a `shapeName`
  * @returns {Map<string, object>} our region id → detailed geometry
  */
-export function pairFineRegions(country, features) {
+export function pairFineRegions(iso, features) {
   const byName = new Map();
-  for (const r of regionsOf(country)) byName.set(foldName(r.name), r.id);
+  for (const r of regionsOf(iso)) byName.set(foldName(r.name), r.id);
 
   const claimed = new Map();
   for (const f of features ?? []) {
@@ -233,7 +240,7 @@ export function pairFineRegions(country, features) {
       let biggest = polys[0];
       for (const poly of polys) if (poly[0].length > biggest[0].length) biggest = poly;
       const pt = pointInside(biggest);
-      if (pt) id = regionAt(pt[0], pt[1], country)?.id;
+      if (pt) id = regionAt(pt[0], pt[1], iso)?.id;
     }
     if (!id || claimed.has(id)) continue; // one detailed shape per region
 
@@ -287,18 +294,18 @@ export async function loadFineRegions(iso) {
  *
  * @param {number} lng
  * @param {number} lat
- * @param {string} [country] the country already worked out for this point, if
- *   there is one. Regions elsewhere are then skipped without a geometry test,
- *   which is most of them — the statistics sweep already knows the country.
- * @returns {{id:string, name:string, country:string}|null}
+ * @param {string} [iso] the ISO3 code of the country already worked out for this
+ *   point, if there is one. Regions elsewhere are then skipped without a
+ *   geometry test, which is most of them — the sweep already knows the country.
+ * @returns {{id:string, name:string, country:string, iso:string}|null}
  */
-export function regionAt(lng, lat, country) {
+export function regionAt(lng, lat, iso) {
   if (!REGIONS) return null;
   const bucket = index.get(tileKey(lng, lat));
   if (!bucket) return null;
   for (const i of bucket) {
     const r = REGIONS[i];
-    if (country && r.country !== country) continue;
+    if (iso && r.iso !== iso) continue;
     const [w, s, e, n] = r.bbox;
     if (lng < w || lng > e || lat < s || lat > n) continue;
     const g = r.geometry;
@@ -328,13 +335,13 @@ export function regionAt(lng, lat, country) {
  *
  * @returns {{id:string, name:string, country:string}|null}
  */
-export function regionNear(lng, lat, country) {
-  const exact = regionAt(lng, lat, country);
-  if (exact || !REGIONS || !country) return exact;
+export function regionNear(lng, lat, iso) {
+  const exact = regionAt(lng, lat, iso);
+  if (exact || !REGIONS || !iso) return exact;
   let best = null;
   let bestKey = [Infinity, Infinity];
   for (const r of REGIONS) {
-    if (r.country !== country) continue;
+    if (r.iso !== iso) continue;
     const [w, s, e, n] = r.bbox;
     // Distance to the box, which is 0 for the overwhelmingly common case of a
     // point that is inside the region's bbox and just outside its simplified
@@ -371,10 +378,10 @@ export function regionAreaKm2(id) {
 }
 
 /** How many regions one country is divided into (0 if it isn't in the set). */
-export function regionsInCountry(country) {
+export function regionsInCountry(iso) {
   if (!REGIONS) return 0;
   let n = 0;
-  for (const r of REGIONS) if (r.country === country) n++;
+  for (const r of REGIONS) if (r.iso === iso) n++;
   return n;
 }
 

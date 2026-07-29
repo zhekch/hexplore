@@ -7,7 +7,7 @@
 // center (~22k exact point-in-country tests take well under half a second).
 
 import { SQRT3, radiusOf, cellCenter, project, MAX_LEVEL } from './hexgrid.js';
-import { loadCountries, countryIdAt, countryAreaKm2, countryCount } from './countries.js';
+import { loadCountries, countryAt, countryAreaKm2, countryCount } from './countries.js';
 import { loadRegions, regionNear, regionAreaKm2, regionsInCountry } from './regions.js';
 
 // Earth's land surface, the yardstick for "% of the world" (oceans excluded —
@@ -53,6 +53,7 @@ export async function computeStats(cellIds, cellMeta) {
 
   const byCountry = new Map(); // id → { cells, km2 }
   const byRegion = new Map(); //  id → { name, country, cells, km2 }
+  const isosSeen = new Set(); // country codes touched, for the region denominator
   const bySource = new Map(); // source → cells
   let cells = 0;
   let km2 = 0;
@@ -69,8 +70,10 @@ export async function computeStats(cellIds, cellMeta) {
     cells++;
     km2 += area;
 
-    const country = countryIdAt(wrapLng(lng), lat);
+    const at = countryAt(wrapLng(lng), lat);
+    const country = at?.id ?? null;
     if (country) {
+      if (at.iso) isosSeen.add(at.iso);
       const e = byCountry.get(country) ?? { cells: 0, km2: 0 };
       e.cells++;
       e.km2 += area;
@@ -79,7 +82,10 @@ export async function computeStats(cellIds, cellMeta) {
       // Snapping, not exact: a cell 1 km off a canton's simplified coastline
       // belongs to that canton, and dropping it would quietly under-count the
       // coast of every country.
-      const region = regionNear(wrapLng(lng), lat, country);
+      // By ISO, not by name: the two Natural Earth files disagree on twelve
+      // country names, and matching on the name silently counted nothing for
+      // those countries' regions.
+      const region = regionNear(wrapLng(lng), lat, at.iso);
       if (region) {
         const r = byRegion.get(region.id) ?? { name: region.name, country, cells: 0, km2: 0 };
         r.cells++;
@@ -124,7 +130,7 @@ export async function computeStats(cellIds, cellMeta) {
   // that means something is the countries you have actually been to: every
   // region in them is one you could plausibly go and see.
   let regionsReachable = 0;
-  for (const c of byCountry.keys()) regionsReachable += regionsInCountry(c);
+  for (const iso of isosSeen) regionsReachable += regionsInCountry(iso);
 
   return {
     cells,

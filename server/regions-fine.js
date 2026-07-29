@@ -119,14 +119,14 @@ export function createFineRegions({ dir, log = () => {} }) {
     // The country name our own dataset uses, and how many regions it has.
     const country = countryForIso(iso);
     if (!country) return { iso, level: null, regions: {}, note: 'unknown country code' };
-    const mine = regionsInCountry(country);
+    const mine = regionsInCountry(iso);
     if (!mine) return { iso, level: null, regions: {}, note: 'no regions here' };
 
     for (const { level, count } of await rankLevels(iso, mine)) {
       const geo = await getJson(fileUrl(iso, level));
       const features = geo?.features;
       if (!features?.length) continue;
-      const paired = pairFineRegions(country, features);
+      const paired = pairFineRegions(iso, features);
       const need = Math.max(MIN_PAIRED, Math.min(mine, count) * MIN_PAIRED_SHARE);
       if (paired.size < need) {
         log(`${iso} ${level}: ${paired.size}/${count} paired against ${mine} — not this level`);

@@ -9,7 +9,7 @@ import { formatDistance, formatDuration, totalLength, thumbSegments } from './ro
 import { auth } from './auth.js';
 import { buildTrips, nameTrips, findHome, dayKey } from './trips.js';
 import { loadPlaces, nearestTown } from './places.js';
-import { loadCountries, countryIdAt } from './countries.js';
+import { loadCountries, countryAt } from './countries.js';
 import { loadRegions, regionAt } from './regions.js';
 import { isKomootTourUrl } from './komoot.js';
 
@@ -854,11 +854,11 @@ export function mountStats({
   async function nameThem(list) {
     await Promise.all([loadPlaces(), loadCountries(), loadRegions()]);
     const at = (lng, lat) => {
-      const country = countryIdAt(lng, lat);
+      const at = countryAt(lng, lat);
       return {
         town: nearestTown(lng, lat)?.name,
-        region: country ? regionAt(lng, lat, country)?.name : undefined,
-        country: country ?? undefined,
+        region: at ? regionAt(lng, lat, at.iso)?.name : undefined,
+        country: at?.id ?? undefined,
       };
     };
     nameTrips(list, at);

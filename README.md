@@ -189,9 +189,11 @@ canton edge follows the lake it actually follows. Nothing is fetched on Auto, or
 before you zoom in, and the request says only which country — never anything
 about your map.
 
-Your server does the fetching and keeps a copy, so each country is only ever
-downloaded once however many times you look at it, and a small spinner sits at
-the top of the map while one is on its way.
+Your server does the fetching and keeps a copy on disk, so each country is only
+ever downloaded once — across restarts too — however many times you look at it,
+and a small spinner sits at the top of the map while one is on its way. Zoom back
+out and the map returns to the light geometry rather than drawing detail smaller
+than a pixel, which is what keeps it smooth on an older device.
 
 A few countries stay at the shipped resolution, because the detailed source
 divides them differently than this map does — Hungary is one: it counts city

@@ -804,6 +804,25 @@ What this buys, measured: Switzerland 26 of 26 regions, Italy 106 of 110, France
 96 of 101, Liechtenstein 11 of 11, Hungary 17 of 43. The drawn union of two
 Italian provinces goes from 342 points to 4,158.
 
+**The two datasets are joined on ISO code, never on the country name.** Natural
+Earth's admin-0 file and its own admin-1 file disagree on twelve names — this one
+says "Czechia" where the other says "Czech Republic", and the same for eSwatini,
+North Macedonia, Cabo Verde, Guinea-Bissau, Palestine, São Tomé and Príncipe,
+South Sudan, Vatican, Macao, Tuvalu and the Pitcairn Islands. Matching on the
+name meant the region lookup found *nothing* for those countries, fell through to
+"this country has no regions at all", and drew the whole of Czechia as one flat
+country-shaped blob with a straight line where its border should be — and, because
+the stand-in has no country code, it could never fetch detail either. Both
+datasets now carry `adm0_a3` and every region lookup takes a code.
+
+**Resolution is sticky between two thresholds.** The detailed geometry comes in
+at `REGION_FINE_ZOOM` (7) and is dropped again below `REGION_COARSE_ZOOM` (6.4),
+rather than both happening at one number. Swapping resolution re-tiles the
+source, so a zoom that hovers on a single threshold would re-tile on every
+wobble; the gap is the same trick as `LEVEL_HYSTERESIS`, for the same reason.
+Dropping back matters most on an older device — the point of returning to a few
+hundred points when zoomed out is that the map stays smooth.
+
 **Border slivers snap; only genuinely unsubdivided countries stand in for
 themselves.** The country outlines are rounded to ~1 km and each region is
 simplified relative to its own size, so along coastlines and national borders

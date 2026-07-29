@@ -25,24 +25,36 @@ export function loadCountries() {
   return loading;
 }
 
-// Which country contains this point, or null (ocean / not loaded). The bbox
-// prefilter rejects almost every country in one comparison.
-export function countryIdAt(lng, lat) {
+/**
+ * Which country contains this point, as its whole record, or null (ocean / not
+ * loaded). The bbox prefilter rejects almost every country in one comparison.
+ *
+ * Callers that go on to ask about *regions* must use `.iso`, not `.id`: the two
+ * Natural Earth files disagree on twelve names — this one says "Czechia" where
+ * the admin-1 file says "Czech Republic" — and joining them on the name painted
+ * the whole of Czechia as one flat shape.
+ *
+ * @returns {{id:string, iso:string|null}|null}
+ */
+export function countryAt(lng, lat) {
   if (!COUNTRIES) return null;
   for (const c of COUNTRIES) {
     const [w, s, e, n] = c.bbox;
     if (lng < w || lng > e || lat < s || lat > n) continue;
     const g = c.geometry;
     if (g.type === 'Polygon') {
-      if (inPolygon(lng, lat, g.coordinates)) return c.id;
+      if (inPolygon(lng, lat, g.coordinates)) return c;
     } else {
       for (const poly of g.coordinates) {
-        if (inPolygon(lng, lat, poly)) return c.id;
+        if (inPolygon(lng, lat, poly)) return c;
       }
     }
   }
   return null;
 }
+
+/** Just the display name, for everything that only wants to show it. */
+export const countryIdAt = (lng, lat) => countryAt(lng, lat)?.id ?? null;
 
 // --- Areas (for the coverage statistics) --------------------------------------
 const areaMemo = new Map();

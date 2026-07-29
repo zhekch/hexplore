@@ -58,6 +58,13 @@ for (const f of geo.features) {
   const p = f.properties;
   const id = p.ADMIN ?? p.NAME_EN ?? p.NAME ?? p.SOVEREIGNT;
   if (!id || !f.geometry) continue;
+  // The ISO3 code, because the *name* cannot be trusted to join these two
+  // datasets: Natural Earth's admin-0 file says "Czechia" where its own admin-1
+  // file says "Czech Republic", and the same for eleven other countries
+  // (eSwatini, North Macedonia, Cabo Verde, Vatican…). Joining on the name meant
+  // the region lookup found nothing for those, fell through to "this country has
+  // no regions", and painted the whole of Czechia in one flat shape.
+  const iso = p.ADM0_A3 ?? p.ISO_A3 ?? p.SOV_A3 ?? null;
   const bbox = [Infinity, Infinity, -Infinity, -Infinity];
   let geometry;
   if (f.geometry.type === 'Polygon') {
@@ -77,7 +84,7 @@ for (const f of geo.features) {
   // Canaries, etc.) so they don't light up the whole country at the country
   // zoom level. Recompute the bbox afterward since it just shrank.
   geometry = stripDetachedTerritories(geometry);
-  countries.push({ id, bbox: bboxOfGeometry(geometry).map(round), geometry });
+  countries.push({ id, iso, bbox: bboxOfGeometry(geometry).map(round), geometry });
 }
 
 // Larger countries first: the point-in-country lookup returns on first hit, and
