@@ -1481,6 +1481,17 @@ body {
   overflow-y: auto;
   margin: 4px -6px 0;
   padding: 0 6px;
+  /* No rail, on any device — the same call as .menu-scroll. A track down the
+     inside edge of a glass card reads as a seam in it, and these panels
+     already say they continue: the last few pixels fade out (.more, below).
+     Scrolling is untouched; only the furniture is gone. */
+  scrollbar-width: none;
+}
+
+.ha-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* Once there's more below the fold, fade the last few pixels out so the panel
@@ -1671,8 +1682,13 @@ body {
   max-height: min(58vh, 460px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  scrollbar-width: none;
+}
+
+.stats-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .stats-loading {
@@ -2655,21 +2671,6 @@ body {
    worse trade. Sizing the controls at 16px on touch devices avoids the trigger
    instead, and changes nothing on a desktop. */
 @media (pointer: coarse) {
-  /* Touch devices have no persistent scrollbar of their own, so a permanent
-     8px track is a desktop habit that just eats width. (The layers menu drops
-     its rail everywhere — see .menu-scroll.) */
-  .stats-body,
-  .ha-scroll {
-    scrollbar-width: none;
-  }
-
-  .stats-body::-webkit-scrollbar,
-  .ha-scroll::-webkit-scrollbar {
-    width: 0;
-    height: 0;
-    display: none;
-  }
-
   .auth-input,
   .ha-scroll .auth-input,
   .cp-hex,

@@ -1,6 +1,14 @@
-// The "Sync" dialog: one door in front of every app the map keeps *connected* —
-// Home Assistant and Strava, both of which are set up once and then polled on a
-// timer. A one-off paste-a-link import (Komoot) belongs with the files instead.
+// The "Import & sync" dialog: one door in front of everything that puts where
+// you've been onto the map.
+//
+// Both halves of that are here because from the outside they are one question —
+// *how does my history get in?* — and the answer differing in whether you pick
+// a file or the server fetches it on a timer is an implementation detail you
+// shouldn't have to know before you can find the button. Files (and, behind
+// them, a pasted Komoot link) do it once; Home Assistant and Strava are set up
+// once and then keep doing it.
+//
+// What goes the other way lives in its own dialog (src/settings-ui.js).
 //
 // It owns nothing itself — each entry hands off to its own dialog and comes
 // back here when that one is dismissed with Back, so the two read as one flow.
@@ -9,16 +17,17 @@
  * @param {object} opts
  * @param {{open:Function}} opts.homeAssistant the Home Assistant dialog
  * @param {{open:Function}} opts.strava        the Strava dialog
+ * @param {{open:Function}} opts.files         the file importer
  */
-export function mountSync({ homeAssistant, strava }) {
+export function mountSync({ homeAssistant, strava, files }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('sync-overlay');
   const haNote = $('sync-ha-note');
   const stravaNote = $('sync-strava-note');
 
-  // Komoot isn't here: it imports once from a pasted link rather than staying
-  // connected, so it sits with the file importer instead.
-  const targets = { ha: homeAssistant, strava };
+  // Komoot isn't a row of its own: it imports once from a pasted link rather
+  // than staying connected, so it sits inside the file importer, one step in.
+  const targets = { files, ha: homeAssistant, strava };
 
   const open = () => {
     overlay.hidden = false;
