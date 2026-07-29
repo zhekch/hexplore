@@ -178,9 +178,15 @@ belong to the account that made the map.
 **Zooming out** goes from hexagons to shapes you recognise: at about z5 the grid
 gives way to **regions** — cantons, states, départements — and one step further
 out to whole countries. *Detail* pins any of those: the finest grid, Region, or
-Country. Pinned to Region and zoomed in, the outlines sharpen from ~1 km to
-~100 m once the finer boundary set has been fetched (8 MB, and only ever
-fetched then).
+Country.
+
+Pinned to Region and zoomed in, the outlines sharpen: the shipped boundaries are
+simplified to about a kilometre, and past that zoom the app fetches the real
+survey boundaries for **just the countries on your screen** (from
+[geoBoundaries](https://www.geoboundaries.org/), a few hundred KB each) so a
+canton edge follows the lake it actually follows. Nothing is fetched on Auto, or
+before you zoom in, and the request says only which country — never anything
+about your map.
 
 **Looks.** Four basemaps (dark, terrain, light, satellite), one accent colour or
 a shading by **visits**, **first seen**, or **type** — a colour per app the data
@@ -231,6 +237,8 @@ allowed to connect to, and why each limit is where it is — is in
 - [Vite](https://vite.dev/) — dev server / bundler
 - Basemaps: [CARTO](https://carto.com/basemaps/), [OpenFreeMap](https://openfreemap.org/), Esri World Imagery
 - Boundaries and lakes: [Natural Earth](https://www.naturalearthdata.com/) (public domain)
+- Detailed region boundaries, fetched per country on demand:
+  [geoBoundaries](https://www.geoboundaries.org/) (CC BY 4.0, compositing national survey data)
 - Town names: [GeoNames](https://www.geonames.org/) `cities5000` (CC BY 4.0)
 
 Built with no runtime dependencies beyond MapLibre and a polygon-clipping

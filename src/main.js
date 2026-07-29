@@ -40,7 +40,7 @@ import { mountHome } from './home-ui.js';
 import { activeDays } from './trips.js';
 import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
-  loadFineRegions, fineRegionsLoaded,
+  loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView,
 } from './regions.js';
 import { asMulti, unionGeometries } from './polygon.js';
 import { mountBackup } from './backup-ui.js';
@@ -1034,12 +1034,21 @@ const WHOLE_COUNTRY = '\u0000country:';
 // coarse geometry is the right thing to tile when you are looking at a
 // continent and the wrong thing when you are looking at a valley.
 const areaFC = { region: EMPTY, regionFine: EMPTY, country: EMPTY };
+// The region ids the last build lit, so considerFineRegions() knows which
+// countries are worth asking about.
+let litRegionIds = null;
 
 // Past this zoom, region outlines are being read rather than glanced at, and the
 // overview set's ~1 km simplification starts to show — a canton border cutting
 // a straight line across the lake it actually follows. Only reachable with
 // Detail pinned to Region: on Auto, this level never survives past ~z5.
 const REGION_FINE_ZOOM = 7;
+
+// Boundary credits. Natural Earth is public domain and asks for nothing;
+// geoBoundaries composites national survey data (swisstopo for Switzerland) and
+// asks to be credited under CC BY 4.0.
+const REGION_ATTRIB =
+  '<a href="https://www.geoboundaries.org/" target="_blank" rel="noopener noreferrer">geoBoundaries</a>';
 
 // Whether the fine geometry should be used *right now*. It has to be both
 // fetched and worth using: switching to it at world zoom would cost 8 MB of
@@ -1150,6 +1159,10 @@ function buildAreaFC(kind, fine = false) {
     }
     e.src = best;
   }
+
+  // Recorded before the heat branch, which returns without reaching the merge:
+  // considerFineRegions() needs this whichever colouring mode is on.
+  if (isRegionKind) litRegionIds = litIds;
 
   // In a heat mode each country is its own feature so it can carry its own
   // color; otherwise they dissolve into one borderless shape.
@@ -2966,20 +2979,25 @@ const VECTOR_WARM_ZOOM = levelBoundary(FIRST_VECTOR_LEVEL - 1) + 1.2;
 const VECTOR_COOL_ZOOM = levelBoundary(FIRST_VECTOR_LEVEL - 2) + 1;
 
 // Zoomed in far enough that region outlines are being read rather than glanced
-// at: fetch the fine geometry, once, and rebuild with it when it lands.
+// at, and the overview geometry's straight lines across real borders start to
+// show. Fetch the detailed boundaries — for the countries actually on screen,
+// one at a time, once each — and rebuild as they land.
+//
+// Only reachable with Detail pinned to Region: on Auto this level never survives
+// past ~z5, where the overview geometry is the right thing to draw anyway.
 function considerFineRegions(level) {
-  if (level !== REGION_LEVEL || fineRegionsLoaded() || fineLoadPending) return;
-  if (map.getZoom() < REGION_FINE_ZOOM) return;
-  fineLoadPending = true;
-  loadFineRegions()
-    .then(() => {
-      fineLoadPending = false;
-      areaFC.regionFine = EMPTY; // build it at the new resolution
+  if (level !== REGION_LEVEL || map.getZoom() < REGION_FINE_ZOOM) return;
+  if (!regionsLoaded() || !litRegionIds) return;
+  const b = map.getBounds();
+  const view = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+  for (const { iso, country } of countriesInView(litRegionIds, view)) {
+    if (fineCountryKnown(iso)) continue;
+    loadFineRegions(iso, country).then((paired) => {
+      if (!paired) return;
+      areaFC.regionFine = EMPTY; // rebuild at the new resolution
       updateGrid(true);
-    })
-    .catch(() => {
-      fineLoadPending = false; // an 8 MB fetch that failed is not fatal
     });
+  }
 }
 
 function warmVector(level, asBlob) {
@@ -3657,7 +3675,21 @@ function installGrid() {
       vecLive = '';
       blobRole = 'none';
     }
-    map.addSource(src, { type: 'geojson', data: EMPTY, tolerance: 0 });
+    // The attribution control reads this off the source, which is also the only
+    // safe place to set it — poking the live source object and firing a
+    // synthetic 'data' event to make the control re-read it corrupts MapLibre's
+    // internal state and throws on the next jumpTo.
+    //
+    // Credited unconditionally rather than only once detailed boundaries are on
+    // screen: they are a source this map draws from, and a credit that appears
+    // and disappears with the zoom is worse than one that is simply always
+    // there.
+    map.addSource(src, {
+      type: 'geojson',
+      data: EMPTY,
+      tolerance: 0,
+      attribution: REGION_ATTRIB,
+    });
     map.addLayer({
       // Fill layers render LineStrings too (implicitly closed) — filter to
       // the k=1 polygons or the k=2 outline gets double-filled per tile.

@@ -21,18 +21,43 @@ let REGIONS = null; // [{ id, name, country, bbox:[w,s,e,n], geometry }]
 let index = null; //   "gx/gy" → region indices whose bbox touches that tile
 let loading = null;
 
-// The fine set: the same regions at ~100 m instead of ~1 km, 8 MB against 2.5.
-// Fetched only when someone is looking at region outlines close up, where the
-// overview set's simplification is visibly wrong — a canton border cutting
-// across a lake it follows. Nothing else ever pays for it, and *nothing* is
-// resolved against it: which region a cell belongs to is decided once, on the
-// overview set, so the answer can't change under you when the fine one lands.
-let FINE = null; // id → geometry
-let fineLoading = null;
+// Detailed boundaries, fetched one country at a time.
+//
+// Natural Earth cannot supply these at any tolerance: even its raw 10m geometry
+// gives the canton of Solothurn 276 points, where the national survey gives
+// 6,951. Simplifying our own copy less does not help — the detail was never in
+// the source. So the overview set stays Natural Earth (small, global, good
+// enough for a level that normally lives at z4–5), and when someone zooms in far
+// enough to see a boundary cut a straight line across the lake it actually
+// follows, the real thing is fetched for the countries on screen and nothing
+// else.
+//
+// This is the app's one runtime geometry fetch. It is the same class of thing as
+// a basemap tile — a public boundary file, requested by country code — and no
+// user data goes with it: the request says "Switzerland", not where you have
+// been. Everything about *your* map stays where it was.
+//
+// geoBoundaries (gbOpen, CC BY 4.0) composites national survey data; the Swiss
+// boundaries here are swisstopo's.
+//
+// Two things about this URL are deliberate. The commit is pinned, because the
+// data should not change under a running map and pinned data is reproducible —
+// refresh it from https://www.geoboundaries.org/api/current/gbOpen/. And it is
+// the *media* host rather than github.com or jsDelivr: these files are stored in
+// Git LFS, so every other route returns a 131-byte pointer instead of a
+// boundary, and github.com's own /raw/ redirect cannot be read cross-origin at
+// all. media.githubusercontent.com serves the real bytes with CORS.
+const GB_COMMIT = '9469f09';
+const gbUrl = (iso) =>
+  `https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/${GB_COMMIT}/releaseData/gbOpen/${iso}/ADM1/geoBoundaries-${iso}-ADM1_simplified.geojson`;
+
+let FINE = new Map(); // region id → detailed geometry
+const fineDone = new Set(); // iso codes fetched (or failed — don't retry a 404)
+const finePending = new Set();
 
 // 5° tiles: ~550 km, comfortably bigger than all but a handful of regions, so
-// most land in one or two buckets. Small enough that a bucket holds a few
-// dozen candidates rather than a continent's worth.
+// most land in one or two buckets. Small enough that a bucket holds a few dozen
+// candidates rather than a continent's worth.
 const TILE = 5;
 
 const tileKey = (lng, lat) => `${Math.floor(lng / TILE)}/${Math.floor(lat / TILE)}`;
@@ -59,7 +84,10 @@ function buildIndex() {
 }
 
 export const regionsLoaded = () => REGIONS !== null;
-export const fineRegionsLoaded = () => FINE !== null;
+/** True once any country's detailed boundaries are in memory. */
+export const fineRegionsLoaded = () => FINE.size > 0;
+/** Which countries have been asked for already, so nothing is fetched twice. */
+export const fineCountryKnown = (iso) => fineDone.has(iso) || finePending.has(iso);
 
 /** Kick off (or reuse) the one-time fetch. Resolves when the data is ready. */
 export function loadRegions() {
@@ -73,16 +101,98 @@ export function loadRegions() {
   return loading;
 }
 
-/** Kick off (or reuse) the one-time fetch of the fine geometry. */
-export function loadFineRegions() {
-  if (!fineLoading) {
-    fineLoading = import('./regions-hi.json').then((m) => {
-      FINE = new Map();
-      for (const r of m.default) FINE.set(r.id, r.geometry);
-      return FINE;
-    });
+const fold = (v) =>
+  String(v ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+// A point that is definitely inside a ring: the average of its vertices when
+// that lands inside, and otherwise a walk across the bounding box until
+// something does. Needed because the two datasets name the same place
+// differently often enough — Luzern/Lucerne, St. Gallen/Sankt Gallen — that
+// names alone cannot be trusted to pair them up.
+function pointInside(rings) {
+  const outer = rings[0];
+  let x = 0;
+  let y = 0;
+  for (const p of outer) {
+    x += p[0];
+    y += p[1];
   }
-  return fineLoading;
+  const mean = [x / outer.length, y / outer.length];
+  if (inPolygon(mean[0], mean[1], rings)) return mean;
+  let w = Infinity;
+  let sN = Infinity;
+  let e = -Infinity;
+  let n = -Infinity;
+  for (const p of outer) {
+    if (p[0] < w) w = p[0];
+    if (p[1] < sN) sN = p[1];
+    if (p[0] > e) e = p[0];
+    if (p[1] > n) n = p[1];
+  }
+  for (let i = 1; i < 8; i++) {
+    for (let j = 1; j < 8; j++) {
+      const px = w + ((e - w) * i) / 8;
+      const py = sN + ((n - sN) * j) / 8;
+      if (inPolygon(px, py, rings)) return [px, py];
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetch one country's detailed boundaries and pair them with our regions.
+ *
+ * Resolves to how many regions gained detail. Never rejects: a country
+ * geoBoundaries doesn't have is not an error, it just keeps the overview
+ * geometry, and it is remembered so it isn't asked for twice.
+ *
+ * @param {string} iso  ISO3 country code, from our own region records
+ * @param {string} country  the country name, to narrow the pairing lookup
+ */
+export async function loadFineRegions(iso, country) {
+  if (!iso || fineDone.has(iso) || finePending.has(iso)) return 0;
+  finePending.add(iso);
+  try {
+    const res = await fetch(gbUrl(iso));
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const geo = await res.json();
+
+    // Name first — it pairs most of them for free — then geometry for the rest.
+    const byName = new Map();
+    for (const r of REGIONS ?? []) {
+      if (r.country === country) byName.set(fold(r.name), r.id);
+    }
+
+    let paired = 0;
+    for (const f of geo.features ?? []) {
+      const g = f.geometry;
+      if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
+      let id = byName.get(fold(f.properties?.shapeName));
+      if (!id) {
+        // Ask our own dataset which region a point inside theirs belongs to.
+        const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+        // The biggest piece, so an offshore island doesn't decide it.
+        let best = polys[0];
+        for (const poly of polys) if (poly[0].length > best[0].length) best = poly;
+        const pt = pointInside(best);
+        if (pt) id = regionAt(pt[0], pt[1], country)?.id;
+      }
+      if (!id) continue;
+      FINE.set(id, g);
+      paired++;
+    }
+    return paired;
+  } catch {
+    return 0; // no detail for this country; the overview geometry stands
+  } finally {
+    finePending.delete(iso);
+    fineDone.add(iso);
+  }
 }
 
 /**
@@ -185,6 +295,28 @@ export function regionsInCountry(country) {
 export const regionCount = () => REGIONS?.length ?? 0;
 
 /**
+ * The countries of the given regions whose shapes touch the given view — which
+ * is the set worth fetching detail for, and nothing else.
+ *
+ * @param {Iterable<string>} ids  lit region ids
+ * @param {[number, number, number, number]} view  [w, s, e, n]
+ * @returns {Array<{iso:string, country:string}>}
+ */
+export function countriesInView(ids, view) {
+  if (!REGIONS) return [];
+  const wanted = new Set(ids);
+  const out = new Map();
+  const [w, s, e, n] = view;
+  for (const r of REGIONS) {
+    if (!wanted.has(r.id) || !r.iso) continue;
+    const [rw, rs, re, rn] = r.bbox;
+    if (re < w || rw > e || rn < s || rs > n) continue;
+    out.set(r.iso, { iso: r.iso, country: r.country });
+  }
+  return [...out.values()];
+}
+
+/**
  * One region's raw geometry — used by the heat maps, which colour each region
  * separately instead of dissolving them together.
  *
@@ -192,7 +324,7 @@ export const regionCount = () => REGIONS?.length ?? 0;
  * @param {boolean} [fine] prefer the fine geometry if it has been fetched
  */
 export function regionGeometry(id, fine = false) {
-  if (fine && FINE?.has(id)) return FINE.get(id);
+  if (fine && FINE.has(id)) return FINE.get(id);
   return REGIONS?.find((r) => r.id === id)?.geometry ?? null;
 }
 

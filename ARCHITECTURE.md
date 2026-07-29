@@ -734,17 +734,48 @@ Region* pins that level the way *Country* pins the one above it.
 That needed the crossfade machinery to grow a second vector level, which is what
 had blocked it before (see **Two vector levels**, below).
 
-**Resolution is per-level, and the fine set is on demand.** The committed set is
-simplified to ~1 km, which is right for a level that normally lives at z4–5 and
-visibly wrong when Detail is pinned to Region and you zoom into a valley: a
-canton border cuts a straight line across the lake it actually follows. So there
-is a second build at ~100 m (`npm run build:regions:hi`, 8 MB against 2.5) that
-is fetched *only* when the region level is live and the zoom is past
-`REGION_FINE_ZOOM` (7) — unreachable on Auto, where this level never survives
-past ~z5. Zooming back out returns to the coarse geometry rather than tiling
-detail smaller than a pixel. Nothing is ever *resolved* against the fine set:
-which region a cell belongs to is decided once, on the overview set, so the
-answer cannot change under you when the fine one lands.
+**Detailed boundaries are fetched per country, at view time.** The committed set
+is Natural Earth, simplified to ~1 km, which is right for a level that normally
+lives at z4–5 and visibly wrong when Detail is pinned to Region and you zoom into
+a valley: the boundary cuts a straight line across the lake it actually follows.
+
+Simplifying our own copy less does not fix that, because **the detail was never in
+the source**. Natural Earth's raw 10m geometry gives the canton of Solothurn 276
+points; the national survey gives 6,951. A first attempt shipped an 8 MB "fine"
+build of the same data and it still looked wrong, which is the useful part of the
+story — the tolerance was never the problem.
+
+So when the region level is live and the zoom is past `REGION_FINE_ZOOM` (7),
+`considerFineRegions()` asks geoBoundaries for the ADM1 boundaries of **the
+countries whose lit regions are actually on screen**, one at a time, once each,
+and rebuilds as they land. Switzerland is 0.42 MB and takes Solothurn to 520
+points; the drawn union of two cantons goes from 255 points to 2,985. Zooming
+back out returns to the overview geometry rather than tiling detail smaller than
+a pixel. On Auto this is unreachable — that level never survives past ~z5 — so an
+ordinary session fetches nothing.
+
+Three details that are not obvious:
+
+- **Nothing is *resolved* against the detailed set.** Which region a cell belongs
+  to is decided once, on the overview geometry, so the answer cannot change under
+  you when the fine one lands, and the per-cell memo stays valid.
+- **The URL is the LFS media host, pinned to a commit.** These files are stored
+  in Git LFS, so `raw.githubusercontent.com` and jsDelivr both return a
+  131-byte pointer instead of a boundary, and `github.com/…/raw/…` redirects to
+  something the browser refuses to read cross-origin. Only
+  `media.githubusercontent.com/media/…` serves the real bytes with CORS. The
+  commit is pinned so the data cannot change under a running map.
+- **Pairing is by name, then by geometry.** geoBoundaries and Natural Earth agree
+  on 24 of 26 Swiss canton names and disagree on Luzern/Lucerne and
+  St. Gallen/Sankt Gallen, so names alone cannot be trusted: what fails to match
+  falls back to taking a point provably inside their polygon and asking our own
+  dataset which region contains it. No name table, and it works for countries
+  nobody has checked by hand.
+
+This is the app's one runtime geometry fetch, and worth being explicit about: it
+is the same class of request as a basemap tile — a public boundary file, asked
+for by country code — and it carries no user data. The request says
+"Switzerland", not where you have been.
 
 **Border slivers snap; only genuinely unsubdivided countries stand in for
 themselves.** The country outlines are rounded to ~1 km and each region is

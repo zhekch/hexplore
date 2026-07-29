@@ -34,14 +34,12 @@ src/imported-cells.json
 #   npm run build:countries  → src/countries.json  (Natural Earth, public domain)
 #   npm run build:places     → src/places.json     (GeoNames CC BY 4.0 + Natural Earth)
 #   npm run build:regions    → src/regions.json    (Natural Earth admin-1)
-#   npm run build:regions:hi → src/regions-hi.json (the same, at ~100 m; 8 MB)
-# Uncomment to keep them out of the repo and rebuild locally instead. The fine
-# region set is the one worth considering: it is 8 MB and only ever fetched by
-# someone pinning Detail to Region and zooming in.
+# Uncomment to keep them out of the repo and rebuild locally instead. Detailed
+# region boundaries are not here at all: they are fetched per country at view
+# time from geoBoundaries — see src/regions.js.
 # src/countries.json
 # src/places.json
 # src/regions.json
-# src/regions-hi.json
 
 # Local Claude Code settings (personal permissions); .claude/ itself is shared
 .claude/settings.local.json
