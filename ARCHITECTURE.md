@@ -158,7 +158,8 @@ glass look. Click hexagons to mark places you've visited.
 - **Region borders**: `SHOW_REGION_BORDERS` in `src/main.js` toggles the crisp
   outline and glow around visited regions. It defaults to `false` for a
   fill-only appearance; edit-mode tile guides are unaffected.
-- **Statistics**: the menu's *Statistics* panel has two tabs. **Cells** measures
+- **Statistics**: *Routes and statistics* has three tabs — Routes, **Trips**
+  (derived; see below) and Statistics. **Cells** measures
   actual ground covered — each cell's area is its Mercator hex area × cos²φ — as
   a share of Earth's land and of every country it touches (attributed by the
   country under each cell's center, with country areas computed from the
@@ -554,6 +555,106 @@ loaded, and the result is sent back once.
   *before* the roads, so the usual "insert before the first symbol layer" trick
   lands underneath every street and chops the route into dashes; `labelStart()`
   in `src/main.js` aims past the last non-symbol layer instead.
+
+## Trips
+
+The object between a cell and a route: a run of days spent well away from where
+you usually are. Derived in `src/trips.js`, never stored — it costs no import
+path, no schema and no migration, and it re-derives itself the moment new
+history arrives. The price is that a trip cannot be renamed, because it isn't a
+row, it's a reading of the rows.
+
+- **Home is where you keep going back to**, taken as the centre of gravity of
+  the cells with the most visits rather than the single most-visited one — which
+  of the three hexagons around your flat wins is decided by GPS drift, and the
+  weighted centre of the top twelve stays put as more history arrives.
+- **Home has to be earned.** Somewhere needs `HOME_MIN_HITS` repeat visits
+  before it can claim the title. Without that rule, an account holding one
+  imported holiday decides the holiday is home, every cell in it is "not away",
+  and the trip vanishes from the list it exists to be in. A map that has never
+  seen you come back has no home yet and is all trip.
+- **Away is `HOME_RADIUS_KM` (55 km) from it**, and a run of away-events less
+  than `TRIP_GAP_DAYS` (2) apart is one trip.
+- **…but a stay is rejoined across its own silence.** A cell records when it was
+  first and last seen and nothing in between, so a week in one village arrives
+  as a crowd of arrival dates, a crowd of departure dates, and six days of
+  nothing — which the gap rule alone reads as two trips to the same place four
+  days apart. Clusters within `TRIP_MERGE_DAYS` (16) and `TRIP_MERGE_KM` (150)
+  are therefore merged. The bound is what keeps twice in the same village four
+  months apart as two trips.
+- **Both ends of a cell's span are events**, not just the first. Emitting only
+  the far-apart ones (the first attempt) made every short stay exactly one day
+  long, because a Friday-to-Sunday cell never produced its Sunday.
+- **A stray cell is not a journey**: `MIN_TRIP_CELLS` (3), or one route, is the
+  floor. A cell with no date at all cannot be placed in time and makes no trip
+  rather than a guessed one.
+- **Named by the same dataset that names routes**, and a route's own place name
+  wins — the routes went where you meant to go, while the cells include the
+  motorway getting there. Naming is a separate pass (`nameTrips`) because the
+  place data is a 2 MB lazy chunk and the trips are complete without it.
+
+`scripts/test/trips.mjs` covers the decisions rather than the plumbing: that
+home is where the visits are and not where the trip was, that a week is one trip
+and two weekends are two, that a weekend away lasts two days, that twice in a
+year is twice, and that an undated cell invents nothing.
+
+## Regions
+
+Admin-1 boundaries — states, provinces, cantons, départements — counted in the
+same sweep as countries, because the expensive part is projecting each cell's
+centre and that is paid once either way. `12 of 4,553` is a number nobody can
+feel, so the denominator is the regions of the countries you have actually
+visited.
+
+**The dataset has to be the 1:10m set.** Natural Earth's 50m admin-1 file covers
+nine large countries (Russia, the USA, China, Brazil, India…) and has nothing at
+all for Europe, which makes it useless for the one country most maps of a life
+are mostly about. The 10m file is a 40 MB download, so `scripts/build-regions.mjs`
+simplifies it hard.
+
+**Simplification is per region, as a fraction of its own size** (2%, clamped to
+0.003–0.06°), not one tolerance for everything. A flat 5 km of slack is nothing
+to Krasnoyarsk Krai and it deletes Basel-Stadt outright: at a fixed tolerance the
+build lost 329 small regions, every one of them a place you can visit and would
+then never be credited for. Sized per region, all 4,553 survive in 2.5 MB —
+dynamic-imported, like the countries and the place names. Douglas–Peucker runs
+*before* rounding, or it would be measuring the 1 km lattice the rounding just
+made rather than the coastline underneath.
+
+**Lookups are indexed**: fourteen times as many shapes as the country set is too
+many to scan per cell. A 5° grid buckets them, and `regionAt()` is handed the
+country the cell already resolved to, which drops all but a couple of dozen
+candidates before any geometry is touched. `src/polygon.js` holds the
+point-in-polygon and area maths both datasets share — answering the same two
+questions twice in two files is how they slowly stop agreeing about which side
+of a border a cell is on.
+
+## Search
+
+One field (`src/search-ui.js`, ⌘K) over three kinds of thing: a place to go and
+look at, a route remembered by name, a day remembered by date. Place names come
+from the dataset already shipped for naming routes, so nothing is sent anywhere.
+
+**Ranking is one score, not position then size.** Ordering by where the match
+sits in the name and only then by population puts a dozen Yorktons above New
+York; ordering by size alone puts New York above York. So an exact name wins
+outright, and after that each place scores its population with a
+merely-contained match counted at a quarter — enough that eight million people
+outrank a village that happens to start with the query, and not enough that
+"bern" answers with Berlin.
+
+**Dates are parsed strictly.** `2024-08-12`, `12.08.2024`, `August 2024` and a
+bare year are read; `3/4` is not, because no amount of guessing fixes which
+number is the day. A bare number that isn't a plausible year stays a text
+search — reading it as a date would swallow every search containing a number.
+
+**The calendar is the app's own grid, not `<input type="date">`.** The native
+picker is an opaque OS panel that cannot show which days have anything on them,
+and that — *which weekend was that?* — is the only reason to open a calendar
+here at all. Both ends of a cell's span light a day, since both are dates the
+data actually carries; the days in between stay dark, because nothing says you
+were there. A day separately reports how many cells were *recorded* and how many
+were *new*, which are different questions.
 
 ## What a cell knows
 

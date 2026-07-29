@@ -251,14 +251,13 @@ provenance, so the map can tell you later which app a cell came from.
 - **Search**: the magnifier by the menu (or **⌘K** / **Ctrl-K**) opens one field
   over the map for the three things it holds — a place to go and look at, a
   route you remember the name of, and a day you remember the date of. Place
-  names come from the dataset already shipped for naming routes, so a search
-  never sends a keystroke or a coordinate to a geocoder. Typing a date
-  (`2024-08-12`, `12.08.2024`, `August 2024`) opens the **calendar** on that
-  month; it is a grid of this app's own rather than the OS date picker, because
-  the whole reason to open a calendar here is to see *which days have anything
-  on them* — lit days carry a dot, green when a route ran that day — and a
-  native picker cannot show that. Picking a day lists what happened on it.
-- **Statistics**: the menu's *Statistics* panel has two tabs. **Cells** measures
+  names are looked up on your own machine, so a search never sends a keystroke
+  or a coordinate anywhere. Typing a date (`2024-08-12`, `12.08.2024`,
+  `August 2024`) opens a **calendar** on that month, with a dot on every day
+  something was recorded — green when a route ran — and picking a day lists what
+  happened on it.
+- **Statistics**: *Routes and statistics* has three tabs — Routes, **Trips**
+  (see below) and Statistics. **Cells** measures
   actual ground covered — each cell's area is its Mercator hex area × cos²φ — as
   a share of Earth's land and of every country it touches (attributed by the
   country under each cell's center, with country areas computed from the
@@ -790,42 +789,22 @@ undo — the shortcut is left alone there.
 
 A cell is ground you covered and says nothing about when you meant to be there;
 a route is one line on one afternoon. Missing between them is the shape memory
-actually uses — *Iceland, last August* — and *Routes and statistics →* **Trips**
-is that: every run of days you spent well away from where you usually are, with
-what it cost in ground and lines.
+actually uses — *Iceland, last August*. *Routes and statistics →* **Trips** is
+that: every run of days you spent well away from where you usually are, named
+after where it went, with what it cost in ground and lines. Tap one and the map
+flies to it.
 
-Nothing new is stored for it. A trip is worked out (`src/trips.js`) from dates
-and positions the cells and routes already carry, so it needs no import path, no
-schema and no migration, and it re-derives itself the moment new history
-arrives. The price is that a trip cannot be renamed — it isn't a row, it's a
-reading of the rows.
+Trips are worked out from the dates your cells and routes already carry, so
+they appear on their own as history arrives and there is nothing to set up. Two
+consequences worth knowing:
 
-- **Home is where you keep going back to**, taken as the centre of gravity of
-  the cells with the most visits rather than the single most-visited one (which
-  of the three hexagons around your flat wins is decided by GPS drift). It has
-  to be *earned*: somewhere needs repeat visits before it can claim the title,
-  because on an account holding one imported holiday the most-visited place is
-  the holiday — and then the whole trip reads as ordinary life and vanishes from
-  the list. A map that has never seen you come back has no home yet and is all
-  trip.
-- **Away is more than 55 km from it**, and a run of away-days with less than two
-  days between them is one trip.
-- **…but a week in one village is one trip, not two.** A cell records when it
-  was first and last seen and nothing in between, so a stay arrives as a crowd
-  of arrival dates, a crowd of departure dates, and six days of silence — which
-  the gap rule alone reads as two trips to the same place. Two clusters within a
-  fortnight and 150 km of each other are therefore rejoined. Twice in the same
-  village four months apart stays two trips, because the rejoining is bounded.
-- **A stray cell is not a journey** (three cells, or one route, is the floor),
-  and a cell with no date at all cannot be placed in time, so it makes no trip
-  rather than a guessed one.
-- **Named after where they went**, by the same place dataset that names routes —
-  and a route's own name wins, because the routes went where you meant to go
-  while the cells include the motorway getting there.
+- **A trip can't be renamed.** It isn't a record, it's a reading of your data.
+- **Only days the data knows about count.** A week somewhere with your phone off
+  is a week that didn't happen, which is the same honesty the rest of the map
+  keeps.
 
-`npm test` covers the lot: that home is where the visits are and not where the
-trip was, that a week is one trip and two weekends are two, that a weekend
-away lasts two days, and that an undated cell invents nothing.
+See [ARCHITECTURE.md](ARCHITECTURE.md#trips) for how home, "away" and the day
+gaps are decided.
 
 ## Regions
 
@@ -833,29 +812,14 @@ Countries answer *where in the world have I been*. `23 of 195` is a number that
 moves once a year and never for the country you actually live in — Switzerland
 is one country and twenty-six cantons, and that number moves on a weekend. So
 the statistics also count **admin-1 regions**: states, provinces, cantons,
-départements, oblasts, 4,553 of them.
+départements, oblasts.
 
 The count is given against the countries you have actually been to (`12 of 78`)
-rather than against the world: every region in a country you have already
-visited is one you could plausibly go and see, and `12 of 4,553` is a number
-nobody can feel.
+rather than against all 4,553 in the world, because every region in a country
+you have already visited is one you could plausibly go and see.
 
-The dataset (`src/regions.json`, `npm run build:regions`) has to come from
-Natural Earth's **1:10m** admin-1 set — the 50m one covers nine large countries
-and has nothing at all for Europe. That is a 40 MB download, so the build
-simplifies it hard: Douglas–Peucker at a tolerance set **per region as a
-fraction of its own size**, clamped, rather than one figure for everything. A
-flat 5 km of slack is nothing to Krasnoyarsk Krai and it deletes Basel-Stadt
-outright — at a fixed tolerance the build lost 329 small regions, every one of
-them a place you can visit and would then never be credited for. Sized per
-region, all 4,553 survive in 2.5 MB, dynamic-imported like the countries and the
-place names.
-
-Attribution reuses the sweep the country statistics already run — the expensive
-part is projecting each cell's centre, and that is paid once either way. Each
-lookup is handed the country the cell already resolved to, which drops all but a
-couple of dozen of the 4,553 shapes before any geometry is touched, and a 5°
-grid index does the rest.
+`npm run build:regions` refreshes the boundary data; the result is committed, so
+a normal install never needs it.
 
 ## Run & host
 
