@@ -141,15 +141,23 @@ from the dates your cells and routes already carry, so they appear on their own
 — which also means they can't be renamed, and that a week somewhere with your
 phone off is a week that didn't happen.
 
+Each one is named after **where you actually spent the days**, and after the
+best-known place there: a fortnight in Rome with a day out to Florence is
+*Rome*, not the hill town halfway between them, and a week in a village near a
+city keeps the village's name.
+
 Everything in that tab is measured from **home**, which the map guesses from the
 cells you go back to most. If it guesses wrong, the row at the top of the tab
 lets you set it — by name, or by pointing the map at the right spot.
 
 **Statistics.** How much ground you've actually covered, as a share of Earth's
-land, of every country you've touched, and of every **region** — states,
-provinces, cantons, départements. Countries move once a year; cantons move on a
-weekend. Plus where your cells came from and how much new ground each year
-added.
+land and of every country you've touched. **Open a country** to see the same for
+each of its **regions** — states, provinces, cantons, départements. Countries
+move once a year; cantons move on a weekend. Every bar is that place's own share,
+so 7% of Switzerland looks like 7%, and the list sorts by ground covered or by
+share. Plus how many days your history actually carries and your longest
+unbroken run of them, where your cells came from, and how much new ground each
+year added.
 
 **Search** (the magnifier, or **⌘K**). One field over places, your routes, your
 trips, and whole regions and countries. Type a date — `2024-08-12`,
@@ -225,7 +233,8 @@ npm test
 
 Covers the parts where being wrong is quiet: the hex maths, visit counting,
 activity guessing, the route API, preference syncing, the backup scheduler and
-its skip logic, undo's restore path, trip derivation, and search.
+its skip logic, undo's restore path, trip derivation and naming, search, and the
+coverage arithmetic.
 
 ## Keeping it yours
 

@@ -9,6 +9,7 @@
 import { SQRT3, radiusOf, cellCenter, project, MAX_LEVEL } from './hexgrid.js';
 import { loadCountries, countryAt, countryAreaKm2, countryCount } from './countries.js';
 import { loadRegions, regionNear, regionAreaKm2, regionsInCountry } from './regions.js';
+import { dayKey, longestStreak } from './trips.js';
 
 // Earth's land surface, the yardstick for "% of the world" (oceans excluded —
 // covering the Pacific isn't a goal anyone has).
@@ -51,7 +52,7 @@ function fillYearGaps(pairs) {
 export async function computeStats(cellIds, cellMeta) {
   await Promise.all([loadCountries(), loadRegions()]);
 
-  const byCountry = new Map(); // id → { cells, km2 }
+  const byCountry = new Map(); // id → { iso, cells, km2 }
   const byRegion = new Map(); //  id → { name, country, cells, km2 }
   const isosSeen = new Set(); // country codes touched, for the region denominator
   const bySource = new Map(); // source → cells
@@ -61,6 +62,10 @@ export async function computeStats(cellIds, cellMeta) {
   let firstAt = 0;
   let lastAt = 0;
   const byYear = new Map(); // year → cells first seen that year
+  // Every calendar day the history has evidence for. Both ends of a cell's span
+  // count and the quiet middle does not — the same reading of a stored row the
+  // calendar dots use, so the two can never disagree about a day.
+  const daysSeen = new Set();
 
   for (const id of cellIds) {
     const [L, col, row] = id.split('/').map(Number);
@@ -74,7 +79,7 @@ export async function computeStats(cellIds, cellMeta) {
     const country = at?.id ?? null;
     if (country) {
       if (at.iso) isosSeen.add(at.iso);
-      const e = byCountry.get(country) ?? { cells: 0, km2: 0 };
+      const e = byCountry.get(country) ?? { iso: at.iso ?? null, cells: 0, km2: 0 };
       e.cells++;
       e.km2 += area;
       byCountry.set(country, e);
@@ -102,6 +107,8 @@ export async function computeStats(cellIds, cellMeta) {
       if (m.firstAt && (!cellFirst || m.firstAt < cellFirst)) cellFirst = m.firstAt;
       if (m.firstAt && (!firstAt || m.firstAt < firstAt)) firstAt = m.firstAt;
       if (m.lastAt > lastAt) lastAt = m.lastAt;
+      if (m.firstAt) daysSeen.add(dayKey(m.firstAt));
+      if (m.lastAt) daysSeen.add(dayKey(m.lastAt));
     }
     if (cellFirst) {
       const y = new Date(cellFirst * 1000).getFullYear();
@@ -112,11 +119,20 @@ export async function computeStats(cellIds, cellMeta) {
   const countries = [...byCountry.entries()]
     .map(([id, e]) => {
       const total = countryAreaKm2(id);
-      return { id, cells: e.cells, km2: e.km2, totalKm2: total, pct: total ? (e.km2 / total) * 100 : 0 };
+      return {
+        id,
+        iso: e.iso,
+        cells: e.cells,
+        km2: e.km2,
+        totalKm2: total,
+        pct: total ? (e.km2 / total) * 100 : 0,
+        // How many regions the country has at all, so a country can say "5 of
+        // 26" about itself when you open it up.
+        regionsTotal: e.iso ? regionsInCountry(e.iso) : 0,
+      };
     })
-    // Sorted by share, so the bars step down the list instead of jumping
-    // around — "how much of this country have I covered" is the question the
-    // bar answers, and ground covered is right there in the sub-line.
+    // Sorted at all so the order is deterministic; the panel re-sorts by
+    // whichever question is being asked of it (see SORTS in src/stats-ui.js).
     .sort((a, b) => b.pct - a.pct || b.km2 - a.km2);
 
   const regions = [...byRegion.entries()]
@@ -132,6 +148,8 @@ export async function computeStats(cellIds, cellMeta) {
   let regionsReachable = 0;
   for (const iso of isosSeen) regionsReachable += regionsInCountry(iso);
 
+  const streak = longestStreak(daysSeen);
+
   return {
     cells,
     km2,
@@ -141,6 +159,10 @@ export async function computeStats(cellIds, cellMeta) {
     countryTotal: countryCount(),
     regions,
     regionsReachable,
+    // Days the map has evidence for, and the longest unbroken run of them.
+    days: daysSeen.size,
+    streakDays: streak.days,
+    streakEnd: streak.endsAt,
     sources: [...bySource.entries()].map(([key, n]) => ({ key, cells: n })).sort((a, b) => b.cells - a.cells),
     years: fillYearGaps([...byYear.entries()].sort((a, b) => a[0] - b[0])),
     firstAt,

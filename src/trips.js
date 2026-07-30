@@ -144,13 +144,18 @@ function events(cellMeta, routes) {
         const p = project(cellCenter(L, col, row));
         lngLat = [wrapLng(p[0]), p[1]];
       }
-      out.push({ at, lng: lngLat[0], lat: lngLat[1], cell: id });
+      out.push({ at, lng: lngLat[0], lat: lngLat[1], cell: id, hits: Math.max(1, e.hits || 0) });
       // Both ends, whenever they differ. A cell you passed through in March and
       // again in September belongs to two trips; a cell seen on the Friday and
       // again on the Sunday is one trip that has to know it lasted the weekend.
       // Emitting only the far-apart ones made every short stay a day long.
+      //
+      // The visits belong to the row, not to either end of it, so the second
+      // event carries none: naming weighs a place by how much evidence there is
+      // of you being in it, and counting one row's visits twice would weigh
+      // every long stay double for having lasted.
       if (e.lastAt && e.lastAt > at) {
-        out.push({ at: e.lastAt, lng: lngLat[0], lat: lngLat[1], cell: id });
+        out.push({ at: e.lastAt, lng: lngLat[0], lat: lngLat[1], cell: id, hits: 0 });
       }
     }
   }
@@ -161,7 +166,7 @@ function events(cellMeta, routes) {
     const lng = b.length === 4 ? wrapLng((b[0] + b[2]) / 2) : null;
     const lat = b.length === 4 ? (b[1] + b[3]) / 2 : null;
     if (lng === null || !Number.isFinite(lng)) continue;
-    out.push({ at, lng, lat, route: r });
+    out.push({ at, lng, lat, route: r, hits: 1 });
   }
   out.sort((a, b) => a.at - b.at);
   return out;
@@ -225,12 +230,24 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
   for (const t of trips) {
     const cells = new Set();
     const tripRoutes = [];
+    // One entry per place the trip has evidence for, with how much evidence:
+    // which days it was seen on, and how many separate visits it records. This
+    // is what naming weighs (see nameTrips) — the geometric middle of a trip is
+    // often a motorway, and the middle of Reykjavík–Vík is neither of them.
+    const spots = new Map();
     let bbox = [Infinity, Infinity, -Infinity, -Infinity];
     let sumLng = 0;
     let sumLat = 0;
     for (const e of t.events) {
       if (e.cell) cells.add(e.cell);
       if (e.route) tripRoutes.push(e.route);
+      // Cells key by id, routes by identity — a route that hasn't been saved yet
+      // has no id, and two of them must not merge into one place.
+      const key = e.cell ?? e.route;
+      let spot = spots.get(key);
+      if (!spot) spots.set(key, (spot = { lng: e.lng, lat: e.lat, hits: 0, days: new Set() }));
+      spot.hits += e.hits ?? 0;
+      spot.days.add(dayKey(e.at));
       if (e.lng < bbox[0]) bbox[0] = e.lng;
       if (e.lat < bbox[1]) bbox[1] = e.lat;
       if (e.lng > bbox[2]) bbox[2] = e.lng;
@@ -253,6 +270,7 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
       lengthM: tripRoutes.reduce((m, r) => m + (r.lengthM || 0), 0),
       bbox,
       center,
+      spots: [...spots.values()].map((s) => ({ lng: s.lng, lat: s.lat, hits: s.hits, days: [...s.days] })),
       farKm: home ? Math.round(distanceKm(home.lng, home.lat, center[0], center[1])) : 0,
       name: '', // filled in by nameTrips(), which needs the place dataset
     });
@@ -262,37 +280,177 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
 }
 
 /**
- * Give each trip a name: the place, then the country it is in.
+ * How much of a trip happened at one place, in days.
+ *
+ * Days, because a day is the only thing in the stored history that actually
+ * means *time*: a cell records which days it was seen on and nothing about the
+ * hours. Visits are added as a fraction of one day, so within this number they
+ * can only break ties between places seen on the same days — somewhere you were
+ * all week outranks somewhere with a busier afternoon. (Size is applied on top
+ * of this, by the caller, and *can* outweigh a day — see `size`.)
+ */
+const dwell = (e, hitsInRegion) =>
+  e.days.size + Math.min(0.99, e.hits / Math.max(1, hitsInRegion));
+
+/**
+ * How much bigger a place has to be before its size is worth mentioning.
+ *
+ * A trip is remembered by the biggest thing in it — nobody calls a week in Rome
+ * "Fiumicino" — so a place competes on time spent *times* a factor that grows
+ * with its population. It grows slowly, by design: a city of half a million is
+ * worth about twice a village, so it takes the name only when the time spent is
+ * comparable. Sleep in the village all week and the village keeps it.
+ */
+const size = (popThousands) => 1 + Math.log10(1 + Math.max(0, popThousands || 0));
+
+// Days, then visits, then ground — the same order for a region as for a town.
+const byDwell = (a, b) => b.days.size - a.days.size || b.hits - a.hits || b.spots - a.spots;
+
+/**
+ * Where a trip mostly *was*: the region holding the most of it, and the
+ * best-known settlement inside that region.
+ *
+ * @returns {{region:string, country:string, town:string, days:number}|null}
+ */
+function heartOf(trip, placeAt) {
+  if (!placeAt || !trip.spots?.length) return null;
+  const regions = new Map();
+  for (const s of trip.spots) {
+    const at = placeAt(s.lng, s.lat) ?? {};
+    // Ground the datasets can't place is not somewhere you were — it is the
+    // absence of an answer, and it must not compete with the places that have
+    // one. The country outlines are rounded to ~1 km, so cells just off a coast
+    // fall outside every country (the same ones the statistics book as
+    // offshore); pooling them made a single nameless "region" holding *every*
+    // countryless day of the trip, which then out-dayed the city the trip was
+    // actually in. A week in Athens with four days' sailing came out as "At sea
+    // or off the map", with no country left on it for the search box to match.
+    // A trip that is nothing but such ground still ends up there, by finding no
+    // region at all and falling through to its centre.
+    if (!at.country && !at.region) continue;
+    // By id where there is one: two countries can both have a Córdoba, and
+    // merging them would invent a region you spent twice as long in.
+    const key = at.regionId || (at.region ? `${at.country}/${at.region}` : at.country);
+    let r = regions.get(key);
+    if (!r) {
+      regions.set(key, (r = {
+        region: at.region ?? '', country: at.country ?? '',
+        days: new Set(), hits: 0, spots: 0, towns: new Map(),
+      }));
+    }
+    for (const d of s.days) r.days.add(d);
+    r.hits += s.hits;
+    r.spots++;
+    if (!at.town) continue;
+    let w = r.towns.get(at.town);
+    if (!w) r.towns.set(at.town, (w = { name: at.town, pop: at.pop || 0, days: new Set(), hits: 0, spots: 0 }));
+    for (const d of s.days) w.days.add(d);
+    w.hits += s.hits;
+    w.spots++;
+    if ((at.pop || 0) > w.pop) w.pop = at.pop;
+  }
+  let best = null;
+  for (const r of regions.values()) if (!best || byDwell(best, r) > 0) best = r;
+  if (!best) return null;
+  let town = null;
+  let bestScore = -1;
+  for (const w of best.towns.values()) {
+    const score = dwell(w, best.hits) * size(w.pop);
+    if (score > bestScore) {
+      bestScore = score;
+      town = w;
+    }
+  }
+  return { region: best.region, country: best.country, town: town?.name ?? '', days: best.days.size };
+}
+
+/**
+ * Give each trip a name: where it mostly happened, then the country it is in.
  *
  * "Zermatt, Switzerland" — a label, not a description. Route names get the
  * descriptive treatment ("Bern → Thun", "Thunersee loop") because a route *is*
  * a shape and the shape is the point; a trip is a week somewhere, and the only
  * thing worth saying about it is where.
  *
- * The chain is deliberate. A town beats the region it is in, a region beats the
- * country, and only genuinely remote ground — the middle of an ocean, an
- * icefield, a desert with no settlement within 30 km — falls through to
- * something vaguer, and then says *what kind* of nowhere it was rather than
- * "Away". A name that can't distinguish two trips isn't a name.
+ * **Where it mostly happened, not where its middle is.** Naming a trip after
+ * the point halfway between its extremes is only right for a trip that stayed
+ * put: a fortnight in Rome with a day out to Naples used to be named after a
+ * field south of Latina, and Reykjavík–Vík after the sand between them. So the
+ * name comes from the region the trip has the most *evidence* in — see
+ * `heartOf` — and then from the best-known place inside that region.
+ *
+ * The chain is deliberate. A town beats the landmark it is beside, a landmark
+ * beats the region, a region beats the country, and only genuinely remote
+ * ground — the middle of an ocean, an icefield, a desert with no settlement
+ * within 30 km — falls through to something vaguer, and then says *what kind*
+ * of nowhere it was rather than "Away". A name that can't distinguish two trips
+ * isn't a name.
  *
  * @param {Array<object>} trips
- * @param {(lng:number, lat:number) => {town?:string, region?:string, country?:string}} placeAt
+ * @param {(lng:number, lat:number) =>
+ *   {town?:string, pop?:number, region?:string, regionId?:string, country?:string}} placeAt
+ * @param {(trip:object) => (string|null)} [landmarkFor] the lake (or other named
+ *   feature) a trip sits on — asked only when the region it spent its days in
+ *   has no settlement in it
  */
-export function nameTrips(trips, placeAt) {
+export function nameTrips(trips, placeAt, landmarkFor) {
   for (const t of trips) {
-    const at = placeAt?.(t.center[0], t.center[1]) ?? {};
-    const where = at.town || at.region || at.country || '';
+    // The centre is the fallback, not the answer: a trip with no spots at all
+    // (nothing but undated evidence) still deserves whatever its middle knows.
+    const heart = heartOf(t, placeAt) ?? {
+      ...(placeAt?.(t.center[0], t.center[1]) ?? {}),
+      days: 0,
+    };
+    const where = heart.town || landmarkFor?.(t) || heart.region || heart.country || '';
     t.place = where;
-    t.country = at.country ?? '';
+    t.region = heart.region ?? '';
+    t.country = heart.country ?? '';
     t.name = where
-      ? (at.country && where !== at.country ? `${where}, ${at.country}` : where)
-      // No town, no region, no country under the middle of it. That is either
-      // water or somewhere with nothing on the map, and saying which is more
-      // use than saying "Away" — which was every western-hemisphere trip back
-      // when their coordinates came out unwrapped, and told you nothing.
+      ? (heart.country && where !== heart.country ? `${where}, ${heart.country}` : where)
+      // No town, no region, no country under any of it. That is either water or
+      // somewhere with nothing on the map, and saying which is more use than
+      // saying "Away" — which was every western-hemisphere trip back when their
+      // coordinates came out unwrapped, and told you nothing.
       : 'At sea or off the map';
   }
   return trips;
+}
+
+/**
+ * The longest run of consecutive days in a set of them, for "longest streak".
+ *
+ * Calendar days, counted as calendar days: converting each key to a UTC day
+ * number rather than dividing a timestamp means the clocks going forward
+ * doesn't shorten a March streak by a day.
+ *
+ * @param {Iterable<string>} dayKeys "YYYY-MM-DD"
+ */
+export function longestStreak(dayKeys) {
+  const nums = [];
+  for (const k of dayKeys) {
+    const [y, m, d] = String(k).split('-').map(Number);
+    if (Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d)) {
+      nums.push(Date.UTC(y, m - 1, d) / 86400000);
+    }
+  }
+  if (!nums.length) return { days: 0, endsAt: '' };
+  nums.sort((a, b) => a - b);
+  let best = 1;
+  let bestEnd = nums[0];
+  let run = 1;
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] === nums[i - 1]) continue;
+    run = nums[i] === nums[i - 1] + 1 ? run + 1 : 1;
+    if (run > best) {
+      best = run;
+      bestEnd = nums[i];
+    }
+  }
+  const end = new Date(bestEnd * 86400000);
+  return {
+    days: best,
+    endsAt: `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, '0')}-${String(end.getUTCDate()).padStart(2, '0')}`,
+  };
 }
 
 /**

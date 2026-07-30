@@ -1856,6 +1856,58 @@ body {
   margin-bottom: 9px;
 }
 
+/* A country you can open to see its regions. It has to keep looking like a row
+   of the list rather than a control — the whole list is pressable, so a button
+   chrome on every line would be nothing but noise — which means the affordance
+   is the caret and the hover. */
+.stats-bar-btn {
+  appearance: none;
+  display: block;
+  width: 100%;
+  padding: 4px 6px;
+  margin: -4px -6px 5px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stats-bar-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.stats-bar-btn .bar-right::after {
+  content: '▾';
+  display: inline-block;
+  margin-left: 5px;
+  transform: rotate(-90deg);
+  transition: transform 0.16s ease;
+}
+
+.stats-bar-btn[aria-expanded='true'] .bar-right::after {
+  transform: none;
+}
+
+/* The regions of one country, under it. Indented and ruled, because a list that
+   nests two levels deep has to say which level you're reading. */
+.stats-subs {
+  margin: 0 0 12px 10px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.stats-bar-sub .stats-bar-head {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.stats-bar-sub .stats-bar {
+  height: 4px;
+}
+
 .stats-bar-head {
   display: flex;
   justify-content: space-between;
@@ -1864,9 +1916,29 @@ body {
   color: rgba(255, 255, 255, 0.86);
 }
 
+/* The place gives way before its numbers do: "United States of America" can
+   lose its tail, "1,284 km² · 7.2%" reads as nonsense half-shown. */
+.stats-bar-head .bar-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .stats-bar-head b {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: none;
+}
+
+/* Both numbers are always on the row — the one you sorted by, then the other,
+   dimmed. Without the second one, a list ordered by ground covered next to bars
+   showing share looks mis-sorted. */
+.stats-bar-head b em {
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.5;
 }
 
 .stats-bar {
@@ -1885,8 +1957,25 @@ body {
 }
 
 .stats-bar-note {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.42);
+}
+
+.stats-bar-note .bar-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-bar-note .bar-right {
+  font-style: normal;
+  white-space: nowrap;
+  flex: none;
 }
 
 /* Cells first seen per year */
@@ -2596,6 +2685,18 @@ body {
 
 [data-theme='light'] .stats-bar {
   background: rgba(15, 23, 42, 0.1);
+}
+
+[data-theme='light'] .stats-bar-btn:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+[data-theme='light'] .stats-subs {
+  border-left-color: rgba(15, 23, 42, 0.14);
+}
+
+[data-theme='light'] .stats-bar-sub .stats-bar-head {
+  color: rgba(15, 23, 42, 0.74);
 }
 
 [data-theme='light'] .stats-route {

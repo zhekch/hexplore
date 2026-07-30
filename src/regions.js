@@ -377,11 +377,18 @@ export function regionAreaKm2(id) {
   return km2;
 }
 
+// Counting means a sweep of all 4,553 regions, and the answer is asked for
+// once per country in the statistics and once per cell that lands in no region
+// at all during a grid build.
+const countMemo = new Map();
+
 /** How many regions one country is divided into (0 if it isn't in the set). */
 export function regionsInCountry(iso) {
   if (!REGIONS) return 0;
+  if (countMemo.has(iso)) return countMemo.get(iso);
   let n = 0;
   for (const r of REGIONS) if (r.iso === iso) n++;
+  countMemo.set(iso, n);
   return n;
 }
 

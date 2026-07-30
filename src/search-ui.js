@@ -175,9 +175,10 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
 
     // Match a trip on everything it is called *and* everything it is in: typing
     // "switzerland" should find the week in Zermatt, and typing "valais"
-    // should too, even though neither word is in its name.
+    // should too, even though neither word is in its name — naming works out
+    // which region a trip mostly happened in, and it keeps the answer.
     const tripHits = trips()
-      .filter((t) => `${t.name} ${t.place ?? ''} ${t.country ?? ''}`.toLowerCase().includes(lower))
+      .filter((t) => `${t.name} ${t.place ?? ''} ${t.region ?? ''} ${t.country ?? ''}`.toLowerCase().includes(lower))
       .slice(0, 4);
     if (tripHits.length) {
       resultsEl.append(section('Trips'));
