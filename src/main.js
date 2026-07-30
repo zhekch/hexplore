@@ -1082,13 +1082,20 @@ let litRegionIds = null;
 // overview set's ~1 km simplification starts to show — a canton border cutting
 // a straight line across the lake it actually follows. Only reachable with
 // Detail pinned to Region: on Auto, this level never survives past ~z5.
-const REGION_FINE_ZOOM = 7;
+//
+// A whole zoom level earlier than it was (7). At z6 a canton already fills
+// enough of the screen that the straight line across the lake is the thing you
+// notice, and waiting for z7 meant zooming past the view the outlines were
+// worth having in. The cost is real and is the reason it was ever set high: the
+// wider view holds more countries, so more of them are fetched, and there is
+// more geometry to tile at once.
+const REGION_FINE_ZOOM = 6;
 // …and back to the overview geometry below this. The gap is deliberate: swapping
 // resolution re-tiles the source, so a zoom that hovers on the threshold would
 // re-tile on every wobble. Same idea as LEVEL_HYSTERESIS, for the same reason —
 // and it is the zoom-out that matters on an older device, where the point of
 // dropping back to a few hundred points is that the map stays smooth.
-const REGION_COARSE_ZOOM = 6.4;
+const REGION_COARSE_ZOOM = 5.4;
 
 // Boundary credits. Natural Earth is public domain and asks for nothing;
 // geoBoundaries composites national survey data (swisstopo for Switzerland) and

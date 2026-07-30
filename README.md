@@ -151,10 +151,16 @@ is two trips and not one. And a day whose ground is mostly around home is a day
 at home however far you also drove — which is why an hour's drive out and back,
 every day for a fortnight, is no longer one long trip to the next canton.
 
-Each one is named after **where you actually spent the days**, and after the
-best-known place there: a fortnight in Rome with a day out to Florence is
-*Rome*, not the hill town halfway between them, and a week in a village near a
-city keeps the village's name.
+Each one is named after **where you actually spent the time** — measured from
+the gaps between your own fixes, so a day out is named after the four hours in
+the village and not the twenty minutes through the bigger town on the way. A
+fortnight in Rome with a day out to Florence is *Rome*, not the hill town
+halfway between them, and a week in a village near a city keeps the village's
+name. Somewhere too small for the map to have heard of it hands the name to the
+region instead, which is the honest answer rather than a town you drove past.
+
+You can also **find a trip by anywhere it went**, not only by what it is called:
+searching a town it passed through, or the canton it crossed, will turn it up.
 
 Everything in that tab is measured from **home**, which the map guesses from the
 cells you go back to most. If it guesses wrong, the row at the top of the tab
@@ -170,7 +176,9 @@ unbroken run of them, where your cells came from, and how much new ground each
 year added.
 
 **Search** (the magnifier, or **⌘K**). One field over places, your routes, your
-trips, and whole regions and countries. Type a date — `2024-08-12`,
+trips, and whole regions and countries. Every place is listed with its country,
+because four of the answers to "paris" are in the United States. Type a date —
+`2024-08-12`,
 `12.08.2024`, `August 2024` — and a **calendar** opens on that month with a dot
 on every day something was recorded, green when a route ran. The days of one
 trip join into a single bar, so a fortnight away reads as one journey instead of
@@ -275,7 +283,7 @@ allowed to connect to, and why each limit is where it is — is in
 - Boundaries and lakes: [Natural Earth](https://www.naturalearthdata.com/) (public domain)
 - Detailed region boundaries, fetched per country on demand:
   [geoBoundaries](https://www.geoboundaries.org/) (CC BY 4.0, compositing national survey data)
-- Town names: [GeoNames](https://www.geonames.org/) `cities5000` (CC BY 4.0)
+- Town names: [GeoNames](https://www.geonames.org/) `cities1000`, thinned (CC BY 4.0)
 
 Built with no runtime dependencies beyond MapLibre and a polygon-clipping
 library; the server has none at all.

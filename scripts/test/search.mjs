@@ -9,7 +9,7 @@
 //   node scripts/test/search.mjs
 
 import { parseDateQuery } from '../../src/search-ui.js';
-import { loadPlaces, searchPlaces } from '../../src/places.js';
+import { loadPlaces, searchPlaces, nearestTown } from '../../src/places.js';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,6 +72,39 @@ check(searchPlaces('zzzzqqqq', 5).length === 0, 'nonsense finds nothing');
 
 const lake = searchPlaces('thun', 6);
 check(lake.some((p) => p.kind === 'lake') || lake.some((p) => p.name === 'Thun'), 'lakes are searchable too', lake.map((p) => `${p.name}:${p.kind}`).join(', '));
+
+console.log('\nthe place a point belongs to');
+// The gazetteer reaches down to villages now, which is the only way it can name
+// the valleys that have nothing bigger in them — the upper Engadin has no
+// settlement over 5,000 people in it at all, and a day in St. Moritz used to be
+// named after Chur, an hour's drive away.
+const moritz = nearestTown(9.838, 46.498);
+check(moritz?.name === 'St. Moritz', 'a village that is the only name for miles is in the dataset',
+  `${moritz?.name} (${moritz?.pop}k, ${Math.round((moritz?.distM ?? 0) / 100) / 10} km)`);
+
+// …and a district is not a place. GeoNames lists a dozen Lisbon parishes and a
+// dozen Zürich Kreise beside the cities they are part of, each with its own
+// population, so an afternoon in one used to answer "Lumiar" or "Zürich (Kreis
+// 9) / Altstetten". A place with a neighbour five times its size within twelve
+// kilometres is a piece of that neighbour and takes its name.
+// Two mechanisms hold this up — the build drops GeoNames' PPLX "sections", and
+// the lookup folds a small place into a much bigger neighbour — so these check
+// the contract rather than either rule: a point inside a city answers with the
+// city, whichever of the two got it there. (Lisbon's parishes are plain PPL
+// entries, so only the second rule can catch that one.)
+const altstetten = nearestTown(8.489, 47.391); // Zürich, Kreis 9
+check(altstetten?.name === 'Zürich', 'a point in a city district answers with the city', altstetten?.name);
+const lumiar = nearestTown(-9.157, 38.775); // a parish of Lisbon
+check(lumiar?.name === 'Lisbon', 'and one in a city parish with the city', lumiar?.name);
+// The rule has to leave real towns alone, which is the whole reason it is
+// bounded by distance as well as by size. These two are far enough from the
+// nearest city to be themselves.
+const zermatt = nearestTown(7.748, 46.021);
+check(zermatt?.name === 'Zermatt', 'a real village keeps its own name', zermatt?.name);
+check(nearestTown(9.838, 46.498)?.name === 'St. Moritz',
+  'and so does one with a much bigger town an hour away', nearestTown(9.838, 46.498)?.name);
+// Nothing within 30 km is still nothing: the middle of an ocean has no town.
+check(nearestTown(-30, 40) === null, 'and the open Atlantic has none at all');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

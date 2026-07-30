@@ -7,10 +7,10 @@
 // Two sources, picked for what a route actually needs — "which town was this
 // near, and did it go round a lake":
 //
-//   • GeoNames cities5000 — every settlement over ~5,000 people (~70k of them).
-//     Coarser sets exist and are far smaller, but they only know cities: a hike
-//     above Interlaken comes out named after a city 40 km away, which is worse
-//     than no name. CC BY 4.0, so the app carries a GeoNames credit.
+//   • GeoNames cities1000, thinned (see below). Coarser sets are far smaller but
+//     they only know cities: a hike above Interlaken comes out named after a
+//     city 40 km away, which is worse than no name. CC BY 4.0, so the app
+//     carries a GeoNames credit.
 //   • Natural Earth 10m lakes — the named ones only. The global file is thin
 //     outside the giants (in Switzerland it knows Lake Geneva and Bodensee and
 //     nothing else), so the Europe and North America supplements are merged in
@@ -26,7 +26,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const TOWNS_URL = 'https://download.geonames.org/export/dump/cities5000.zip';
+const TOWNS_URL = 'https://download.geonames.org/export/dump/cities1000.zip';
+
+// Everything over this many people is kept outright. Below it, a place is kept
+// only where nothing bigger is close enough to speak for the area — see
+// `thin()`.
+const BIG_POP = 5000;
+// How far a big town's name reaches, for the purpose of deciding whether a
+// smaller neighbour is worth shipping. Roughly the radius within which a small
+// place would lose the naming anyway: nearestTown gives a big place up to
+// PROMINENCE_M (6 km) of head start, so at this separation the small one still
+// owns a few kilometres around itself and is worth its ~30 bytes.
+const FILL_GAP_M = 15000;
 const NE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson';
 const LAKE_URLS = [
   `${NE}/ne_10m_lakes.geojson`,
@@ -49,30 +60,86 @@ async function download(url) {
 }
 
 // --- Towns -------------------------------------------------------------------
-// cities5000.txt is a tab-separated GeoNames dump: name is column 1, latitude 4,
-// longitude 5, population 14.
+// cities1000.txt is a tab-separated GeoNames dump: name is column 1, latitude 4,
+// longitude 5, feature code 7, population 14.
+
+const R_E = 6371000;
+const RAD = Math.PI / 180;
+const metres = (aLng, aLat, bLng, bLat) => {
+  const dLat = (bLat - aLat) * RAD;
+  const dLng = (bLng - aLng) * RAD;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * RAD) * Math.cos(bLat * RAD) * Math.sin(dLng / 2) ** 2;
+  return 2 * R_E * Math.asin(Math.min(1, Math.sqrt(s)));
+};
+
+/**
+ * Keep the whole ≥5,000 set, and fill in below it only where the map would
+ * otherwise have nothing to say.
+ *
+ * The full ≥1,000 set is 161k places and 1.9 MB gzipped — more than twice what
+ * the app downloads today, nearly all of it villages in places that already
+ * have a town speaking for them. What the ≥5,000 set actually gets *wrong* is
+ * the opposite case: the upper Engadin has no settlement over 5,000 in it at
+ * all, so a day in St. Moritz (4,952 people) was named after Chur, an hour's
+ * drive away. Villages that are the only name for miles are worth their bytes;
+ * villages inside a city's shadow are not.
+ */
+function thin(all) {
+  const big = all.filter((t) => t[3] >= BIG_POP);
+  // Same 1° grid the app's own nearest-town index uses: one degree of latitude
+  // is ~111 km, so a 3×3 neighbourhood always covers the gap being tested.
+  const index = new Map();
+  big.forEach((t, i) => {
+    const k = `${Math.floor(t[1])}/${Math.floor(t[2])}`;
+    const bucket = index.get(k);
+    if (bucket) bucket.push(i);
+    else index.set(k, [i]);
+  });
+  const shadowed = (lng, lat) => {
+    const cl = Math.floor(lng);
+    const ct = Math.floor(lat);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (const i of index.get(`${cl + dx}/${ct + dy}`) ?? []) {
+          if (metres(lng, lat, big[i][1], big[i][2]) <= FILL_GAP_M) return true;
+        }
+      }
+    }
+    return false;
+  };
+  return all.filter((t) => t[3] >= BIG_POP || !shadowed(t[1], t[2]));
+}
+
 async function buildTowns() {
   const zip = await download(TOWNS_URL);
   const dir = mkdtempSync(path.join(tmpdir(), 'places-'));
   try {
-    const zipPath = path.join(dir, 'cities5000.zip');
+    const zipPath = path.join(dir, 'cities1000.zip');
     writeFileSync(zipPath, zip);
     execFileSync('unzip', ['-o', '-q', zipPath, '-d', dir]);
-    const text = readFileSync(path.join(dir, 'cities5000.txt'), 'utf8');
+    const text = readFileSync(path.join(dir, 'cities1000.txt'), 'utf8');
     const towns = [];
     for (const line of text.split('\n')) {
       if (!line) continue;
       const c = line.split('\t');
+      // PPLX is "section of a populated place" — a city district, not a place.
+      // They carry their own population and so compete with the city they are
+      // part of: a day in Zürich came out as "Zürich (Kreis 9) / Altstetten",
+      // and a week in Lisbon as "Lumiar". Nobody names a trip after a
+      // neighbourhood, and dropping them makes the file smaller as well.
+      if (c[7] === 'PPLX') continue;
       const name = c[1];
       const lat = +c[4];
       const lng = +c[5];
       if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       // Population in thousands: it only ever breaks ties between two towns at
-      // a similar distance, and it saves a couple of bytes seventy thousand
-      // times over.
-      towns.push([name, round(lng), round(lat), Math.round((+c[14] || 0) / 1000)]);
+      // a similar distance, and it saves a couple of bytes a hundred thousand
+      // times over. Kept in full for the thinning below, which needs to know
+      // 4,952 from 5,001.
+      towns.push([name, round(lng), round(lat), Math.round((+c[14] || 0) / 1000), +c[14] || 0]);
     }
-    return towns;
+    const kept = thin(towns.map((t) => [t[0], t[1], t[2], t[4]]));
+    return kept.map((t) => [t[0], t[1], t[2], Math.round(t[3] / 1000)]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

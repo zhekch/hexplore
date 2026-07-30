@@ -14,7 +14,7 @@
 
 import { loadPlaces, searchPlaces } from './places.js';
 import { searchRegions } from './regions.js';
-import { searchCountries } from './countries.js';
+import { searchCountries, countryIdAt } from './countries.js';
 import { dayKey, dayDetail, tripDays } from './trips.js';
 import { formatDistance } from './routes.js';
 
@@ -175,12 +175,16 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
 
     const lower = q.toLowerCase();
 
-    // Match a trip on everything it is called *and* everything it is in: typing
-    // "switzerland" should find the week in Zermatt, and typing "valais"
-    // should too, even though neither word is in its name — naming works out
-    // which region a trip mostly happened in, and it keeps the answer.
+    // Match a trip on everything it is called *and* everywhere it went. Typing
+    // "switzerland" finds the week in Zermatt, "valais" finds it too, and so
+    // does the name of a town it merely passed through — naming already asks
+    // the gazetteer about every cell of a trip, so it keeps every answer it got
+    // rather than only the one it used. A trip called after a canton because
+    // the valley it sat in has no town on the map is otherwise unfindable by
+    // anywhere you actually remember being.
     const tripHits = trips()
-      .filter((t) => `${t.name} ${t.place ?? ''} ${t.region ?? ''} ${t.country ?? ''}`.toLowerCase().includes(lower))
+      .filter((t) => `${t.name} ${t.place ?? ''} ${t.region ?? ''} ${t.country ?? ''} ${(t.tags ?? []).join(' ')}`
+        .toLowerCase().includes(lower))
       .slice(0, 4);
     if (tripHits.length) {
       resultsEl.append(section('Trips'));
@@ -235,9 +239,15 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
     if (placeHits.length) {
       resultsEl.append(section('Places'));
       for (const p of placeHits) {
+        // "Paris" is four towns and one of them is in Texas. The country is the
+        // one word that tells them apart, and it belongs in the title rather
+        // than the sub-line: it is part of the name of the place, not a fact
+        // about it. Free, because the boundaries are already in memory — the
+        // trips derivation pulls them in — and simply absent until they are.
+        const country = countryIdAt(p.lng, p.lat);
         const el = resultRow({
           icon: ICON.place,
-          title: p.name,
+          title: country ? `${p.name}, ${country}` : p.name,
           sub: p.kind === 'lake' ? 'Lake' : p.pop ? `${p.pop.toLocaleString()},000 people` : 'Town',
           onPick: () => {
             close();

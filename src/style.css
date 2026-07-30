@@ -256,6 +256,72 @@ body {
   align-items: flex-end;
 }
 
+/* --- Wide screens: the controls swap corners ----------------------------------
+   Menu and search together at the top left, as one glass pill — the same
+   control the phone already gets, in the corner a pointer starts from, and the
+   two things you reach for most next to each other instead of stacked. The
+   pencil takes the bottom-left corner they vacate; it is only there at all when
+   editing is switched on, so the corner is empty the rest of the time. */
+@media (min-width: 561px) {
+  .layers {
+    top: 20px;
+    bottom: auto;
+    /* Buttons on top, menu unrolling underneath — the mirror of the bottom-left
+       arrangement this replaced, where the menu opened upward. */
+    flex-direction: column-reverse;
+  }
+
+  /* Reversed because the markup lists search first (it is the more used of the
+     two on a phone, where the cluster is a column) and here the menu leads. */
+  .layers-cluster {
+    flex-direction: row-reverse;
+    align-items: stretch;
+    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    overflow: hidden;
+  }
+
+  /* The glass belongs to the pill now, so the buttons inside go flat and
+     transparent: two backdrop-filtered pills touching show a doubled seam. */
+  .layers-cluster .layers-btn {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+
+  /* One hairline between them. In row-reverse this is the left-hand button, so
+     the seam is on its right. */
+  .layers-cluster .layers-btn + .layers-btn {
+    border-right: 1px solid rgba(255, 255, 255, 0.14);
+  }
+
+  /* Pressing shifts a whole pill under the pointer; light up the half instead. */
+  .layers-cluster .layers-btn:active {
+    transform: none;
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .hud {
+    top: auto;
+    bottom: 20px;
+  }
+
+  /* The edit panel grows from the button, and the button is now at the bottom
+     of the screen — so it opens upward and its pop scales from that corner. */
+  .hud-panel {
+    transform-origin: bottom left;
+  }
+}
+
 .layers-btn {
   display: grid;
   place-items: center;
@@ -2468,26 +2534,38 @@ body {
   filter: none;
 }
 
-/* The phone-only cluster, in light. It has to come after the rules above:
-   `[data-theme='light'] .layers-btn` is as specific as the cluster's own
-   neutralizing rule, so the one that wins is whichever is written last. */
+/* The cluster in light, at both sizes: it is one glass pill on a phone (a
+   column, with "my location" in it) and one on a wide screen (a row, menu and
+   search). Either way the glass is on the container and the buttons inside it
+   are flat, so they need the light treatment taken back off them. */
+[data-theme='light'] .layers-cluster {
+  background: rgba(248, 250, 252, 0.86);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow:
+    0 8px 24px rgba(15, 23, 42, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+[data-theme='light'] .layers-cluster .layers-btn {
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-theme='light'] .layers-cluster .layers-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+[data-theme='light'] .layers-cluster .layers-btn:active {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+@media (min-width: 561px) {
+  [data-theme='light'] .layers-cluster .layers-btn + .layers-btn {
+    border-right-color: rgba(15, 23, 42, 0.14);
+  }
+}
+
 @media (max-width: 560px) {
-  [data-theme='light'] .layers-cluster {
-    background: rgba(248, 250, 252, 0.86);
-    border-color: rgba(15, 23, 42, 0.16);
-    box-shadow:
-      0 8px 24px rgba(15, 23, 42, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  }
-
-  [data-theme='light'] .layers-cluster .layers-btn {
-    background: transparent;
-    box-shadow: none;
-  }
-
-  [data-theme='light'] .layers-cluster .layers-btn:active {
-    background: rgba(15, 23, 42, 0.08);
-  }
 
   [data-theme='light'] .layers-cluster .maplibregl-ctrl-group {
     border-top-color: rgba(15, 23, 42, 0.12);
