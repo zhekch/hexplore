@@ -12,7 +12,8 @@
 //   node scripts/test/trips.mjs
 
 import {
-  buildTrips, nameTrips, findHome, activeDays, dayDetail, dayKey, distanceKm, longestStreak,
+  buildTrips, nameTrips, findHome, activeDays, dayDetail, dayCells, tripDays, dayKey, distanceKm,
+  longestStreak,
 } from '../../src/trips.js';
 import { cellCenter, project } from '../../src/hexgrid.js';
 
@@ -356,6 +357,87 @@ check(lastDay.cells === 4 && lastDay.newCells === 0, 'the last day recorded cell
   `${lastDay.cells} cells, ${lastDay.newCells} new`);
 check(detail.trip?.id === two[1].id, 'and says which trip it belonged to');
 check(dayDetail('2024-08-11', two, [route], merge(homeCells, augCells)).routes.length === 0, 'an empty day is empty');
+
+// --- A day you can look at -----------------------------------------------------
+// A dot in the calendar used to be the end of the road: it said the day had
+// ground on it and gave you no way to see where. These are the points the map
+// draws for one, and they have to be placed, dated and in order — a track drawn
+// in storage order is a zigzag with a confident line through it.
+console.log('\nwhere a day was');
+// A morning walk east, three minutes a cell, plus a patch from another day that
+// must not turn up in it.
+const walk = new Map();
+{
+  const [L, col, row] = idAt(7.75, 46.02).split('/').map(Number);
+  for (let i = 0; i < 6; i++) {
+    const at = T('2024-08-10T09:00:00') + i * 180;
+    walk.set(`${L}/${col + i}/${row}`, [{ source: 'gpx', addedAt: at, firstAt: at, lastAt: at, hits: 1, fixes: 3 }]);
+  }
+}
+const other = patch(8.55, 47.37, 3, T('2024-08-12'));
+const walked = dayCells('2024-08-10', merge(walk, other));
+check(walked.length === 6, 'a day holds the cells that day recorded', String(walked.length));
+check(walked.every((c) => !other.has(c.id)), 'and only those — another day is another day');
+check(walked.every((c) => Number.isFinite(c.lng) && Number.isFinite(c.lat)), 'each one is placed');
+check(walked.every((c, i) => i === 0 || c.at >= walked[i - 1].at), 'in the order they happened');
+// The one that discriminates: storage order is insertion order here, so a sort
+// that did nothing would still pass the check above. Reverse the map and the
+// answer has to come back the same way round.
+const backwards = new Map([...walk].reverse());
+check(dayCells('2024-08-10', backwards).map((c) => c.id).join() === walked.map((c) => c.id).join(),
+  'however they come out of storage');
+check(walked.every((c) => c.fresh), 'ground first seen that day is new');
+// Both ends of a stored row are days the data carries; only one of them is new.
+const spanPoints = dayCells('2024-08-16', span);
+check(spanPoints.length === 4 && spanPoints.every((c) => !c.fresh),
+  'the last day of a stay is ground you were on, but not new ground',
+  `${spanPoints.length} cells, ${spanPoints.filter((c) => c.fresh).length} new`);
+check(dayCells('2024-08-13', span).length === 0, 'and the quiet middle has nothing to show');
+check(dayDetail('2024-08-10', [], [], merge(walk, other)).points.length === 6,
+  'the day panel carries them too, so its count and its map agree');
+
+// --- A trip, as one shape in the calendar --------------------------------------
+console.log('\na trip across the month grid');
+// A fortnight whose middle is silent: arrived on the 2nd, seen again on the
+// 15th, nothing in between.
+const fortnight = patch(12.49, 41.90, 5, T('2024-06-02'), T('2024-06-15'), 4);
+const longTrip = buildTrips(merge(homeCells, fortnight), []);
+const marked = tripDays(longTrip);
+check(longTrip.length === 1, 'the fortnight is one trip', `${longTrip.length}`);
+check(marked.get('2024-06-02') === longTrip[0] && marked.get('2024-06-15') === longTrip[0],
+  'both ends of it are marked');
+check(marked.get('2024-06-08') === longTrip[0],
+  'and so is the quiet Saturday in the middle — you did not come home for it');
+check(!marked.has('2024-06-01') && !marked.has('2024-06-16'), 'the days either side are not');
+check(marked.size === 14, 'every day of it, and no more', `${marked.size} days`);
+check(tripDays([]).size === 0 && tripDays(null).size === 0, 'no trips, nothing marked');
+// Two trips must never claim the same day — the pill would be drawn twice and
+// the second would win silently.
+const spans = new Map();
+let clash = false;
+for (const t of two) {
+  for (const [k, v] of tripDays([t])) {
+    if (spans.has(k)) clash = true;
+    spans.set(k, v);
+  }
+}
+check(!clash, 'and two trips never claim the same day');
+
+// --- The spots a trip is drawn from --------------------------------------------
+// The map draws a trip from its spots, so each one has to know when it was
+// first reached; without that there is no order to thread them in.
+console.log('\nthe order a trip happened in');
+const threaded = buildTrips(merge(homeCells, walk), [])[0];
+check(threaded.spots.length === 6, 'a spot per place the trip has evidence for', `${threaded.spots.length}`);
+check(threaded.spots.every((s) => s.at > 0), 'each dated');
+check(threaded.spots.every((s, i) => i === 0 || s.at >= threaded.spots[i - 1].at), 'and in order');
+// The date is when you *arrived*, and the case that tells the two apart is a
+// row seen over several days: it carries an event at each end, and taking the
+// later one would date the whole trip by when it ended.
+const overDays = buildTrips(merge(homeCells, span), [])[0];
+check(overDays.spots.every((s) => s.at === T('2024-08-10')),
+  'from when a place was first reached, not last',
+  overDays.spots.map((s) => dayKey(s.at)).join(', '));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

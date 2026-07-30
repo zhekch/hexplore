@@ -1150,19 +1150,48 @@ body {
 
 /* Custom color picker — the app's own, in place of the OS colour panel */
 .color-swatch {
+  position: relative;
   flex: none;
   width: 38px;
   height: 24px;
   appearance: none;
   padding: 0;
+  overflow: hidden;
   border-radius: 9px;
   border: 1px solid rgba(255, 255, 255, 0.28);
-  background: var(--swatch, #60acff);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
   cursor: pointer;
   transition:
     transform 0.12s ease,
     box-shadow 0.15s ease;
+}
+
+/* A colour can now carry an opacity, and the only honest way to show one is to
+   draw it over something: the checkerboard is what a translucent swatch is
+   translucent *against*. Board underneath, colour laid over it — which is why
+   the colour is a pseudo-element rather than a background-color, since a
+   background-color paints below its own background-image, i.e. below the
+   board. */
+.color-swatch,
+.cp-preview,
+.cp-alpha {
+  background-color: rgba(255, 255, 255, 0.1);
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.22) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.22) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.22) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.22) 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+}
+
+.color-swatch::after,
+.cp-preview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--swatch, #60acff);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  pointer-events: none;
 }
 
 /* Not a scale: the swatch sits flush with the right edge of its row, and
@@ -1279,6 +1308,46 @@ body {
   pointer-events: none;
 }
 
+/* Opacity. A strip is the only honest way to show it: the checkerboard is what
+   the colour is being drawn *over*, so a half-transparent swatch looks
+   half-transparent rather than merely darker. The same board sits behind the
+   preview and the swatch on the menu row, for the same reason. */
+.cp-alpha {
+  position: relative;
+  height: 16px;
+  margin-top: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none;
+}
+
+.cp-alpha:focus-visible {
+  box-shadow: 0 0 0 2px rgba(96, 172, 255, 0.9);
+}
+
+/* The colour ramp itself, laid over the board rather than beside it. */
+.cp-alpha-ramp {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.cp-alpha-knob {
+  position: absolute;
+  box-sizing: border-box;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  left: calc(var(--kx, 0) * (100% - 16px));
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 2px 6px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
 .cp-foot {
   display: flex;
   align-items: center;
@@ -1287,9 +1356,11 @@ body {
 }
 
 .cp-preview {
+  position: relative;
   flex: none;
   width: 26px;
   height: 26px;
+  overflow: hidden;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.25);
 }
@@ -2673,6 +2744,19 @@ body {
   border-color: rgba(15, 23, 42, 0.2);
 }
 
+/* The transparency board, dark-on-white instead of white-on-dark — a board made
+   of pale greys is invisible on a pale panel, which defeats the point of it. */
+[data-theme='light'] .color-swatch,
+[data-theme='light'] .cp-preview,
+[data-theme='light'] .cp-alpha {
+  background-color: rgba(255, 255, 255, 0.9);
+  background-image:
+    linear-gradient(45deg, rgba(15, 23, 42, 0.16) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(15, 23, 42, 0.16) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(15, 23, 42, 0.16) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(15, 23, 42, 0.16) 75%);
+}
+
 [data-theme='light'] .menu-section + .menu-section,
 [data-theme='light'] .menu-scroll > .layers-account,
 [data-theme='light'] .stats-head {
@@ -3342,12 +3426,27 @@ body {
 /* --- One route isolated ---------------------------------------------------- */
 /* Shown on the map, not in a menu: isolation is a mode you can get into with
    one tap from the routes list, so getting out of it has to be one tap too. */
-.route-solo {
+/* One column, so a trip and an isolated route inside it stack instead of
+   landing on top of each other. It has no background of its own and must not
+   swallow taps on the map between the chips. */
+.map-chips {
   position: fixed;
   top: 14px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.map-chips > * {
+  pointer-events: auto;
+}
+
+.route-solo {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3367,14 +3466,14 @@ body {
   display: none;
 }
 
-#route-solo-text {
+.route-solo > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-#route-solo-clear {
+.route-solo > button {
   appearance: none;
   flex: none;
   padding: 4px 11px;
@@ -3388,7 +3487,7 @@ body {
   cursor: pointer;
 }
 
-#route-solo-clear:hover {
+.route-solo > button:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
@@ -3405,13 +3504,13 @@ body {
   color: rgba(15, 23, 42, 0.9);
 }
 
-[data-theme='light'] #route-solo-clear {
+[data-theme='light'] .route-solo > button {
   border-color: rgba(15, 23, 42, 0.18);
   background: rgba(15, 23, 42, 0.08);
   color: #0f172a;
 }
 
-[data-theme='light'] #route-solo-clear:hover {
+[data-theme='light'] .route-solo > button:hover {
   background: rgba(15, 23, 42, 0.15);
 }
 
@@ -3476,8 +3575,17 @@ body {
     transform: translate(-50%, 0);
   }
 
+  /* …which is also where the chips sit. Same trick, same reason: when one is
+     up, this drops below it rather than landing on top of the thing that says
+     what the map is currently showing. */
+  .map-chips:has(> *:not([hidden])) ~ .toast {
+    top: 62px;
+  }
+
   /* …which is where the offline banner already is. It's the sibling before this
-     one in the markup, so when it's up, this drops below it. */
+     one in the markup, so when it's up, this drops below it. Listed last so it
+     wins over the chip rule: the banner is the more important of the two to
+     stay clear of. */
   .offline-bar:not([hidden]) ~ .toast {
     top: 92px;
   }
@@ -3944,6 +4052,57 @@ body {
   background: #7ee0a0;
 }
 
+/* --- A trip, as one shape -----------------------------------------------------
+   The dots of the days in a trip grow into a bar joining them, because a trip
+   is one journey and five loose dots describe five errands. The bar is sized
+   off the centre of each cell and reaches 3px past the edges it has a
+   neighbour on — enough to cross the grid's 2px gap — so a run reads as
+   continuous while the day either end keeps its rounded cap. */
+/* One colour along its whole length, including the days in the middle that
+   recorded nothing — the journey ran through them, and a bar that dimmed and
+   brightened along its length would read as five errands again. Which days
+   actually have evidence is already said by the lit cell behind the number
+   (.cal-day.has), so nothing is lost. */
+.cal-day.trip i {
+  left: calc(50% - 3px);
+  right: calc(50% - 3px);
+  width: auto;
+  height: 5px;
+  bottom: 3.5px;
+  border-radius: 999px;
+  background: rgba(96, 172, 255, 0.8);
+}
+
+.cal-day.trip-l i {
+  left: -3px;
+}
+
+.cal-day.trip-r i {
+  right: -3px;
+}
+
+/* A week ends on Sunday: where the run carries on into the next row the bar
+   stops flush with the grid rather than hanging off it, and picks up again on
+   the Monday underneath. Only where it carries on — a trip that *starts* on a
+   Monday still starts at the middle of the Monday. */
+.cal-day.trip-l.week-first i {
+  left: 0;
+}
+
+.cal-day.trip-r.week-last i {
+  right: 0;
+}
+
+/* A day you recorded a route on stays its own colour inside a trip: that is a
+   different kind of day, not a gap in the journey. */
+.cal-day.trip.has-route i {
+  background: #7ee0a0;
+}
+
+.cal-day.trip.has-route i {
+  background: #7ee0a0;
+}
+
 .cal-day.today {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
@@ -4095,6 +4254,16 @@ body {
 [data-theme='light'] .cal-day.has {
   color: #0f172a;
   background: rgba(37, 99, 235, 0.14);
+}
+
+[data-theme='light'] .cal-day.has i,
+[data-theme='light'] .cal-day.trip i {
+  background: rgba(37, 99, 235, 0.85);
+}
+
+[data-theme='light'] .cal-day.has-route i,
+[data-theme='light'] .cal-day.trip.has-route i {
+  background: #22a55f;
 }
 
 [data-theme='light'] .cal-weekday {

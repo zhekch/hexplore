@@ -152,7 +152,8 @@ glass look. Click hexagons to mark places you've visited.
   whichever covers the most of its ground). At the country level all four apply
   per country. Single-color mode's swatch opens the app's **own color picker**
   (`src/color-picker.js`) rather than the OS one, and the map repaints as you
-  drag.
+  drag. Every colour it produces can carry an **opacity** — see
+  [Colours with an opacity](#colours-with-an-opacity).
 - **Saved routes**: track files can keep the line they drew, not just the ground
   it covered — see [Saved routes](#saved-routes) below.
 - **Region borders**: `SHOW_REGION_BORDERS` in `src/main.js` toggles the crisp
@@ -762,6 +763,63 @@ row, it's a reading of the rows.
   a cell belongs to often enough to matter, and it turns ~1,500 lookups into
   ~500: the whole derivation is ~30 ms for 1,400 cells, against 6 MB of shapes.
 
+### Showing one
+
+Picking a trip draws it as **the track it was**, not as a wash over the ground
+it covered: a dot at the centre of every cell it touched, threaded in the order
+those cells were first seen (`showTrack`/`trackFC` in `src/main.js`,
+`TRACK_COLOR` and the two width ramps beside it).
+
+- **The order is free.** Each spot already carries `at`, the first moment that
+  place was reached, so the shape of the days comes back without storing
+  anything. A translucent tint over the same hexagons said *somewhere in here*;
+  a line through them says where you went and which way round.
+- **The thread is cut where there is nothing to thread with.** No timestamp, the
+  *same* timestamp as the point before it, or a gap over `TRACK_LINK_GAP_SEC`
+  (36 h). The middle one is the case that matters: an afternoon imported from
+  one photo album carries a single timestamp on every cell of it, and joining
+  those in whatever order they came out of storage draws a zigzag and calls it a
+  route. Dots with no line is the honest answer, and it is what that data gets.
+- **Solid dots with a dark rim**, because the highlight has to read on four
+  basemaps including a photograph. The old 16% fill was legible on the dark one
+  and nearly invisible on Satellite.
+- **The chip names it** (`#trip-chip`, sharing `.route-solo`'s styling), and
+  stays up until you stop it. A toast couldn't: the name is not an event that
+  happened two seconds ago, it is what you are currently looking at. Both chips
+  live in one `.map-chips` column so an isolated route inside a shown trip
+  stacks under it rather than landing on top of it.
+- **A day is shown the same way** — `dayCells()` places and dates the cells one
+  calendar day recorded, and the map draws them with the same code. Until then
+  a dot in the calendar was the end of the road: it said the day had ground on
+  it and gave you no way to look at it.
+- **Framing a trip lets go of "my location" first** (`releaseCameraLock`).
+  MapLibre's tracking control hands the camera back when it sees a move it
+  didn't cause, but deliberately ignores one that arrives mid-zoom so a pinch
+  doesn't drop the lock — and a programmatic flight *starts* as a zoom, so it
+  was ignored too and the next position update snapped the map back. Telling the
+  control the camera is about to move for someone else's reasons is exactly what
+  a drag tells it, and it falls to its background state: the blue dot stays and
+  keeps updating, only the camera is let go. `map.stop()` has to come first,
+  because that guard asks whether the camera is moving *right now* and the
+  answer is still yes a good while after the last flight — measured true 600 ms
+  after a 300 ms `fitBounds`.
+
+### In the calendar
+
+A trip is drawn as **one shape across the month grid** (`tripDays()` +
+`.cal-day.trip` in `src/style.css`): the dots of the days in it grow into a bar
+joining them. Five loose dots describe five errands; the bar says you were away
+from the 4th to the 8th, which is what anyone is actually looking for in a month
+grid.
+
+Every day between the first and last thing that happened is marked, **including
+the quiet ones** — you didn't come home on the Wednesday just because the phone
+recorded nothing. The bar is one colour along its whole length for the same
+reason; which days have evidence is already said by the lit cell behind the
+number. It reaches 3 px past each edge it has a neighbour on, enough to cross
+the grid's 2 px gap, and stops flush at a week boundary so a run resumes on the
+Monday underneath rather than hanging off the grid.
+
 `scripts/test/trips.mjs` covers the decisions rather than the plumbing: that
 home is where the visits are and not where the trip was, that a week is one trip
 and two weekends are two, that a weekend away lasts two days, that twice in a
@@ -773,8 +831,12 @@ gazetteer of longitude bands, so the argument under test is which places a trip
 weighs most rather than which shapes are where — that the week beats the drive,
 that the city beats the village only when the time is comparable, that four days
 at sea don't outvote three days in the city, and that a stored row's visits are
-counted once and not at both of its ends. `scripts/test/stats.mjs` runs the same
-case against the real datasets.
+counted once and not at both of its ends. It also covers what the map is drawn
+from: that a day's cells come back placed, dated and in time order *however they
+come out of storage*, that a place is dated by when it was first reached rather
+than last, and that a trip marks every day of its span in the calendar including
+the silent ones. `scripts/test/stats.mjs` runs the same naming case against the
+real datasets.
 
 ## Coverage
 
@@ -1050,6 +1112,46 @@ here at all. Both ends of a cell's span light a day, since both are dates the
 data actually carries; the days in between stay dark, because nothing says you
 were there. A day separately reports how many cells were *recorded* and how many
 were *new*, which are different questions.
+
+**Every day leads somewhere.** Picking one lists the day itself as a row you can
+follow onto the map, above whatever trip and routes it belongs to — see
+[Showing one](#showing-one). Without that a dotted day was a dead end for
+anything that wasn't part of a trip and didn't carry a route: the calendar could
+tell you the day had ground on it and not show you the ground. Trips are drawn
+across the grid as a single bar; see [In the calendar](#in-the-calendar).
+
+## Colours with an opacity
+
+Any colour the picker produces — the visited wash, and one per activity — can
+carry an opacity, written as a fourth pair of hex digits (`#60acffcc`). Full
+opacity is still written as six digits, so nothing already stored is rewritten
+and nothing that hasn't been taught about opacity ever sees any.
+
+**The opacity never travels as part of the colour.** Everything downstream takes
+a colour *apart* — the blob painter's fill style, the route line mixes, the
+region outline — and a fourth pair of digits read as one number shifts every
+channel eight bits: blue silently becomes green. So `hexToRgb` reads six digits
+whatever it is given, `hexAlpha` reads the fourth pair (defaulting to opaque),
+and `hexOpaque` strips it. `scripts/test/colors.mjs` pins exactly that.
+
+**It lands as layer opacity, never as ink.** Two reasons. The visited wash is
+drawn by blurring discs and cutting the result at a fixed alpha — a translucent
+fill would move that contour and *shrink* the blobs instead of fading them (see
+[How it works](#how-it-works)). And a colour that is already translucent would
+then be composited again by the layer opacity it is drawn with, applying the
+same choice twice. So the accent's opacity multiplies `regionOpacity()` and the
+region outlines, an activity's multiplies that activity's line opacity, and both
+hand MapLibre an opaque colour.
+
+**Only where the colour is used.** A heat map doesn't draw the accent at all, so
+it doesn't honour the accent's opacity either — the rule is that an opacity
+belongs to the colour it is part of, and a colour nothing is drawn in has
+nothing to fade.
+
+**The swatch is drawn over a checkerboard**, as a pseudo-element rather than a
+background colour: a `background-color` paints *below* its own
+`background-image`, which would put the board on top of the colour. Without the
+board a half-transparent swatch just looks like a darker one.
 
 ## What a cell knows
 

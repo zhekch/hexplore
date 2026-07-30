@@ -136,10 +136,15 @@ map for its card.
 
 **Trips.** *Routes and statistics → Trips* groups your history into the runs of
 days you didn't come home: `Zermatt, Switzerland · Aug 10 – Aug 16, 2024 ·
-36 cells`. Tap one and the map flies there and outlines it. Trips are worked out
-from the dates your cells and routes already carry, so they appear on their own
-— which also means they can't be renamed, and that a week somewhere with your
-phone off is a week that didn't happen.
+36 cells`. Tap one and the map flies there and draws it — a dot everywhere you
+were, threaded in the order you were there, so a trip comes back as the shape of
+its days rather than as a patch of ground. A bar at the top says which trip you
+are looking at until you stop showing it. Where the dates don't say what came
+first — a whole afternoon imported under one timestamp — you get the dots
+without the thread, rather than a line joining them in whatever order they were
+stored. Trips are worked out from the dates your cells and routes already carry,
+so they appear on their own — which also means they can't be renamed, and that a
+week somewhere with your phone off is a week that didn't happen.
 
 Coming home ends a trip, so going away, spending a day at home and leaving again
 is two trips and not one. And a day whose ground is mostly around home is a day
@@ -167,9 +172,11 @@ year added.
 **Search** (the magnifier, or **⌘K**). One field over places, your routes, your
 trips, and whole regions and countries. Type a date — `2024-08-12`,
 `12.08.2024`, `August 2024` — and a **calendar** opens on that month with a dot
-on every day something was recorded, green when a route ran. Pick a day to see
-what happened on it. Place names are looked up on your own machine; nothing is
-sent anywhere.
+on every day something was recorded, green when a route ran. The days of one
+trip join into a single bar, so a fortnight away reads as one journey instead of
+a scatter of dots. Pick any day to see what happened on it, and to put that day
+on the map. Place names are looked up on your own machine; nothing is sent
+anywhere.
 
 **Undo.** ⌘Z / Ctrl-Z, and ⌘⇧Z / Ctrl-⇧Z to redo. It covers marking, painting,
 clearing and deleting or renaming a route, and each one says what it just took
@@ -216,9 +223,11 @@ that isn't the one it counted.
 
 **Looks.** Four basemaps (dark, terrain, light, satellite), one accent colour or
 a shading by **visits**, **first seen**, or **type** — a colour per app the data
-came from. Terrain and Satellite are kept to the same label and road density as
-Light, and roads on all of them fade out as you zoom away rather than shouting
-over the map.
+came from. Every colour has an **opacity** slider under the hue strip, so you
+can turn the visited wash down until the map underneath reads through it, or
+fade one activity's routes back without hiding them. Terrain and Satellite are
+kept to the same label and road density as Light, and roads on all of them fade
+out as you zoom away rather than shouting over the map.
 
 ## Rebuilding the map data
 
@@ -238,8 +247,8 @@ npm test
 
 Covers the parts where being wrong is quiet: the hex maths, visit counting,
 activity guessing, the route API, preference syncing, the backup scheduler and
-its skip logic, undo's restore path, trip derivation and naming, search, and the
-coverage arithmetic.
+its skip logic, undo's restore path, trip derivation and naming, search, colour
+parsing, and the coverage arithmetic.
 
 ## Keeping it yours
 

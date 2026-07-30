@@ -255,11 +255,18 @@
       </div>
     </div>
 
-    <!-- Shown only while one route is isolated: what you are looking at, and the
-         way back to everything. -->
-    <div class="route-solo" id="route-solo" hidden>
-      <span id="route-solo-text">Showing one route</span>
-      <button type="button" id="route-solo-clear">Show all</button>
+    <!-- What the map is currently narrowed to, and the way back out. Both
+         chips can be up at once — an isolated route inside a shown trip — so
+         they stack rather than share a corner. -->
+    <div class="map-chips" id="map-chips">
+      <div class="route-solo" id="trip-chip" hidden>
+        <span id="trip-chip-text">Showing a trip</span>
+        <button type="button" id="trip-chip-clear">Stop</button>
+      </div>
+      <div class="route-solo" id="route-solo" hidden>
+        <span id="route-solo-text">Showing one route</span>
+        <button type="button" id="route-solo-clear">Show all</button>
+      </div>
     </div>
 
     <div class="modal-overlay" id="import-overlay" hidden>

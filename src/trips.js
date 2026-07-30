@@ -326,8 +326,12 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
       // has no id, and two of them must not merge into one place.
       const key = e.cell ?? e.route;
       let spot = spots.get(key);
-      if (!spot) spots.set(key, (spot = { lng: e.lng, lat: e.lat, hits: 0, days: new Set() }));
+      // `at` is when you first got there, which is what threads the spots into
+      // the order they happened — the map draws a trip as its own track, and a
+      // track needs a direction. Events arrive sorted, so the first one wins.
+      if (!spot) spots.set(key, (spot = { lng: e.lng, lat: e.lat, hits: 0, at: e.at, days: new Set() }));
       spot.hits += e.hits ?? 0;
+      if (e.at < spot.at) spot.at = e.at;
       spot.days.add(dayKey(e.at));
       if (e.lng < bbox[0]) bbox[0] = e.lng;
       if (e.lat < bbox[1]) bbox[1] = e.lat;
@@ -360,7 +364,13 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
       lengthM: tripRoutes.reduce((m, r) => m + (r.lengthM || 0), 0),
       bbox,
       center,
-      spots: [...spots.values()].map((s) => ({ lng: s.lng, lat: s.lat, hits: s.hits, days: [...s.days] })),
+      // Sorted, though the events they were built from already arrive in order:
+      // the map threads these into a line and a scribble is what it draws if
+      // they ever stop being ordered. One line here is cheaper than that being
+      // a property of how events happen to be gathered.
+      spots: [...spots.values()]
+        .map((s) => ({ lng: s.lng, lat: s.lat, hits: s.hits, at: s.at, days: [...s.days] }))
+        .sort((a, b) => a.at - b.at),
       farKm: home ? Math.round(distanceKm(home.lng, home.lat, center[0], center[1])) : 0,
       name: '', // filled in by nameTrips(), which needs the place dataset
     });
@@ -543,37 +553,95 @@ export function longestStreak(dayKeys) {
   };
 }
 
+/** The seconds spanned by one local calendar day. */
+const dayBounds = (key) => {
+  const start = new Date(`${key}T00:00:00`).getTime() / 1000;
+  return [start, start + DAY];
+};
+
+/**
+ * Where you were on one calendar day, in the order you were there.
+ *
+ * The same reading as the calendar's dots — both ends of every stored row, and
+ * nothing in between — but placed and timed rather than counted, because a day
+ * with a dot on it is a day you should be able to *look* at. Sorted by time so
+ * the map can thread the points into the track they came from.
+ *
+ * @param {string} key "YYYY-MM-DD"
+ * @param {Map<string, Array>} cellMeta
+ * @returns {Array<{id:string, lng:number, lat:number, at:number, fresh:boolean}>}
+ */
+export function dayCells(key, cellMeta) {
+  const [start, end] = dayBounds(key);
+  const inDay = (at) => at >= start && at < end;
+  const out = [];
+  for (const [id, entries] of cellMeta ?? []) {
+    const [L, col, row] = id.split('/').map(Number);
+    if (!Number.isFinite(L)) continue;
+    let at = 0;
+    let fresh = false;
+    for (const e of entries) {
+      // First seen and last seen are both dates the row actually carries; a
+      // cell whose row merely *spans* this day says nothing about it.
+      const hit = inDay(e.firstAt || 0) ? e.firstAt : inDay(e.lastAt || 0) ? e.lastAt : 0;
+      if (!hit) continue;
+      if (inDay(e.firstAt || 0)) fresh = true;
+      if (!at || hit < at) at = hit;
+    }
+    if (!at) continue;
+    const p = project(cellCenter(L, col, row));
+    out.push({ id, lng: wrapLng(p[0]), lat: p[1], at, fresh });
+  }
+  out.sort((a, b) => a.at - b.at);
+  return out;
+}
+
 /**
  * Everything that happened on one calendar day: the trip it belongs to, the
- * routes that ran, and how many cells were first seen.
+ * routes that ran, and the ground you covered.
  *
  * @param {string} key "YYYY-MM-DD"
  */
 export function dayDetail(key, trips, routes, cellMeta) {
-  const start = new Date(`${key}T00:00:00`).getTime() / 1000;
-  const end = start + DAY;
+  const [start, end] = dayBounds(key);
   const inDay = (at) => at >= start && at < end;
   const dayRoutes = (routes ?? []).filter((r) => inDay(r.firstAt || r.lastAt || 0));
   // Two different counts, because they answer two different questions: how
   // much of the map you were on that day, and how much of it was new.
-  let cells = 0;
-  let newCells = 0;
-  for (const entries of cellMeta.values()) {
-    let seen = false;
-    let fresh = false;
-    for (const e of entries) {
-      if (inDay(e.firstAt || 0)) {
-        seen = true;
-        fresh = true;
-      } else if (inDay(e.lastAt || 0)) {
-        seen = true;
-      }
-    }
-    if (seen) cells++;
-    if (fresh) newCells++;
-  }
+  const cells = dayCells(key, cellMeta);
   const trip = (trips ?? []).find((t) => t.start < end && t.end >= start) ?? null;
-  return { key, start, end, routes: dayRoutes, cells, newCells, trip };
+  return {
+    key,
+    start,
+    end,
+    routes: dayRoutes,
+    cells: cells.length,
+    newCells: cells.filter((c) => c.fresh).length,
+    points: cells,
+    trip,
+  };
+}
+
+/**
+ * Which trip each calendar day belongs to.
+ *
+ * A trip is one journey, and a month grid that shows it as five loose dots is
+ * describing five errands. Every day between the first and last thing that
+ * happened is mapped, including the quiet ones in the middle: you didn't come
+ * home on the Wednesday just because the phone recorded nothing. Days can't
+ * collide — the derivation gives each one to at most one trip.
+ *
+ * @returns {Map<string, object>} day key → the trip covering it
+ */
+export function tripDays(trips) {
+  const out = new Map();
+  for (const t of trips ?? []) {
+    const from = dayNumber(dayKey(t.start));
+    const to = dayNumber(dayKey(t.end));
+    if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+    for (let n = from; n <= to; n++) out.set(keyOfDay(n), t);
+  }
+  return out;
 }
 
 /**
