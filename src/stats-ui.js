@@ -214,6 +214,12 @@ export function mountStats({
   }
 
   // A segmented control that re-renders the current tab when you pick a side.
+  //
+  // `current` is only read to light one up. It used to *also* short-circuit a
+  // press on the option already chosen — which is only true for as long as the
+  // control lives, and made a caller that rebuilt the list without rebuilding
+  // its heading stop responding after one press. Picking the option you already
+  // have is a harmless re-render, so it is left to happen.
   function sortSeg(options, current, onPick) {
     const seg = document.createElement('div');
     seg.className = 'seg seg-mini';
@@ -222,10 +228,7 @@ export function mountStats({
       btn.type = 'button';
       btn.className = `seg-btn${key === current ? ' active' : ''}`;
       btn.textContent = opt.label;
-      btn.addEventListener('click', () => {
-        if (current === key) return;
-        onPick(key);
-      });
+      btn.addEventListener('click', () => onPick(key));
       seg.append(btn);
     }
     return seg;
@@ -920,43 +923,46 @@ export function mountStats({
       row('Furthest', `${Math.max(...list.map((t) => t.farKm)).toLocaleString()} km`, 'from home'),
     );
     body.append(homeRow(list));
-    const redraw = () => {
-      const at = body.scrollTop;
-      renderTripList(list);
-      body.scrollTop = at;
-    };
-    body.append(
-      headRow(
-        'Every trip',
-        sortAndGroup(
-          TRIP_SORTS, tripSort, TRIP_GROUPS, tripGroup,
-          (key) => { tripSort = key; redraw(); },
-          (key) => { tripGroup = key; redraw(); },
-        ),
-      ),
-    );
-    const wrap = document.createElement('div');
-    wrap.className = 'trip-list';
-    body.append(wrap);
-    renderTripList(list);
+    // The heading and the list are rebuilt together, and that is not a detail:
+    // the segmented control captures which option is current when it is built,
+    // both to light one up and to ignore a press on the one already chosen.
+    // Rebuilding only the list left that capture stale — the first press
+    // worked, the highlight never moved, and pressing the *original* choice
+    // afterwards was read as "you picked the one you already have" and did
+    // nothing at all. There was no way back to Newest.
+    const section = document.createElement('div');
+    body.append(section);
+    renderTripList();
 
-    function renderTripList(shown) {
-      // Only the list below the heading is rebuilt: the totals and the home row
-      // above it don't change with the sort, and re-deriving every trip to
-      // reorder them would take a second for nothing.
-      wrap.replaceChildren();
-      wrap.append(...groupedList(
-        shown,
-        TRIP_GROUPS[tripGroup],
-        TRIP_SORTS[tripSort].sort,
-        (t) => tripRow(t),
-        (key, group) => ({
-          label: key || 'At sea or off the map',
-          note: `${plural(group.length, 'trip')} · ${plural(group.reduce((n, t) => n + t.days, 0), 'day')}`,
-          vague: !key,
-        }),
-      ));
-      if (put.size) wrap.append(hiddenRow(put));
+    function renderTripList() {
+      // Only this section, though: the totals and the home row above it don't
+      // change with the sort, and re-deriving every trip to reorder them would
+      // take a second for nothing.
+      const at = body.scrollTop;
+      section.replaceChildren();
+      section.append(
+        headRow(
+          'Every trip',
+          sortAndGroup(
+            TRIP_SORTS, tripSort, TRIP_GROUPS, tripGroup,
+            (key) => { tripSort = key; renderTripList(); },
+            (key) => { tripGroup = key; renderTripList(); },
+          ),
+        ),
+        ...groupedList(
+          list,
+          TRIP_GROUPS[tripGroup],
+          TRIP_SORTS[tripSort].sort,
+          (t) => tripRow(t),
+          (key, group) => ({
+            label: key || 'At sea or off the map',
+            note: `${plural(group.length, 'trip')} · ${plural(group.reduce((n, t) => n + t.days, 0), 'day')}`,
+            vague: !key,
+          }),
+        ),
+      );
+      if (put.size) section.append(hiddenRow(put));
+      body.scrollTop = at;
     }
   }
 
