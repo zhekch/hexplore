@@ -30,16 +30,21 @@ glass look. Click hexagons to mark places you've visited.
   than a couple thousand cells. In view mode a tap opens the **info card** for
   that area instead. Set `EDIT_ENABLED = false` in `src/main.js` to ship a
   fully view-only build (no pencil, no editing, at all).
-- **Menu**: one glass button (bottom left on desktop) opens sections for the
-  base map, coloring, and your map (saved routes, editing, statistics, import,
-  sync).
-  The **ⓘ**
+- **Menu**: one glass button opens sections for the base map, coloring, and your
+  map (saved routes, editing, statistics, import, sync). The **ⓘ**
   buttons open a floating note beside the menu — nothing expands inline, and
   swapping coloring modes swaps the color picker for the legend inside a
-  fixed-height slot, so the panel never resizes under the pointer. The geolocate
-  button sits bottom right. On phones the controls stack in that same corner —
-  geolocate, menu, pencil — and opening the menu tucks them away behind a bottom
-  sheet.
+  fixed-height slot, so the panel never resizes under the pointer.
+- **Where the controls sit.** On a wide screen the menu and search share one
+  glass pill at the **top left** — the two things reached for most, next to each
+  other rather than stacked, in the corner a pointer starts from — the geolocate
+  button keeps the bottom right, and the pencil takes the bottom left, where it
+  is only present at all when editing is switched on. On phones everything
+  stacks in the bottom-right corner instead (geolocate, menu, pencil), and
+  opening the menu tucks them away behind a bottom sheet. Both sizes build the
+  cluster the same way: the glass belongs to the container and the buttons
+  inside go flat, because two backdrop-filtered pills touching show a doubled
+  seam.
 - **Grid**: flat-top hexagons defined in Web Mercator space, so every cell
   renders as a perfect, identically-oriented hexagon at any location and zoom
   (no rotation or pentagon artifacts). The base (finest) cell is **~0.9 km**
@@ -152,7 +157,8 @@ glass look. Click hexagons to mark places you've visited.
   whichever covers the most of its ground). At the country level all four apply
   per country. Single-color mode's swatch opens the app's **own color picker**
   (`src/color-picker.js`) rather than the OS one, and the map repaints as you
-  drag.
+  drag. Every colour it produces can carry an **opacity** — see
+  [Colours with an opacity](#colours-with-an-opacity).
 - **Saved routes**: track files can keep the line they drew, not just the ground
   it covered — see [Saved routes](#saved-routes) below.
 - **Region borders**: `SHOW_REGION_BORDERS` in `src/main.js` toggles the crisp
@@ -177,7 +183,7 @@ glass look. Click hexagons to mark places you've visited.
 
 ## Import location history
 
-Open the base-map menu (bottom left) → **Import locations**, then pick or drop
+Open the base-map menu → **Import locations**, then pick or drop
 your export files. **Any number at once, and a few at a time** — select a
 folder's worth of GPX, drop a mixed pile of KML and FIT one by one as you find
 them, or hand it a whole Strava ZIP and it expands the archive itself. Files
@@ -585,12 +591,12 @@ date, or missing, and then only the filename is left. So every route also gets a
 watch) is kept as the title and the place is shown beside it; only a generic one
 (a date, `Track`, `Untitled`, a filename) is replaced.
 
-This happens **on this device**. `src/places.json` (2.2 MB, built by
+This happens **on this device**. `src/places.json` (3.0 MB, built by
 `npm run build:places`) ships with the app and is dynamic-imported as its own
 chunk the first time a route needs a name, so no coordinate is ever sent to a
 geocoder. It holds:
 
-- **69.5k towns** from [GeoNames](https://www.geonames.org/) `cities5000`
+- **94k towns** from [GeoNames](https://www.geonames.org/) `cities1000`, thinned
   (CC BY 4.0 — hence the GeoNames credit in the map's attribution). Coarser sets
   are far smaller but only know cities, and a hike above Interlaken then comes
   out named after somewhere 40 km away, which is worse than no name at all.
@@ -598,10 +604,35 @@ geocoder. It holds:
   names any — in Switzerland it knows Lake Geneva and Bodensee and nothing else
   — so the Europe and North America supplements are merged in on top.
 
-Two rules keep the names honest: nothing more than 30 km away is claimed as
+**Thinned, because the two obvious cuts are both wrong.** Everything over 5,000
+people (the old `cities5000`) leaves whole valleys with no name in them at all:
+the upper Engadin has no settlement that size, so a day in St. Moritz — 4,952
+people — was named after Chur, an hour's drive away. Everything over 1,000 is
+161k places and 1.9 MB gzipped, more than twice today's download, nearly all of
+it villages that already have a town speaking for them. So the ≥5,000 set is
+kept whole and the rest fills in **only where nothing bigger is within
+`FILL_GAP_M` (15 km)**: a village that is the only name for miles earns its
+thirty bytes, one in a city's shadow does not. 94k places, 1.2 MB gzipped.
+
+GeoNames' **PPLX** entries — "section of a populated place" — are dropped
+outright. They are city districts carrying their own population, so they compete
+with the city they are part of, and an afternoon in Zürich used to answer
+"Zürich (Kreis 9) / Altstetten".
+
+**A place in the shadow of a much bigger one takes its name.** The gazetteer has
+no idea which places contain which, and not every district is filed as one:
+Lisbon's parishes are plain `PPL` rows, so a week there landed a couple of hours
+on each of Lumiar, Alvalade, Benfica and Marvila and came out named after
+whichever won. A place with a neighbour `ABSORB_RATIO` (5×) its size within
+`ABSORB_M` (12 km) is a piece of that neighbour and answers as it. Distance *and*
+ratio, because either alone is wrong — ratio alone would let a city claim a
+separate town forty kilometres off, distance alone would swallow the independent
+suburb next door — and between them they leave Zermatt and St. Moritz alone.
+
+Two more rules keep the names honest: nothing more than 30 km away is claimed as
 where you were, and a lake has to be within 6× the route's own size in either
 direction, so a 2 km walk is never "Lake Geneva" and a 150 km drive is never
-named after a pond it passed. Size buys a place a head start over distance
+named after a pond it passed. Size also buys a place a head start over distance
 (`prominence()` in `src/places.js`) — otherwise a run through central Bern gets
 named after whichever 5,000-person suburb the start line happened to fall in.
 Routes stored before this existed are named the next time their lines are
@@ -731,17 +762,51 @@ row, it's a reading of the rows.
   trips are complete without it. It gets the trip's `spots` — one entry per cell
   and route, carrying which days it was seen on and how many visits it records —
   and picks:
-  1. **the region with the most evidence in it**, by days first. A day is the
-     only thing in the stored history that means *time*: a cell records which
-     days it was seen on and nothing about the hours, so days rank regions,
-     visits break ties between regions seen on the same number of days, and
-     ground covered breaks what is left. Six days in Rome therefore outrank one
-     day's drive through nearly seven times as much of Abruzzo.
-  2. **the best-known settlement inside that region**, scoring time spent × a
-     factor that grows with population (`1 + log₁₀(1 + pop)`). Nobody calls a
+  1. **the region with the most evidence in it**, by days first, then by time.
+     Six days in Rome outrank one day's drive through nearly seven times as much
+     of Abruzzo; and within the same number of days, a day spent driving right
+     across one canton to sit for six hours in the next is a trip to the second
+     one, though the first has twice the cells in it.
+  2. **the best-known settlement inside that region**, scoring √(time spent) ×
+     a factor that grows with population (`1 + log₁₀(1 + pop)`). Nobody calls a
      week in Rome "Fiumicino", and a city of half a million is worth about twice
      a village — so it takes the name when the time spent is comparable, and
      loses it when you actually slept in the village all week.
+
+  **Time, measured — not days, and not ground covered.** This is what the second
+  rewrite of naming was for. The measure used to be *days plus a bounded
+  fraction of the region's visits*, which has a floor of one whole day under
+  every place a trip touched at all: within a single day every candidate scores
+  1.0-something, a 3× difference in the hours actually spent compresses into 15%,
+  and population decides everything. A day out to St. Moritz came back named
+  *Chur* — five cells of motorway in a town of 35,000 beating four hours in a
+  village of 5,000, because the four hours were worth 0.27 and being three times
+  larger was worth 1.23.
+
+  A spot now carries `secs`, from the only thing the stored history can say about
+  duration: **the gap to the next sighting anywhere else**. Bounded at both ends
+  (`STAY_CAP_SEC` 6 h, `STAY_FLOOR_SEC` 5 min). The cap, because a gap can be a
+  fortnight — phone off, or a stay held across its own silence — and a fortnight
+  credited to whichever hexagon happened to be last would settle a whole trip's
+  name from one arbitrary cell. The floor, because plenty of imports carry one
+  timestamp for a whole afternoon of cells: with every gap zero the measure
+  would collapse, and instead it degrades to "how much ground did you cover
+  here", which is the old proxy.
+
+  **Square-rooted**, because raw seconds have too much range for the other half
+  of the question. Size is meant to break near-ties, and against unbounded time
+  it never could: the place you sleep always holds more hours than the place you
+  go, so a week in Lisbon came out named after the parish the flat was in. The
+  root leaves a 5× difference in time worth 2.2× — enough to beat any size gap
+  that matters — while a 1.8× difference is worth 1.3× and loses to a city ten
+  times the size.
+
+  **A town has to beat the ground nothing can name.** The gazetteer stops
+  somewhere, so a whole valley can have no settlement in it, and the time spent
+  in one is still time spent. When more of a trip's time went to unnamed ground
+  than to any place that *can* be named, the name is the region — "Graubünden"
+  is a worse label than "St. Moritz" and a much better one than the town it
+  drove through.
 
   Then a landmark (the lake it sat on), then the region, then the country, and
   only a trip with none of those anywhere in it falls through to *"At sea or off
@@ -757,10 +822,72 @@ row, it's a reading of the rows.
   the search box to match. They are skipped now, and a trip that is nothing but
   such ground still ends up there by finding no region at all and falling back
   to its centre.
+- **Every place it went is kept, not just the one it is called after.** `tags`
+  holds every town, region and country the naming pass looked up — it asks about
+  each cell anyway — and the search box matches them. Otherwise a trip named
+  after a canton, because the valley it sat in has no town on the map, is
+  unfindable by anywhere you actually remember being.
 - **Naming asks about every cell, so the answers are cached** at ~1 km
   (`src/stats-ui.js`). Being a kilometre out cannot change which country or town
   a cell belongs to often enough to matter, and it turns ~1,500 lookups into
   ~500: the whole derivation is ~30 ms for 1,400 cells, against 6 MB of shapes.
+
+### Showing one
+
+Picking a trip draws it as **the track it was**, not as a wash over the ground
+it covered: a dot at the centre of every cell it touched, threaded in the order
+those cells were first seen (`showTrack`/`trackFC` in `src/main.js`,
+`TRACK_COLOR` and the two width ramps beside it).
+
+- **The order is free.** Each spot already carries `at`, the first moment that
+  place was reached, so the shape of the days comes back without storing
+  anything. A translucent tint over the same hexagons said *somewhere in here*;
+  a line through them says where you went and which way round.
+- **The thread is cut where there is nothing to thread with.** No timestamp, the
+  *same* timestamp as the point before it, or a gap over `TRACK_LINK_GAP_SEC`
+  (36 h). The middle one is the case that matters: an afternoon imported from
+  one photo album carries a single timestamp on every cell of it, and joining
+  those in whatever order they came out of storage draws a zigzag and calls it a
+  route. Dots with no line is the honest answer, and it is what that data gets.
+- **Solid dots with a dark rim**, because the highlight has to read on four
+  basemaps including a photograph. The old 16% fill was legible on the dark one
+  and nearly invisible on Satellite.
+- **The chip names it** (`#trip-chip`, sharing `.route-solo`'s styling), and
+  stays up until you stop it. A toast couldn't: the name is not an event that
+  happened two seconds ago, it is what you are currently looking at. Both chips
+  live in one `.map-chips` column so an isolated route inside a shown trip
+  stacks under it rather than landing on top of it.
+- **A day is shown the same way** — `dayCells()` places and dates the cells one
+  calendar day recorded, and the map draws them with the same code. Until then
+  a dot in the calendar was the end of the road: it said the day had ground on
+  it and gave you no way to look at it.
+- **Framing a trip lets go of "my location" first** (`releaseCameraLock`).
+  MapLibre's tracking control hands the camera back when it sees a move it
+  didn't cause, but deliberately ignores one that arrives mid-zoom so a pinch
+  doesn't drop the lock — and a programmatic flight *starts* as a zoom, so it
+  was ignored too and the next position update snapped the map back. Telling the
+  control the camera is about to move for someone else's reasons is exactly what
+  a drag tells it, and it falls to its background state: the blue dot stays and
+  keeps updating, only the camera is let go. `map.stop()` has to come first,
+  because that guard asks whether the camera is moving *right now* and the
+  answer is still yes a good while after the last flight — measured true 600 ms
+  after a 300 ms `fitBounds`.
+
+### In the calendar
+
+A trip is drawn as **one shape across the month grid** (`tripDays()` +
+`.cal-day.trip` in `src/style.css`): the dots of the days in it grow into a bar
+joining them. Five loose dots describe five errands; the bar says you were away
+from the 4th to the 8th, which is what anyone is actually looking for in a month
+grid.
+
+Every day between the first and last thing that happened is marked, **including
+the quiet ones** — you didn't come home on the Wednesday just because the phone
+recorded nothing. The bar is one colour along its whole length for the same
+reason; which days have evidence is already said by the lit cell behind the
+number. It reaches 3 px past each edge it has a neighbour on, enough to cross
+the grid's 2 px gap, and stops flush at a week boundary so a run resumes on the
+Monday underneath rather than hanging off the grid.
 
 `scripts/test/trips.mjs` covers the decisions rather than the plumbing: that
 home is where the visits are and not where the trip was, that a week is one trip
@@ -773,8 +900,12 @@ gazetteer of longitude bands, so the argument under test is which places a trip
 weighs most rather than which shapes are where — that the week beats the drive,
 that the city beats the village only when the time is comparable, that four days
 at sea don't outvote three days in the city, and that a stored row's visits are
-counted once and not at both of its ends. `scripts/test/stats.mjs` runs the same
-case against the real datasets.
+counted once and not at both of its ends. It also covers what the map is drawn
+from: that a day's cells come back placed, dated and in time order *however they
+come out of storage*, that a place is dated by when it was first reached rather
+than last, and that a trip marks every day of its span in the calendar including
+the silent ones. `scripts/test/stats.mjs` runs the same naming case against the
+real datasets.
 
 ## Coverage
 
@@ -842,7 +973,7 @@ points; the national survey gives 6,951. A first attempt shipped an 8 MB "fine"
 build of the same data and it still looked wrong, which is the useful part of the
 story — the tolerance was never the problem.
 
-So when the region level is live and the zoom is past `REGION_FINE_ZOOM` (7),
+So when the region level is live and the zoom is past `REGION_FINE_ZOOM` (6),
 `considerFineRegions()` asks geoBoundaries for the ADM1 boundaries of **the
 countries whose lit regions are actually on screen**, one at a time, once each,
 and rebuilds as they land. Switzerland is 0.42 MB and takes Solothurn to 520
@@ -935,7 +1066,7 @@ nothing to ask about. Without the second call, switching Detail to Region while
 already zoomed in did nothing until the camera was nudged.
 
 **Resolution is sticky between two thresholds.** The detailed geometry comes in
-at `REGION_FINE_ZOOM` (7) and is dropped again below `REGION_COARSE_ZOOM` (6.4),
+at `REGION_FINE_ZOOM` (6) and is dropped again below `REGION_COARSE_ZOOM` (5.4),
 rather than both happening at one number. Swapping resolution re-tiles the
 source, so a zoom that hovers on a single threshold would re-tile on every
 wobble; the gap is the same trick as `LEVEL_HYSTERESIS`, for the same reason.
@@ -1050,6 +1181,46 @@ here at all. Both ends of a cell's span light a day, since both are dates the
 data actually carries; the days in between stay dark, because nothing says you
 were there. A day separately reports how many cells were *recorded* and how many
 were *new*, which are different questions.
+
+**Every day leads somewhere.** Picking one lists the day itself as a row you can
+follow onto the map, above whatever trip and routes it belongs to — see
+[Showing one](#showing-one). Without that a dotted day was a dead end for
+anything that wasn't part of a trip and didn't carry a route: the calendar could
+tell you the day had ground on it and not show you the ground. Trips are drawn
+across the grid as a single bar; see [In the calendar](#in-the-calendar).
+
+## Colours with an opacity
+
+Any colour the picker produces — the visited wash, and one per activity — can
+carry an opacity, written as a fourth pair of hex digits (`#60acffcc`). Full
+opacity is still written as six digits, so nothing already stored is rewritten
+and nothing that hasn't been taught about opacity ever sees any.
+
+**The opacity never travels as part of the colour.** Everything downstream takes
+a colour *apart* — the blob painter's fill style, the route line mixes, the
+region outline — and a fourth pair of digits read as one number shifts every
+channel eight bits: blue silently becomes green. So `hexToRgb` reads six digits
+whatever it is given, `hexAlpha` reads the fourth pair (defaulting to opaque),
+and `hexOpaque` strips it. `scripts/test/colors.mjs` pins exactly that.
+
+**It lands as layer opacity, never as ink.** Two reasons. The visited wash is
+drawn by blurring discs and cutting the result at a fixed alpha — a translucent
+fill would move that contour and *shrink* the blobs instead of fading them (see
+[How it works](#how-it-works)). And a colour that is already translucent would
+then be composited again by the layer opacity it is drawn with, applying the
+same choice twice. So the accent's opacity multiplies `regionOpacity()` and the
+region outlines, an activity's multiplies that activity's line opacity, and both
+hand MapLibre an opaque colour.
+
+**Only where the colour is used.** A heat map doesn't draw the accent at all, so
+it doesn't honour the accent's opacity either — the rule is that an opacity
+belongs to the colour it is part of, and a colour nothing is drawn in has
+nothing to fade.
+
+**The swatch is drawn over a checkerboard**, as a pseudo-element rather than a
+background colour: a `background-color` paints *below* its own
+`background-image`, which would put the board on top of the colour. Without the
+board a half-transparent swatch just looks like a darker one.
 
 ## What a cell knows
 
@@ -1224,5 +1395,5 @@ own string for the imagery.
   attribution required)
 - Boundaries and lakes: [Natural Earth](https://www.naturalearthdata.com/)
   (public domain) — `npm run build:countries`, `npm run build:places`
-- Town names: [GeoNames](https://www.geonames.org/) `cities5000`
+- Town names: [GeoNames](https://www.geonames.org/) `cities1000`, thinned
   (CC BY 4.0, credited in the map attribution)

@@ -13,13 +13,37 @@
 // --- Color maths ---------------------------------------------------------------
 // HSV rather than HSL: a saturation/brightness square with a hue strip beside it
 // is the arrangement people already know, and it maps directly onto HSV.
+//
+// Opacity rides along as a fourth digit pair — "#60acffcc" — which is a real
+// CSS colour, so anything that only ever assigns it to a style keeps working
+// without knowing this feature exists. Everything that takes a colour *apart*
+// has to be told, and `hexToRgb` is where that starts: it accepts eight digits
+// and hands back three numbers, because the callers doing arithmetic on
+// channels want the colour, not its transparency.
 export function hexToRgb(hex) {
   const s = String(hex ?? '').trim().replace(/^#/, '');
-  const full = s.length === 3 ? s.replace(/./g, (c) => c + c) : s;
-  if (!/^[0-9a-f]{6}$/i.test(full)) return null;
-  const n = parseInt(full, 16);
+  const full = s.length === 3 || s.length === 4 ? s.replace(/./g, (c) => c + c) : s;
+  if (!/^[0-9a-f]{6}([0-9a-f]{2})?$/i.test(full)) return null;
+  const n = parseInt(full.slice(0, 6), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
+
+/**
+ * The opacity carried by a colour, 0..1. A colour without one is opaque —
+ * which is what every stored value was before this existed.
+ */
+export function hexAlpha(hex) {
+  const s = String(hex ?? '').trim().replace(/^#/, '');
+  if (/^[0-9a-f]{4}$/i.test(s)) return parseInt(s[3] + s[3], 16) / 255;
+  if (/^[0-9a-f]{8}$/i.test(s)) return parseInt(s.slice(6), 16) / 255;
+  return 1;
+}
+
+/** The colour without its opacity, for the arithmetic that only wants channels. */
+export const hexOpaque = (hex) => {
+  const rgb = hexToRgb(hex);
+  return rgb ? rgbToHex(rgb) : String(hex ?? '');
+};
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const hex2 = (v) => Math.round(v).toString(16).padStart(2, '0');
@@ -60,7 +84,11 @@ export function hsvToRgb([h, s, v]) {
   return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
 }
 
-const hsvToHex = (hsv) => rgbToHex(hsvToRgb(hsv));
+// Full opacity is written as six digits, not as "…ff": every colour stored
+// before this existed is six digits, and emitting eight would rewrite them all
+// on first paint for no change in what anyone sees.
+const hsvToHex = (hsv, a = 1) =>
+  `${rgbToHex(hsvToRgb(hsv))}${a >= 1 ? '' : hex2(clamp01(a) * 255)}`;
 
 // Handpicked rather than a generated ramp: these are the colors that actually
 // look right as a translucent wash over both basemaps.
@@ -90,6 +118,7 @@ let openPicker = null;
 
 export function mountColorPicker({ button, panel, value, onInput, place }) {
   let hsv = rgbToHsv(hexToRgb(value) ?? [96, 172, 255]);
+  let alpha = hexAlpha(value);
   let open = false;
 
   panel.classList.add('cp');
@@ -102,10 +131,14 @@ export function mountColorPicker({ button, panel, value, onInput, place }) {
     <div class="cp-hue" tabindex="0" role="slider" aria-label="Hue" aria-valuemin="0" aria-valuemax="359">
       <div class="cp-hue-knob"></div>
     </div>
+    <div class="cp-alpha" tabindex="0" role="slider" aria-label="Opacity" aria-valuemin="0" aria-valuemax="100">
+      <div class="cp-alpha-ramp"></div>
+      <div class="cp-alpha-knob"></div>
+    </div>
     <div class="cp-foot">
       <span class="cp-preview"></span>
       <input class="cp-hex" type="text" spellcheck="false" autocomplete="off"
-        autocapitalize="none" autocorrect="off" maxlength="7" aria-label="Hex color" />
+        autocapitalize="none" autocorrect="off" maxlength="9" aria-label="Hex color" />
     </div>
     <div class="cp-presets">${PRESETS.map(
       (c) => `<button type="button" class="cp-preset" data-color="${c}" style="background:${c}" aria-label="${c}"></button>`,
@@ -116,24 +149,40 @@ export function mountColorPicker({ button, panel, value, onInput, place }) {
   const knob = panel.querySelector('.cp-knob');
   const hue = panel.querySelector('.cp-hue');
   const hueKnob = panel.querySelector('.cp-hue-knob');
+  const alphaStrip = panel.querySelector('.cp-alpha');
+  const alphaRamp = panel.querySelector('.cp-alpha-ramp');
+  const alphaKnob = panel.querySelector('.cp-alpha-knob');
   const preview = panel.querySelector('.cp-preview');
   const hexBox = panel.querySelector('.cp-hex');
 
   // --- Painting ----------------------------------------------------------------
   function paint({ typing = false } = {}) {
-    const hex = hsvToHex(hsv);
+    const hex = hsvToHex(hsv, alpha);
+    const solid = hsvToHex(hsv);
     area.style.setProperty('--cp-hue', `hsl(${hsv[0]}, 100%, 50%)`);
     // 0..1 fractions, not percentages: the CSS maps them across (track − knob)
     // so a knob at either extreme sits inside its track rather than half out.
     knob.style.setProperty('--kx', String(hsv[1]));
     knob.style.setProperty('--ky', String(1 - hsv[2]));
-    knob.style.background = hex;
+    knob.style.background = solid;
     hueKnob.style.setProperty('--kx', String(hsv[0] / 360));
-    preview.style.background = hex;
+    // The ramp runs from nothing to this colour at full strength, over the
+    // checkerboard the track already carries — the only way a strip can show
+    // transparency rather than just claim it.
+    alphaRamp.style.background = `linear-gradient(to right, transparent, ${solid})`;
+    alphaKnob.style.setProperty('--kx', String(alpha));
+    alphaKnob.style.background = hex;
+    // Through the variable, not the background property: both of these draw the
+    // colour as a layer over a checkerboard (see .color-swatch in style.css),
+    // and assigning their background directly would paint over the board that
+    // makes a translucent colour look translucent.
+    preview.style.setProperty('--swatch', hex);
     button.style.setProperty('--swatch', hex);
     button.setAttribute('aria-label', `Visited color, ${hex}`);
     area.setAttribute('aria-valuetext', hex);
     hue.setAttribute('aria-valuenow', String(Math.round(hsv[0])));
+    alphaStrip.setAttribute('aria-valuenow', String(Math.round(alpha * 100)));
+    alphaStrip.setAttribute('aria-valuetext', `${Math.round(alpha * 100)}% opaque`);
     // Don't fight the field while it's being typed in.
     if (!typing) hexBox.value = hex;
     return hex;
@@ -179,6 +228,9 @@ export function mountColorPicker({ button, panel, value, onInput, place }) {
   draggable(hue, (x) => {
     hsv = [x * 360, hsv[1], hsv[2]];
   });
+  draggable(alphaStrip, (x) => {
+    alpha = x;
+  });
 
   // Arrow keys, for anyone not using a pointer at all.
   area.addEventListener('keydown', (e) => {
@@ -196,15 +248,25 @@ export function mountColorPicker({ button, panel, value, onInput, place }) {
     hsv = [(((hsv[0] + step) % 360) + 360) % 360, hsv[1], hsv[2]];
     emit();
   });
+  alphaStrip.addEventListener('keydown', (e) => {
+    const step = (e.shiftKey ? 0.1 : 0.02) * (e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0);
+    if (!step) return;
+    e.preventDefault();
+    alpha = clamp01(alpha + step);
+    emit();
+  });
 
   hexBox.addEventListener('input', () => {
     const rgb = hexToRgb(hexBox.value);
     if (!rgb) return; // half-typed — leave the rest alone until it parses
     hsv = rgbToHsv(rgb);
+    alpha = hexAlpha(hexBox.value);
     emit({ typing: true });
   });
   hexBox.addEventListener('blur', () => paint());
 
+  // A preset is a colour, not a colour *and* an opacity: reaching for a nicer
+  // blue shouldn't silently undo the transparency you just dialled in.
   for (const btn of panel.querySelectorAll('.cp-preset')) {
     btn.addEventListener('click', () => {
       hsv = rgbToHsv(hexToRgb(btn.dataset.color));
@@ -277,9 +339,10 @@ export function mountColorPicker({ button, panel, value, onInput, place }) {
       const rgb = hexToRgb(hex);
       if (!rgb) return;
       hsv = rgbToHsv(rgb);
+      alpha = hexAlpha(hex);
       paint();
     },
-    get: () => hsvToHex(hsv),
+    get: () => hsvToHex(hsv, alpha),
     close,
     isOpen: () => open,
   };

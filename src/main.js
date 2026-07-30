@@ -30,7 +30,7 @@ import { mountImport } from './import.js';
 import { mountStats } from './stats-ui.js';
 import { mountHomeAssistant } from './home-assistant-ui.js';
 import { sourceLabel } from './locations.js';
-import { mountColorPicker } from './color-picker.js';
+import { mountColorPicker, hexAlpha, hexOpaque } from './color-picker.js';
 import { terrainStyle, satelliteStyle } from './basemap.js';
 import { mountKomoot } from './komoot-ui.js';
 import { mountStrava } from './strava-ui.js';
@@ -105,6 +105,17 @@ const ROUTE_WIDTH_STOPS = [
 ];
 const ROUTE_GLOW_SCALE = 3.4;
 const ROUTE_SELECTED_SCALE = 1.7;
+
+// The trip or day being shown, drawn as a track of dots. Warm amber so it can
+// never be mistaken for a saved route (orange) or the visited wash (the accent,
+// which the viewer chooses), and dark enough not to disappear into a snowfield
+// on the satellite basemap.
+const TRACK_COLOR = '#ffcf4d';
+// Zoom → dot radius in screen px. Generous at the bottom: a whole trip seen
+// from country height is a dozen dots, and a 2 px dot at that size is the
+// subtlety this replaced.
+const TRACK_DOT_RADIUS = ['interpolate', ['linear'], ['zoom'], 2, 2.4, 6, 3.6, 11, 5.5, 16, 8];
+const TRACK_LINK_WIDTH = ['interpolate', ['linear'], ['zoom'], 2, 1.4, 11, 2.2, 16, 3];
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
@@ -422,7 +433,7 @@ let mode = EDIT_ENABLED && localStorage.getItem(MODE_KEY) === 'edit' ? 'edit' : 
 let tileVis = mode === 'edit' ? 1 : 0; // 0..1, tweened on mode change
 
 let accent = localStorage.getItem(COLOR_KEY) ?? DEFAULT_ACCENT;
-if (!/^#[0-9a-f]{6}$/i.test(accent)) accent = DEFAULT_ACCENT;
+if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(accent)) accent = DEFAULT_ACCENT;
 
 // --- Coloring modes -----------------------------------------------------------
 // 'flat' paints every visited region in the accent color and merges them into
@@ -538,8 +549,14 @@ let vecInsertBefore = undefined;
 // it before updateGrid's state block is evaluated.
 const vecHeld = { '': EMPTY, '-prev': EMPTY };
 
+// slice(1, 7), not slice(1): a colour may carry an opacity as a fourth pair of
+// digits, and eight digits through parseInt would shift every channel one pair
+// left — the colour arithmetic here wants the colour, never its transparency.
+// That is applied separately, as opacity, because the wash is drawn by blurring
+// discs and cutting them at a fixed alpha: a translucent fill would move the
+// cut and shrink the blobs rather than fade them.
 const hexToRgb = (hex) => {
-  const n = parseInt(hex.slice(1), 16);
+  const n = parseInt(hex.slice(1, 7), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 };
 
@@ -561,7 +578,10 @@ function sampleRamp(ramp, t) {
 function blobColorOf(level) {
   const heat = HEAT_MODES[heatMode];
   if (heat.categorical) return (stat) => TYPE_COLORS[stat.src] ?? TYPE_OTHER_COLOR;
-  if (!heat.ramp) return () => accent;
+  // Opaque for the same reason the vector fill is, and one more: these discs
+  // are blurred and re-cut at a fixed alpha, so a translucent fill would move
+  // the contour and shrink every blob instead of fading it.
+  if (!heat.ramp) return () => hexOpaque(accent);
   const metric = heatMetric();
   const range = litRange[level] ?? {};
   const steps = 48;
@@ -591,7 +611,10 @@ function heatColorExpr() {
     ];
   }
   const ramp = heat?.ramp;
-  if (!ramp) return accent;
+  // Opaque: what the accent's own opacity means is how strong the wash is, and
+  // that is applied once, as layer opacity (see accentAlpha). Handing MapLibre
+  // a translucent colour *as well* would apply it twice.
+  if (!ramp) return hexOpaque(accent);
   const stops = ramp.flatMap((c, i) => [i / (ramp.length - 1), c]);
   return [
     'case',
@@ -601,13 +624,13 @@ function heatColorExpr() {
 }
 
 function mixWithWhite(hex, t) {
-  const n = parseInt(hex.slice(1), 16);
+  const n = parseInt(hex.slice(1, 7), 16);
   const mix = (c) => Math.round(c + (255 - c) * t);
   return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
 }
 
 function mixWithBlack(hex, t) {
-  const n = parseInt(hex.slice(1), 16);
+  const n = parseInt(hex.slice(1, 7), 16);
   const mix = (c) => Math.round(c * (1 - t));
   return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
 }
@@ -624,8 +647,11 @@ const routeGlowColor = () => routeColorExpr((hex) => hex);
 const routeGlowOpacity = () => {
   const strong = STYLES[styleKey].theme === 'light' ? 0.5 : 0.6;
   const soft = STYLES[styleKey].theme === 'light' ? 0.26 : 0.35;
-  return ['case', ROUTE_SELECTED, strong, soft];
+  return ['*', routeAlphaExpr(), ['case', ROUTE_SELECTED, strong, soft]];
 };
+// The core line is nearly solid, and an activity you have made translucent
+// scales that down rather than replacing it.
+const routeLineOpacity = () => ['*', routeAlphaExpr(), 0.95];
 
 // --- Paint expressions -----------------------------------------------------
 // Region features: k=1 fill polygons, k=2 outline. Tile features carry a
@@ -665,9 +691,12 @@ function applyTileVis() {
 // the current level at any moment, so driving both keeps the crossfade working
 // across the hex → country boundary too.
 function setVectorFade(suffix, f) {
+  // The outlines are the accent too, so they fade with it — a wash you have
+  // made barely-there ringed by a full-strength border would be neither.
+  const a = accentAlpha();
   map.setPaintProperty(`hex-fill${suffix}`, 'fill-opacity', regionOpacity() * f);
-  map.setPaintProperty(`hex-bound-glow${suffix}`, 'line-opacity', SHOW_REGION_BORDERS ? 0.35 * f : 0);
-  map.setPaintProperty(`hex-bound-line${suffix}`, 'line-opacity', SHOW_REGION_BORDERS ? 0.9 * f : 0);
+  map.setPaintProperty(`hex-bound-glow${suffix}`, 'line-opacity', SHOW_REGION_BORDERS ? 0.35 * a * f : 0);
+  map.setPaintProperty(`hex-bound-line${suffix}`, 'line-opacity', SHOW_REGION_BORDERS ? 0.9 * a * f : 0);
 }
 
 // The vector half of the incoming ramp. Separate because a crossfade that has
@@ -724,7 +753,7 @@ function applyColors() {
   const fill = heatColorExpr();
   for (const s of ['', '-prev']) {
     map.setPaintProperty(`hex-fill${s}`, 'fill-color', fill);
-    map.setPaintProperty(`hex-bound-glow${s}`, 'line-color', accent);
+    map.setPaintProperty(`hex-bound-glow${s}`, 'line-color', hexOpaque(accent));
     map.setPaintProperty(`hex-bound-line${s}`, 'line-color', lineColor);
   }
   if (map.getLayer('sel-line')) {
@@ -732,6 +761,7 @@ function applyColors() {
   }
   if (map.getLayer('route-line')) {
     map.setPaintProperty('route-line', 'line-color', routeLineColor());
+    map.setPaintProperty('route-line', 'line-opacity', routeLineOpacity());
     map.setPaintProperty('route-glow', 'line-color', routeGlowColor());
     map.setPaintProperty('route-glow', 'line-opacity', routeGlowOpacity());
   }
@@ -752,11 +782,19 @@ const isHeatMode = () => {
 // light wash vanishes, over Terrain the default drowns the landcover. Each
 // STYLES entry can carry `cellAlpha` (single-colour) and `heatAlpha` (the heat
 // maps) as multipliers of the defaults in src/blob-canvas.js; 1 = unchanged.
+// …and on top of that, whatever opacity the accent itself carries. The colour
+// you pick for the visited areas can now be a translucent one, and the only
+// place that can mean anything is here: the wash is drawn by cutting blurred
+// discs at a fixed alpha, so transparency has to be applied to the finished
+// layer rather than to the ink. Only in the single-colour mode — a heat map
+// doesn't draw the accent at all, so it has no business honouring its opacity.
+const accentAlpha = () => (isHeatMode() ? 1 : hexAlpha(accent));
+
 const regionOpacity = () => {
   const style = STYLES[styleKey] ?? {};
   const base = isHeatMode() ? BLOB_HEAT_ALPHA : BLOB_ALPHA;
   const scale = (isHeatMode() ? style.heatAlpha : style.cellAlpha) ?? 1;
-  return Math.max(0, Math.min(1, base * scale));
+  return Math.max(0, Math.min(1, base * scale * accentAlpha()));
 };
 
 function setHeatMode(next) {
@@ -1044,13 +1082,20 @@ let litRegionIds = null;
 // overview set's ~1 km simplification starts to show — a canton border cutting
 // a straight line across the lake it actually follows. Only reachable with
 // Detail pinned to Region: on Auto, this level never survives past ~z5.
-const REGION_FINE_ZOOM = 7;
+//
+// A whole zoom level earlier than it was (7). At z6 a canton already fills
+// enough of the screen that the straight line across the lake is the thing you
+// notice, and waiting for z7 meant zooming past the view the outlines were
+// worth having in. The cost is real and is the reason it was ever set high: the
+// wider view holds more countries, so more of them are fetched, and there is
+// more geometry to tile at once.
+const REGION_FINE_ZOOM = 6;
 // …and back to the overview geometry below this. The gap is deliberate: swapping
 // resolution re-tiles the source, so a zoom that hovers on the threshold would
 // re-tile on every wobble. Same idea as LEVEL_HYSTERESIS, for the same reason —
 // and it is the zoom-out that matters on an older device, where the point of
 // dropping back to a few hundred points is that the map stays smooth.
-const REGION_COARSE_ZOOM = 6.4;
+const REGION_COARSE_ZOOM = 5.4;
 
 // Boundary credits. Natural Earth is public domain and asks for nothing;
 // geoBoundaries composites national survey data (swisstopo for Switzerland) and
@@ -1671,7 +1716,7 @@ function adoptRouteView(raw) {
   hiddenSports = new Set(hidden.filter((k) => typeof k === 'string').map(canonKey));
   sportColors = new Map(
     Object.entries(raw?.colors ?? {})
-      .filter(([, v]) => /^#[0-9a-f]{6}$/i.test(String(v)))
+      .filter(([, v]) => /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(v)))
       .map(([k, v]) => [canonKey(k), v]),
   );
 }
@@ -1780,7 +1825,7 @@ function adoptPrefs(prefs) {
   homePlace = h && Number.isFinite(+h.lng) && Number.isFinite(+h.lat)
     ? { lng: +h.lng, lat: +h.lat, name: String(h.name ?? '').slice(0, 80) }
     : null;
-  if (/^#[0-9a-f]{6}$/i.test(String(prefs.accent ?? ''))) {
+  if (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(prefs.accent ?? ''))) {
     accent = String(prefs.accent).toLowerCase();
     colorPicker?.set(accent); // the swatch, and the panel behind it
     applyColors();
@@ -1823,7 +1868,7 @@ async function syncPrefs() {
     // were, so an account can hold the second and not the first. Rather than
     // reset it to the default, the one this browser has been using is adopted
     // into the account — which is the answer the person picking it meant.
-    const migrate = !/^#[0-9a-f]{6}$/i.test(String(remote.accent ?? '')) && accent !== DEFAULT_ACCENT;
+    const migrate = !/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(remote.accent ?? '')) && accent !== DEFAULT_ACCENT;
     adoptPrefs(remote);
     if (migrate) touchPrefs();
   } else if (verdict === 'push') {
@@ -1882,17 +1927,24 @@ function updateSoloChip() {
 // One `match` over the feature's own `sport`, so a thousand routes are still one
 // paint property rather than a layer each. Only activities actually recoloured
 // get a branch; everything else falls through to the default.
-function routeColorExpr(mix) {
+function routeMatchExpr(of) {
   const entries = [...sportColors].filter(([, hex]) => hex && hex.toLowerCase() !== ROUTE_COLOR.toLowerCase());
-  if (!entries.length) return mix(ROUTE_COLOR);
+  if (!entries.length) return of(ROUTE_COLOR);
   const expr = ['match', ['coalesce', ['get', 'sport'], '']];
   for (const [key, hex] of entries) {
     // The blank activity is stored under a sentinel; on the feature it is ''.
-    expr.push(key === ROUTE_NO_SPORT ? '' : key, mix(hex));
+    expr.push(key === ROUTE_NO_SPORT ? '' : key, of(hex));
   }
-  expr.push(mix(ROUTE_COLOR));
+  expr.push(of(ROUTE_COLOR));
   return expr;
 }
+
+// The colour of a route line, never its opacity: an activity colour can carry
+// one, and a translucent *colour* would be composited under the glow and the
+// selected-route bump as well, which is two more multiplications than anyone
+// asked for. It comes back as a factor on the line's opacity instead.
+const routeColorExpr = (mix) => routeMatchExpr((hex) => mix(hexOpaque(hex)));
+const routeAlphaExpr = () => routeMatchExpr(hexAlpha);
 
 // Pull the route list. Metadata only by default — the lines are a much bigger
 // payload, and there's no point fetching them until they're on screen.
@@ -2009,11 +2061,50 @@ function showRouteInfo(route) {
   routeInfo?.show(route);
 }
 
+// MapLibre's tracking control hands the camera back when it sees a move it
+// didn't cause — but it deliberately ignores one that arrives mid-zoom, so that
+// a pinch doesn't drop the lock. A programmatic flight *starts* as a zoom, so
+// it is ignored too, and the next position update snaps the map back: tap a
+// trip while "my location" is locked on and the view leaves and returns, which
+// reads as the map refusing to go. Telling the control the camera is about to
+// move for someone else's reasons is precisely what a drag tells it. It falls
+// to its background state — the blue dot stays and keeps updating, only the
+// camera is let go.
+function releaseCameraLock() {
+  const btn = document.querySelector('.maplibregl-ctrl-geolocate');
+  const locked = btn?.classList.contains('maplibregl-ctrl-geolocate-active')
+    && !btn.classList.contains('maplibregl-ctrl-geolocate-background');
+  if (!locked) return;
+  // Stopped first, because that guard is "is the camera moving right now" and
+  // the answer is yes for a good while after the last flight — measured at
+  // still-true 600 ms after a 300 ms fitBounds. Picking a second trip while
+  // the first was still settling would otherwise leave the lock on. We are
+  // about to command a camera move of our own, so cancelling the one in the
+  // air is what we wanted anyway.
+  map.stop();
+  map.fire('movestart');
+}
+
+// The box around a set of points, for framing a day. A trip carries its own,
+// worked out when it was derived; a day is assembled on demand and doesn't.
+function bboxOfPoints(points) {
+  const b = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const p of points ?? []) {
+    if (!Number.isFinite(p?.lng) || !Number.isFinite(p?.lat)) continue;
+    b[0] = Math.min(b[0], p.lng);
+    b[1] = Math.min(b[1], p.lat);
+    b[2] = Math.max(b[2], p.lng);
+    b[3] = Math.max(b[3], p.lat);
+  }
+  return b.every(Number.isFinite) ? b : null;
+}
+
 // Frame a [w, s, e, n] box with the same padding a route gets. Trips and
 // searched-for lakes are both "here is an area, look at it" — the only thing
 // zoomToRoute does that this doesn't is read the box off a route.
 function fitBboxOnMap(b) {
   if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) return;
+  releaseCameraLock();
   // A single-cell trip has no extent at all; give it something to fit.
   const pad = Math.max(0.02, (b[2] - b[0]) * 0.08, (b[3] - b[1]) * 0.08);
   map.fitBounds(
@@ -2025,42 +2116,101 @@ function fitBboxOnMap(b) {
   );
 }
 
-// --- The trip you picked -------------------------------------------------------
-// Highlighting is the whole answer to "which of this is the trip?": the blob
+// --- The trip (or day) you picked ----------------------------------------------
+// Showing one is the whole answer to "which of this is the trip?": the blob
 // underneath is every cell you have ever lit, and twelve scattered patches of
-// it do not say *Iceland, last August*. Drawn from the trip's own cell list, so
-// picking a trip from a single day still shows the whole trip.
-let highlightedTrip = null;
+// it do not say *Iceland, last August*.
+//
+// Drawn as the track it was, not as a wash over the ground it covered. Every
+// cell the trip touched becomes a dot at its centre, and the dots are threaded
+// in the order they were first seen — which the stored dates already know, so
+// the shape of the days comes back for free. A translucent tint over the same
+// hexagons said "somewhere in here"; a line through them says where you went
+// and which way round.
+let shownTrack = null; // { kind, id, label } — what the chip is naming
 
-function tripHighlightFC(cellIds) {
+/** Longer a silence than this and the thread is cut rather than drawn across. */
+const TRACK_LINK_GAP_SEC = 36 * 3600;
+
+/**
+ * Points in time order → dots, plus the thread between them.
+ *
+ * One source, two geometry types: a circle layer ignores the lines and a line
+ * layer ignores the points, so this stays a single setData.
+ */
+function trackFC(points) {
   const features = [];
-  for (const id of cellIds ?? []) {
-    const [L, col, row] = id.split('/').map(Number);
-    if (!Number.isFinite(L) || L > MAX_LEVEL) continue;
-    const [cx, cy] = cellCenter(L, col, row);
-    const ring = fullHexOffsets(radiusOf(L)).map(([dx, dy]) => project([cx + dx, cy + dy]));
-    ring.push([...ring[0]]);
-    features.push({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } });
+  let run = [];
+  let prev = 0;
+  const cut = () => {
+    if (run.length > 1) {
+      features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: run } });
+    }
+    run = [];
+  };
+  for (const p of points ?? []) {
+    if (!Number.isFinite(p?.lng) || !Number.isFinite(p?.lat)) continue;
+    features.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } });
+    // Nothing to thread them with, and the dots stand on their own. Three
+    // reasons a point doesn't join the one before it:
+    //
+    //   no time at all      — it can't be placed in the order
+    //   the *same* time     — neither can it. A whole afternoon's worth of
+    //                         ground imported from one photo album carries one
+    //                         timestamp on every cell of it, and joining those
+    //                         in the order they happen to come out of storage
+    //                         draws a zigzag and calls it a route
+    //   a long gap          — a day out and the next day out are two threads,
+    //                         not one line drawn across the night between them
+    if (!p.at || (prev && p.at <= prev)) {
+      cut();
+      if (p.at) run.push([p.lng, p.lat]);
+      prev = p.at || 0;
+      continue;
+    }
+    if (prev && p.at - prev > TRACK_LINK_GAP_SEC) cut();
+    run.push([p.lng, p.lat]);
+    prev = p.at;
   }
+  cut();
   return { type: 'FeatureCollection', features };
 }
 
-function showTripOnMap(trip) {
-  highlightedTrip = trip?.id ?? null;
+/**
+ * Put a track on the map and name it in the chip.
+ *
+ * @param {{kind:string, id:string, label:string, points:Array}|null} what
+ */
+function showTrack(what) {
+  shownTrack = what ? { kind: what.kind, id: what.id, label: what.label } : null;
   const src = map.getSource('trip');
-  if (!src) return;
-  src.setData(trip ? tripHighlightFC(trip.cells) : EMPTY);
+  if (src) src.setData(what ? trackFC(what.points) : EMPTY);
+  updateTrackChip();
+}
+
+const showTripOnMap = (trip) =>
+  showTrack(trip && { kind: 'trip', id: trip.id, label: trip.name, points: trip.spots ?? [] });
+
+// The chip is the way back out that doesn't mean reopening a panel, so it lives
+// on the map — the same bargain the isolated-route chip makes.
+function updateTrackChip() {
+  const chip = document.getElementById('trip-chip');
+  if (!chip) return;
+  chip.hidden = !shownTrack;
+  if (!shownTrack) return;
+  document.getElementById('trip-chip-text').textContent = `Showing ${shownTrack.label}`;
 }
 
 // Any edit or a new look at the map drops it — it marks one answer to one
 // question, and it should not still be sitting there afterwards.
 function clearTripHighlight() {
-  if (highlightedTrip) showTripOnMap(null);
+  if (shownTrack) showTrack(null);
 }
 
 function zoomToRoute(route) {
   const b = route.bounds ?? [];
   if (b.length !== 4 || !b.every(Number.isFinite)) return;
+  releaseCameraLock();
   map.fitBounds(
     [
       [b[0], b[1]],
@@ -2320,7 +2470,9 @@ function placeBesideMenu(button, panel) {
 function repaintRouteColors() {
   if (!map?.getLayer('route-line')) return;
   map.setPaintProperty('route-line', 'line-color', routeLineColor());
+  map.setPaintProperty('route-line', 'line-opacity', routeLineOpacity());
   map.setPaintProperty('route-glow', 'line-color', routeGlowColor());
+  map.setPaintProperty('route-glow', 'line-opacity', routeGlowOpacity());
 }
 
 // --- Ctrl-paint: hold Ctrl and sweep the cursor to mark cells ----------------
@@ -2977,7 +3129,7 @@ const setHexData = (fc) => setVecData(vecLive, fc);
 const VEC_LAYERS = ['hex-fill', 'hex-bound-glow', 'hex-bound-line'];
 // The first layer that must stay *above* the visited wash. See
 // raiseVectorLayers().
-const VEC_ANCHOR = 'trip-fill';
+const VEC_ANCHOR = 'trip-glow';
 
 // Put one source's layers above the other's. crossPrev() derives the outgoing
 // opacity on the assumption that the incoming layer composites *over* the
@@ -2986,9 +3138,9 @@ const VEC_ANCHOR = 'trip-fill';
 // exact flash crossPrev exists to remove. moveLayer only reorders, it never
 // re-tiles.
 function raiseVectorLayers(sfx) {
-  // Anchored to the trip highlight rather than to the first symbol layer.
+  // Anchored to the trip track rather than to the first symbol layer.
   // Everything added at `firstSymbol` after the two vector trios — the trip
-  // outline, and the selection ring above it — has to stay above the visited
+  // track, and the selection ring above it — has to stay above the visited
   // wash; moving the wash to `firstSymbol` would lift it over both, and the
   // trip you just clicked would disappear under the countries.
   const anchor = map.getLayer(VEC_ANCHOR) ? VEC_ANCHOR : vecInsertBefore;
@@ -3640,6 +3792,7 @@ function wireLayersControl() {
     setSoloRoute(null);
     routeInfo?.setSolo(false);
   });
+  document.getElementById('trip-chip-clear').addEventListener('click', () => showTrack(null));
   document.getElementById('routes-toggle').addEventListener('change', (e) => setRoutesOn(e.target.checked));
   document.getElementById('routes-options-toggle').addEventListener('click', () => {
     routeOptionsOpen = !routeOptionsOpen;
@@ -3762,7 +3915,7 @@ function installGrid() {
     }, firstSymbol);
     map.addLayer({
       id: `hex-bound-glow${suffix}`, type: 'line', source: src, filter: isBoundary, layout: lineLayout,
-      paint: { 'line-color': accent, 'line-opacity': 0, 'line-width': boundGlowWidth, 'line-blur': 5 },
+      paint: { 'line-color': hexOpaque(accent), 'line-opacity': 0, 'line-width': boundGlowWidth, 'line-blur': 5 },
     }, firstSymbol);
     map.addLayer({
       id: `hex-bound-line${suffix}`, type: 'line', source: src, filter: isBoundary, layout: lineLayout,
@@ -3770,17 +3923,32 @@ function installGrid() {
     }, firstSymbol);
   }
 
-  // The trip you picked, outlined over everything else. A trip is ground rather
-  // than a line, so there is nothing to select the way a route is selected —
-  // showing one means drawing the cells it covered and flying there.
+  // The trip (or day) you picked, drawn over everything else as the track it
+  // was: a dot per cell, threaded in the order they were first seen. This used
+  // to be a 16% wash over the same hexagons, which was legible only against a
+  // dark basemap and said nothing about direction. Solid dots with a dark rim
+  // read on all four basemaps, including a photograph.
   map.addSource('trip', { type: 'geojson', data: EMPTY, tolerance: 0 });
   map.addLayer({
-    id: 'trip-fill', type: 'fill', source: 'trip',
-    paint: { 'fill-color': '#ffd166', 'fill-opacity': 0.16 },
+    id: 'trip-glow', type: 'line', source: 'trip', layout: lineLayout,
+    paint: { 'line-color': TRACK_COLOR, 'line-opacity': 0.4, 'line-width': 9, 'line-blur': 7 },
   }, firstSymbol);
   map.addLayer({
-    id: 'trip-glow', type: 'line', source: 'trip', layout: lineLayout,
-    paint: { 'line-color': '#ffd166', 'line-opacity': 0.5, 'line-width': 6, 'line-blur': 6 },
+    id: 'trip-link', type: 'line', source: 'trip', layout: lineLayout,
+    paint: { 'line-color': TRACK_COLOR, 'line-opacity': 0.85, 'line-width': TRACK_LINK_WIDTH },
+  }, firstSymbol);
+  map.addLayer({
+    id: 'trip-dot', type: 'circle', source: 'trip',
+    paint: {
+      'circle-color': TRACK_COLOR,
+      'circle-radius': TRACK_DOT_RADIUS,
+      // A rim, not a halo: at the zoom where a day's cells are 900 m apart the
+      // dots are separate and the rim gives them an edge over pale ground; at
+      // the zoom where a fortnight fits on screen they overlap into a bead
+      // chain and the rim is what stops it reading as one smear.
+      'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 4, 0.8, 12, 1.6],
+      'circle-stroke-color': 'rgba(14, 16, 22, 0.75)',
+    },
   }, firstSymbol);
 
   // Saved routes go above the regions *and* above the basemap's own lines: a
@@ -3804,7 +3972,7 @@ function installGrid() {
     layout: { ...lineLayout, visibility: routesOn ? 'visible' : 'none' },
     paint: {
       'line-color': routeLineColor(),
-      'line-opacity': 0.95,
+      'line-opacity': routeLineOpacity(),
       'line-width': routeWidth(1),
     },
   }, beforeLabels);
@@ -3979,6 +4147,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // phone on the old one for good.
       touchPrefs();
       applyColors();
+      // The opacity half of the colour lands on the layers rather than in
+      // them, so the fades have to be re-pinned or dragging the alpha strip
+      // changes nothing until the map next moves.
+      applyFade(fade.cur);
+      applyPrevFade(fade.prev);
       repaintAccent();
     },
   });
@@ -4112,12 +4285,21 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     meta: () => cellMeta,
     onPlace: (lngLat, { bounds } = {}) => {
       if (bounds?.length === 4) fitBboxOnMap(bounds);
-      else map.flyTo({ center: [lngLat.lng, lngLat.lat], zoom: 11, duration: 900 });
+      else {
+        releaseCameraLock();
+        map.flyTo({ center: [lngLat.lng, lngLat.lat], zoom: 11, duration: 900 });
+      }
     },
     onTrip: (trip) => {
       showTripOnMap(trip);
       fitBboxOnMap(trip.bbox);
-      showToast(`${trip.name} · ${trip.cells.length.toLocaleString()} cells`);
+    },
+    // A day with a dot on it is a day you should be able to look at, and until
+    // now the calendar could only tell you it existed. Same treatment as a
+    // trip — the ground it covered, threaded in the order you covered it.
+    onDay: (key, detail) => {
+      showTrack({ kind: 'day', id: key, label: detail.label, points: detail.points });
+      fitBboxOnMap(bboxOfPoints(detail.points));
     },
     onRoute: async (route) => {
       if (!routesOn) setRoutesOn(true);
@@ -4170,12 +4352,13 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       showRouteInfo(routeList.find((r) => r.id === route.id) ?? route);
     },
     // A trip is ground, not a line: there is nothing to select, so showing one
-    // means framing it. The toast names it because the map itself can't —
-    // twelve scattered blobs don't say "Iceland, last August".
+    // means drawing its track and framing it. The chip names it, because the
+    // map itself can't — twelve scattered blobs don't say "Iceland, last
+    // August" — and it stays up, which a toast can't: the name is not an event
+    // that happened two seconds ago, it is what you are currently looking at.
     onShowTrip: (trip) => {
       showTripOnMap(trip);
       fitBboxOnMap(trip.bbox);
-      showToast(`${trip.name} · ${trip.cells.length.toLocaleString()} cells`);
     },
     // The dialog edits the same objects routeList holds, so only the drawn
     // labels need refreshing — same as the card on the map.

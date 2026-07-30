@@ -14,8 +14,8 @@
 
 import { loadPlaces, searchPlaces } from './places.js';
 import { searchRegions } from './regions.js';
-import { searchCountries } from './countries.js';
-import { dayKey, dayDetail } from './trips.js';
+import { searchCountries, countryIdAt } from './countries.js';
+import { dayKey, dayDetail, tripDays } from './trips.js';
 import { formatDistance } from './routes.js';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -70,10 +70,12 @@ export function parseDateQuery(text) {
  * @param {(lngLat:{lng:number, lat:number}, opts?:object) => void} opts.onPlace
  * @param {(trip:object) => void} opts.onTrip
  * @param {(route:object) => void} opts.onRoute
+ * @param {(key:string, detail:object) => void} [opts.onDay] show one day's
+ *   ground on the map
  * @param {() => void} [opts.onOpen] called every time it opens, however it was
  *   opened — the trips it lists are derived lazily and this is what starts that
  */
-export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRoute, onOpen }) {
+export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRoute, onDay, onOpen }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('search-overlay');
   const input = $('search-input');
@@ -173,12 +175,16 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
 
     const lower = q.toLowerCase();
 
-    // Match a trip on everything it is called *and* everything it is in: typing
-    // "switzerland" should find the week in Zermatt, and typing "valais"
-    // should too, even though neither word is in its name — naming works out
-    // which region a trip mostly happened in, and it keeps the answer.
+    // Match a trip on everything it is called *and* everywhere it went. Typing
+    // "switzerland" finds the week in Zermatt, "valais" finds it too, and so
+    // does the name of a town it merely passed through — naming already asks
+    // the gazetteer about every cell of a trip, so it keeps every answer it got
+    // rather than only the one it used. A trip called after a canton because
+    // the valley it sat in has no town on the map is otherwise unfindable by
+    // anywhere you actually remember being.
     const tripHits = trips()
-      .filter((t) => `${t.name} ${t.place ?? ''} ${t.region ?? ''} ${t.country ?? ''}`.toLowerCase().includes(lower))
+      .filter((t) => `${t.name} ${t.place ?? ''} ${t.region ?? ''} ${t.country ?? ''} ${(t.tags ?? []).join(' ')}`
+        .toLowerCase().includes(lower))
       .slice(0, 4);
     if (tripHits.length) {
       resultsEl.append(section('Trips'));
@@ -233,9 +239,15 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
     if (placeHits.length) {
       resultsEl.append(section('Places'));
       for (const p of placeHits) {
+        // "Paris" is four towns and one of them is in Texas. The country is the
+        // one word that tells them apart, and it belongs in the title rather
+        // than the sub-line: it is part of the name of the place, not a fact
+        // about it. Free, because the boundaries are already in memory — the
+        // trips derivation pulls them in — and simply absent until they are.
+        const country = countryIdAt(p.lng, p.lat);
         const el = resultRow({
           icon: ICON.place,
-          title: p.name,
+          title: country ? `${p.name}, ${country}` : p.name,
           sub: p.kind === 'lake' ? 'Lake' : p.pop ? `${p.pop.toLocaleString()},000 people` : 'Town',
           onPick: () => {
             close();
@@ -298,10 +310,12 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
       calGrid.append(el);
     }
     const active = days();
+    const onTrip = tripDays(trips());
     const todayKey = dayKey(Math.floor(Date.now() / 1000));
     const last = new Date(y, m + 1, 0).getDate();
+    const keyOf = (d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     for (let d = 1; d <= last; d++) {
-      const key = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const key = keyOf(d);
       const has = active.get(key);
       const el = document.createElement('button');
       el.type = 'button';
@@ -319,6 +333,28 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
         // different kinds of day, and the dot says which.
         el.classList.toggle('has-route', !!has.routes);
       }
+      // A trip is one journey, so it is drawn as one shape: the dots of the
+      // days in it grow into a bar that runs between them. Loose dots said
+      // "something happened on the 4th, the 5th and the 8th"; the pill says
+      // you were away from the 4th to the 8th, which is the thing you are
+      // actually looking for in a month grid. The days inside it with nothing
+      // recorded stay dim — they are part of the journey, not evidence of it.
+      const trip = onTrip.get(key);
+      if (trip) {
+        el.classList.add('trip');
+        el.title = `${trip.name}${el.title ? ` · ${el.title}` : ''}`;
+        // Reaching past the cell edge is how the bar crosses the grid gap, so
+        // it must only reach towards a neighbour that is actually there: the
+        // last day of a month has no next cell to meet, and a bar hanging off
+        // the end of the row would be pointing at nothing.
+        if (d > 1 && onTrip.get(keyOf(d - 1)) === trip) el.classList.add('trip-l');
+        if (d < last && onTrip.get(keyOf(d + 1)) === trip) el.classList.add('trip-r');
+        // …and a week ends at Sunday. The bar stops flush with the edge rather
+        // than poking out of the grid; the run picks up again on the Monday.
+        const col = (new Date(y, m, d).getDay() + 6) % 7;
+        if (col === 0) el.classList.add('week-first');
+        if (col === 6) el.classList.add('week-last');
+      }
       el.addEventListener('click', () => selectDay(key));
       calGrid.append(el);
     }
@@ -331,10 +367,30 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
     resultsEl.replaceChildren();
     items = [];
     const [y, m, d] = key.split('-').map(Number);
-    resultsEl.append(section(dayFmt.format(new Date(y, m - 1, d))));
+    const label = dayFmt.format(new Date(y, m - 1, d));
+    resultsEl.append(section(label));
     if (!detail.routes.length && !detail.cells && !detail.trip) {
       resultsEl.append(note('Nothing recorded that day.'));
       return;
+    }
+    // The day itself, as somewhere to go. A dot in the grid used to be the end
+    // of the road: it told you the day had ground on it and gave you no way to
+    // look at it unless it happened to belong to a trip or carry a route.
+    if (detail.cells) {
+      const el = resultRow({
+        icon: ICON.day,
+        title: label,
+        sub: `${detail.cells.toLocaleString()} cell${detail.cells === 1 ? '' : 's'}${
+          detail.newCells ? `, ${detail.newCells.toLocaleString()} new` : ''
+        }`,
+        right: 'Show',
+        onPick: () => {
+          close();
+          onDay?.(key, { ...detail, label });
+        },
+      });
+      resultsEl.append(el);
+      items.push({ el, pick: () => el.click() });
     }
     if (detail.trip) {
       addTrip(detail.trip);
@@ -353,15 +409,11 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
       resultsEl.append(el);
       items.push({ el, pick: () => el.click() });
     }
-    if (detail.cells) {
-      const n = detail.cells.toLocaleString();
-      resultsEl.append(
-        note(
-          detail.newCells === detail.cells
-            ? `${n} cell${detail.cells === 1 ? '' : 's'}, all new that day.`
-            : `${n} cell${detail.cells === 1 ? '' : 's'} recorded${detail.newCells ? `, ${detail.newCells.toLocaleString()} of them new` : ''}.`,
-        ),
-      );
+    // The counts live on the day's own row now — all this adds is whether the
+    // ground was new, which is the one thing that row's sub-line can't say in
+    // the space it has.
+    if (detail.cells && detail.newCells === detail.cells) {
+      resultsEl.append(note(`All of that ground was new that day.`));
     }
   }
 
@@ -449,7 +501,13 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
      * this when the rest arrives rather than making you wait to type.
      */
     refresh() {
-      if (!overlay.hidden && !calOpen) render(input.value);
+      if (overlay.hidden) return;
+      // The calendar wants them as much as the list does — the pills that show
+      // a trip as one journey can't be drawn until the trips exist, and a
+      // month opened before they arrived would keep its loose dots.
+      if (!calOpen) render(input.value);
+      else if (selectedDay) selectDay(selectedDay);
+      else renderCalendar();
     },
   };
 }

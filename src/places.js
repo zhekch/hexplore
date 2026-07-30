@@ -73,6 +73,25 @@ const PROMINENCE_M = 6000;
 const prominence = (popThousands) =>
   Math.min(PROMINENCE_M, Math.log10(1 + Math.max(0, popThousands)) * 2500);
 
+// A place this much smaller than a neighbour this close is a piece of it, and
+// takes the neighbour's name.
+//
+// The gazetteer has no idea which places contain which. It lists Lumiar,
+// Alvalade, Benfica, Marvila and Olivais beside Lisbon as if they were six
+// towns, when they are five parishes of the sixth — so a week in Lisbon spread
+// across it lands a couple of hours on each, and the winner is a parish nobody
+// has heard of. Same for Basel and Pratteln, and for every city GeoNames
+// records by district.
+//
+// Distance *and* ratio, because either alone is wrong. Ratio alone would let a
+// city claim a genuinely separate town forty kilometres off; distance alone
+// would let a city swallow the independent suburb next door. Twelve kilometres
+// and five times the people is the shape of "part of", and it deliberately
+// leaves Zermatt, St. Moritz and every real village alone: nothing that size
+// has a city of five times its population twelve kilometres away.
+const ABSORB_M = 12000;
+const ABSORB_RATIO = 5;
+
 /**
  * The town a point belongs to, or null if nothing is close enough.
  * @returns {{name:string, distM:number, pop:number}|null}
@@ -83,6 +102,10 @@ export function nearestTown(lng, lat) {
   const cLat = Math.floor(lat / CELL);
   let best = null;
   let bestScore = Infinity;
+  let bestT = null;
+  // Everything in range, kept so the winner can be checked against the city it
+  // might be a district of. The scan is the same one either way.
+  const near = [];
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
       const bucket = index.get(`${cLng + dx}/${cLat + dy}`);
@@ -90,16 +113,29 @@ export function nearestTown(lng, lat) {
       for (const i of bucket) {
         const t = TOWNS[i];
         const d = metres(lng, lat, t[1], t[2]);
+        // The absorbing city can sit further from the point than the district
+        // it absorbs, so the candidate list reaches beyond the naming radius.
+        if (d > MAX_TOWN_M + ABSORB_M) continue;
+        near.push(t);
         if (d > MAX_TOWN_M) continue;
         const score = d - prominence(t[3]);
         if (score < bestScore) {
           bestScore = score;
+          bestT = t;
           best = { name: t[0], distM: d, pop: t[3] };
         }
       }
     }
   }
-  return best;
+  if (!best) return null;
+  let city = null;
+  for (const t of near) {
+    if (t[3] < best.pop * ABSORB_RATIO) continue;
+    if (city && t[3] <= city[3]) continue;
+    if (metres(bestT[1], bestT[2], t[1], t[2]) > ABSORB_M) continue;
+    city = t;
+  }
+  return city ? { name: city[0], distM: metres(lng, lat, city[1], city[2]), pop: city[3] } : best;
 }
 
 // --- Lakes ----------------------------------------------------------------------
@@ -181,11 +217,18 @@ export function describeRoute(route) {
 // starts the name. See searchPlaces for why it is a weight and not a tier.
 const CONTAINED_WEIGHT = 0.25;
 
-// An exact name is the answer, whatever it is called and however small it is.
-const EXACT_SCORE = 1e12;
+// What an exact name is worth, as a multiplier on size rather than a tier above
+// it. It used to be an absolute score — an exact match beat everything, however
+// small — and that survived only because the gazetteer stopped at towns of
+// 5,000. It now reaches down to villages, and "york" answered with six different
+// villages called York and no New York at all: six identical labels, none of
+// them what anyone meant. Weighted, an exact match still wins unless the other
+// place is ~160× larger (this, over CONTAINED_WEIGHT), which is the case the
+// tier existed to protect and the case it got wrong.
+const EXACT_WEIGHT = 40;
 
 const score = (exact, prefix, popThousands) =>
-  (exact ? EXACT_SCORE : 0) + Math.max(1, popThousands) * (prefix ? 1 : CONTAINED_WEIGHT);
+  Math.max(1, popThousands) * (exact ? EXACT_WEIGHT : prefix ? 1 : CONTAINED_WEIGHT);
 
 const fold = (s) =>
   String(s ?? '')

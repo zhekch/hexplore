@@ -12,7 +12,8 @@
 //   node scripts/test/trips.mjs
 
 import {
-  buildTrips, nameTrips, findHome, activeDays, dayDetail, dayKey, distanceKm, longestStreak,
+  buildTrips, nameTrips, findHome, activeDays, dayDetail, dayCells, tripDays, dayKey, distanceKm,
+  longestStreak,
 } from '../../src/trips.js';
 import { cellCenter, project } from '../../src/hexgrid.js';
 
@@ -300,6 +301,130 @@ nameTrips(tie, evenSize);
 check(tie[0].name === 'Bville, Italy', 'visits break a tie between places seen on the same days, counted once',
   tie[0].name);
 
+// --- A day out, named after where the day went --------------------------------
+// The case this was rebuilt for. Within one day every place has the same number
+// of days, so days can't separate them and the old measure fell through to size:
+// a town three times bigger took the name off the place the day was spent in,
+// on the strength of five cells of motorway. Time is what tells them apart.
+console.log('\nwhere the day actually went');
+
+// One cell every five minutes through the big town, then four hours in the
+// small one. The drive lights *more* ground than the stay does, on purpose:
+// ground covered is what the old measure could see and it is the wrong answer.
+function timed(lng, lat, n, from, stepSec) {
+  const meta = new Map();
+  const [L, col, row] = idAt(lng, lat).split('/').map(Number);
+  for (let i = 0; i < n; i++) {
+    const at = from + i * stepSec;
+    meta.set(`${L}/${col + i}/${row}`, [{ source: 'gpx', addedAt: at, firstAt: at, lastAt: at, hits: 1, fixes: 3 }]);
+  }
+  return meta;
+}
+const alps = gazetteer([
+  { to: 12.55, region: 'Graubünden', town: 'Bigtown', pop: 35 },
+  { to: 99, region: 'Graubünden', town: 'Smallville', pop: 5 },
+], 'Switzerland');
+const driveAndStay = merge(
+  timed(12.40, 41.80, 8, T('2024-05-02T09:00:00'), 300), // 40 min, eight cells
+  timed(12.70, 41.90, 3, T('2024-05-02T10:00:00'), 4800), // 4 h, three cells
+);
+const dayTrip = buildTrips(merge(homeCells, driveAndStay), []);
+nameTrips(dayTrip, alps);
+check(dayTrip.length === 1 && dayTrip[0].days === 1, 'the day out is one one-day trip',
+  `${dayTrip.length} trips, ${dayTrip[0]?.days}d`);
+// Proof the case discriminates: on ground covered, and on size, the drive wins.
+const spotsAt = (t, lng) => t.spots.filter((s) => (lng < 12.55 ? s.lng < 12.55 : s.lng >= 12.55));
+check(spotsAt(dayTrip[0], 12.4).length > spotsAt(dayTrip[0], 12.7).length,
+  'the drive covered more ground than the stay',
+  `${spotsAt(dayTrip[0], 12.4).length} vs ${spotsAt(dayTrip[0], 12.7).length} cells`);
+check(dayTrip[0].name === 'Smallville, Switzerland',
+  'and it is named after the four hours, not the forty minutes through somewhere bigger',
+  dayTrip[0].name);
+
+// …but size still breaks a *near* tie, which is the other half of the bargain
+// and the reason time is square-rooted rather than counted straight. Here the
+// small place holds a bit under twice the time of the big one — the shape of a
+// week where you sleep in the suburb and spend the days in the city — and the
+// city takes the name anyway.
+//
+// The fixture is built so that only the intended rule can produce the answer.
+// The small place comes first, so a tie would go to it on iteration order; it
+// also has more time, so ignoring size would give it the name; and the margin
+// sits between the size ratio (1.44×) and its square (2.07×), so counting time
+// straight instead of rooted would give it the name too.
+const suburb = merge(
+  timed(12.70, 41.90, 5, T('2024-05-02T09:00:00'), 1500), // 100 min, and first
+  timed(12.40, 41.80, 5, T('2024-05-02T10:35:00'), 900), // 60 min, in the city
+);
+const nearTie = buildTrips(merge(homeCells, suburb), []);
+nameTrips(nearTie, alps);
+const secsOf = (t, small) => t.spots
+  .filter((s) => (small ? s.lng >= 12.55 : s.lng < 12.55))
+  .reduce((n, s) => n + s.secs, 0);
+check(secsOf(nearTie[0], true) > secsOf(nearTie[0], false),
+  'the small place holds more of the time',
+  `${secsOf(nearTie[0], true)}s vs ${secsOf(nearTie[0], false)}s`);
+check(secsOf(nearTie[0], true) < secsOf(nearTie[0], false) * 2.07,
+  'but not twice as much — inside the margin size is allowed to win',
+  `${(secsOf(nearTie[0], true) / secsOf(nearTie[0], false)).toFixed(2)}×`);
+check(nearTie[0].name === 'Bigtown, Switzerland',
+  'so the better-known place takes the name', nearTie[0].name);
+
+// How long a sighting says you stayed, bounded at both ends. Read off the trip
+// directly: this is the measurement everything above is built on, and inferring
+// it through two more layers of scoring would only pin it approximately.
+//
+// Four cells: twenty minutes apart, then two hours, then a fifteen-hour silence
+// before the last. A gap is worth what it says up to the cap, the cap after
+// that — a phone switched off overnight is not evidence of fifteen hours in the
+// last hexagon it saw — and the final sighting, with nothing after it to
+// measure against, is worth the floor.
+const gaps = merge(
+  timed(12.40, 41.80, 2, T('2024-05-02T09:00:00'), 1200),
+  timed(12.42, 41.80, 1, T('2024-05-02T09:20:00') + 1200, 0),
+  timed(12.44, 41.80, 1, T('2024-05-03T02:00:00'), 0),
+);
+const measured = buildTrips(merge(homeCells, gaps), [])[0];
+const secs = measured.spots.map((s) => s.secs);
+check(secs[0] === 1200, 'a twenty-minute gap is twenty minutes', `${secs[0]}s`);
+check(secs[2] === 6 * 3600, 'and a fifteen-hour one is capped, not believed', `${secs[2]}s`);
+check(secs[3] === 300, 'the last sighting has nothing after it, so it gets the floor', `${secs[3]}s`);
+check(secs.every((s) => s >= 300 && s <= 6 * 3600), 'and nothing is outside the bounds',
+  secs.join(', '));
+
+// Ground the gazetteer has no name for is still ground you were on. When more
+// of your time went there than to any place it *can* name, naming a trip after
+// a town it merely passed is worse than naming the region — which does cover
+// the ground the time was actually spent on.
+const engadin = gazetteer([
+  { to: 12.55, region: 'Graubünden', town: 'Bigtown', pop: 35 },
+  { to: 99, region: 'Graubünden' }, // a valley with no settlement in the dataset
+], 'Switzerland');
+const nameless = merge(
+  timed(12.40, 41.80, 4, T('2024-05-02T09:00:00'), 600),
+  timed(12.70, 41.90, 3, T('2024-05-02T11:00:00'), 5400),
+);
+const valley = buildTrips(merge(homeCells, nameless), []);
+nameTrips(valley, engadin);
+check(valley[0].name === 'Graubünden, Switzerland',
+  'a valley with no town in it names the trip after the canton, not the town it drove through',
+  valley[0].name);
+check(valley[0].region === 'Graubünden', 'and it still knows its region', valley[0].region);
+
+// --- Tags ---------------------------------------------------------------------
+// Everywhere it went, not just what it ended up called — otherwise a trip named
+// after a canton is unfindable by any place you remember being in.
+console.log('\ntags');
+check(valley[0].tags.includes('Bigtown'), 'a trip keeps the towns it passed through',
+  (valley[0].tags ?? []).join(', '));
+check(valley[0].tags.includes('Graubünden') && valley[0].tags.includes('Switzerland'),
+  'and the region and country around them');
+check(!valley[0].tags.includes(''), 'and nothing empty');
+check(holiday[0].tags.includes('Avezzano') && holiday[0].tags.includes('Abruzzo'),
+  'the week in Rome is findable by the region it only drove through',
+  holiday[0].tags.join(', '));
+check(new Set(valley[0].tags).size === valley[0].tags.length, 'each one once');
+
 // A trip that is nothing but a route still has a position and a date, so it
 // still has a name.
 const ride = { id: 7, name: 'Ride', firstAt: T('2024-06-01T09:00'), lastAt: T('2024-06-01T12:00'), lengthM: 60000, bounds: [12.3, 41.8, 12.5, 41.95] };
@@ -356,6 +481,87 @@ check(lastDay.cells === 4 && lastDay.newCells === 0, 'the last day recorded cell
   `${lastDay.cells} cells, ${lastDay.newCells} new`);
 check(detail.trip?.id === two[1].id, 'and says which trip it belonged to');
 check(dayDetail('2024-08-11', two, [route], merge(homeCells, augCells)).routes.length === 0, 'an empty day is empty');
+
+// --- A day you can look at -----------------------------------------------------
+// A dot in the calendar used to be the end of the road: it said the day had
+// ground on it and gave you no way to see where. These are the points the map
+// draws for one, and they have to be placed, dated and in order — a track drawn
+// in storage order is a zigzag with a confident line through it.
+console.log('\nwhere a day was');
+// A morning walk east, three minutes a cell, plus a patch from another day that
+// must not turn up in it.
+const walk = new Map();
+{
+  const [L, col, row] = idAt(7.75, 46.02).split('/').map(Number);
+  for (let i = 0; i < 6; i++) {
+    const at = T('2024-08-10T09:00:00') + i * 180;
+    walk.set(`${L}/${col + i}/${row}`, [{ source: 'gpx', addedAt: at, firstAt: at, lastAt: at, hits: 1, fixes: 3 }]);
+  }
+}
+const other = patch(8.55, 47.37, 3, T('2024-08-12'));
+const walked = dayCells('2024-08-10', merge(walk, other));
+check(walked.length === 6, 'a day holds the cells that day recorded', String(walked.length));
+check(walked.every((c) => !other.has(c.id)), 'and only those — another day is another day');
+check(walked.every((c) => Number.isFinite(c.lng) && Number.isFinite(c.lat)), 'each one is placed');
+check(walked.every((c, i) => i === 0 || c.at >= walked[i - 1].at), 'in the order they happened');
+// The one that discriminates: storage order is insertion order here, so a sort
+// that did nothing would still pass the check above. Reverse the map and the
+// answer has to come back the same way round.
+const backwards = new Map([...walk].reverse());
+check(dayCells('2024-08-10', backwards).map((c) => c.id).join() === walked.map((c) => c.id).join(),
+  'however they come out of storage');
+check(walked.every((c) => c.fresh), 'ground first seen that day is new');
+// Both ends of a stored row are days the data carries; only one of them is new.
+const spanPoints = dayCells('2024-08-16', span);
+check(spanPoints.length === 4 && spanPoints.every((c) => !c.fresh),
+  'the last day of a stay is ground you were on, but not new ground',
+  `${spanPoints.length} cells, ${spanPoints.filter((c) => c.fresh).length} new`);
+check(dayCells('2024-08-13', span).length === 0, 'and the quiet middle has nothing to show');
+check(dayDetail('2024-08-10', [], [], merge(walk, other)).points.length === 6,
+  'the day panel carries them too, so its count and its map agree');
+
+// --- A trip, as one shape in the calendar --------------------------------------
+console.log('\na trip across the month grid');
+// A fortnight whose middle is silent: arrived on the 2nd, seen again on the
+// 15th, nothing in between.
+const fortnight = patch(12.49, 41.90, 5, T('2024-06-02'), T('2024-06-15'), 4);
+const longTrip = buildTrips(merge(homeCells, fortnight), []);
+const marked = tripDays(longTrip);
+check(longTrip.length === 1, 'the fortnight is one trip', `${longTrip.length}`);
+check(marked.get('2024-06-02') === longTrip[0] && marked.get('2024-06-15') === longTrip[0],
+  'both ends of it are marked');
+check(marked.get('2024-06-08') === longTrip[0],
+  'and so is the quiet Saturday in the middle — you did not come home for it');
+check(!marked.has('2024-06-01') && !marked.has('2024-06-16'), 'the days either side are not');
+check(marked.size === 14, 'every day of it, and no more', `${marked.size} days`);
+check(tripDays([]).size === 0 && tripDays(null).size === 0, 'no trips, nothing marked');
+// Two trips must never claim the same day — the pill would be drawn twice and
+// the second would win silently.
+const spans = new Map();
+let clash = false;
+for (const t of two) {
+  for (const [k, v] of tripDays([t])) {
+    if (spans.has(k)) clash = true;
+    spans.set(k, v);
+  }
+}
+check(!clash, 'and two trips never claim the same day');
+
+// --- The spots a trip is drawn from --------------------------------------------
+// The map draws a trip from its spots, so each one has to know when it was
+// first reached; without that there is no order to thread them in.
+console.log('\nthe order a trip happened in');
+const threaded = buildTrips(merge(homeCells, walk), [])[0];
+check(threaded.spots.length === 6, 'a spot per place the trip has evidence for', `${threaded.spots.length}`);
+check(threaded.spots.every((s) => s.at > 0), 'each dated');
+check(threaded.spots.every((s, i) => i === 0 || s.at >= threaded.spots[i - 1].at), 'and in order');
+// The date is when you *arrived*, and the case that tells the two apart is a
+// row seen over several days: it carries an event at each end, and taking the
+// later one would date the whole trip by when it ended.
+const overDays = buildTrips(merge(homeCells, span), [])[0];
+check(overDays.spots.every((s) => s.at === T('2024-08-10')),
+  'from when a place was first reached, not last',
+  overDays.spots.map((s) => dayKey(s.at)).join(', '));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -61,6 +61,29 @@ export const HOME_RADIUS_KM = 55;
 /** Below this, a "trip" is a stray fix with a bad clock. */
 export const MIN_TRIP_CELLS = 3;
 /**
+ * The longest stay one sighting is allowed to imply, and the shortest.
+ *
+ * How long you were somewhere is the thing naming actually wants to know, and
+ * the stored history never says it — but it does say when each cell was first
+ * seen, and the next cell's timestamp is when you had stopped being there. That
+ * gap is the estimate.
+ *
+ * It needs both ends bounded. A gap can be a fortnight — the phone was off, or
+ * the row is a stay held across its own silence — and a fortnight credited to
+ * whichever cell happened to be last would settle the name of a whole trip from
+ * one arbitrary hexagon. Six hours is long enough that any real stop counts in
+ * full, and short enough that a night, a flight or a dead battery can't outvote
+ * a day.
+ *
+ * The floor matters just as much, for the opposite case: plenty of imports
+ * carry one timestamp for a whole afternoon's cells, so every gap is zero and
+ * the measure collapses to nothing. A floor per sighting makes it degrade to
+ * "how much ground did you cover here" — the old proxy — instead of to silence.
+ */
+export const STAY_CAP_SEC = 6 * 3600;
+export const STAY_FLOOR_SEC = 300;
+
+/**
  * How much evidence of *returning* it takes before somewhere counts as home.
  *
  * Home is not "where most of your cells are" — on an account holding one
@@ -217,6 +240,12 @@ function events(cellMeta, routes) {
   return out;
 }
 
+/** How long one sighting says you were there — the floor when it says nothing. */
+const stayOf = (e, next) => {
+  const gap = next && next.at > e.at ? next.at - e.at : 0;
+  return Math.min(STAY_CAP_SEC, Math.max(STAY_FLOOR_SEC, gap));
+};
+
 /**
  * Work the stored history into trips.
  *
@@ -319,15 +348,21 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
     let bbox = [Infinity, Infinity, -Infinity, -Infinity];
     let sumLng = 0;
     let sumLat = 0;
-    for (const e of t.events) {
+    for (let i = 0; i < t.events.length; i++) {
+      const e = t.events[i];
       if (e.cell) cells.add(e.cell);
       if (e.route) tripRoutes.push(e.route);
       // Cells key by id, routes by identity — a route that hasn't been saved yet
       // has no id, and two of them must not merge into one place.
       const key = e.cell ?? e.route;
       let spot = spots.get(key);
-      if (!spot) spots.set(key, (spot = { lng: e.lng, lat: e.lat, hits: 0, days: new Set() }));
+      // `at` is when you first got there, which is what threads the spots into
+      // the order they happened — the map draws a trip as its own track, and a
+      // track needs a direction. Events arrive sorted, so the first one wins.
+      if (!spot) spots.set(key, (spot = { lng: e.lng, lat: e.lat, hits: 0, secs: 0, at: e.at, days: new Set() }));
       spot.hits += e.hits ?? 0;
+      spot.secs += stayOf(e, t.events[i + 1]);
+      if (e.at < spot.at) spot.at = e.at;
       spot.days.add(dayKey(e.at));
       if (e.lng < bbox[0]) bbox[0] = e.lng;
       if (e.lat < bbox[1]) bbox[1] = e.lat;
@@ -360,7 +395,13 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
       lengthM: tripRoutes.reduce((m, r) => m + (r.lengthM || 0), 0),
       bbox,
       center,
-      spots: [...spots.values()].map((s) => ({ lng: s.lng, lat: s.lat, hits: s.hits, days: [...s.days] })),
+      // Sorted, though the events they were built from already arrive in order:
+      // the map threads these into a line and a scribble is what it draws if
+      // they ever stop being ordered. One line here is cheaper than that being
+      // a property of how events happen to be gathered.
+      spots: [...spots.values()]
+        .map((s) => ({ lng: s.lng, lat: s.lat, hits: s.hits, secs: s.secs, at: s.at, days: [...s.days] }))
+        .sort((a, b) => a.at - b.at),
       farKm: home ? Math.round(distanceKm(home.lng, home.lat, center[0], center[1])) : 0,
       name: '', // filled in by nameTrips(), which needs the place dataset
     });
@@ -370,17 +411,36 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
 }
 
 /**
- * How much of a trip happened at one place, in days.
+ * How much of a trip happened at one place, in seconds.
  *
- * Days, because a day is the only thing in the stored history that actually
- * means *time*: a cell records which days it was seen on and nothing about the
- * hours. Visits are added as a fraction of one day, so within this number they
- * can only break ties between places seen on the same days — somewhere you were
- * all week outranks somewhere with a busier afternoon. (Size is applied on top
- * of this, by the caller, and *can* outweigh a day — see `size`.)
+ * Time, and nothing but time. This used to be *days* plus a bounded fraction of
+ * the region's visits, which was the best the data supported before a spot knew
+ * when it was reached — and it has a floor of one whole day under every place a
+ * trip touched at all. Within a single day that floor is the entire measure:
+ * every candidate scores 1.0-something, differences of 3× in the actual time
+ * spent compress into differences of 15%, and the population factor decides
+ * everything.
+ *
+ * That is how a day trip to a village came out named after the town it drove
+ * through on the way: five cells' worth of motorway in a place of 35,000 beat
+ * four hours in a place of 11,000, because the four hours were worth 0.27 and
+ * being three times larger was worth 1.23.
+ *
+ * Seconds have the range the question needs. A week somewhere is ~40× a
+ * four-hour stop, so days still dominate whenever days differ — which is what
+ * the old measure was really trying to say.
+ *
+ * Square-rooted, because raw seconds have *too much* range for the other half
+ * of the question. Size is supposed to break near-ties — nobody calls a week in
+ * Lisbon "Lumiar" after the parish they happened to sleep in — and against
+ * unbounded time it never could: the place you sleep always holds more hours
+ * than the place you go. The root leaves a 5× difference in time worth 2.2×,
+ * enough to beat any size gap that matters, while a 1.5× difference is worth
+ * 1.2× and loses to a city ten times the size. Both of those are real cases:
+ * four hours in St. Moritz against minutes in Chur, and eight nights in a
+ * Lisbon parish against eight days in Lisbon.
  */
-const dwell = (e, hitsInRegion) =>
-  e.days.size + Math.min(0.99, e.hits / Math.max(1, hitsInRegion));
+const dwell = (e) => Math.sqrt(Math.max(1, e.secs || 0));
 
 /**
  * How much bigger a place has to be before its size is worth mentioning.
@@ -393,8 +453,17 @@ const dwell = (e, hitsInRegion) =>
  */
 const size = (popThousands) => 1 + Math.log10(1 + Math.max(0, popThousands || 0));
 
-// Days, then visits, then ground — the same order for a region as for a town.
-const byDwell = (a, b) => b.days.size - a.days.size || b.hits - a.hits || b.spots - a.spots;
+// Days, then time, then visits, then ground.
+//
+// Days lead because a region is the coarse question: a fortnight in Lazio with
+// one long day in Tuscany is a trip to Lazio, whatever hours that day held.
+// Within the same number of days it is time, for exactly the reason the whole
+// naming pass exists — a day driving right across one canton to spend six hours
+// in the next one used to be named after the canton it drove across, which had
+// twice the cells and not one stop in it. Counts measure ground covered; only
+// time measures being somewhere.
+const byDwell = (a, b) =>
+  b.days.size - a.days.size || b.secs - a.secs || b.hits - a.hits || b.spots - a.spots;
 
 /**
  * Where a trip mostly *was*: the region holding the most of it, and the
@@ -405,8 +474,13 @@ const byDwell = (a, b) => b.days.size - a.days.size || b.hits - a.hits || b.spot
 function heartOf(trip, placeAt) {
   if (!placeAt || !trip.spots?.length) return null;
   const regions = new Map();
+  const tags = new Set();
   for (const s of trip.spots) {
     const at = placeAt(s.lng, s.lat) ?? {};
+    // Everywhere the trip went, whether or not it ends up in the name — the
+    // search box matches these, so a week in the Engadin is findable by the
+    // canton it was in, the town it drove through and the country around it.
+    for (const n of [at.town, at.region, at.country]) if (n) tags.add(n);
     // Ground the datasets can't place is not somewhere you were — it is the
     // absence of an answer, and it must not compete with the places that have
     // one. The country outlines are rounded to ~1 km, so cells just off a coast
@@ -425,33 +499,56 @@ function heartOf(trip, placeAt) {
     if (!r) {
       regions.set(key, (r = {
         region: at.region ?? '', country: at.country ?? '',
-        days: new Set(), hits: 0, spots: 0, towns: new Map(),
+        days: new Set(), hits: 0, secs: 0, spots: 0, nameless: 0, towns: new Map(),
       }));
     }
     for (const d of s.days) r.days.add(d);
     r.hits += s.hits;
+    r.secs += s.secs || 0;
     r.spots++;
-    if (!at.town) continue;
+    // Ground inside a region that no settlement is near enough to claim. The
+    // gazetteer stops at towns of ~5,000, so a whole valley can be nameless —
+    // and the time spent in one is still time spent, which is why it is counted
+    // here rather than dropped.
+    if (!at.town) {
+      r.nameless += s.secs || 0;
+      continue;
+    }
     let w = r.towns.get(at.town);
-    if (!w) r.towns.set(at.town, (w = { name: at.town, pop: at.pop || 0, days: new Set(), hits: 0, spots: 0 }));
+    if (!w) {
+      r.towns.set(at.town, (w = { name: at.town, pop: at.pop || 0, days: new Set(), hits: 0, secs: 0, spots: 0 }));
+    }
     for (const d of s.days) w.days.add(d);
     w.hits += s.hits;
+    w.secs += s.secs || 0;
     w.spots++;
     if ((at.pop || 0) > w.pop) w.pop = at.pop;
   }
   let best = null;
   for (const r of regions.values()) if (!best || byDwell(best, r) > 0) best = r;
-  if (!best) return null;
+  if (!best) return { region: '', country: '', town: '', days: 0, tags: [...tags] };
   let town = null;
   let bestScore = -1;
   for (const w of best.towns.values()) {
-    const score = dwell(w, best.hits) * size(w.pop);
+    const score = dwell(w) * size(w.pop);
     if (score > bestScore) {
       bestScore = score;
       town = w;
     }
   }
-  return { region: best.region, country: best.country, town: town?.name ?? '', days: best.days.size };
+  // A town has to hold more of your time than the ground no town could be found
+  // for. Otherwise it is naming the trip after somewhere you passed on the way
+  // to the place the map has no word for — and the region, which does cover
+  // that ground, is the truthful answer. "Graubünden" is a worse label than
+  // "St. Moritz" and a much better one than the town you drove through.
+  if (town && town.secs < best.nameless) town = null;
+  return {
+    region: best.region,
+    country: best.country,
+    town: town?.name ?? '',
+    days: best.days.size,
+    tags: [...tags],
+  };
 }
 
 /**
@@ -476,6 +573,9 @@ function heartOf(trip, placeAt) {
  * of nowhere it was rather than "Away". A name that can't distinguish two trips
  * isn't a name.
  *
+ * Everywhere it went is kept as well, in `tags`, so the search box can find a
+ * trip by a place that isn't in its name.
+ *
  * @param {Array<object>} trips
  * @param {(lng:number, lat:number) =>
  *   {town?:string, pop?:number, region?:string, regionId?:string, country?:string}} placeAt
@@ -495,6 +595,10 @@ export function nameTrips(trips, placeAt, landmarkFor) {
     t.place = where;
     t.region = heart.region ?? '';
     t.country = heart.country ?? '';
+    // Everywhere it went, not just what it ended up called. A trip named after
+    // one canton is still the trip that passed through Davos, and typing
+    // "davos" should find it.
+    t.tags = heart.tags ?? [];
     t.name = where
       ? (heart.country && where !== heart.country ? `${where}, ${heart.country}` : where)
       // No town, no region, no country under any of it. That is either water or
@@ -543,37 +647,95 @@ export function longestStreak(dayKeys) {
   };
 }
 
+/** The seconds spanned by one local calendar day. */
+const dayBounds = (key) => {
+  const start = new Date(`${key}T00:00:00`).getTime() / 1000;
+  return [start, start + DAY];
+};
+
+/**
+ * Where you were on one calendar day, in the order you were there.
+ *
+ * The same reading as the calendar's dots — both ends of every stored row, and
+ * nothing in between — but placed and timed rather than counted, because a day
+ * with a dot on it is a day you should be able to *look* at. Sorted by time so
+ * the map can thread the points into the track they came from.
+ *
+ * @param {string} key "YYYY-MM-DD"
+ * @param {Map<string, Array>} cellMeta
+ * @returns {Array<{id:string, lng:number, lat:number, at:number, fresh:boolean}>}
+ */
+export function dayCells(key, cellMeta) {
+  const [start, end] = dayBounds(key);
+  const inDay = (at) => at >= start && at < end;
+  const out = [];
+  for (const [id, entries] of cellMeta ?? []) {
+    const [L, col, row] = id.split('/').map(Number);
+    if (!Number.isFinite(L)) continue;
+    let at = 0;
+    let fresh = false;
+    for (const e of entries) {
+      // First seen and last seen are both dates the row actually carries; a
+      // cell whose row merely *spans* this day says nothing about it.
+      const hit = inDay(e.firstAt || 0) ? e.firstAt : inDay(e.lastAt || 0) ? e.lastAt : 0;
+      if (!hit) continue;
+      if (inDay(e.firstAt || 0)) fresh = true;
+      if (!at || hit < at) at = hit;
+    }
+    if (!at) continue;
+    const p = project(cellCenter(L, col, row));
+    out.push({ id, lng: wrapLng(p[0]), lat: p[1], at, fresh });
+  }
+  out.sort((a, b) => a.at - b.at);
+  return out;
+}
+
 /**
  * Everything that happened on one calendar day: the trip it belongs to, the
- * routes that ran, and how many cells were first seen.
+ * routes that ran, and the ground you covered.
  *
  * @param {string} key "YYYY-MM-DD"
  */
 export function dayDetail(key, trips, routes, cellMeta) {
-  const start = new Date(`${key}T00:00:00`).getTime() / 1000;
-  const end = start + DAY;
+  const [start, end] = dayBounds(key);
   const inDay = (at) => at >= start && at < end;
   const dayRoutes = (routes ?? []).filter((r) => inDay(r.firstAt || r.lastAt || 0));
   // Two different counts, because they answer two different questions: how
   // much of the map you were on that day, and how much of it was new.
-  let cells = 0;
-  let newCells = 0;
-  for (const entries of cellMeta.values()) {
-    let seen = false;
-    let fresh = false;
-    for (const e of entries) {
-      if (inDay(e.firstAt || 0)) {
-        seen = true;
-        fresh = true;
-      } else if (inDay(e.lastAt || 0)) {
-        seen = true;
-      }
-    }
-    if (seen) cells++;
-    if (fresh) newCells++;
-  }
+  const cells = dayCells(key, cellMeta);
   const trip = (trips ?? []).find((t) => t.start < end && t.end >= start) ?? null;
-  return { key, start, end, routes: dayRoutes, cells, newCells, trip };
+  return {
+    key,
+    start,
+    end,
+    routes: dayRoutes,
+    cells: cells.length,
+    newCells: cells.filter((c) => c.fresh).length,
+    points: cells,
+    trip,
+  };
+}
+
+/**
+ * Which trip each calendar day belongs to.
+ *
+ * A trip is one journey, and a month grid that shows it as five loose dots is
+ * describing five errands. Every day between the first and last thing that
+ * happened is mapped, including the quiet ones in the middle: you didn't come
+ * home on the Wednesday just because the phone recorded nothing. Days can't
+ * collide — the derivation gives each one to at most one trip.
+ *
+ * @returns {Map<string, object>} day key → the trip covering it
+ */
+export function tripDays(trips) {
+  const out = new Map();
+  for (const t of trips ?? []) {
+    const from = dayNumber(dayKey(t.start));
+    const to = dayNumber(dayKey(t.end));
+    if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+    for (let n = from; n <= to; n++) out.set(keyOfDay(n), t);
+  }
+  return out;
 }
 
 /**
