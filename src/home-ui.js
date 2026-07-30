@@ -11,11 +11,12 @@ import { loadPlaces, searchPlaces } from './places.js';
 
 /**
  * @param {object} opts
- * @param {() => ({lng:number, lat:number}|null)} opts.center where the map is looking
+ * @param {(done:(home:object|null) => void) => void} opts.onPick hand the map the
+ *   question: it drops a pin, and calls back with the place or with null
  * @param {(home:{lng:number, lat:number, name:string}|null) => Promise<void>|void} opts.onSet
  * @param {() => void} [opts.onClose] called when dismissed with Back
  */
-export function mountHome({ center, onSet, onClose }) {
+export function mountHome({ onPick, onSet, onClose }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('home-overlay');
   const currentEl = $('home-current');
@@ -79,12 +80,21 @@ export function mountHome({ center, onSet, onClose }) {
     renderHits(searchPlaces(q, 6).filter((p) => p.kind === 'town'));
   });
 
-  // The map is already pointed at somewhere by the time anyone opens this, and
-  // "here" is easier to be sure about than a name in a list of thousands.
+  // Pointing at it. This used to take the centre of the viewport — a guess
+  // about a guess, which asked you to aim the whole map at your own house and
+  // then produced a home called "The middle of the map", which is not a place.
+  // Now the dialog gets out of the way and hands the map the question.
   hereBtn.addEventListener('click', () => {
-    const c = center?.();
-    if (!c) return;
-    pick({ lng: c.lng, lat: c.lat, name: 'The middle of the map' });
+    close();
+    onPick?.(async (home) => {
+      // Cancelled: put the dialog back where it was rather than dropping the
+      // person on a map with no explanation of what just happened.
+      if (!home) {
+        open(current);
+        return;
+      }
+      await pick(home);
+    });
   });
 
   clearBtn.addEventListener('click', () => pick(null));

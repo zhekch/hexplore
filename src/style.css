@@ -1827,6 +1827,54 @@ body {
   padding: 5px 10px;
 }
 
+/* The Trips tab's find row: type to narrow the list, or open the calendar and
+   pick a day. Outside .stats-body on purpose — the list redraws on every
+   keystroke, and a field inside it would lose the caret each time. */
+.trip-find {
+  margin-top: 12px;
+}
+
+.trip-find[hidden] {
+  display: none;
+}
+
+.trip-find-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.trip-find-input {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  padding: 9px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: #fff;
+  outline: none;
+}
+
+.trip-find-input::placeholder {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+/* The calendar drops out of the row rather than into the scrolling list, so
+   picking a day never scrolls the thing you are picking from. */
+.trip-find .search-calendar {
+  margin-top: 8px;
+  padding: 10px 12px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+}
+
 .stats-body {
   margin-top: 14px;
   max-height: min(58vh, 460px);
@@ -4154,14 +4202,14 @@ body {
 }
 
 /* --- A trip, as one shape -----------------------------------------------------
-   The dots of the days in a trip grow into a bar joining them, because a trip
-   is one journey and five loose dots describe five errands.
+   The dot of a day in a trip grows into a pill, because a trip is one journey
+   and five loose dots describe five errands.
 
-   Every mark stays inside its own day. A run reads as continuous because the
-   boxes are only 2px apart and each segment runs the full width of its box —
-   not because the segments reach across the gap into each other, which is what
-   they used to do. Overhanging looked untidy at the ends of a week and put the
-   bar outside the grid, and it bought nothing the abutting edges don't.
+   One pill per day, inset from its box on every side and rounded at both ends.
+   A run reads as one journey because the pills line up, not because they touch:
+   segments that ran edge to edge (or reached across the gap into each other)
+   read as a rule drawn under the month rather than as marks belonging to days,
+   and looked wrong wherever the run met the end of a week.
 
    One colour along its whole length, including the days in the middle that
    recorded nothing — the journey ran through them, and a bar that dimmed and
@@ -4172,24 +4220,20 @@ body {
   right: calc(50% - 3px);
   width: auto;
   height: 5px;
-  bottom: 3.5px;
+  bottom: 4px;
   border-radius: 999px;
   background: #5c9fe0;
 }
 
-/* Square where the run carries on into the next box, round where it stops — so
-   a one-day trip is a dot, the first day of a run is a rounded cap that grows
-   to the right, and the days between are flat-ended bars filling their box. */
+/* Grown towards a neighbour that is in the same trip, and never further than
+   this: a one-day trip stays a dot, and a run is a row of pills with a clear
+   gap where one day ends and the next begins. */
 .cal-day.trip-l i {
-  left: 0;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+  left: 22%;
 }
 
 .cal-day.trip-r i {
-  right: 0;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  right: 22%;
 }
 
 /* A day you recorded a route on stays its own colour inside a trip: that is a
@@ -4353,6 +4397,24 @@ body {
 
 [data-theme='light'] .search-input,
 [data-theme='light'] .search-hit,
+[data-theme='light'] .trip-find-row {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: rgba(15, 23, 42, 0.04);
+  color: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme='light'] .trip-find-input {
+  color: #0f172a;
+}
+
+[data-theme='light'] .trip-find-input::placeholder {
+  color: rgba(15, 23, 42, 0.42);
+}
+
+[data-theme='light'] .trip-find .search-calendar {
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
 [data-theme='light'] .cal-title,
 [data-theme='light'] .trip-row,
 [data-theme='light'] .trip-go {

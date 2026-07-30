@@ -723,6 +723,19 @@ row, it's a reading of the rows.
   longitude (351 for Lisbon, not −9) and a plain mean of those puts the home of
   anyone with a well-visited cell in the western hemisphere in the middle of
   Europe.
+- **…and it is correctable, by pointing at it.** A guess this personal has to be
+  visible and changeable, so the Trips tab shows which home it is using and
+  offers the change. Picking one used to mean "use the middle of the map", which
+  is a guess about a guess — it asked you to aim the whole viewport at your own
+  house — and produced a home called *The middle of the map*, which is not a
+  place. Now the dialog steps aside, a chip takes over the map, the next tap
+  drops a pin you can move, and confirming names it after the nearest town.
+  Cancelling puts the dialog back rather than leaving you on a map wondering
+  what just happened. It can also be **drawn on the map** (menu → Home), which
+  is the only way to see that the guess is wrong rather than read that it is.
+  Where home *is* follows the account; whether you are currently looking at it
+  is a way of looking at the map, so it stays in localStorage beside the rail
+  overlay.
 - **Home has to be earned.** Somewhere needs `HOME_MIN_HITS` repeat visits
   before it can claim the title. Without that rule, an account holding one
   imported holiday decides the holiday is home, every cell in it is "not away",
@@ -848,6 +861,17 @@ row, it's a reading of the rows.
   the map"*. The old rule — the place under the geometric centre of the trip —
   named six days in Rome with a day out to Florence after Montefiascone, the
   hill town halfway between them, and that case is now a test.
+- **A country you are beside counts as a country you are in.** The outlines are
+  rounded to ~1 km, which is fine for drawing and wrong for asking: anywhere the
+  coast is intricate falls outside every polygon. Venice is the case that showed
+  it — the historic city is lagoon in the boundary data, so is Murano, so is the
+  Giudecca, and so is the gazetteer's own coordinate for Venice. Every cell of a
+  week there had no country, therefore no region, therefore no vote at all, and
+  the trip was named after the five cells recorded during a coffee stop in
+  Luzern on the way. `countryNear` (`src/countries.js`) looks `NEAR_KM` (5 km)
+  around a miss before giving up; a hit costs exactly what it did before, and
+  thirty kilometres out to sea still finds nothing, which is what keeps *at sea*
+  an honest answer rather than the name of the nearest coast.
 - **Ground the datasets can't place doesn't get a vote.** The country outlines
   are rounded to ~1 km, so cells just off a coast fall outside every country —
   the same ones the statistics book as offshore. Pooling them made a single
@@ -922,19 +946,17 @@ recorded nothing. The bar is one colour along its whole length for the same
 reason; which days have evidence is already said by the lit cell behind the
 number.
 
-**Every mark stays inside its own day.** A run reads as continuous because the
-boxes are 2 px apart and each segment fills the width of its box — not because
-the segments reach across the gap into each other, which is what they used to
-do. Overhanging bought nothing the abutting edges don't, and it cost the tidy
-edge of a week: with nothing hanging outside a box, the end of a row and the end
-of a month need no special case at all.
+**One pill per day, inset on every side.** A run reads as one journey because
+the pills line up, not because they touch. Two earlier attempts are why: reaching
+3 px past each edge to cross the grid gap put marks outside their own day and
+needed a special case at the end of every week, and running them flush edge to
+edge read as a rule drawn under the month rather than as marks belonging to
+days. Nothing overhangs now, so the end of a row and the end of a month need no
+handling at all — the run simply stops and picks up again.
 
-The ends are **square where the run carries on** and rounded where it stops, so
-a one-day trip is a dot, the first day of a run is a rounded cap growing to the
-right, and the days between are flat-ended bars. (Rounding every segment and
-overlapping them was the first attempt: two rounded caps overlapping don't union
-into a straight edge, they pinch, and a fortnight came out notched at every
-midnight.)
+A day with no neighbour in the same trip stays a **dot**; the pill grows only
+towards a neighbour that is in it, which is what makes the first and last day of
+a run read as its ends.
 
 `scripts/test/trips.mjs` covers the decisions rather than the plumbing: that
 home is where the visits are and not where the trip was, that a week is one trip
@@ -1234,7 +1256,16 @@ follow onto the map, above whatever trip and routes it belongs to — see
 [Showing one](#showing-one). Without that a dotted day was a dead end for
 anything that wasn't part of a trip and didn't carry a route: the calendar could
 tell you the day had ground on it and not show you the ground. Trips are drawn
-across the grid as a single bar; see [In the calendar](#in-the-calendar).
+across the grid as a single run of pills; see [In the calendar](#in-the-calendar).
+
+**The grid itself lives in `src/calendar.js`, because it has two hosts.**
+Browsing trips by name and browsing them by date is the same question asked
+twice, and it used to be asked on two screens: the Trips tab listed trips, and
+this palette listed them again with a calendar beside it. The Trips tab now
+carries its own copy of both — a field that filters the list by anywhere a trip
+went, and the same month grid. The palette keeps its own because it also answers
+for places, routes and whole countries, which the trips list has no business
+holding; what it no longer has is a monopoly on the calendar.
 
 ## Colours with an opacity
 

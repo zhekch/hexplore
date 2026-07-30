@@ -15,7 +15,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { computeStats, cellAreaKm2, EARTH_LAND_KM2 } from '../../src/stats.js';
-import { loadCountries, countryAt } from '../../src/countries.js';
+import { loadCountries, countryAt, countryNear } from '../../src/countries.js';
 import { loadRegions, regionsInCountry } from '../../src/regions.js';
 import { loadPlaces } from '../../src/places.js';
 import { buildTrips, nameTrips } from '../../src/trips.js';
@@ -149,7 +149,7 @@ console.log('\nnaming a trip from the real datasets');
 // used to call a week in Rome.
 const trips = buildTrips(meta, []);
 const at = (lng, lat) => {
-  const country = countryAt(lng, lat);
+  const country = countryNear(lng, lat);
   const town = nearestTown(lng, lat);
   const region = country ? regionNear(lng, lat, country.iso) : null;
   return {
@@ -169,6 +169,40 @@ check(italy?.name === 'Rome, Italy', 'and it is named after Rome anyway', italy?
 check(/^(Roma|Lazio)$/i.test(italy?.region ?? ''), 'from the region it spent the week in', italy?.region);
 const vienna = trips.find((t) => t.country === 'Austria');
 check(vienna?.name === 'Vienna, Austria', 'the day in Vienna is named too', vienna?.name);
+
+console.log('\ncountries, a kilometre out');
+// The outlines are simplified to about a kilometre, which is fine for drawing
+// and wrong for asking. Venice is the case that showed it: the historic city is
+// lagoon in the boundary data, so every cell in it had no country, therefore no
+// region, therefore no vote in naming — and a week there came back named after
+// the five cells recorded during a stop in Luzern on the way.
+const SAN_MARCO = [12.3388, 45.4341];
+check(countryAt(...SAN_MARCO) === null,
+  'St Mark’s Square is outside every country polygon — this is the bug, not a typo',
+  String(countryAt(...SAN_MARCO)?.id));
+check(countryNear(...SAN_MARCO)?.id === 'Italy', 'looking a few km around finds Italy',
+  String(countryNear(...SAN_MARCO)?.id));
+check(regionNear(...SAN_MARCO, countryNear(...SAN_MARCO).iso)?.name === 'Venezia',
+  'and with a country to ask under, the region comes back too',
+  String(regionNear(...SAN_MARCO, countryNear(...SAN_MARCO)?.iso)?.name));
+// Murano and the Giudecca are the same story; the gazetteer's own coordinate for
+// Venice is too, which is why "use the town's country" was not the fix.
+for (const [name, lng, lat] of [['Murano', 12.354, 45.458], ['Giudecca', 12.326, 45.427]]) {
+  check(countryNear(lng, lat)?.id === 'Italy', `…and ${name}`, String(countryNear(lng, lat)?.id));
+}
+// The give-up has to stay real: this is what keeps "at sea" an honest answer
+// rather than the name of the nearest coast, and four days' sailing out of
+// out-voting three days in the city.
+check(countryNear(-30, 40) === null, 'the open Atlantic is still nowhere');
+check(countryNear(14.5, 42.5) === null, 'and so is the middle of the Adriatic',
+  String(countryNear(14.5, 42.5)?.id));
+// …but a few kilometres off a coast is not the middle of anywhere, and reading
+// it as the country you were sailing along is the right answer.
+check(countryAt(14.0, 42.8) === null && countryNear(14.0, 42.8)?.id === 'Italy',
+  'just off the Abruzzo coast is Italy', String(countryNear(14.0, 42.8)?.id));
+// A point genuinely inside a country must be unchanged, and cost nothing extra.
+check(countryNear(12.49, 41.9)?.id === countryAt(12.49, 41.9)?.id
+  && countryAt(12.49, 41.9)?.id === 'Italy', 'inland is exactly what it always was');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

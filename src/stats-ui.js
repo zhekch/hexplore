@@ -7,11 +7,13 @@ import { computeStats, EARTH_LAND_KM2 } from './stats.js';
 import { sourceLabel, IMPORT_SOURCES } from './locations.js';
 import { formatDistance, formatDuration, totalLength, thumbSegments } from './routes.js';
 import { auth } from './auth.js';
-import { buildTrips, nameTrips, findHome, dayKey } from './trips.js';
+import { buildTrips, nameTrips, findHome, dayKey, activeDays, dayDetail } from './trips.js';
 import { loadPlaces, nearestTown, lakeAround } from './places.js';
-import { loadCountries, countryAt } from './countries.js';
+import { loadCountries, countryNear } from './countries.js';
 import { loadRegions, regionNear } from './regions.js';
 import { isKomootTourUrl } from './komoot.js';
+import { mountCalendar } from './calendar.js';
+import { parseDateQuery } from './search-ui.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -46,6 +48,7 @@ const pct = (v) =>
  * @param {() => Array<object>} opts.routes saved routes (newest first)
  * @param {(route:object) => void} opts.onShowRoute  take me to this one
  * @param {(trip:object) => void} [opts.onShowTrip]   take me to this trip
+ * @param {(key:string, detail:object) => void} [opts.onShowDay] take me to this day
  * @param {() => ({lng:number,lat:number,name:string}|null)} [opts.home] the
  *   home you confirmed, or null to use the one worked out from the cells
  * @param {(home:object|null) => Promise<void>} [opts.onSetHome] change it
@@ -63,6 +66,7 @@ export function mountStats({
   routes = () => [],
   onShowRoute,
   onShowTrip,
+  onShowDay,
   home = () => null,
   onSetHome,
   onRouteEdited,
@@ -152,6 +156,64 @@ export function mountStats({
   const close = () => {
     overlay.hidden = true;
   };
+
+  // --- Finding a trip ----------------------------------------------------------
+  // Browsing trips by name and browsing them by date were the same question
+  // asked on two screens: the Trips tab listed them, and the search palette
+  // listed them again with a calendar beside it. This is the calendar and the
+  // typing, moved to where the trips already are. (The palette keeps its own —
+  // it also answers for places, routes and whole countries, which this list has
+  // no business holding.)
+  const findRow = $('trip-find');
+  const findInput = $('trip-find-input');
+  const findCal = $('trip-calendar');
+  let tripQuery = '';
+  let calOpen = false;
+
+  const tripCal = mountCalendar({
+    title: $('trip-cal-title'),
+    grid: $('trip-cal-grid'),
+    days: () => activeDays(meta(), routes()),
+    trips: () => lastTrips ?? [],
+    onPick: (key) => {
+      tripCal.select(key);
+      const detail = dayDetail(key, lastTrips ?? [], routes(), meta());
+      // A day with nothing on it is not a dead end and not an error: the grid
+      // says so by not lighting it, and picking it just moves the selection.
+      if (!detail.cells) return;
+      close();
+      onShowDay?.(key, { ...detail, label: dayOf(key) });
+    },
+  });
+
+  function openTripCalendar(on) {
+    calOpen = on;
+    findCal.hidden = !on;
+    $('trip-cal-btn').classList.toggle('on', on);
+    if (on) tripCal.render();
+  }
+
+  findInput.addEventListener('input', () => {
+    // A date is a date, not a text search — and it opens the calendar on that
+    // month rather than filtering a list to nothing.
+    const asDate = parseDateQuery(findInput.value);
+    if (asDate) {
+      const [y, mo] = asDate.split('-');
+      tripCal.show(new Date(+y, mo ? +mo - 1 : 0, 1));
+      openTripCalendar(true);
+      return;
+    }
+    tripQuery = findInput.value.trim().toLowerCase();
+    renderTrips();
+  });
+  $('trip-cal-btn').addEventListener('click', () => openTripCalendar(!calOpen));
+  $('trip-cal-prev').addEventListener('click', () => tripCal.step(-1));
+  $('trip-cal-next').addEventListener('click', () => tripCal.step(1));
+
+  /** Everything a trip is findable by — the same list the search palette uses. */
+  const tripMatches = (t, q) =>
+    !q || `${t.name} ${t.place ?? ''} ${t.region ?? ''} ${t.country ?? ''} ${(t.tags ?? []).join(' ')}`
+      .toLowerCase().includes(q);
 
   function row(label, value, sub) {
     const el = document.createElement('div');
@@ -893,10 +955,22 @@ export function mountStats({
     // no row to remove. It is remembered by id and skipped, which comes to the
     // same thing and can be undone.
     const put = hiddenTrips();
-    const list = all.filter((t) => !put.has(t.id));
-    lastTrips = list;
+    const kept = all.filter((t) => !put.has(t.id));
+    // The calendar draws every trip that exists, filter or no filter: a month
+    // grid that lost its pills as you typed would be answering a different
+    // question from the one the field asks.
+    lastTrips = kept;
+    const list = kept.filter((t) => tripMatches(t, tripQuery));
+    if (calOpen) tripCal.render();
 
     body.replaceChildren();
+    if (!list.length && tripQuery) {
+      const empty = document.createElement('div');
+      empty.className = 'stats-loading';
+      empty.textContent = `No trip matches “${findInput.value.trim()}”. Try a town, a region or a country — a trip is findable by anywhere it went, not just by its name.`;
+      body.append(empty);
+      return;
+    }
     if (!list.length && put.size) {
       const empty = document.createElement('div');
       empty.className = 'stats-loading';
@@ -1071,7 +1145,10 @@ export function mountStats({
       const key = `${Math.round(lng * 100)}/${Math.round(lat * 100)}`;
       let hit = memo.get(key);
       if (hit) return hit;
-      const country = countryAt(lng, lat);
+      // countryNear, not countryAt: the outlines are simplified to ~1 km, and a
+      // cell in a lagoon or a fjord that falls outside every polygon has no
+      // region either, so it gets no vote at all — see countryNear.
+      const country = countryNear(lng, lat);
       const town = nearestTown(lng, lat);
       const region = country ? regionNear(lng, lat, country.iso) : null;
       memo.set(key, (hit = {
@@ -1145,6 +1222,10 @@ export function mountStats({
     for (const btn of tabs.querySelectorAll('[data-tab]')) {
       btn.classList.toggle('active', btn.dataset.tab === tab);
     }
+    // The find row belongs to the trips list, so it comes and goes with it —
+    // and it sits outside the body so redrawing the list doesn't take the
+    // cursor out of the field you are typing in.
+    findRow.hidden = tab !== 'trips';
     body.scrollTop = 0;
     if (tab === 'routes') renderRoutes();
     else if (tab === 'trips') renderTrips();
