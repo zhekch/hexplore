@@ -920,15 +920,21 @@ Every day between the first and last thing that happened is marked, **including
 the quiet ones** — you didn't come home on the Wednesday just because the phone
 recorded nothing. The bar is one colour along its whole length for the same
 reason; which days have evidence is already said by the lit cell behind the
-number. It reaches 3 px past each edge it has a neighbour on, enough to cross
-the grid's 2 px gap, and stops flush at a week boundary so a run resumes on the
-Monday underneath rather than hanging off the grid.
+number.
 
-Two details are what make it read as one bar rather than a chain of lozenges.
-The interior ends are **square** — two rounded caps overlapping don't union into
-a straight edge, they pinch, and a fortnight came out visibly notched at every
-midnight — and the bar is **opaque**, because segments overlapping by 6 px at
-80% composite to 96% and drew a darker band at every one of those joins.
+**Every mark stays inside its own day.** A run reads as continuous because the
+boxes are 2 px apart and each segment fills the width of its box — not because
+the segments reach across the gap into each other, which is what they used to
+do. Overhanging bought nothing the abutting edges don't, and it cost the tidy
+edge of a week: with nothing hanging outside a box, the end of a row and the end
+of a month need no special case at all.
+
+The ends are **square where the run carries on** and rounded where it stops, so
+a one-day trip is a dot, the first day of a run is a rounded cap growing to the
+right, and the days between are flat-ended bars. (Rounding every segment and
+overlapping them was the first attempt: two rounded caps overlapping don't union
+into a straight edge, they pinch, and a fortnight came out notched at every
+midnight.)
 
 `scripts/test/trips.mjs` covers the decisions rather than the plumbing: that
 home is where the visits are and not where the trip was, that a week is one trip
