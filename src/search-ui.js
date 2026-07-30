@@ -343,17 +343,12 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
       if (trip) {
         el.classList.add('trip');
         el.title = `${trip.name}${el.title ? ` · ${el.title}` : ''}`;
-        // Reaching past the cell edge is how the bar crosses the grid gap, so
-        // it must only reach towards a neighbour that is actually there: the
-        // last day of a month has no next cell to meet, and a bar hanging off
-        // the end of the row would be pointing at nothing.
+        // Which way the bar grows to fill its box, which is only towards a
+        // neighbour that is actually in the same trip. Nothing reaches outside
+        // its own day, so the last day of a month and the end of a week need no
+        // special case — the run simply stops at the edge and picks up again.
         if (d > 1 && onTrip.get(keyOf(d - 1)) === trip) el.classList.add('trip-l');
         if (d < last && onTrip.get(keyOf(d + 1)) === trip) el.classList.add('trip-r');
-        // …and a week ends at Sunday. The bar stops flush with the edge rather
-        // than poking out of the grid; the run picks up again on the Monday.
-        const col = (new Date(y, m, d).getDay() + 6) % 7;
-        if (col === 0) el.classList.add('week-first');
-        if (col === 6) el.classList.add('week-last');
       }
       el.addEventListener('click', () => selectDay(key));
       calGrid.append(el);

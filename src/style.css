@@ -4155,15 +4155,18 @@ body {
 
 /* --- A trip, as one shape -----------------------------------------------------
    The dots of the days in a trip grow into a bar joining them, because a trip
-   is one journey and five loose dots describe five errands. The bar is sized
-   off the centre of each cell and reaches 3px past the edges it has a
-   neighbour on — enough to cross the grid's 2px gap — so a run reads as
-   continuous while the day either end keeps its rounded cap. */
-/* One colour along its whole length, including the days in the middle that
+   is one journey and five loose dots describe five errands.
+
+   Every mark stays inside its own day. A run reads as continuous because the
+   boxes are only 2px apart and each segment runs the full width of its box —
+   not because the segments reach across the gap into each other, which is what
+   they used to do. Overhanging looked untidy at the ends of a week and put the
+   bar outside the grid, and it bought nothing the abutting edges don't.
+
+   One colour along its whole length, including the days in the middle that
    recorded nothing — the journey ran through them, and a bar that dimmed and
-   brightened along its length would read as five errands again. Which days
-   actually have evidence is already said by the lit cell behind the number
-   (.cal-day.has), so nothing is lost. */
+   brightened would read as five errands again. Which days actually have
+   evidence is already said by the lit cell behind the number (.cal-day.has). */
 .cal-day.trip i {
   left: calc(50% - 3px);
   right: calc(50% - 3px);
@@ -4171,46 +4174,26 @@ body {
   height: 5px;
   bottom: 3.5px;
   border-radius: 999px;
-  /* Opaque, not translucent. Neighbouring segments overlap by 6px to cross the
-     grid gap, and two 80% bars overlapping composite to 96% — which drew a
-     darker band at every midnight and made a continuous bar look striped. */
   background: #5c9fe0;
 }
 
-/* Square where the run carries on, round only at its two real ends. Rounding
-   every segment and overlapping them looked like a chain of lozenges: two
-   rounded caps overlapping don't union into a straight edge, they pinch, and a
-   fortnight came out visibly notched at every midnight. */
+/* Square where the run carries on into the next box, round where it stops — so
+   a one-day trip is a dot, the first day of a run is a rounded cap that grows
+   to the right, and the days between are flat-ended bars filling their box. */
 .cal-day.trip-l i {
-  left: -3px;
+  left: 0;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
 }
 
 .cal-day.trip-r i {
-  right: -3px;
+  right: 0;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
 
-/* A week ends on Sunday: where the run carries on into the next row the bar
-   stops flush with the grid rather than hanging off it, and picks up again on
-   the Monday underneath. Only where it carries on — a trip that *starts* on a
-   Monday still starts at the middle of the Monday. */
-.cal-day.trip-l.week-first i {
-  left: 0;
-}
-
-.cal-day.trip-r.week-last i {
-  right: 0;
-}
-
 /* A day you recorded a route on stays its own colour inside a trip: that is a
    different kind of day, not a gap in the journey. */
-.cal-day.trip.has-route i {
-  background: #7ee0a0;
-}
-
 .cal-day.trip.has-route i {
   background: #7ee0a0;
 }
