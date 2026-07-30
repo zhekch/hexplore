@@ -8,15 +8,19 @@ import { sourceLabel, IMPORT_SOURCES } from './locations.js';
 import { formatDistance, formatDuration, totalLength, thumbSegments } from './routes.js';
 import { auth } from './auth.js';
 import { buildTrips, nameTrips, findHome, dayKey } from './trips.js';
-import { loadPlaces, nearestTown } from './places.js';
+import { loadPlaces, nearestTown, lakeAround } from './places.js';
 import { loadCountries, countryAt } from './countries.js';
-import { loadRegions, regionAt } from './regions.js';
+import { loadRegions, regionNear } from './regions.js';
 import { isKomootTourUrl } from './komoot.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
 const clock = (sec) => (sec ? timeFmt.format(new Date(sec * 1000)) : null);
+// A "YYYY-MM-DD" day key, read as a local day. Midday, not midnight: a date
+// parsed at midnight and then formatted lands on the day before in any timezone
+// west of UTC.
+const dayOf = (key) => (key ? dayFmt.format(new Date(`${key}T12:00:00`)) : '');
 
 const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 
@@ -69,16 +73,28 @@ export function mountStats({
 
   // "Which country have I covered most of" and "where have I covered the most
   // ground" are different questions — the list answers whichever you pick.
+  //
+  // Only the *order* changes. The bar is always the share of that country or
+  // region, because a bar that meant "the most ground of anything on this list"
+  // told you nothing about the place it was next to: the leader's bar was full
+  // whether you had covered 7% of it or 90%, which read as done.
   const SORTS = {
-    share: { label: 'Share', sort: (a, b) => b.pct - a.pct || b.km2 - a.km2, of: (c) => c.pct / 100 },
-    area: { label: 'Area', sort: (a, b) => b.km2 - a.km2, of: (c, max) => c.km2 / max },
+    area: { label: 'Area', sort: (a, b) => b.km2 - a.km2 || b.pct - a.pct },
+    share: { label: 'Share', sort: (a, b) => b.pct - a.pct || b.km2 - a.km2 },
   };
-  let sortBy = 'share';
+  // Ground covered is the answer to "where have I been", which is the question
+  // people open this panel with; share is the answer to "how much of it is
+  // left", which is the one they ask second.
+  let sortBy = 'area';
   let last = null; // the most recent stats, for re-sorting without recomputing
   // A map of one country can have a hundred regions in it, which is a scroll
   // nobody asked for on the way to the rest of the panel.
   const REGION_PREVIEW = 8;
-  let regionsExpanded = false;
+  // Countries opened up to show their regions, and the ones showing all of them
+  // rather than the leaders. Kept out here so re-sorting the list — which
+  // re-renders it — doesn't close everything you opened.
+  const opened = new Set();
+  const showingAll = new Set();
   let lastTrips = null; // the last derivation, so the search palette can reuse it
 
   // "What did I do most recently" and "what was the big one" are both fair
@@ -130,18 +146,41 @@ export function mountStats({
     return el;
   }
 
-  function bar(label, value, fraction, note) {
-    const el = document.createElement('div');
-    el.className = 'stats-bar-row';
+  /**
+   * One place, its share of itself as a bar, and the numbers either side.
+   *
+   * @param {object} o
+   * @param {string} o.label   the place
+   * @param {string} o.value   the number you sorted by, in full
+   * @param {string} [o.aside] the other number, dimmed beside it — both are
+   *   always shown, so the order of the list is never unexplained
+   * @param {number} o.fraction 0–1, always the share of this place
+   * @param {string} [o.note]  what it adds up to, under the bar
+   * @param {string} [o.right] a note on the right of that line (the region count)
+   * @param {boolean} [o.button] make the whole row pressable (it expands)
+   * @param {boolean} [o.open]   … and currently open
+   * @param {boolean} [o.sub]    a region inside a country, not a country
+   */
+  function bar({ label, value, aside, fraction, note, right, button, open, sub }) {
+    const el = document.createElement(button ? 'button' : 'div');
+    el.className = `stats-bar-row${sub ? ' stats-bar-sub' : ''}${button ? ' stats-bar-btn' : ''}`;
+    if (button) {
+      el.type = 'button';
+      el.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
     el.innerHTML =
-      '<div class="stats-bar-head"><span></span><b></b></div>' +
-      '<div class="stats-bar"><i></i></div>' +
-      '<div class="stats-bar-note"></div>';
-    el.querySelector('span').textContent = label;
-    el.querySelector('b').textContent = value;
+      '<div class="stats-bar-head"><span class="bar-name"></span>'
+      + '<b><span class="bar-value"></span><em class="bar-aside"></em></b></div>'
+      + '<div class="stats-bar"><i></i></div>'
+      + '<div class="stats-bar-note"><span class="bar-note"></span><em class="bar-right"></em></div>';
+    el.querySelector('.bar-name').textContent = label;
+    el.querySelector('.bar-value').textContent = value;
+    el.querySelector('.bar-aside').textContent = aside ? ` · ${aside}` : '';
     // Tiny slivers still deserve a visible sliver.
-    el.querySelector('i').style.width = `${Math.max(1.5, Math.min(100, fraction * 100))}%`;
-    el.querySelector('.stats-bar-note').textContent = note ?? '';
+    el.querySelector('.stats-bar i').style.width =
+      `${Math.max(1.5, Math.min(100, fraction * 100))}%`;
+    el.querySelector('.bar-note').textContent = note ?? '';
+    el.querySelector('.bar-right').textContent = right ?? '';
     return el;
   }
 
@@ -613,6 +652,96 @@ export function mountStats({
     }
   }
 
+  // Every control in this tab redraws the list it is in, so they all need the
+  // reader to stay where they were rather than being thrown back to the top.
+  const reRender = () => {
+    const at = body.scrollTop;
+    render(last);
+    body.scrollTop = at;
+  };
+
+  /**
+   * Coverage, as one list.
+   *
+   * It used to be two: every country, then every region, ranked across the whole
+   * world. A region only means something inside the country it belongs to,
+   * though — "Valais 22%" sandwiched between two other countries' provinces is a
+   * row you have to decode — and the question people actually have after seeing
+   * Switzerland at 7% is *which parts*. So the regions live under their country
+   * and open with it.
+   */
+  function coverageList(s) {
+    const opt = SORTS[sortBy];
+    const inCountry = new Map(); // country name → its visited regions
+    for (const r of s.regions ?? []) {
+      const seen = inCountry.get(r.country);
+      if (seen) seen.push(r);
+      else inCountry.set(r.country, [r]);
+    }
+    const value = (p) => (sortBy === 'area' ? km2(p.km2) : pct(p.pct));
+    const aside = (p) => (sortBy === 'area' ? pct(p.pct) : km2(p.km2));
+    const note = (p) => `of ${km2(p.totalKm2)} · ${plural(p.cells, 'cell')}`;
+
+    const list = document.createElement('div');
+    list.className = 'stats-list';
+    for (const c of [...s.countries].sort(opt.sort)) {
+      const regions = (inCountry.get(c.id) ?? []).sort(opt.sort);
+      const open = opened.has(c.id);
+      const row = bar({
+        label: c.id,
+        value: value(c),
+        aside: aside(c),
+        fraction: c.pct / 100,
+        note: note(c),
+        right: regions.length
+          ? `${regions.length} of ${Math.max(regions.length, c.regionsTotal)} regions`
+          : '',
+        button: regions.length > 0,
+        open,
+      });
+      list.append(row);
+      if (!regions.length) continue; // nothing to open: not every country is divided
+      row.addEventListener('click', () => {
+        if (open) {
+          opened.delete(c.id);
+          showingAll.delete(c.id); // closing it forgets how far it was unrolled
+        } else {
+          opened.add(c.id);
+        }
+        reRender();
+      });
+      if (!open) continue;
+
+      const subs = document.createElement('div');
+      subs.className = 'stats-subs';
+      const all = showingAll.has(c.id);
+      for (const r of all ? regions : regions.slice(0, REGION_PREVIEW)) {
+        subs.append(bar({
+          label: r.name,
+          value: value(r),
+          aside: aside(r),
+          fraction: r.pct / 100,
+          note: note(r),
+          sub: true,
+        }));
+      }
+      if (regions.length > REGION_PREVIEW) {
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'stats-more';
+        more.textContent = all ? 'Show fewer' : `Show all ${regions.length} regions`;
+        more.addEventListener('click', () => {
+          if (all) showingAll.delete(c.id);
+          else showingAll.add(c.id);
+          reRender();
+        });
+        subs.append(more);
+      }
+      list.append(subs);
+    }
+    return list;
+  }
+
   function render(s) {
     last = s;
     body.replaceChildren();
@@ -642,91 +771,27 @@ export function mountStats({
         row('History spans', seen.length === 2 && seen[0] !== seen[1] ? `${seen[0]} – ${seen[1]}` : seen[0]),
       );
     }
+    if (s.days) {
+      // How much of that span the map actually knows about. A history spanning
+      // eight years made of two holidays is a different map from one with a
+      // phone logging every day, and the span alone can't tell them apart.
+      body.append(row('Days recorded', s.days.toLocaleString(), 'days the history has evidence for'));
+      if (s.streakDays > 1) {
+        body.append(row('Longest streak', plural(s.streakDays, 'day'), `up to ${dayOf(s.streakEnd)}`));
+      }
+    }
 
     if (s.countries.length) {
       body.append(
         headRow(
-          'Coverage by country',
+          'Coverage',
           sortSeg(SORTS, sortBy, (key) => {
             sortBy = key;
-            // Re-rendering replaces the list; keep the reader where they were.
-            const at = body.scrollTop;
-            render(last);
-            body.scrollTop = at;
+            reRender();
           }),
         ),
       );
-
-      const opt = SORTS[sortBy];
-      const ranked = [...s.countries].sort(opt.sort);
-      const maxKm2 = ranked[0]?.km2 || 1;
-      const list = document.createElement('div');
-      list.className = 'stats-list';
-      for (const c of ranked) {
-        list.append(
-          bar(
-            c.id,
-            sortBy === 'area' ? km2(c.km2) : pct(c.pct),
-            opt.of(c, maxKm2),
-            sortBy === 'area'
-              ? `${pct(c.pct)} of ${km2(c.totalKm2)} · ${plural(c.cells, 'cell')}`
-              : `${km2(c.km2)} of ${km2(c.totalKm2)} · ${plural(c.cells, 'cell')}`,
-          ),
-        );
-      }
-      body.append(list);
-    }
-
-    if (s.regions.length) {
-      body.append(
-        headRow(
-          'Coverage by region',
-          sortSeg(SORTS, sortBy, (key) => {
-            sortBy = key;
-            const at = body.scrollTop;
-            render(last);
-            body.scrollTop = at;
-          }),
-        ),
-      );
-      const optR = SORTS[sortBy];
-      const rankedR = [...s.regions].sort(optR.sort);
-      const maxKm2R = rankedR[0]?.km2 || 1;
-      const listR = document.createElement('div');
-      listR.className = 'stats-list';
-      // Long enough to be its own panel on a well-travelled map, so it opens on
-      // the leaders and says how many more there are.
-      const shown = regionsExpanded ? rankedR : rankedR.slice(0, REGION_PREVIEW);
-      for (const r of shown) {
-        listR.append(
-          bar(
-            r.name,
-            sortBy === 'area' ? km2(r.km2) : pct(r.pct),
-            optR.of(r, maxKm2R),
-            // The country is the sub-line, not the title: you know you were in
-            // Valais, and two countries can both have a Córdoba.
-            sortBy === 'area'
-              ? `${r.country} · ${pct(r.pct)} of ${km2(r.totalKm2)}`
-              : `${r.country} · ${km2(r.km2)} of ${km2(r.totalKm2)}`,
-          ),
-        );
-      }
-      body.append(listR);
-      if (rankedR.length > REGION_PREVIEW) {
-        const more = document.createElement('button');
-        more.type = 'button';
-        more.className = 'stats-more';
-        more.textContent = regionsExpanded
-          ? 'Show fewer'
-          : `Show all ${rankedR.length} regions`;
-        more.addEventListener('click', () => {
-          regionsExpanded = !regionsExpanded;
-          const at = body.scrollTop;
-          render(last);
-          body.scrollTop = at;
-        });
-        body.append(more);
-      }
+      body.append(coverageList(s));
     }
 
     if (s.sources.length) {
@@ -788,9 +853,11 @@ export function mountStats({
     }
 
     const away = list.reduce((n, t) => n + t.days, 0);
+    const longest = list.reduce((a, b) => (b.days > a.days ? b : a), list[0]);
     body.append(
       row('Trips', String(list.length)),
       row('Days away', away.toLocaleString()),
+      row('Longest', plural(longest.days, 'day'), longest.name),
       row('Furthest', `${Math.max(...list.map((t) => t.farKm)).toLocaleString()} km`, 'from home'),
     );
     body.append(homeRow(list));
@@ -849,19 +916,38 @@ export function mountStats({
   let guessedHomeName = '';
 
   // Town, then region, then country — the three datasets that already ship, each
-  // a lazy chunk. Loaded together because a trip name wants all three and the
-  // first one to answer wins.
+  // a lazy chunk. Loaded together because a trip name wants all three: the
+  // region decides which part of the trip the name comes from, and the town and
+  // its population decide what that part is called.
   async function nameThem(list) {
     await Promise.all([loadPlaces(), loadCountries(), loadRegions()]);
+    // Naming now asks about every cell of every trip rather than one point per
+    // trip, and neighbouring cells are hundreds of metres apart — so the answers
+    // are kept, keyed to ~1 km. Being a kilometre out cannot change which
+    // country or town a cell belongs to often enough to matter, and where it
+    // could (a cell straddling a border) the region snapping is already
+    // approximate in the same direction.
+    const memo = new Map();
     const at = (lng, lat) => {
-      const at = countryAt(lng, lat);
-      return {
-        town: nearestTown(lng, lat)?.name,
-        region: at ? regionAt(lng, lat, at.iso)?.name : undefined,
-        country: at?.id ?? undefined,
-      };
+      const key = `${Math.round(lng * 100)}/${Math.round(lat * 100)}`;
+      let hit = memo.get(key);
+      if (hit) return hit;
+      const country = countryAt(lng, lat);
+      const town = nearestTown(lng, lat);
+      const region = country ? regionNear(lng, lat, country.iso) : null;
+      memo.set(key, (hit = {
+        town: town?.name,
+        pop: town?.pop ?? 0,
+        region: region?.name,
+        regionId: region?.id,
+        country: country?.id ?? undefined,
+      }));
+      return hit;
     };
-    nameTrips(list, at);
+    // A trip with no settlement anywhere in it is named after the water it sat
+    // on, when it sat on any — "Lake Baikal" is a place, "Irkutsk Oblast" is a
+    // form to fill in.
+    nameTrips(list, at, (t) => lakeAround(t.bbox));
     // The row above the list says where home came out, which is the only way to
     // notice that it is wrong.
     const guess = home() ?? findHome(meta());

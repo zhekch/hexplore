@@ -163,8 +163,11 @@ glass look. Click hexagons to mark places you've visited.
   actual ground covered — each cell's area is its Mercator hex area × cos²φ — as
   a share of Earth's land and of every country it touches (attributed by the
   country under each cell's center, with country areas computed from the
-  boundary polygons), sortable by share or by ground covered, plus where the
-  cells came from and how much new ground each year added. **Routes** is the
+  boundary polygons), sortable by ground covered or by share, plus how many days
+  the history carries and the longest unbroken run of them, where the cells came
+  from, and how much new ground each year added. Each country **opens to show
+  its own regions** — see [Coverage](#coverage) for why the bar is always a
+  share and why the regions are nested. **Routes** is the
   list of saved tracks: totals, distance by year, and every route sorted by date
   or length, or grouped **by app** (Komoot, Strava, Garmin…) with each app's own
   count and distance — tap one and the panel closes, the map flies to it and its
@@ -692,15 +695,64 @@ row, it's a reading of the rows.
 - **A stray cell is not a journey**: `MIN_TRIP_CELLS` (3), or one route, is the
   floor. A cell with no date at all cannot be placed in time and makes no trip
   rather than a guessed one.
-- **Named by the same dataset that names routes**, and a route's own place name
-  wins — the routes went where you meant to go, while the cells include the
-  motorway getting there. Naming is a separate pass (`nameTrips`) because the
-  place data is a 2 MB lazy chunk and the trips are complete without it.
+- **Named after where it mostly was, not after its middle.** Naming is a
+  separate pass (`nameTrips`) because the place data is a 2 MB lazy chunk and the
+  trips are complete without it. It gets the trip's `spots` — one entry per cell
+  and route, carrying which days it was seen on and how many visits it records —
+  and picks:
+  1. **the region with the most evidence in it**, by days first. A day is the
+     only thing in the stored history that means *time*: a cell records which
+     days it was seen on and nothing about the hours, so days rank regions,
+     visits break ties between regions seen on the same number of days, and
+     ground covered breaks what is left. Six days in Rome therefore outrank one
+     day's drive through five times as much of Abruzzo.
+  2. **the best-known settlement inside that region**, scoring time spent × a
+     factor that grows with population (`1 + log₁₀(1 + pop)`). Nobody calls a
+     week in Rome "Fiumicino", and a city of half a million is worth about twice
+     a village — so it takes the name when the time spent is comparable, and
+     loses it when you actually slept in the village all week.
+
+  Then a landmark (the lake it sat on), then the region, then the country, and
+  only ground with none of those falls through to *"At sea or off the map"*. The
+  old rule — the place under the geometric centre of the trip — named six days
+  in Rome with a day out to Florence after Montefiascone, the hill town halfway
+  between them, and that case is now a test.
+- **Naming asks about every cell, so the answers are cached** at ~1 km
+  (`src/stats-ui.js`). Being a kilometre out cannot change which country or town
+  a cell belongs to often enough to matter, and it turns ~1,500 lookups into
+  ~500: the whole derivation is ~30 ms for 1,400 cells, against 6 MB of shapes.
 
 `scripts/test/trips.mjs` covers the decisions rather than the plumbing: that
 home is where the visits are and not where the trip was, that a week is one trip
 and two weekends are two, that a weekend away lasts two days, that twice in a
-year is twice, and that an undated cell invents nothing.
+year is twice, that an undated cell invents nothing, and — with a pretend
+gazetteer of longitude bands, so the argument under test is which places a trip
+weighs most rather than which shapes are where — that the week beats the drive
+and the city beats the village only when the time is comparable.
+`scripts/test/stats.mjs` runs the same case against the real datasets.
+
+## Coverage
+
+Countries and their regions in one list (`coverageList` in `src/stats-ui.js`),
+each opening to show the regions inside it.
+
+**The bar is always the share of that place**, whichever way the list is sorted.
+It used to be the share of the biggest number on the list when sorted by ground
+covered, which made the leader's bar full whether you had covered 7% of it or
+90% — it read as *done*. Sorting now only reorders; both numbers are on every
+row, the one you sorted by in full and the other dimmed after it, because a list
+ordered by ground covered next to bars showing share otherwise looks mis-sorted.
+
+**Ground covered is the default**, and sits on the left. It answers "where have
+I been", which is the question the panel is opened with; share answers "how much
+of it is left", which is the one asked second.
+
+**Regions are nested, not a second list.** Ranking every region in the world
+against every other put "Valais 22%" between two other countries' provinces —
+a row you have to decode — when the question after seeing Switzerland at 7% is
+*which parts*. A country says how many of its regions you have been to (`5 of
+26`), opens to the leaders, and unrolls the rest on request; a country the
+dataset doesn't subdivide isn't pressable at all.
 
 ## Regions
 

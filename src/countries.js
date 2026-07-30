@@ -14,10 +14,16 @@ export function countriesLoaded() {
   return COUNTRIES !== null;
 }
 
-// Kick off (or reuse) the one-time fetch. Resolves when the data is ready.
-export function loadCountries() {
+/**
+ * Kick off (or reuse) the one-time fetch. Resolves when the data is ready.
+ *
+ * `data` is for callers without a bundler — plain Node needs an import attribute
+ * to read JSON, which Vite doesn't want, so a test can parse countries.json
+ * itself and hand it over. Same deal as loadRegions and loadPlaces.
+ */
+export function loadCountries(data) {
   if (!loading) {
-    loading = import('./countries.json').then((m) => {
+    loading = (data ? Promise.resolve({ default: data }) : import('./countries.json')).then((m) => {
       COUNTRIES = m.default;
       return COUNTRIES;
     });

@@ -11,7 +11,9 @@
 //
 //   node scripts/test/trips.mjs
 
-import { buildTrips, findHome, activeDays, dayDetail, dayKey, distanceKm } from '../../src/trips.js';
+import {
+  buildTrips, nameTrips, findHome, activeDays, dayDetail, dayKey, distanceKm, longestStreak,
+} from '../../src/trips.js';
 import { cellCenter, project } from '../../src/hexgrid.js';
 
 let pass = 0;
@@ -136,6 +138,104 @@ check(ice[0].bbox[0] >= -180 && ice[0].bbox[2] <= 180, 'and its box is in real l
 check(Math.abs(ice[0].center[0] + 21.94) < 1, 'centred where it actually is', String(ice[0].center[0]));
 check(ice[0].bbox[2] - ice[0].bbox[0] < 2, 'and no wider than the place it covers',
   String(ice[0].bbox[2] - ice[0].bbox[0]));
+
+// --- Naming -------------------------------------------------------------------
+// A trip is named after where it mostly *was*, which is not where its middle is.
+// The datasets that answer "what is at this coordinate" are 6 MB of lazy chunks,
+// so the cases below hand naming a pretend gazetteer of longitude bands: the
+// argument being tested is which places a trip weighs most, not which shapes are
+// where.
+console.log('\nnaming');
+
+const gazetteer = (bands, country = 'Italy') => (lng) => {
+  const b = bands.find((x) => lng < x.to) ?? bands[bands.length - 1];
+  return b.empty
+    ? {}
+    : { region: b.region, regionId: `${country}/${b.region}`, country, town: b.town, pop: b.pop };
+};
+
+// Rome for a week, and a day's drive down the motorway through Abruzzo. The
+// drive lights five times as much ground as the week does — the point of the
+// test is that the week still wins.
+const italy = gazetteer([
+  { to: 12.9, region: 'Lazio', town: 'Rome', pop: 2600 },
+  { to: 13.9, region: 'Abruzzo', town: 'Avezzano', pop: 42 },
+  { to: 99, region: 'Campania', town: 'Naples', pop: 950 },
+]);
+const rome = merge(
+  patch(12.40, 41.90, 2, T('2024-05-02'), T('2024-05-03'), 6),
+  patch(12.50, 41.92, 2, T('2024-05-04'), T('2024-05-05'), 6),
+  patch(12.60, 41.94, 2, T('2024-05-06'), T('2024-05-07'), 6),
+);
+const motorway = patch(13.20, 42.10, 40, T('2024-05-08'));
+const holiday = buildTrips(merge(homeCells, rome, motorway), []);
+check(holiday.length === 1, 'the week and the drive home are one trip', `${holiday.length}`);
+nameTrips(holiday, italy);
+// Proof that the case discriminates: the middle of the trip is out on the
+// motorway, which is what the name used to be taken from.
+check(italy(holiday[0].center[0]).region === 'Abruzzo',
+  'the middle of it is in the region it only drove through', italy(holiday[0].center[0]).region);
+check(holiday[0].name === 'Rome, Italy', 'and it is named after the week, not the drive', holiday[0].name);
+check(holiday[0].region === 'Lazio', 'and it knows the region that won', holiday[0].region);
+
+// Within the winning region, the name is the biggest place — nobody calls a week
+// in Rome "Fiumicino" — as long as the time spent is comparable.
+const lazio = gazetteer([
+  { to: 12.55, region: 'Lazio', town: 'Fiumicino', pop: 80 },
+  { to: 99, region: 'Lazio', town: 'Rome', pop: 2600 },
+]);
+const both = merge(
+  patch(12.40, 41.80, 6, T('2024-05-02'), T('2024-05-03'), 3),
+  patch(12.70, 41.90, 6, T('2024-05-02'), T('2024-05-03'), 3),
+);
+const evenly = buildTrips(merge(homeCells, both), []);
+nameTrips(evenly, lazio);
+check(evenly[0].name === 'Rome, Italy', 'two towns, same days: the city takes the name', evenly[0].name);
+
+// …but time still decides. A week in the village beats an afternoon in the city.
+const village = merge(
+  patch(12.40, 41.80, 6, T('2024-05-02'), T('2024-05-08'), 20),
+  patch(12.40, 41.86, 6, T('2024-05-04'), T('2024-05-06'), 20),
+  patch(12.70, 41.90, 2, T('2024-05-05'), T('2024-05-05'), 1),
+);
+const stayed = buildTrips(merge(homeCells, village), []);
+nameTrips(stayed, lazio);
+check(stayed[0].name === 'Fiumicino, Italy', 'a week in the small place beats an afternoon in the big one',
+  stayed[0].name);
+
+// A trip that is nothing but a route still has a position and a date, so it
+// still has a name.
+const ride = { id: 7, name: 'Ride', firstAt: T('2024-06-01T09:00'), lastAt: T('2024-06-01T12:00'), lengthM: 60000, bounds: [12.3, 41.8, 12.5, 41.95] };
+const rideTrip = buildTrips(new Map(), [ride], { home: null });
+nameTrips(rideTrip, italy);
+check(rideTrip.length === 1 && rideTrip[0].name === 'Rome, Italy', 'a route on its own is named too',
+  rideTrip[0]?.name);
+
+// Nowhere on the map: say what kind of nowhere, and take a landmark over
+// nothing at all.
+const nowhere = buildTrips(merge(patch(-30.0, 35.0, 5, T('2024-07-01'), T('2024-07-04'))), [], { home: null });
+nameTrips(nowhere, gazetteer([{ to: 99, empty: true }]));
+check(nowhere[0].name === 'At sea or off the map', 'a trip with nothing under it says so', nowhere[0].name);
+nameTrips(nowhere, gazetteer([{ to: 99, region: 'Irkutsk Oblast', town: '', pop: 0 }], 'Russia'), () => 'Lake Baikal');
+check(nowhere[0].name === 'Lake Baikal, Russia',
+  'a landmark beats the administrative region it is in', nowhere[0].name);
+
+// --- Streaks ------------------------------------------------------------------
+console.log('\nstreaks');
+check(longestStreak([]).days === 0, 'no days, no streak');
+check(longestStreak(['2024-05-01']).days === 1, 'one day is a streak of one');
+check(longestStreak(['2024-05-01', '2024-05-02', '2024-05-03', '2024-05-09']).days === 3,
+  'three in a row', String(longestStreak(['2024-05-01', '2024-05-02', '2024-05-03', '2024-05-09']).days));
+check(longestStreak(['2024-05-31', '2024-06-01', '2024-06-02']).days === 3, 'across the end of a month',
+  String(longestStreak(['2024-05-31', '2024-06-01', '2024-06-02']).days));
+check(longestStreak(['2024-12-30', '2024-12-31', '2025-01-01']).days === 3, 'and the end of a year');
+// The clocks going forward must not shorten a streak: this is why the days are
+// counted as calendar days and not as divisions of a timestamp.
+check(longestStreak(['2024-03-29', '2024-03-30', '2024-03-31', '2024-04-01']).days === 4,
+  'and across the spring clock change', String(longestStreak(['2024-03-29', '2024-03-30', '2024-03-31', '2024-04-01']).days));
+check(longestStreak(['2024-05-01', '2024-05-01', '2024-05-02']).days === 2, 'the same day twice is one day');
+check(longestStreak(['2024-05-04', '2024-05-05', '2024-05-01']).endsAt === '2024-05-05',
+  'and it says when the streak ended', longestStreak(['2024-05-04', '2024-05-05', '2024-05-01']).endsAt);
 
 // --- The calendar -------------------------------------------------------------
 console.log('\ndays');
