@@ -161,7 +161,10 @@ bothered to record a route on. And you can put any trip away by hand — one pre
 on the row, and one press on the row underneath the list brings them all back.
 
 Sort the list by **newest, longest or furthest from home**, and **group it by
-country**; the sort holds inside each group.
+country**; the sort holds inside each group. There's a field at the top to
+filter by anywhere a trip went — a town it passed through, the canton it crossed
+— and a **calendar** beside it, so "which weekend was that?" is answered on the
+same screen as the list rather than in a separate search.
 
 Each one is named after **where you actually spent the time** — measured from
 the gaps between your own fixes, so a day out is named after the four hours in
@@ -176,7 +179,9 @@ searching a town it passed through, or the canton it crossed, will turn it up.
 
 Everything in that tab is measured from **home**, which the map guesses from the
 cells you go back to most. If it guesses wrong, the row at the top of the tab
-lets you set it — by name, or by pointing the map at the right spot.
+lets you set it — search for a town, or **point at it on the map**: the dialog
+steps aside, you tap where you live, and confirm. Menu → **Home** draws it on
+the map, which is the quickest way to see that the guess is off.
 
 **Statistics.** How much ground you've actually covered, as a share of Earth's
 land and of every country you've touched. **Open a country** to see the same for

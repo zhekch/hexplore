@@ -15,11 +15,10 @@
 import { loadPlaces, searchPlaces } from './places.js';
 import { searchRegions } from './regions.js';
 import { searchCountries, countryIdAt } from './countries.js';
-import { dayKey, dayDetail, tripDays } from './trips.js';
+import { dayKey, dayDetail } from './trips.js';
+import { mountCalendar, MONTHS } from './calendar.js';
 import { formatDistance } from './routes.js';
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const spanFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
@@ -88,10 +87,17 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
   const calNext = $('search-cal-next');
 
   let calOpen = false;
-  let month = new Date(); // which month the grid is showing
-  let selectedDay = null; // "YYYY-MM-DD"
   let items = []; // what's currently listed, for keyboard selection
   let active = -1;
+
+  // The grid itself lives in src/calendar.js — the Trips tab shows the same one.
+  const cal = mountCalendar({
+    title: calTitle,
+    grid: calGrid,
+    days,
+    trips,
+    onPick: (key) => selectDay(key),
+  });
 
   // --- Results ----------------------------------------------------------------
 
@@ -150,7 +156,7 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
     const asDate = parseDateQuery(q);
     if (asDate) {
       const [y, mo, d] = asDate.split('-');
-      month = new Date(+y, mo ? +mo - 1 : 0, 1);
+      cal.show(new Date(+y, mo ? +mo - 1 : 0, 1));
       openCalendar(true);
       if (d) selectDay(asDate);
       else {
@@ -286,78 +292,11 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
   }
 
   // --- The calendar -----------------------------------------------------------
-  // Its own grid rather than <input type="date">: the native one is an opaque
-  // OS panel that can't show which days have anything on them, and that is the
-  // entire reason to open a calendar here rather than type the date.
 
-  function renderCalendar() {
-    const y = month.getFullYear();
-    const m = month.getMonth();
-    calTitle.textContent = `${MONTHS[m]} ${y}`;
-    calGrid.replaceChildren();
-    for (const w of WEEKDAYS) {
-      const el = document.createElement('div');
-      el.className = 'cal-weekday';
-      el.textContent = w;
-      calGrid.append(el);
-    }
-    const first = new Date(y, m, 1);
-    // Monday-first, which is what the rest of the app's dates assume.
-    const lead = (first.getDay() + 6) % 7;
-    for (let i = 0; i < lead; i++) {
-      const el = document.createElement('div');
-      el.className = 'cal-day cal-blank';
-      calGrid.append(el);
-    }
-    const active = days();
-    const onTrip = tripDays(trips());
-    const todayKey = dayKey(Math.floor(Date.now() / 1000));
-    const last = new Date(y, m + 1, 0).getDate();
-    const keyOf = (d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    for (let d = 1; d <= last; d++) {
-      const key = keyOf(d);
-      const has = active.get(key);
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'cal-day';
-      el.classList.toggle('has', !!has);
-      el.classList.toggle('today', key === todayKey);
-      el.classList.toggle('picked', key === selectedDay);
-      el.innerHTML = `<span>${d}</span><i></i>`;
-      if (has) {
-        el.title = [
-          has.cells ? `${has.cells} new cell${has.cells === 1 ? '' : 's'}` : '',
-          has.routes ? `${has.routes} route${has.routes === 1 ? '' : 's'}` : '',
-        ].filter(Boolean).join(' · ');
-        // A day that only added ground and a day you recorded a ride on are
-        // different kinds of day, and the dot says which.
-        el.classList.toggle('has-route', !!has.routes);
-      }
-      // A trip is one journey, so it is drawn as one shape: the dots of the
-      // days in it grow into a bar that runs between them. Loose dots said
-      // "something happened on the 4th, the 5th and the 8th"; the pill says
-      // you were away from the 4th to the 8th, which is the thing you are
-      // actually looking for in a month grid. The days inside it with nothing
-      // recorded stay dim — they are part of the journey, not evidence of it.
-      const trip = onTrip.get(key);
-      if (trip) {
-        el.classList.add('trip');
-        el.title = `${trip.name}${el.title ? ` · ${el.title}` : ''}`;
-        // Which way the bar grows to fill its box, which is only towards a
-        // neighbour that is actually in the same trip. Nothing reaches outside
-        // its own day, so the last day of a month and the end of a week need no
-        // special case — the run simply stops at the edge and picks up again.
-        if (d > 1 && onTrip.get(keyOf(d - 1)) === trip) el.classList.add('trip-l');
-        if (d < last && onTrip.get(keyOf(d + 1)) === trip) el.classList.add('trip-r');
-      }
-      el.addEventListener('click', () => selectDay(key));
-      calGrid.append(el);
-    }
-  }
+  const renderCalendar = () => cal.render();
 
   function selectDay(key) {
-    selectedDay = key;
-    renderCalendar();
+    cal.select(key);
     const detail = dayDetail(key, trips(), routes(), meta());
     resultsEl.replaceChildren();
     items = [];
@@ -424,7 +363,7 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
   function open() {
     overlay.hidden = false;
     input.value = '';
-    selectedDay = null;
+    cal.select(null);
     openCalendar(false);
     render('');
     input.focus();
@@ -445,14 +384,8 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
     openCalendar(!calOpen);
     if (!calOpen) render(input.value);
   });
-  calPrev.addEventListener('click', () => {
-    month = new Date(month.getFullYear(), month.getMonth() - 1, 1);
-    renderCalendar();
-  });
-  calNext.addEventListener('click', () => {
-    month = new Date(month.getFullYear(), month.getMonth() + 1, 1);
-    renderCalendar();
-  });
+  calPrev.addEventListener('click', () => cal.step(-1));
+  calNext.addEventListener('click', () => cal.step(1));
   $('search-close').addEventListener('click', close);
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) close();
@@ -501,7 +434,7 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
       // a trip as one journey can't be drawn until the trips exist, and a
       // month opened before they arrived would keep its loose dots.
       if (!calOpen) render(input.value);
-      else if (selectedDay) selectDay(selectedDay);
+      else if (cal.selected()) selectDay(cal.selected());
       else renderCalendar();
     },
   };

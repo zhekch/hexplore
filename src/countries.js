@@ -62,6 +62,41 @@ export function countryAt(lng, lat) {
 /** Just the display name, for everything that only wants to show it. */
 export const countryIdAt = (lng, lat) => countryAt(lng, lat)?.id ?? null;
 
+// Eight directions to try when a point lands in no country at all.
+const AROUND = [[1, 0], [0, 1], [-1, 0], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
+/** How far to look. Slightly more than the outlines' own ~1 km simplification. */
+const NEAR_KM = 5;
+
+/**
+ * The country a point is *in or beside*.
+ *
+ * The outlines are simplified to about a kilometre, which is fine for drawing
+ * and wrong for asking. Anywhere the coast is intricate falls outside every
+ * polygon: a whole week in Venice came back with no country, no region and
+ * therefore no vote in naming, and was filed under the five cells recorded
+ * during a coffee stop in Luzern on the way there. The historic city is lagoon
+ * in the boundary data — so is Murano, so is the Giudecca, and so is the
+ * gazetteer's own coordinate for Venice.
+ *
+ * So a miss looks a few kilometres around before giving up. Only a miss: a
+ * point that is genuinely inside a country costs exactly what it did before.
+ * And the give-up is still real — thirty kilometres out to sea finds nothing,
+ * which is what keeps "at sea" an honest answer rather than the nearest coast.
+ */
+export function countryNear(lng, lat, km = NEAR_KM) {
+  const hit = countryAt(lng, lat);
+  if (hit || !COUNTRIES) return hit;
+  const dLat = km / 111;
+  // Longitude degrees shrink towards the poles; the floor keeps the step sane
+  // above 78°, where dividing by cos would sweep half a continent.
+  const dLng = dLat / Math.max(0.2, Math.cos(lat * Math.PI / 180));
+  for (const [dx, dy] of AROUND) {
+    const c = countryAt(lng + dx * dLng, lat + dy * dLat);
+    if (c) return c;
+  }
+  return null;
+}
+
 // --- Areas (for the coverage statistics) --------------------------------------
 const areaMemo = new Map();
 

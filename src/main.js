@@ -38,7 +38,7 @@ import { mountSync } from './sync-ui.js';
 import { mountSettings } from './settings-ui.js';
 import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
-import { activeDays } from './trips.js';
+import { activeDays, findHome } from './trips.js';
 import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
   loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView,
@@ -50,7 +50,7 @@ import { showToast } from './toast.js';
 import { busy } from './busy.js';
 import { routesToFC, totalLength, formatDistance, canonicalSport } from './routes.js';
 import { reconcilePrefs } from './prefs.js';
-import { loadPlaces, describeRoute } from './places.js';
+import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
 
 // Past the finest hex levels (0..MAX_LEVEL), one more zoom-out step swaps the
@@ -116,6 +116,11 @@ const TRACK_COLOR = '#ffcf4d';
 // subtlety this replaced.
 const TRACK_DOT_RADIUS = ['interpolate', ['linear'], ['zoom'], 2, 2.4, 6, 3.6, 11, 5.5, 16, 8];
 const TRACK_LINK_WIDTH = ['interpolate', ['linear'], ['zoom'], 2, 1.4, 11, 2.2, 16, 3];
+
+// The home marker, when it is switched on. Deliberately not the accent and not
+// the track colour: it is neither a place you covered nor a place you went, and
+// it should read as a different kind of thing from both.
+const HOME_COLOR = '#ff5d8f';
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
@@ -235,6 +240,12 @@ document.documentElement.dataset.theme = STYLES[styleKey].theme;
 // Train tracks are deliberately session-only and always start disabled after
 // a page reload. Their state still survives basemap switches within the page.
 let railOn = false;
+// Whether the home marker is drawn. A way of looking at the map rather than a
+// fact about it, so it lives beside `railOn` in localStorage and not in the
+// account preferences — where *home is* follows the account, whether you are
+// currently looking at it does not.
+const HOME_SHOWN_KEY = 'visited-map:home-shown:v1';
+let homeShown = localStorage.getItem(HOME_SHOWN_KEY) === 'on';
 
 // Edit-mode glass tiles need a light fill on dark maps and a dark fill on light
 // maps to stay visible.
@@ -1487,6 +1498,8 @@ async function hydrateVisited() {
   updateGrid(true);
   updateTiles();
   updateHud(currentLevel);
+  // The guessed home is read off the cells, so it only exists once they do.
+  syncHomeMarker();
 }
 
 // Ancestor of a stored cell at a coarser level (identity at the same level).
@@ -1913,6 +1926,7 @@ function adoptPrefs(prefs) {
   renderedSports = ''; // the per-activity rows must be rebuilt against the new state
   repaintRouteColors();
   syncRoutes();
+  syncHomeMarker();
 }
 
 /**
@@ -2264,6 +2278,12 @@ function showTrack(what) {
 const showTripOnMap = (trip) =>
   showTrack(trip && { kind: 'trip', id: trip.id, label: trip.name, points: trip.spots ?? [] });
 
+/** One calendar day, drawn the same way a trip is. Both calendars land here. */
+function showDayOnMap(key, detail) {
+  showTrack({ kind: 'day', id: key, label: detail.label, points: detail.points });
+  fitBboxOnMap(bboxOfPoints(detail.points));
+}
+
 // The chip is the way back out that doesn't mean reopening a panel, so it lives
 // on the map — the same bargain the isolated-route chip makes.
 function updateTrackChip() {
@@ -2278,6 +2298,82 @@ function updateTrackChip() {
 // question, and it should not still be sitting there afterwards.
 function clearTripHighlight() {
   if (shownTrack) showTrack(null);
+}
+
+// --- Home, on the map ----------------------------------------------------------
+// Two jobs that share a source: marking where home is, and choosing where it
+// should be. Choosing borrows the marker, so the pin you are about to confirm
+// looks exactly like the thing it is about to become.
+
+/** Where home actually is right now — what you set, or failing that the guess. */
+function homePoint() {
+  if (homePlace) return homePlace;
+  const guess = findHome(cellMeta);
+  return guess ? { lng: guess.lng, lat: guess.lat, name: '' } : null;
+}
+
+function syncHomeMarker() {
+  const src = map.getSource('home');
+  if (!src) return;
+  // A pin being placed replaces the marker rather than joining it — two homes
+  // on one map is a question, not an answer. Until one is placed the current
+  // home stays put if it was showing, which is the useful thing to see while
+  // deciding whether to move it.
+  const at = homePick.at ?? (homeShown ? homePoint() : null);
+  src.setData(at
+    ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [at.lng, at.lat] } }] }
+    : EMPTY);
+}
+
+// Picking a home by pointing at it. "The middle of the map" was a guess about a
+// guess — it asked you to aim the whole viewport at your own house and then
+// took its centre — and it produced a home called "The middle of the map",
+// which is not a place. Now the dialog steps out of the way, the next tap drops
+// a pin you can move, and confirming names it after whatever is nearest.
+const homePick = { on: false, at: null, done: null };
+
+function beginHomePick(onDone) {
+  homePick.on = true;
+  homePick.at = null;
+  homePick.done = onDone ?? null;
+  document.getElementById('home-pick').hidden = false;
+  document.getElementById('home-pick-ok').hidden = true;
+  document.getElementById('home-pick-text').textContent = 'Tap the map to put your home there';
+  map.getCanvas().style.cursor = 'crosshair';
+  syncHomeMarker();
+}
+
+async function endHomePick(confirmed) {
+  const at = homePick.at;
+  const done = homePick.done;
+  homePick.on = false;
+  homePick.at = null;
+  homePick.done = null;
+  document.getElementById('home-pick').hidden = true;
+  map.getCanvas().style.cursor = '';
+  syncHomeMarker();
+  if (!confirmed || !at) {
+    done?.(null);
+    return;
+  }
+  // Named after what is nearest, because a home called by its own town is the
+  // thing the Trips tab shows back to you. The place dataset is a lazy chunk
+  // and may not be in yet; a home without a name still works.
+  let name = '';
+  try {
+    await loadPlaces();
+    name = nearestTown(at.lng, at.lat)?.name ?? '';
+  } catch {
+    /* a nameless home is still a home */
+  }
+  done?.({ lng: at.lng, lat: at.lat, name });
+}
+
+function placeHomePin(lngLat) {
+  homePick.at = { lng: lngLat.lng, lat: lngLat.lat };
+  document.getElementById('home-pick-ok').hidden = false;
+  document.getElementById('home-pick-text').textContent = 'Home here? Tap again to move it';
+  syncHomeMarker();
 }
 
 function zoomToRoute(route) {
@@ -3687,6 +3783,7 @@ function updateDetailNow(level = currentLevel) {
 const layersBtn = document.getElementById('layers-btn');
 const layersMenu = document.getElementById('layers-menu');
 const railToggle = document.getElementById('rail-toggle');
+const homeToggle = document.getElementById('home-toggle');
 // `setStyle()` rebuilds MapLibre's entire style asynchronously. Keep the
 // checkbox as the source of truth while that happens, then reconcile the
 // actual layer once our custom sources/layers are ready again.
@@ -3751,6 +3848,7 @@ function updateLayersUi() {
   }
   updateDetailNow();
   railToggle.checked = railOn;
+  homeToggle.checked = homeShown;
   updateRoutesUi();
 
   // The picker only means anything in single-color mode, and nothing at all
@@ -3863,6 +3961,17 @@ function wireLayersControl() {
     btn.addEventListener('click', () => setDetailLevel(detailFromToken(btn.dataset.detail)));
   }
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
+  homeToggle.addEventListener('change', () => {
+    homeShown = homeToggle.checked;
+    try {
+      localStorage.setItem(HOME_SHOWN_KEY, homeShown ? 'on' : 'off');
+    } catch {
+      /* fine */
+    }
+    syncHomeMarker();
+  });
+  document.getElementById('home-pick-cancel').addEventListener('click', () => endHomePick(false));
+  document.getElementById('home-pick-ok').addEventListener('click', () => endHomePick(true));
   document.getElementById('route-solo-clear').addEventListener('click', () => {
     setSoloRoute(null);
     routeInfo?.setSolo(false);
@@ -4052,6 +4161,33 @@ function installGrid() {
     },
   }, beforeLabels);
 
+  // Where the trips are measured from. Off by default and drawn above
+  // everything else when it is on: it is a single point on a map that may have
+  // a country's worth of ink on it, so it has to survive being drawn over a
+  // blob. Two circles rather than an image — no sprite to load, no icon to go
+  // missing on a style switch.
+  map.addSource('home', { type: 'geojson', data: EMPTY, tolerance: 0 });
+  map.addLayer({
+    id: 'home-halo', type: 'circle', source: 'home',
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 7, 12, 11],
+      'circle-color': HOME_COLOR,
+      'circle-opacity': 0.22,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': HOME_COLOR,
+      'circle-stroke-opacity': 0.5,
+    },
+  }, firstSymbol);
+  map.addLayer({
+    id: 'home-dot', type: 'circle', source: 'home',
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 3.2, 12, 5],
+      'circle-color': HOME_COLOR,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': 'rgba(255, 255, 255, 0.92)',
+    },
+  }, firstSymbol);
+
   // Highlight ring for the cell being inspected in view mode — added last so
   // it sits above the region fills.
   map.addSource('sel', { type: 'geojson', data: EMPTY, tolerance: 0 });
@@ -4066,6 +4202,7 @@ function installGrid() {
 
   styleReady = true;
   syncRailLayer();
+  syncHomeMarker();
 
   // Repopulate geometry for the new style and restore the current opacities.
   applyColors();
@@ -4121,6 +4258,12 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // the map really is a click on the map.
     if (dismissedMenuOnTap) {
       dismissedMenuOnTap = false;
+      return;
+    }
+    // Placing the home pin takes the map over: while it is on, a tap is an
+    // answer to the question on screen and nothing else.
+    if (homePick.on) {
+      placeHomePin(e.lngLat);
       return;
     }
     if (currentLevel == null) return;
@@ -4372,10 +4515,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // A day with a dot on it is a day you should be able to look at, and until
     // now the calendar could only tell you it existed. Same treatment as a
     // trip — the ground it covered, threaded in the order you covered it.
-    onDay: (key, detail) => {
-      showTrack({ kind: 'day', id: key, label: detail.label, points: detail.points });
-      fitBboxOnMap(bboxOfPoints(detail.points));
-    },
+    onDay: showDayOnMap,
     onRoute: async (route) => {
       if (!routesOn) setRoutesOn(true);
       if (!routeGeom) await loadRoutes(true);
@@ -4398,9 +4538,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   // Setting home re-derives every trip, so the panel is reopened on the tab it
   // came from rather than left to go stale behind the dialog.
   const homeUi = mountHome({
-    center: () => map.getCenter(),
+    onPick: beginHomePick,
     onSet: async (home) => {
       homePlace = home;
+      syncHomeMarker();
       touchPrefs();
       await pushPrefs();
     },
@@ -4435,6 +4576,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       showTripOnMap(trip);
       fitBboxOnMap(trip.bbox);
     },
+    onShowDay: showDayOnMap,
     // The dialog edits the same objects routeList holds, so only the drawn
     // labels need refreshing — same as the card on the map.
     onRouteEdited: (route, before) => {
