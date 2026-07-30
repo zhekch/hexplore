@@ -121,6 +121,43 @@ const TRACK_LINK_WIDTH = ['interpolate', ['linear'], ['zoom'], 2, 1.4, 11, 2.2, 
 // the track colour: it is neither a place you covered nor a place you went, and
 // it should read as a different kind of thing from both.
 const HOME_COLOR = '#ff5d8f';
+const HOME_ICON = 'home-marker';
+
+/**
+ * The little house, drawn once into an image the style owns.
+ *
+ * A sprite would mean shipping and loading one; a symbol layer with no image
+ * draws nothing and says nothing about why. This is 22 device pixels of canvas,
+ * rebuilt whenever the style is (`map.setStyle` throws every image away).
+ */
+function addHomeImage() {
+  if (map.hasImage(HOME_ICON)) return;
+  const px = 22;
+  const dpr = Math.min(3, Math.max(1, Math.round(window.devicePixelRatio || 1)));
+  const c = document.createElement('canvas');
+  c.width = px * dpr;
+  c.height = px * dpr;
+  const ctx = c.getContext('2d');
+  if (!ctx) return;
+  ctx.scale(dpr, dpr);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  // Roof, then the walls under it — the same shape as the button that toggles it.
+  ctx.beginPath();
+  ctx.moveTo(5, 10.5);
+  ctx.lineTo(11, 5);
+  ctx.lineTo(17, 10.5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(6.8, 10);
+  ctx.lineTo(6.8, 16.5);
+  ctx.lineTo(15.2, 16.5);
+  ctx.lineTo(15.2, 10);
+  ctx.stroke();
+  map.addImage(HOME_ICON, { width: px * dpr, height: px * dpr, data: ctx.getImageData(0, 0, px * dpr, px * dpr).data }, { pixelRatio: dpr });
+}
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
@@ -2305,6 +2342,17 @@ function clearTripHighlight() {
 // should be. Choosing borrows the marker, so the pin you are about to confirm
 // looks exactly like the thing it is about to become.
 
+/** Draw the home marker, or don't. Lives beside the home row that sets it. */
+function setHomeShown(on) {
+  homeShown = !!on;
+  try {
+    localStorage.setItem(HOME_SHOWN_KEY, homeShown ? 'on' : 'off');
+  } catch {
+    /* fine */
+  }
+  syncHomeMarker();
+}
+
 /** Where home actually is right now — what you set, or failing that the guess. */
 function homePoint() {
   if (homePlace) return homePlace;
@@ -3783,7 +3831,6 @@ function updateDetailNow(level = currentLevel) {
 const layersBtn = document.getElementById('layers-btn');
 const layersMenu = document.getElementById('layers-menu');
 const railToggle = document.getElementById('rail-toggle');
-const homeToggle = document.getElementById('home-toggle');
 // `setStyle()` rebuilds MapLibre's entire style asynchronously. Keep the
 // checkbox as the source of truth while that happens, then reconcile the
 // actual layer once our custom sources/layers are ready again.
@@ -3848,7 +3895,6 @@ function updateLayersUi() {
   }
   updateDetailNow();
   railToggle.checked = railOn;
-  homeToggle.checked = homeShown;
   updateRoutesUi();
 
   // The picker only means anything in single-color mode, and nothing at all
@@ -3961,15 +4007,6 @@ function wireLayersControl() {
     btn.addEventListener('click', () => setDetailLevel(detailFromToken(btn.dataset.detail)));
   }
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
-  homeToggle.addEventListener('change', () => {
-    homeShown = homeToggle.checked;
-    try {
-      localStorage.setItem(HOME_SHOWN_KEY, homeShown ? 'on' : 'off');
-    } catch {
-      /* fine */
-    }
-    syncHomeMarker();
-  });
   document.getElementById('home-pick-cancel').addEventListener('click', () => endHomePick(false));
   document.getElementById('home-pick-ok').addEventListener('click', () => endHomePick(true));
   document.getElementById('route-solo-clear').addEventListener('click', () => {
@@ -4166,25 +4203,26 @@ function installGrid() {
   // a country's worth of ink on it, so it has to survive being drawn over a
   // blob. Two circles rather than an image — no sprite to load, no icon to go
   // missing on a style switch.
+  addHomeImage();
   map.addSource('home', { type: 'geojson', data: EMPTY, tolerance: 0 });
+  // A disc behind a house, rather than a dot: a dot on a map of dots is one
+  // more cell, and the whole point of the marker is to be the thing that isn't.
   map.addLayer({
     id: 'home-halo', type: 'circle', source: 'home',
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 7, 12, 11],
-      'circle-color': HOME_COLOR,
-      'circle-opacity': 0.22,
-      'circle-stroke-width': 1,
-      'circle-stroke-color': HOME_COLOR,
-      'circle-stroke-opacity': 0.5,
-    },
-  }, firstSymbol);
-  map.addLayer({
-    id: 'home-dot', type: 'circle', source: 'home',
-    paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 3.2, 12, 5],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 9, 12, 13],
       'circle-color': HOME_COLOR,
       'circle-stroke-width': 2,
       'circle-stroke-color': 'rgba(255, 255, 255, 0.92)',
+    },
+  }, firstSymbol);
+  map.addLayer({
+    id: 'home-icon', type: 'symbol', source: 'home',
+    layout: {
+      'icon-image': HOME_ICON,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.72, 12, 1],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
     },
   }, firstSymbol);
 
@@ -4512,6 +4550,12 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       showTripOnMap(trip);
       fitBboxOnMap(trip.bbox);
     },
+    hiddenTrips: () => hiddenTripIds,
+    onHideTrip: setTripHidden,
+    home: () => homePlace,
+    onSetHome: () => homeUi.open(homePlace),
+    homeShown: () => homeShown,
+    onShowHome: (on) => setHomeShown(on),
     // A day with a dot on it is a day you should be able to look at, and until
     // now the calendar could only tell you it existed. Same treatment as a
     // trip — the ground it covered, threaded in the order you covered it.
@@ -4545,7 +4589,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       touchPrefs();
       await pushPrefs();
     },
-    onClose: () => stats.open('trips'),
+    onClose: () => search.open(),
   });
 
   const stats = mountStats({
@@ -4553,7 +4597,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     meta: () => cellMeta,
     routes: () => routeList,
     home: () => homePlace,
-    onSetHome: (existing) => homeUi.open(existing),
     // Picking a route in the list opens it in the dialog; "Show on map" is the
     // one that closes the panel, switches the layer on and flies there.
     onShowRoute: async (route) => {
@@ -4572,11 +4615,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // map itself can't — twelve scattered blobs don't say "Iceland, last
     // August" — and it stays up, which a toast can't: the name is not an event
     // that happened two seconds ago, it is what you are currently looking at.
-    onShowTrip: (trip) => {
-      showTripOnMap(trip);
-      fitBboxOnMap(trip.bbox);
-    },
-    onShowDay: showDayOnMap,
+
     // The dialog edits the same objects routeList holds, so only the drawn
     // labels need refreshing — same as the card on the map.
     onRouteEdited: (route, before) => {
@@ -4606,8 +4645,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onRouteDeleted: async (route) => {
       if (!(await removeRoute(route))) throw new Error('Could not remove that route.');
     },
-    hiddenTrips: () => hiddenTripIds,
-    onHideTrip: setTripHidden,
     knownSources: () => [...new Set(routeList.map((r) => r.source))],
   });
   document.getElementById('stats-open').addEventListener('click', () => {

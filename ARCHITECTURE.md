@@ -170,8 +170,9 @@ glass look. Click hexagons to mark places you've visited.
 - **Region borders**: `SHOW_REGION_BORDERS` in `src/main.js` toggles the crisp
   outline and glow around visited regions. It defaults to `false` for a
   fill-only appearance; edit-mode tile guides are unaffected.
-- **Statistics**: *Routes and statistics* has three tabs — Routes, **Trips**
-  (derived; see below) and Statistics. **Cells** measures
+- **Statistics**: *Routes and statistics* has two tabs, Routes and Statistics —
+  trips live in the search panel (see [Search](#search)), which is where the one
+  list of them is. **Cells** measures
   actual ground covered — each cell's area is its Mercator hex area × cos²φ — as
   a share of Earth's land and of every country it touches (attributed by the
   country under each cell's center, with country areas computed from the
@@ -182,8 +183,8 @@ glass look. Click hexagons to mark places you've visited.
   share and why the regions are nested. **Routes** is the
   list of saved tracks: totals, distance by year, and every route — tap one and
   the panel closes, the map flies to it and its card opens.
-- **Ordering and grouping are two controls**, in both the Routes and the Trips
-  lists. They used to be one, which quietly made them exclusive: picking "By
+- **Ordering and grouping are two controls**, in both the routes list and the
+  trips list. They used to be one, which quietly made them exclusive: picking "By
   app" threw away whatever order you had, and there was no way to ask for the
   longest ride *of each activity*, which is the question a grouped list is
   usually opened with. Now the sort holds *within* each block. Routes sort by
