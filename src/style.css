@@ -4216,6 +4216,15 @@ body {
   gap: 10px;
 }
 
+/* The ordering and grouping controls, centred on a line of their own. Beside
+   the heading they had to share a row barely wide enough for one of them, so
+   they were pinned to the right edge and "Your trips" wrapped underneath
+   itself to make room. */
+.search-results > .stats-controls {
+  justify-content: center;
+  padding: 2px 10px 8px;
+}
+
 .search-subsection {
   text-transform: none;
   letter-spacing: 0;
@@ -4236,17 +4245,29 @@ body {
   min-width: 0;
 }
 
-/* Show it on the map: a toggle, so it says which state it is in. */
-.home-eye {
+/* Show it on the map. A tick rather than a button that remembers being pressed:
+   this is a state, and a tick is how the rest of the app spells one. */
+.home-show {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
 }
 
-.home-eye.active {
-  background: rgba(96, 172, 255, 0.24);
-  border-color: rgba(96, 172, 255, 0.5);
-  color: #fff;
+.home-show input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #60acff;
+  cursor: pointer;
 }
 
 /* --- Trips --------------------------------------------------------------------
@@ -4399,6 +4420,12 @@ body {
 [data-theme='light'] .trip-row,
 [data-theme='light'] .trip-go {
   color: #0f172a;
+}
+
+[data-theme='light'] .home-show {
+  border-color: rgba(15, 23, 42, 0.16);
+  background: rgba(15, 23, 42, 0.06);
+  color: rgba(15, 23, 42, 0.8);
 }
 
 [data-theme='light'] .trip-hide {

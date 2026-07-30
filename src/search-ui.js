@@ -270,16 +270,18 @@ export function mountSearch({
     el.querySelector('b').textContent = set?.name || 'Worked out from the cells you visit most';
     el.querySelector('small').textContent = 'Home — everything here is measured from it';
 
-    const show = document.createElement('button');
-    show.type = 'button';
-    show.className = `home-set home-eye${homeShown() ? ' active' : ''}`;
-    show.title = homeShown() ? 'Stop showing it on the map' : 'Show it on the map';
-    show.setAttribute('aria-pressed', String(!!homeShown()));
+    // A checkbox, not a button that remembers: "is it on the map" is a state,
+    // and the app already spells state as a tick everywhere else in the menu.
+    const show = document.createElement('label');
+    show.className = 'home-show';
+    show.title = 'Show it on the map';
     show.innerHTML =
       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11 12 4l8 7"/><path d="M6 10v9h12v-9"/></svg>'
-      + '<span>Map</span>';
-    show.addEventListener('click', () => {
-      onShowHome?.(!homeShown());
+      + '<span>Map</span><input type="checkbox" />';
+    const box = show.querySelector('input');
+    box.checked = !!homeShown();
+    box.addEventListener('change', () => {
+      onShowHome?.(box.checked);
       render(input.value);
     });
 
@@ -319,8 +321,11 @@ export function mountSearch({
     const all = trips().filter((t) => !put.has(t.id));
     const hits = all.filter((t) => tripMatches(t, q));
     if (!hits.length) return false;
-    resultsEl.append(section(q ? 'Trips' : 'Your trips', q ? null : tripControls()));
-    if (!q) resultsEl.append(homeRow());
+    resultsEl.append(section(q ? 'Trips' : 'Your trips'));
+    // On their own line, centred. Beside the heading they had to share a row
+    // barely wide enough for one of them, and "Your trips" wrapped to two lines
+    // to make room.
+    if (!q) resultsEl.append(tripControls(), homeRow());
     resultsEl.append(...tripList(hits));
     if (!q && put.size) resultsEl.append(hiddenRow(put));
     return true;

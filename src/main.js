@@ -117,22 +117,23 @@ const TRACK_COLOR = '#ffcf4d';
 const TRACK_DOT_RADIUS = ['interpolate', ['linear'], ['zoom'], 2, 2.4, 6, 3.6, 11, 5.5, 16, 8];
 const TRACK_LINK_WIDTH = ['interpolate', ['linear'], ['zoom'], 2, 1.4, 11, 2.2, 16, 3];
 
-// The home marker, when it is switched on. Deliberately not the accent and not
-// the track colour: it is neither a place you covered nor a place you went, and
-// it should read as a different kind of thing from both.
-const HOME_COLOR = '#ff5d8f';
 const HOME_ICON = 'home-marker';
 
 /**
  * The little house, drawn once into an image the style owns.
  *
  * A sprite would mean shipping and loading one; a symbol layer with no image
- * draws nothing and says nothing about why. This is 22 device pixels of canvas,
+ * draws nothing and says nothing about why. This is 26 device pixels of canvas,
  * rebuilt whenever the style is (`map.setStyle` throws every image away).
+ *
+ * Stroked twice: a wide white pass, then a dark one over it. That is the same
+ * trick the basemap's own labels use, and it is what lets one thin outline read
+ * on a dark map, a light one, and a photograph — without a coloured disc behind
+ * it to guarantee contrast by shouting.
  */
 function addHomeImage() {
   if (map.hasImage(HOME_ICON)) return;
-  const px = 22;
+  const px = 26;
   const dpr = Math.min(3, Math.max(1, Math.round(window.devicePixelRatio || 1)));
   const c = document.createElement('canvas');
   c.width = px * dpr;
@@ -140,22 +141,26 @@ function addHomeImage() {
   const ctx = c.getContext('2d');
   if (!ctx) return;
   ctx.scale(dpr, dpr);
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  // Roof, then the walls under it — the same shape as the button that toggles it.
-  ctx.beginPath();
-  ctx.moveTo(5, 10.5);
-  ctx.lineTo(11, 5);
-  ctx.lineTo(17, 10.5);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(6.8, 10);
-  ctx.lineTo(6.8, 16.5);
-  ctx.lineTo(15.2, 16.5);
-  ctx.lineTo(15.2, 10);
-  ctx.stroke();
+  const house = () => {
+    // Roof, then the walls under it — the same shape as the toggle beside it.
+    ctx.beginPath();
+    ctx.moveTo(5, 12.5);
+    ctx.lineTo(13, 5.5);
+    ctx.lineTo(21, 12.5);
+    ctx.moveTo(7.4, 11.5);
+    ctx.lineTo(7.4, 20);
+    ctx.lineTo(18.6, 20);
+    ctx.lineTo(18.6, 11.5);
+    ctx.stroke();
+  };
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.lineWidth = 4.5;
+  house();
+  ctx.strokeStyle = '#1b2431';
+  ctx.lineWidth = 2;
+  house();
   map.addImage(HOME_ICON, { width: px * dpr, height: px * dpr, data: ctx.getImageData(0, 0, px * dpr, px * dpr).data }, { pixelRatio: dpr });
 }
 
@@ -4205,22 +4210,14 @@ function installGrid() {
   // missing on a style switch.
   addHomeImage();
   map.addSource('home', { type: 'geojson', data: EMPTY, tolerance: 0 });
-  // A disc behind a house, rather than a dot: a dot on a map of dots is one
-  // more cell, and the whole point of the marker is to be the thing that isn't.
-  map.addLayer({
-    id: 'home-halo', type: 'circle', source: 'home',
-    paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 9, 12, 13],
-      'circle-color': HOME_COLOR,
-      'circle-stroke-width': 2,
-      'circle-stroke-color': 'rgba(255, 255, 255, 0.92)',
-    },
-  }, firstSymbol);
+  // Just the house. It used to sit on a coloured disc, which made a marker you
+  // could not miss and also could not see past — on a map this is one point
+  // among a country's worth of ink, and it only has to be findable, not loud.
   map.addLayer({
     id: 'home-icon', type: 'symbol', source: 'home',
     layout: {
       'icon-image': HOME_ICON,
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.72, 12, 1],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.8, 12, 1],
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
     },
