@@ -181,9 +181,9 @@ searching a town it passed through, or the canton it crossed, will turn it up.
 Everything here is measured from **home**, which the map guesses from the
 cells you go back to most. If it guesses wrong, the row above the list
 lets you set it — search for a town, or **point at it on the map**: the dialog
-steps aside, you tap where you live, and confirm. **Map** on the same row draws
-a little house where it thinks you live, which is the quickest way to see that
-the guess is off.
+steps aside, you tap where you live, and confirm. Tick **Map** on the same row
+and a little house appears where it thinks you live, which is the quickest way
+to see that the guess is off.
 
 **Statistics.** How much ground you've actually covered, as a share of Earth's
 land and of every country you've touched. **Open a country** to see the same for

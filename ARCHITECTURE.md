@@ -732,11 +732,16 @@ row, it's a reading of the rows.
   place. Now the dialog steps aside, a chip takes over the map, the next tap
   drops a pin you can move, and confirming names it after the nearest town.
   Cancelling puts the dialog back rather than leaving you on a map wondering
-  what just happened. It can also be **drawn on the map** (menu → Home), which
-  is the only way to see that the guess is wrong rather than read that it is.
-  Where home *is* follows the account; whether you are currently looking at it
-  is a way of looking at the map, so it stays in localStorage beside the rail
-  overlay.
+  what just happened. It can also be **drawn on the map** — a house outline, not
+  a dot, because a dot on a map of dots is one more cell. Stroked twice, a wide
+  white pass under a dark one, which is the trick the basemap's own labels use:
+  it is what lets one thin outline read on a dark map, a light one and a
+  photograph without a coloured disc behind it guaranteeing contrast by
+  shouting. The tick for it sits on the home row itself, because "is this the
+  right home" is a question you answer by looking at where it is — it started
+  four sections away in the appearance menu. Where home *is* follows the
+  account; whether you are currently looking at it is a way of looking at the
+  map, so it stays in localStorage beside the rail overlay.
 - **Home has to be earned.** Somewhere needs `HOME_MIN_HITS` repeat visits
   before it can claim the title. Without that rule, an account holding one
   imported holiday decides the holiday is home, every cell in it is "not away",
