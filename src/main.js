@@ -487,6 +487,14 @@ const HEAT_KEY = 'visited-map:heat:v1';
 let heatMode = localStorage.getItem(HEAT_KEY) ?? 'flat';
 if (!HEAT_MODES[heatMode]) heatMode = 'flat';
 
+// Whether the visited areas are drawn at all. Pressing the coloring mode that
+// is already on takes them off the map — the one thing the panel could not do
+// was get out of the way, and "what does this valley actually look like" is a
+// fair question to ask of a map you have painted over. `heatMode` is left
+// alone, so bringing them back returns to the mode you had.
+const CELLS_KEY = 'visited-map:cells:v1';
+let cellsOn = localStorage.getItem(CELLS_KEY) !== 'off';
+
 // The value function for the active mode, or null when regions are flat.
 // A categorical mode puts a palette index in `v` instead of a 0..1 position,
 // so it skips the clamping the ramps need.
@@ -788,7 +796,11 @@ const isHeatMode = () => {
 // discs at a fixed alpha, so transparency has to be applied to the finished
 // layer rather than to the ink. Only in the single-colour mode — a heat map
 // doesn't draw the accent at all, so it has no business honouring its opacity.
-const accentAlpha = () => (isHeatMode() ? 1 : hexAlpha(accent));
+//
+// Zero when the visited areas are switched off, which is the same lever pulled
+// all the way: every surface that draws them reads this, so there is one place
+// to turn them off rather than four.
+const accentAlpha = () => (!cellsOn ? 0 : isHeatMode() ? 1 : hexAlpha(accent));
 
 const regionOpacity = () => {
   const style = STYLES[styleKey] ?? {};
@@ -798,8 +810,15 @@ const regionOpacity = () => {
 };
 
 function setHeatMode(next) {
-  if (!HEAT_MODES[next] || next === heatMode) return;
+  if (!HEAT_MODES[next]) return;
+  // Pressing the mode that is already on is the way out: it hides the visited
+  // areas rather than doing nothing, which is what it used to do.
+  if (next === heatMode) {
+    setCellsOn(!cellsOn);
+    return;
+  }
   const wasType = !!HEAT_MODES[heatMode]?.categorical;
+  cellsOn = true; // picking a mode is asking to see it
   heatMode = next;
   try {
     localStorage.setItem(HEAT_KEY, heatMode);
@@ -815,6 +834,20 @@ function setHeatMode(next) {
   applyPrevFade(fade.prev);
   updateLayersUi();
   updateGrid(true);
+}
+
+/** Draw the visited areas, or don't. Everything else about them is unchanged. */
+function setCellsOn(on) {
+  if (on === cellsOn) return;
+  cellsOn = on;
+  try {
+    localStorage.setItem(CELLS_KEY, cellsOn ? 'on' : 'off');
+  } catch {
+    /* fine */
+  }
+  applyFade(fade.cur);
+  applyPrevFade(fade.prev);
+  updateLayersUi();
 }
 
 // --- Visited cells & upward propagation -------------------------------------
@@ -1699,6 +1732,7 @@ function saveRoutesPref() {
 // worked out); ROUTE_NO_SPORT stands in for the blank so it can be a real entry
 // in a map and a real row in the menu.
 const ROUTE_VIEW_KEY = 'visited-map:route-view:v1';
+const HIDDEN_TRIPS_KEY = 'visited-map:hidden-trips:v1';
 const ROUTE_NO_SPORT = '\u0000none';
 
 let hiddenSports = new Set(); // activities switched off
@@ -1727,8 +1761,13 @@ function loadRouteView() {
   } catch {
     /* defaults are fine */
   }
+  try {
+    const put = JSON.parse(localStorage.getItem(HIDDEN_TRIPS_KEY) || '[]');
+    if (Array.isArray(put)) hiddenTripIds = new Set(put.filter((id) => typeof id === 'string'));
+  } catch {
+    /* defaults are fine */
+  }
 }
-loadRouteView();
 
 const routeViewJson = () => ({ hidden: [...hiddenSports], colors: Object.fromEntries(sportColors) });
 
@@ -1761,7 +1800,35 @@ let pushViewTimer = null;
 // list is measured from it.
 let homePlace = null; // { lng, lat, name } | null = use the guess
 
-const prefsPayload = () => ({ v: 1, updatedAt: prefsStamp, accent, routeView: routeViewJson(), home: homePlace });
+// Trips you put away. They are derived, not stored, so there is nothing to
+// delete — the list skips them and can be told to stop. It follows the account
+// rather than the device, because a trip you decided was a commute is a
+// judgement about your history, not about this laptop. Ids are `trip-<start>`
+// and stable across rebuilds, so one stays hidden as more history arrives.
+let hiddenTripIds = new Set();
+
+const prefsPayload = () => ({
+  v: 1,
+  updatedAt: prefsStamp,
+  accent,
+  routeView: routeViewJson(),
+  home: homePlace,
+  hiddenTrips: [...hiddenTripIds],
+});
+
+// Called here rather than beside its own definition: it fills in `hiddenTripIds`
+// too, and that is declared above — a `let` read before its declaration runs is
+// a temporal-dead-zone throw, on the module's very first line of work.
+loadRouteView();
+
+/** Put a trip away, or (with a null id) bring every one of them back. */
+async function setTripHidden(id, hide) {
+  if (id === null) hiddenTripIds = new Set();
+  else if (hide) hiddenTripIds.add(id);
+  else hiddenTripIds.delete(id);
+  touchPrefs();
+  await pushPrefs();
+}
 
 /** Note a local change: stamp it, mirror it locally, and schedule the push. */
 function touchPrefs() {
@@ -1771,6 +1838,7 @@ function touchPrefs() {
     localStorage.setItem(PREFS_STAMP_KEY, String(prefsStamp));
     localStorage.setItem(ROUTE_VIEW_KEY, JSON.stringify(routeViewJson()));
     localStorage.setItem(COLOR_KEY, accent);
+    localStorage.setItem(HIDDEN_TRIPS_KEY, JSON.stringify([...hiddenTripIds]));
   } catch {
     /* private mode, quota — the server copy is still attempted */
   }
@@ -1821,6 +1889,10 @@ document.addEventListener('visibilitychange', () => {
 /** Adopt a set of preferences wholesale — from the server, or from a reset. */
 function adoptPrefs(prefs) {
   if (prefs.routeView && typeof prefs.routeView === 'object') adoptRouteView(prefs.routeView);
+  hiddenTripIds = new Set(
+    (Array.isArray(prefs.hiddenTrips) ? prefs.hiddenTrips : [])
+      .filter((id) => typeof id === 'string' && /^trip-\d+$/.test(id)),
+  );
   const h = prefs.home;
   homePlace = h && Number.isFinite(+h.lng) && Number.isFinite(+h.lat)
     ? { lng: +h.lng, lat: +h.lat, name: String(h.name ?? '').slice(0, 80) }
@@ -1834,6 +1906,7 @@ function adoptPrefs(prefs) {
   try {
     localStorage.setItem(ROUTE_VIEW_KEY, JSON.stringify(routeViewJson()));
     localStorage.setItem(COLOR_KEY, accent);
+    localStorage.setItem(HIDDEN_TRIPS_KEY, JSON.stringify([...hiddenTripIds]));
   } catch {
     /* fine */
   }
@@ -3669,8 +3742,9 @@ function updateLayersUi() {
     btn.classList.toggle('active', btn.dataset.style === styleKey);
   }
   for (const btn of layersMenu.querySelectorAll('[data-heat]')) {
-    btn.classList.toggle('active', btn.dataset.heat === heatMode);
+    btn.classList.toggle('active', cellsOn && btn.dataset.heat === heatMode);
   }
+  document.getElementById('cells-off').hidden = cellsOn;
   const token = detailToken(detailLevel);
   for (const btn of layersMenu.querySelectorAll('[data-detail]')) {
     btn.classList.toggle('active', btn.dataset.detail === token);
@@ -3679,15 +3753,16 @@ function updateLayersUi() {
   railToggle.checked = railOn;
   updateRoutesUi();
 
-  // The picker only means anything in single-color mode.
+  // The picker only means anything in single-color mode, and nothing at all
+  // while the cells are hidden — the note takes that slot instead.
   const heat = HEAT_MODES[heatMode];
-  document.getElementById('color-row').hidden = isHeatMode();
+  document.getElementById('color-row').hidden = isHeatMode() || !cellsOn;
 
   // Type has categories rather than a range: one swatch per source, ordered
   // the way the palette was handed out, so the list matches the map.
   const typeLegend = document.getElementById('type-legend');
-  typeLegend.hidden = !heat.categorical;
-  if (heat.categorical) {
+  typeLegend.hidden = !heat.categorical || !cellsOn;
+  if (heat.categorical && cellsOn) {
     typeLegend.replaceChildren();
     if (!sourceOrder.length) {
       const empty = document.createElement('span');
@@ -3714,8 +3789,8 @@ function updateLayersUi() {
 
   // Legend: the ramp itself, plus what its ends stand for right now.
   const legend = document.getElementById('heat-legend');
-  legend.hidden = !heat.ramp;
-  if (heat.ramp) {
+  legend.hidden = !heat.ramp || !cellsOn;
+  if (heat.ramp && cellsOn) {
     // background-image, not the `background` shorthand: the shorthand resets
     // background-repeat to `repeat`, and a tiled gradient wraps its ends around
     // into the bar's edges.
@@ -4389,6 +4464,8 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onRouteDeleted: async (route) => {
       if (!(await removeRoute(route))) throw new Error('Could not remove that route.');
     },
+    hiddenTrips: () => hiddenTripIds,
+    onHideTrip: setTripHidden,
     knownSources: () => [...new Set(routeList.map((r) => r.source))],
   });
   document.getElementById('stats-open').addEventListener('click', () => {

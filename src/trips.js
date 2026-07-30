@@ -61,6 +61,18 @@ export const HOME_RADIUS_KM = 55;
 /** Below this, a "trip" is a stray fix with a bad clock. */
 export const MIN_TRIP_CELLS = 3;
 /**
+ * How near two day-runs have to be to count as the same destination, and how
+ * many of them it takes before that destination is somewhere you *go* rather
+ * than somewhere you *went*. See `dropRoutine`.
+ *
+ * 25 km is a city and its approaches — near enough that two runs into the same
+ * place always pair up, far enough apart that two genuinely different towns
+ * don't. Three, because twice is a coincidence and a fourth run to the same
+ * city in the same list is a habit.
+ */
+export const FAMILIAR_KM = 25;
+export const FAMILIAR_TRIPS = 3;
+/**
  * The longest stay one sighting is allowed to imply, and the shortest.
  *
  * How long you were somewhere is the thing naming actually wants to know, and
@@ -267,7 +279,9 @@ const stayOf = (e, next) => {
  * @param {Map<string, Array>} cellMeta
  * @param {Array<object>} routes  saved routes (metadata is enough)
  * @param {{home?:{lng:number,lat:number}, gapDays?:number, stayDays?:number,
- *   radiusKm?:number, minCells?:number, awayShare?:number}} [opts]
+ *   radiusKm?:number, minCells?:number, awayShare?:number, familiarKm?:number,
+ *   familiarTrips?:number}} [opts] `familiarTrips: 0` keeps the routine runs
+ *   this otherwise drops — see `dropRoutine`.
  * @returns {Array<object>} newest first
  */
 export function buildTrips(cellMeta, routes = [], opts = {}) {
@@ -407,7 +421,44 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
     });
   }
   out.sort((a, b) => b.start - a.start);
-  return out;
+  return dropRoutine(out, opts);
+}
+
+/**
+ * Somewhere you keep going back to isn't a trip, it's your week.
+ *
+ * "Away from home" is a distance, and distance alone can't tell a holiday from
+ * a commute. Someone who drives to the same city a dozen times a year gets a
+ * dozen entries in a list they opened to remember holidays by, and the honest
+ * signal is sitting right there in the list: **a place that shows up in it over
+ * and over is not somewhere you went, it is somewhere you go.**
+ *
+ * So a day out is dropped when `FAMILIAR_TRIPS` other day-runs landed within
+ * `FAMILIAR_KM` of it. Symmetric, so it is all of them or none — the fourth
+ * visit to a place is not more routine than the first, and keeping three of the
+ * twelve would be arbitrary.
+ *
+ * Two things override it, because both say this one was different:
+ *
+ *   **it lasted more than a day** — you slept somewhere else, and a weekend in
+ *   a city you often visit is still a weekend away;
+ *   **you recorded a route on it** — bothering to save the track is a statement
+ *   that the day was worth keeping, and no derived rule should overrule it.
+ */
+function dropRoutine(trips, opts) {
+  const near = opts.familiarKm ?? FAMILIAR_KM;
+  const enough = opts.familiarTrips ?? FAMILIAR_TRIPS;
+  if (!(enough > 0)) return trips;
+  return trips.filter((t) => {
+    if (t.days > 1 || t.routes.length) return true;
+    let seen = 0;
+    for (const other of trips) {
+      if (other === t) continue;
+      if (distanceKm(t.center[0], t.center[1], other.center[0], other.center[1]) <= near) seen++;
+      if (seen >= enough) return false;
+    }
+    return true;
+  });
 }
 
 /**

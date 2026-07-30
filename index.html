@@ -64,11 +64,14 @@
             <div class="menu-subhead">
               <span>Color by</span>
             </div>
+            <!-- Pressing whichever one is on takes the visited areas off the map
+                 altogether, for a look at the ground underneath. The hint below
+                 is how anyone finds that out, and the way back. -->
             <div class="seg seg-wrap" id="heat-seg">
-              <button type="button" class="seg-btn" data-heat="flat">Single</button>
-              <button type="button" class="seg-btn" data-heat="visits">Visits</button>
-              <button type="button" class="seg-btn" data-heat="type">Type</button>
-              <button type="button" class="seg-btn" data-heat="oldest">First seen</button>
+              <button type="button" class="seg-btn" data-heat="flat" title="Press again to hide the visited areas">Single</button>
+              <button type="button" class="seg-btn" data-heat="visits" title="Press again to hide the visited areas">Visits</button>
+              <button type="button" class="seg-btn" data-heat="type" title="Press again to hide the visited areas">Type</button>
+              <button type="button" class="seg-btn" data-heat="oldest" title="Press again to hide the visited areas">First seen</button>
             </div>
             <!-- Fixed height so switching modes swaps the picker for the legend
                  without the menu growing or shrinking under the cursor. -->
@@ -84,6 +87,7 @@
                 <span>Visited color</span>
                 <button type="button" class="color-swatch" id="hud-color" aria-label="Visited color"></button>
               </div>
+              <div class="menu-note" id="cells-off" hidden>Visited areas hidden — pick a mode to bring them back.</div>
             </div>
 
             <label class="menu-row">

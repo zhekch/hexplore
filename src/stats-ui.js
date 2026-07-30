@@ -52,6 +52,9 @@ const pct = (v) =>
  * @param {(route:object, before:object) => void} [opts.onRouteEdited] after a successful
  *   save, with the values it had before it — that's what Undo needs
  * @param {(route:object) => Promise<void>} [opts.onRouteDeleted] remove it everywhere
+ * @param {() => Set<string>} [opts.hiddenTrips] ids of trips put away
+ * @param {(id:string|null, hide:boolean) => Promise<void>} [opts.onHideTrip] put
+ *   one away, or (with a null id) bring them all back
  * @param {() => string[]} [opts.knownSources] apps already used, for the picker
  */
 export function mountStats({
@@ -64,6 +67,8 @@ export function mountStats({
   onSetHome,
   onRouteEdited,
   onRouteDeleted,
+  hiddenTrips = () => new Set(),
+  onHideTrip,
   knownSources,
 }) {
   const $ = (id) => document.getElementById(id);
@@ -99,29 +104,40 @@ export function mountStats({
 
   // "What did I do most recently" and "what was the big one" are both fair
   // questions to open the list with.
+  //
+  // Sorting and grouping are two controls, not one. They used to share a single
+  // segmented control, which quietly made them exclusive: picking "By app" threw
+  // away whatever order you had, and there was no way to ask for the longest
+  // ride *of each activity* — which is the question a grouped list is usually
+  // opened with.
   const ROUTE_SORTS = {
     recent: {
       label: 'Newest',
       sort: (a, b) => (b.firstAt || b.addedAt) - (a.firstAt || a.addedAt) || b.id - a.id,
     },
     distance: { label: 'Longest', sort: (a, b) => b.lengthM - a.lengthM },
-    // Not a sort so much as a grouping: routes stay together by the app they
-    // came out of, which is usually how you remember them ("that Komoot ride").
-    app: {
-      label: 'By app',
-      group: true,
-      of: (r) => r.source || 'unknown',
-      sort: (a, b) => (b.firstAt || b.addedAt) - (a.firstAt || a.addedAt),
-    },
-    // "Show me the rides" is as natural a question as "show me the Komoot ones",
-    // and now that the activity is worked out for almost everything it can
-    // actually be answered.
-    activity: {
-      label: 'By activity',
-      group: true,
-      of: (r) => r.sport || '',
-      sort: (a, b) => (b.firstAt || b.addedAt) - (a.firstAt || a.addedAt),
-    },
+  };
+  const ROUTE_GROUPS = {
+    none: { label: 'Flat' },
+    // How you usually remember one: "that Komoot ride".
+    app: { label: 'By app', of: (r) => r.source || 'unknown' },
+    // "Show me the rides" is as natural a question as "show me the Komoot
+    // ones", and now that the activity is worked out for almost everything it
+    // can actually be answered.
+    activity: { label: 'By activity', of: (r) => r.sport || '' },
+  };
+
+  // The same three questions, asked of trips. "Longest" means days here rather
+  // than kilometres: a trip is a length of time, and the distance a trip
+  // covered isn't stored — only how far from home it got.
+  const TRIP_SORTS = {
+    recent: { label: 'Newest', sort: (a, b) => b.start - a.start },
+    days: { label: 'Longest', sort: (a, b) => b.days - a.days || b.start - a.start },
+    far: { label: 'Furthest', sort: (a, b) => b.farKm - a.farKm || b.start - a.start },
+  };
+  const TRIP_GROUPS = {
+    none: { label: 'Flat' },
+    country: { label: 'By country', of: (t) => t.country || '' },
   };
   // Sources that say nothing about which app a route came from belong at the
   // bottom, whatever their distance.
@@ -129,6 +145,9 @@ export function mountStats({
   // Routes is what this dialog is mostly used for, so it opens there.
   let tab = 'routes';
   let routeSort = 'recent';
+  let routeGroup = 'none';
+  let tripSort = 'recent';
+  let tripGroup = 'none';
 
   const close = () => {
     overlay.hidden = true;
@@ -210,6 +229,63 @@ export function mountStats({
       seg.append(btn);
     }
     return seg;
+  }
+
+  // Both controls on one line, under the heading: what order, and whether to
+  // break it into blocks. Two questions, so two controls — see ROUTE_SORTS.
+  function sortAndGroup(sorts, sort, groups, group, onSort, onGroup) {
+    const wrap = document.createElement('div');
+    wrap.className = 'stats-controls';
+    wrap.append(sortSeg(sorts, sort, onSort), sortSeg(groups, group, onGroup));
+    return wrap;
+  }
+
+  /**
+   * A list, optionally broken into blocks.
+   *
+   * Grouping is orthogonal to ordering: within each block the rows keep
+   * whatever sort is selected, and the blocks themselves are ordered by how
+   * much is in them. Entries that say nothing — an activity that was never
+   * worked out, a trip with no country under it — sink to the bottom rather
+   * than leading the list.
+   *
+   * @param {Array} items
+   * @param {{of?:(item:any)=>string}} group
+   * @param {(a:any,b:any)=>number} sort
+   * @param {(item:any, opts:object)=>Node} rowOf
+   * @param {(key:string, group:Array)=>{label:string, note:string, vague?:boolean}} describe
+   */
+  function groupedList(items, group, sort, rowOf, describe) {
+    const out = [];
+    const ordered = (list) => [...list].sort(sort);
+    if (!group?.of) {
+      const listEl = document.createElement('div');
+      listEl.className = 'stats-list';
+      for (const item of ordered(items)) listEl.append(rowOf(item, {}));
+      return [listEl];
+    }
+    const buckets = new Map();
+    for (const item of items) {
+      const key = group.of(item);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(item);
+    }
+    const described = [...buckets.entries()].map(([key, list]) => ({ key, list, ...describe(key, list) }));
+    described.sort((a, b) => !!a.vague - !!b.vague || b.list.length - a.list.length || a.label.localeCompare(b.label));
+    for (const g of described) {
+      const head = document.createElement('div');
+      head.className = 'stats-group';
+      const name = document.createElement('span');
+      name.textContent = g.label;
+      const note = document.createElement('i');
+      note.textContent = g.note;
+      head.append(name, note);
+      const listEl = document.createElement('div');
+      listEl.className = 'stats-list';
+      for (const item of ordered(g.list)) listEl.append(rowOf(item, { group: g.key }));
+      out.push(head, listEl);
+    }
+    return out;
   }
 
   // --- One route ---------------------------------------------------------------
@@ -593,63 +669,34 @@ export function mountStats({
       body.append(chart);
     }
 
+    const redraw = () => {
+      const at = body.scrollTop;
+      renderRoutes();
+      body.scrollTop = at;
+    };
     body.append(
       headRow(
         'Your routes',
-        sortSeg(ROUTE_SORTS, routeSort, (key) => {
-          routeSort = key;
-          const at = body.scrollTop;
-          renderRoutes();
-          body.scrollTop = at;
-        }),
+        sortAndGroup(
+          ROUTE_SORTS, routeSort, ROUTE_GROUPS, routeGroup,
+          (key) => { routeSort = key; redraw(); },
+          (key) => { routeGroup = key; redraw(); },
+        ),
       ),
     );
-    const opt = ROUTE_SORTS[routeSort];
-    if (!opt.group) {
-      const listEl = document.createElement('div');
-      listEl.className = 'stats-list';
-      for (const r of [...list].sort(opt.sort)) listEl.append(routeRow(r));
-      body.append(listEl);
-      return;
-    }
-
-    // One block per group, biggest first. Whatever the grouping is, the entries
-    // that say nothing — "GPX track" as an app, a route whose activity was never
-    // worked out — sink to the bottom rather than leading the list.
-    const vague = (key) => key === '' || VAGUE_SOURCES.has(key);
-    const buckets = new Map();
-    for (const r of list) {
-      const key = opt.of(r);
-      if (!buckets.has(key)) buckets.set(key, []);
-      buckets.get(key).push(r);
-    }
-    const groups = [...buckets.entries()].sort(
-      (a, b) =>
-        vague(a[0]) - vague(b[0]) ||
-        totalLength(b[1]) - totalLength(a[1]) ||
-        a[0].localeCompare(b[0]),
-    );
-    const label = routeSort === 'activity'
-      ? (key) => key || 'Activity not set'
-      : (key) => sourceLabel(key);
-    for (const [key, group] of groups) {
-      const head = document.createElement('div');
-      head.className = 'stats-group';
-      const name = document.createElement('span');
-      name.textContent = label(key);
-      const note = document.createElement('i');
-      note.textContent = `${plural(group.length, 'route')} · ${formatDistance(totalLength(group))}`;
-      head.append(name, note);
-      const listEl = document.createElement('div');
-      listEl.className = 'stats-list';
-      for (const r of [...group].sort(opt.sort)) {
-        listEl.append(routeRow(r, {
-          showApp: routeSort !== 'app',
-          showSport: routeSort !== 'activity',
-        }));
-      }
-      body.append(head, listEl);
-    }
+    body.append(...groupedList(
+      list,
+      ROUTE_GROUPS[routeGroup],
+      ROUTE_SORTS[routeSort].sort,
+      // The heading already says the thing the list is grouped by, so the row
+      // stops repeating it.
+      (r) => routeRow(r, { showApp: routeGroup !== 'app', showSport: routeGroup !== 'activity' }),
+      (key, group) => ({
+        label: routeGroup === 'activity' ? key || 'Activity not set' : sourceLabel(key),
+        note: `${plural(group.length, 'route')} · ${formatDistance(totalLength(group))}`,
+        vague: key === '' || VAGUE_SOURCES.has(key),
+      }),
+    ));
   }
 
   // Every control in this tab redraws the list it is in, so they all need the
@@ -833,15 +880,27 @@ export function mountStats({
     await new Promise((r) => setTimeout(r, 20)); // let the dialog paint first
 
     const set = home();
-    const list = buildTrips(meta(), routes(), set ? { home: set } : {});
+    const all = buildTrips(meta(), routes(), set ? { home: set } : {});
     try {
-      await nameThem(list);
+      await nameThem(all);
     } catch {
-      for (const t of list) t.name = t.name || 'Somewhere';
+      for (const t of all) t.name = t.name || 'Somewhere';
     }
+    // Trips are derived, so one you have put away can't be deleted — there is
+    // no row to remove. It is remembered by id and skipped, which comes to the
+    // same thing and can be undone.
+    const put = hiddenTrips();
+    const list = all.filter((t) => !put.has(t.id));
     lastTrips = list;
 
     body.replaceChildren();
+    if (!list.length && put.size) {
+      const empty = document.createElement('div');
+      empty.className = 'stats-loading';
+      empty.textContent = `Every trip is hidden — ${put.size} of them.`;
+      body.append(empty, hiddenRow(put));
+      return;
+    }
     if (!list.length) {
       const empty = document.createElement('div');
       empty.className = 'stats-loading';
@@ -861,30 +920,104 @@ export function mountStats({
       row('Furthest', `${Math.max(...list.map((t) => t.farKm)).toLocaleString()} km`, 'from home'),
     );
     body.append(homeRow(list));
-    body.append(headRow('Every trip'));
-
+    const redraw = () => {
+      const at = body.scrollTop;
+      renderTripList(list);
+      body.scrollTop = at;
+    };
+    body.append(
+      headRow(
+        'Every trip',
+        sortAndGroup(
+          TRIP_SORTS, tripSort, TRIP_GROUPS, tripGroup,
+          (key) => { tripSort = key; redraw(); },
+          (key) => { tripGroup = key; redraw(); },
+        ),
+      ),
+    );
     const wrap = document.createElement('div');
-    wrap.className = 'stats-list';
-    for (const t of list) {
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'trip-row';
-      el.innerHTML =
-        '<span class="trip-main"><b></b><small></small></span><span class="trip-side"><b></b><small></small></span>';
-      el.querySelector('.trip-main b').textContent = t.name;
-      el.querySelector('.trip-main small').textContent = tripWhen(t);
-      el.querySelector('.trip-side b').textContent = `${t.cells.length.toLocaleString()} cells`;
-      el.querySelector('.trip-side small').textContent = [
-        t.routes.length ? `${t.routes.length} route${t.routes.length === 1 ? '' : 's'}` : '',
-        t.lengthM ? formatDistance(t.lengthM) : '',
-      ].filter(Boolean).join(' · ') || `${t.farKm} km away`;
-      el.addEventListener('click', () => {
-        close();
-        onShowTrip?.(t);
-      });
-      wrap.append(el);
-    }
+    wrap.className = 'trip-list';
     body.append(wrap);
+    renderTripList(list);
+
+    function renderTripList(shown) {
+      // Only the list below the heading is rebuilt: the totals and the home row
+      // above it don't change with the sort, and re-deriving every trip to
+      // reorder them would take a second for nothing.
+      wrap.replaceChildren();
+      wrap.append(...groupedList(
+        shown,
+        TRIP_GROUPS[tripGroup],
+        TRIP_SORTS[tripSort].sort,
+        (t) => tripRow(t),
+        (key, group) => ({
+          label: key || 'At sea or off the map',
+          note: `${plural(group.length, 'trip')} · ${plural(group.reduce((n, t) => n + t.days, 0), 'day')}`,
+          vague: !key,
+        }),
+      ));
+      if (put.size) wrap.append(hiddenRow(put));
+    }
+  }
+
+  function tripRow(t) {
+    const el = document.createElement('div');
+    el.className = 'trip-row';
+
+    const go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'trip-go';
+    go.innerHTML =
+      '<span class="trip-main"><b></b><small></small></span><span class="trip-side"><b></b><small></small></span>';
+    go.querySelector('.trip-main b').textContent = t.name;
+    go.querySelector('.trip-main small').textContent = tripWhen(t);
+    go.querySelector('.trip-side b').textContent = `${t.cells.length.toLocaleString()} cells`;
+    go.querySelector('.trip-side small').textContent = [
+      t.routes.length ? `${t.routes.length} route${t.routes.length === 1 ? '' : 's'}` : '',
+      t.lengthM ? formatDistance(t.lengthM) : '',
+    ].filter(Boolean).join(' · ') || `${t.farKm} km away`;
+    go.title = 'Show this trip on the map';
+    go.addEventListener('click', () => {
+      close();
+      onShowTrip?.(t);
+    });
+
+    // Putting one away is one press, because it is completely reversible — the
+    // trip is still derived, it is just skipped, and the row under the list
+    // brings every one of them back. A confirm step for something undoable is
+    // just a second press.
+    const hide = document.createElement('button');
+    hide.type = 'button';
+    hide.className = 'trip-hide';
+    hide.setAttribute('aria-label', `Hide ${t.name}`);
+    hide.title = 'Hide this trip';
+    hide.innerHTML =
+      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+    hide.addEventListener('click', async () => {
+      await onHideTrip?.(t.id, true);
+      renderTrips();
+    });
+
+    el.append(go, hide);
+    return el;
+  }
+
+  function hiddenRow(put) {
+    const el = document.createElement('div');
+    el.className = 'home-row';
+    el.innerHTML = '<span class="home-text"><b></b><small></small></span>';
+    el.querySelector('b').textContent = `${plural(put.size, 'trip')} hidden`;
+    el.querySelector('small').textContent = 'Runs you told the list to forget';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'home-set';
+    btn.textContent = 'Show them';
+    btn.addEventListener('click', async () => {
+      await onHideTrip?.(null, false);
+      renderTrips();
+    });
+    el.append(btn);
+    return el;
   }
 
   // Everything in this tab is measured from home: what counts as away, how far

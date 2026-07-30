@@ -607,6 +607,19 @@ body {
   color: rgba(255, 255, 255, 0.45);
 }
 
+/* Takes the same fixed slot the legend and the colour picker share, so hiding
+   the visited areas doesn't resize the menu under the pointer. */
+.menu-note {
+  padding: 6px 2px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.menu-note[hidden] {
+  display: none;
+}
+
 .legend[hidden] {
   display: none;
 }
@@ -1975,6 +1988,15 @@ body {
   white-space: nowrap;
 }
 
+/* Order and grouping are two questions, so two controls. They wrap together
+   and stay on the same line as each other when there is room. */
+.stats-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Compact segmented control for the country sort */
 .seg-mini {
   padding: 2px;
@@ -2775,6 +2797,7 @@ body {
   color: rgba(15, 23, 42, 0.86);
 }
 
+[data-theme='light'] .menu-note,
 [data-theme='light'] .legend-empty {
   color: rgba(15, 23, 42, 0.55);
 }
@@ -4148,15 +4171,26 @@ body {
   height: 5px;
   bottom: 3.5px;
   border-radius: 999px;
-  background: rgba(96, 172, 255, 0.8);
+  /* Opaque, not translucent. Neighbouring segments overlap by 6px to cross the
+     grid gap, and two 80% bars overlapping composite to 96% — which drew a
+     darker band at every midnight and made a continuous bar look striped. */
+  background: #5c9fe0;
 }
 
+/* Square where the run carries on, round only at its two real ends. Rounding
+   every segment and overlapping them looked like a chain of lozenges: two
+   rounded caps overlapping don't union into a straight edge, they pinch, and a
+   fortnight came out visibly notched at every midnight. */
 .cal-day.trip-l i {
   left: -3px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
 .cal-day.trip-r i {
   right: -3px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 /* A week ends on Sunday: where the run carries on into the next row the bar
@@ -4193,12 +4227,26 @@ body {
 /* --- Trips --------------------------------------------------------------------
    Derived, not stored, so a row is a reading of the map rather than a record —
    which is why it is a button that takes you there and has nothing to edit. */
+/* A row is two controls now — the trip itself, and the × that puts it away —
+   so the row is the container and the trip is the button inside it. The hover
+   still belongs to the whole row, because the row is what you are pointing at. */
 .trip-row {
+  display: flex;
+  align-items: center;
+  border-radius: 12px;
+}
+
+.trip-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.trip-go {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  width: 100%;
   padding: 9px 10px;
   border: 0;
   border-radius: 12px;
@@ -4209,9 +4257,43 @@ body {
   cursor: pointer;
 }
 
-.trip-row:hover {
-  background: rgba(255, 255, 255, 0.08);
+/* Only on hover, and only on a pointer: a × beside every row reads as a list of
+   things to delete rather than a list of trips. On touch there is no hover, so
+   it is always there. */
+.trip-hide {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 6px;
+  appearance: none;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
+
+.trip-row:hover .trip-hide,
+.trip-hide:focus-visible {
+  opacity: 1;
+}
+
+.trip-hide:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+@media (hover: none) {
+  .trip-hide {
+    opacity: 1;
+  }
+}
+
 
 .trip-main {
   min-width: 0;
@@ -4289,7 +4371,17 @@ body {
 [data-theme='light'] .search-input,
 [data-theme='light'] .search-hit,
 [data-theme='light'] .cal-title,
-[data-theme='light'] .trip-row {
+[data-theme='light'] .trip-row,
+[data-theme='light'] .trip-go {
+  color: #0f172a;
+}
+
+[data-theme='light'] .trip-hide {
+  color: rgba(15, 23, 42, 0.4);
+}
+
+[data-theme='light'] .trip-hide:hover {
+  background: rgba(15, 23, 42, 0.12);
   color: #0f172a;
 }
 
@@ -4336,7 +4428,7 @@ body {
 
 [data-theme='light'] .cal-day.has i,
 [data-theme='light'] .cal-day.trip i {
-  background: rgba(37, 99, 235, 0.85);
+  background: #3b76e0;
 }
 
 [data-theme='light'] .cal-day.has-route i,

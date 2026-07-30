@@ -132,7 +132,9 @@ ground it covered. Routes are named after where they went ("Bern → Thun",
 "Thunersee loop"), get their activity worked out from the file — or from their
 pace and climb when the file doesn't say — and are listed with a little drawing
 of their own shape, which is how you actually recognise one. Tap a line on the
-map for its card.
+map for its card. The list sorts by **newest or longest** and groups by **app or
+activity**, and the two are independent — so "the longest ride, and the longest
+hike" is one question you can ask.
 
 **Trips.** *Routes and statistics → Trips* groups your history into the runs of
 days you didn't come home: `Zermatt, Switzerland · Aug 10 – Aug 16, 2024 ·
@@ -150,6 +152,16 @@ Coming home ends a trip, so going away, spending a day at home and leaving again
 is two trips and not one. And a day whose ground is mostly around home is a day
 at home however far you also drove — which is why an hour's drive out and back,
 every day for a fortnight, is no longer one long trip to the next canton.
+
+**Somewhere you keep going back to isn't a trip, it's your week.** A day run to
+a city you visit half a dozen times a year stops counting, because a list you
+opened to remember holidays by shouldn't be six rows of the same errand. Two
+things override that: a night away is always a trip, and so is any day you
+bothered to record a route on. And you can put any trip away by hand — one press
+on the row, and one press on the row underneath the list brings them all back.
+
+Sort the list by **newest, longest or furthest from home**, and **group it by
+country**; the sort holds inside each group.
 
 Each one is named after **where you actually spent the time** — measured from
 the gaps between your own fixes, so a day out is named after the four hours in
@@ -231,9 +243,11 @@ that isn't the one it counted.
 
 **Looks.** Four basemaps (dark, terrain, light, satellite), one accent colour or
 a shading by **visits**, **first seen**, or **type** — a colour per app the data
-came from. Every colour has an **opacity** slider under the hue strip, so you
-can turn the visited wash down until the map underneath reads through it, or
-fade one activity's routes back without hiding them. Terrain and Satellite are
+came from. Press whichever one is already on and the visited areas come off the
+map entirely, for a look at the ground underneath. Every colour has an
+**opacity** slider under the hue strip, so you can turn the visited wash down
+until the map underneath reads through it, or fade one activity's routes back
+without hiding them. Terrain and Satellite are
 kept to the same label and road density as Light, and roads on all of them fade
 out as you zoom away rather than shouting over the map.
 
