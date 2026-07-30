@@ -135,11 +135,16 @@ of their own shape, which is how you actually recognise one. Tap a line on the
 map for its card.
 
 **Trips.** *Routes and statistics → Trips* groups your history into the runs of
-days you spent away from home: `Zermatt, Switzerland · Aug 10 – Aug 16, 2024 ·
+days you didn't come home: `Zermatt, Switzerland · Aug 10 – Aug 16, 2024 ·
 36 cells`. Tap one and the map flies there and outlines it. Trips are worked out
 from the dates your cells and routes already carry, so they appear on their own
 — which also means they can't be renamed, and that a week somewhere with your
 phone off is a week that didn't happen.
+
+Coming home ends a trip, so going away, spending a day at home and leaving again
+is two trips and not one. And a day whose ground is mostly around home is a day
+at home however far you also drove — which is why an hour's drive out and back,
+every day for a fortnight, is no longer one long trip to the next canton.
 
 Each one is named after **where you actually spent the days**, and after the
 best-known place there: a fortnight in Rome with a day out to Florence is

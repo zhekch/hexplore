@@ -674,21 +674,52 @@ row, it's a reading of the rows.
 - **Home is where you keep going back to**, taken as the centre of gravity of
   the cells with the most visits rather than the single most-visited one — which
   of the three hexagons around your flat wins is decided by GPS drift, and the
-  weighted centre of the top twelve stays put as more history arrives.
+  weighted centre of the top twelve stays put as more history arrives. Averaged
+  **around the circle**, because a cell centre projects to an unwrapped
+  longitude (351 for Lisbon, not −9) and a plain mean of those puts the home of
+  anyone with a well-visited cell in the western hemisphere in the middle of
+  Europe.
 - **Home has to be earned.** Somewhere needs `HOME_MIN_HITS` repeat visits
   before it can claim the title. Without that rule, an account holding one
   imported holiday decides the holiday is home, every cell in it is "not away",
   and the trip vanishes from the list it exists to be in. A map that has never
   seen you come back has no home yet and is all trip.
-- **Away is `HOME_RADIUS_KM` (55 km) from it**, and a run of away-events less
-  than `TRIP_GAP_DAYS` (2) apart is one trip.
-- **…but a stay is rejoined across its own silence.** A cell records when it was
-  first and last seen and nothing in between, so a week in one village arrives
-  as a crowd of arrival dates, a crowd of departure dates, and six days of
-  nothing — which the gap rule alone reads as two trips to the same place four
-  days apart. Clusters within `TRIP_MERGE_DAYS` (16) and `TRIP_MERGE_KM` (150)
-  are therefore merged. The bound is what keeps twice in the same village four
-  months apart as two trips.
+- **A trip is a run of days you did not come home** — not a run of events far
+  from home, which is a different question and the one that used to be asked.
+  Away is `HOME_RADIUS_KM` (55 km); each day is then weighed as a whole, and a
+  day counts as away only if at least `AWAY_DAY_SHARE` (half) of the ground it
+  touched was out there.
+
+  Someone who drives an hour out and back every day produces evidence beyond the
+  radius on every one of those days. Read as events that is one unbroken run,
+  and it came out as a **77-day "trip" to the next canton**. Read as days, each
+  one also has evidence *at* home, so none of them is a night away and there is
+  no trip at all — while a fortnight in Portugal has eight days with no home
+  evidence whatsoever. Half, because both sides are counted in cells and the day
+  you fly out legitimately touches a few near home on the way to the airport.
+- **Coming home ends a trip**, at any gap. Going to Portugal, home for one day,
+  then away again to Slovakia used to be a single 58-day trip: nothing in a list
+  of away-events says you were ever back. One home day in the middle now ends
+  the first and starts the second.
+- **Silence doesn't.** Nothing recorded says nothing either way, so a gap of up
+  to `TRIP_GAP_DAYS` (2) carries the trip on.
+- **A stay is read across its own silence, one row at a time.** A row records
+  when a cell was first and last seen and nothing in between, so a week in one
+  village arrives as a crowd of arrival dates, a crowd of departure dates and
+  six days of nothing. A row whose two ends are within `TRIP_STAY_DAYS` (16) is
+  therefore read as one continuous stay and *holds* the days between them open —
+  they carry a day that has nothing else on it, and never outvote a day that
+  has, because an inference about time is not a sighting. The bound is what
+  keeps first-seen-in-August, last-seen-in-December as two visits rather than a
+  four-month residency.
+
+  This replaced a rule that merged whole **clusters** near each other in space
+  and time (`TRIP_MERGE_DAYS`/`TRIP_MERGE_KM`). That rule could chain: each
+  merge moved the cluster's centre, which brought the next one within range. On
+  real data five individually-reasonable merges — 142 km apart, then 125, 87,
+  118, 17 — glued a fortnight in Portugal, a week in Slovakia and every day trip
+  in between into one trip. A row can only ever imply its own span, so it cannot
+  chain.
 - **Both ends of a cell's span are events**, not just the first. Emitting only
   the far-apart ones (the first attempt) made every short stay exactly one day
   long, because a Friday-to-Sunday cell never produced its Sunday.
@@ -734,7 +765,10 @@ row, it's a reading of the rows.
 `scripts/test/trips.mjs` covers the decisions rather than the plumbing: that
 home is where the visits are and not where the trip was, that a week is one trip
 and two weekends are two, that a weekend away lasts two days, that twice in a
-year is twice, that an undated cell invents nothing, and — with a pretend
+year is twice, that an undated cell invents nothing, that a day at home between
+two trips makes them two while one continuous absence stays one, that twenty
+days of driving out and back is not a trip at all while a single day away still
+is, and — with a pretend
 gazetteer of longitude bands, so the argument under test is which places a trip
 weighs most rather than which shapes are where — that the week beats the drive,
 that the city beats the village only when the time is comparable, that four days
