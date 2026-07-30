@@ -158,7 +158,13 @@ glass look. Click hexagons to mark places you've visited.
   per country. Single-color mode's swatch opens the app's **own color picker**
   (`src/color-picker.js`) rather than the OS one, and the map repaints as you
   drag. Every colour it produces can carry an **opacity** — see
-  [Colours with an opacity](#colours-with-an-opacity).
+  [Colours with an opacity](#colours-with-an-opacity). Pressing whichever mode
+  is already on takes the visited areas off the map altogether: the panel could
+  do everything except get out of the way, and "what does this valley actually
+  look like" is a fair question to ask of a map you have painted over. One flag
+  (`cellsOn`), read through `accentAlpha()`, so every surface that draws the
+  wash — the blob raster, the region fills, the region outlines — goes with it,
+  and `heatMode` is left alone so coming back returns to the mode you had.
 - **Saved routes**: track files can keep the line they drew, not just the ground
   it covered — see [Saved routes](#saved-routes) below.
 - **Region borders**: `SHOW_REGION_BORDERS` in `src/main.js` toggles the crisp
@@ -174,10 +180,17 @@ glass look. Click hexagons to mark places you've visited.
   from, and how much new ground each year added. Each country **opens to show
   its own regions** — see [Coverage](#coverage) for why the bar is always a
   share and why the regions are nested. **Routes** is the
-  list of saved tracks: totals, distance by year, and every route sorted by date
-  or length, or grouped **by app** (Komoot, Strava, Garmin…) with each app's own
-  count and distance — tap one and the panel closes, the map flies to it and its
-  card opens.
+  list of saved tracks: totals, distance by year, and every route — tap one and
+  the panel closes, the map flies to it and its card opens.
+- **Ordering and grouping are two controls**, in both the Routes and the Trips
+  lists. They used to be one, which quietly made them exclusive: picking "By
+  app" threw away whatever order you had, and there was no way to ask for the
+  longest ride *of each activity*, which is the question a grouped list is
+  usually opened with. Now the sort holds *within* each block. Routes sort by
+  newest or longest and group by app or activity; trips sort by newest, longest
+  (in days) or furthest from home, and group by country. Both lists put the
+  blocks that say nothing — an activity never worked out, a trip with no country
+  under it — at the bottom rather than the top.
 - **Glass tiles**: unvisited cells draw as slightly inset, sharp-cornered
   glass tiles with a whisper-thin stroke — tuned by `TILE_INSET`.
 
@@ -757,6 +770,28 @@ row, it's a reading of the rows.
 - **A stray cell is not a journey**: `MIN_TRIP_CELLS` (3), or one route, is the
   floor. A cell with no date at all cannot be placed in time and makes no trip
   rather than a guessed one.
+- **Somewhere you keep going back to isn't a trip, it's your week.** "Away from
+  home" is a distance, and distance alone cannot tell a holiday from a commute:
+  someone who drives to the same city a dozen times a year got a dozen rows in a
+  list they opened to remember holidays by. The signal is sitting in the list
+  itself — a place that turns up in it over and over is not somewhere you went,
+  it is somewhere you go — so a day run is dropped when `FAMILIAR_TRIPS` (3)
+  other day runs landed within `FAMILIAR_KM` (25 km) of it. Symmetric, so it is
+  all of them or none: the fourth visit is not more routine than the first, and
+  keeping three of twelve would be arbitrary. On real data this took 63 trips to
+  41, and every one it removed was a repeat.
+
+  Two things override it, because both say this one was different: **it lasted
+  more than a day** (you slept somewhere else, and a weekend in a city you often
+  visit is still a weekend away), and **you recorded a route on it** — bothering
+  to save the track is a statement that the day was worth keeping, and no
+  derived rule should overrule it. `familiarTrips: 0` turns the whole thing off.
+- **A trip you put away stays away.** They are derived, so there is no row to
+  delete; the list skips a set of ids kept in the account preferences
+  (`hiddenTrips`), and one press on the row does it. Reversible in one press
+  from the row under the list, which is why it doesn't ask twice — a confirm
+  step for something undoable is just a second press. Ids are `trip-<start>` and
+  stable across rebuilds, so one stays hidden as more history arrives.
 - **Named after where it mostly was, not after its middle.** Naming is a
   separate pass (`nameTrips`) because the place data is a 2 MB lazy chunk and the
   trips are complete without it. It gets the trip's `spots` — one entry per cell
@@ -888,6 +923,12 @@ reason; which days have evidence is already said by the lit cell behind the
 number. It reaches 3 px past each edge it has a neighbour on, enough to cross
 the grid's 2 px gap, and stops flush at a week boundary so a run resumes on the
 Monday underneath rather than hanging off the grid.
+
+Two details are what make it read as one bar rather than a chain of lozenges.
+The interior ends are **square** — two rounded caps overlapping don't union into
+a straight edge, they pinch, and a fortnight came out visibly notched at every
+midnight — and the bar is **opaque**, because segments overlapping by 6 px at
+80% composite to 96% and drew a darker band at every one of those joins.
 
 `scripts/test/trips.mjs` covers the decisions rather than the plumbing: that
 home is where the visits are and not where the trip was, that a week is one trip

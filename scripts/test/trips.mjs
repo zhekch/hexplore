@@ -196,6 +196,42 @@ check(Math.abs(ice[0].center[0] + 21.94) < 1, 'centred where it actually is', St
 check(ice[0].bbox[2] - ice[0].bbox[0] < 2, 'and no wider than the place it covers',
   String(ice[0].bbox[2] - ice[0].bbox[0]));
 
+// --- Somewhere you go, not somewhere you went ----------------------------------
+// "Away from home" is a distance, and distance can't tell a holiday from a
+// habit. A place that turns up in the list over and over is not a destination,
+// it is part of your week — so day runs to it stop counting, all of them or
+// none. Five Saturdays in the same city, and one weekend somewhere else.
+console.log('\na place you keep going back to');
+const often = new Map();
+for (let i = 0; i < 5; i++) {
+  // Walked north each time so one visit's cells can't overwrite the next's.
+  for (const [k, v] of patch(8.54, 47.37 + i * 0.02, 5, T(`2024-0${i + 3}-12`))) often.set(k, v);
+}
+const once = patch(12.49, 41.90, 5, T('2024-08-10'), T('2024-08-12'));
+const habits = buildTrips(merge(homeCells, often, once), []);
+check(habits.length === 1, 'five day runs to the same city are not five trips', `${habits.length}`);
+check(dayKey(habits[0].start) === '2024-08-10', 'and the one somewhere else still is',
+  dayKey(habits[0].start));
+// Proof the case discriminates: without the rule they are all trips.
+check(buildTrips(merge(homeCells, often, once), [], { familiarTrips: 0 }).length === 6,
+  'switching the rule off gives all six back',
+  `${buildTrips(merge(homeCells, often, once), [], { familiarTrips: 0 }).length}`);
+
+// Two things say this one was different, and both override it.
+const sameCityNight = merge(often, patch(8.54, 47.50, 5, T('2024-09-14'), T('2024-09-15')));
+const sameCitySlept = buildTrips(merge(homeCells, sameCityNight), []);
+check(sameCitySlept.some((t) => t.days > 1), 'a night away in the same city is still a trip',
+  sameCitySlept.map((t) => `${t.days}d`).join(', '));
+
+const saturdayRide = {
+  id: 7, name: 'Saturday ride', firstAt: T('2024-04-12T10:00:00'), lastAt: T('2024-04-12T12:00:00'),
+  lengthM: 42000, bounds: [8.5, 47.35, 8.6, 47.42],
+};
+const habitWithRoute = buildTrips(merge(homeCells, often), [saturdayRide]);
+check(habitWithRoute.length === 1 && habitWithRoute[0].routes.length === 1,
+  'and so is one you bothered to record a route on',
+  `${habitWithRoute.length} trips`);
+
 // --- Naming -------------------------------------------------------------------
 // A trip is named after where it mostly *was*, which is not where its middle is.
 // The datasets that answer "what is at this coordinate" are 6 MB of lazy chunks,
