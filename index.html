@@ -9,7 +9,13 @@
   <body>
     <div id="map"></div>
 
-    <div class="hud" id="hud">
+    <!-- Hidden until the app says otherwise. Whether the pencil belongs on screen
+         at all is a stored preference, so the markup cannot know it: painting it
+         and then taking it away is a button that appears and disappears while
+         the page loads. installGrid() shows it when the map is ready. Anything
+         that is always on screen — the search and menu buttons below — stays in
+         the markup unhidden, so it paints once and never moves. -->
+    <div class="hud" id="hud" hidden>
       <button class="hud-pencil" id="hud-pencil" type="button" aria-label="Edit visited areas" title="Edit visited areas">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12 20h9" />
