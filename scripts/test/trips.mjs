@@ -109,6 +109,58 @@ const twice = patch(7.75, 46.02, 6, T('2024-08-10'), T('2024-12-20'), 2);
 check(buildTrips(merge(homeCells, twice), []).length === 2, 'twice in a year is twice',
   String(buildTrips(merge(homeCells, twice), []).length));
 
+// --- Coming home ---------------------------------------------------------------
+// The cases that made a summer read as one trip. A trip is a run of days you
+// did not come home, so a day at home ends one however tightly the away-evidence
+// on either side is packed.
+console.log('\ncoming home ends a trip');
+
+// Portugal, one day at home, then Slovakia. Nothing in a list of away-events
+// says you were ever back, and this used to come out as one 58-day trip.
+const lisbon = merge(
+  patch(-9.14, 38.72, 8, T('2024-06-23'), T('2024-06-25'), 4),
+  patch(-9.16, 38.74, 8, T('2024-06-26'), T('2024-06-30'), 4),
+);
+const backHome = patch(7.45, 46.94, 6, T('2024-07-01'), T('2024-07-01'), 20);
+const bratislava = merge(
+  patch(17.11, 48.15, 8, T('2024-07-02'), T('2024-07-05'), 4),
+  patch(17.13, 48.17, 8, T('2024-07-06'), T('2024-07-09'), 4),
+);
+const twoTrips = buildTrips(merge(homeCells, lisbon, backHome, bratislava), []);
+check(twoTrips.length === 2, 'a day at home between two trips makes them two trips', `${twoTrips.length}`);
+check(twoTrips[1].days === 8 && twoTrips[0].days === 8, 'each the length it really was',
+  twoTrips.map((t) => `${t.days}d`).join(', '));
+check(dayKey(twoTrips[0].start) === '2024-07-02', 'and the second starts when you left again',
+  dayKey(twoTrips[0].start));
+
+// Without the day at home in the middle, it is one journey — which is what
+// Bratislava with an excursion to Prague actually is.
+const oneRun = buildTrips(merge(homeCells, lisbon, bratislava), []);
+check(oneRun.length === 1, 'and without it, one continuous absence is one trip', `${oneRun.length}`);
+
+// Driving somewhere and back every day is not a 70-day trip. Each day has
+// evidence far from home *and* evidence at home; only the second kind decides.
+// (Each day is walked north rather than east, so one day's patch can't overlap
+// the next one's cells and silently overwrite its dates.)
+let commute = new Map();
+for (let d = 1; d <= 20; d++) {
+  const day = `2024-03-${String(d).padStart(2, '0')}`;
+  commute = merge(
+    commute,
+    patch(8.50, 47.00 + d * 0.02, 4, T(day), T(day), 2), // ~80 km away
+    patch(7.44, 46.80 + d * 0.02, 6, T(day), T(day), 30), // and home again by night
+  );
+}
+const daily = buildTrips(merge(homeCells, commute), []);
+check(daily.length === 0, 'twenty days of driving out and back is not a trip',
+  daily.map((t) => `${t.days}d`).join(', '));
+
+// …but a day out that really was a day out still shows, on its own.
+const dayOut = patch(9.53, 46.85, 8, T('2024-04-06'), T('2024-04-06'), 3);
+const outing = buildTrips(merge(homeCells, dayOut), []);
+check(outing.length === 1 && outing[0].days === 1, 'a single day away is a one-day trip',
+  `${outing.length} trips, ${outing[0]?.days}d`);
+
 // --- What isn't a trip --------------------------------------------------------
 console.log('\nwhat is not a trip');
 const stray = patch(7.75, 46.02, 1, T('2024-08-10'));

@@ -16,21 +16,46 @@
 
 import { cellCenter, project } from './hexgrid.js';
 
-/** A gap longer than this starts a new trip. */
+/** Silence longer than this ends a trip. Being home ends one at any length. */
 export const TRIP_GAP_DAYS = 2;
 /**
- * …unless the two sides of the gap are the same place, in which case they are
- * one stay with a quiet middle, and this is how long that middle may be.
+ * The longest stay one stored row is allowed to imply.
  *
- * A cell records when it was first and last seen and nothing in between, so a
- * week in one village arrives as a crowd of arrival dates, a crowd of departure
- * dates, and six days of silence — which the gap rule above reads as two trips
- * to the same place, four days apart. It isn't: it's a week. Two clusters near
- * each other in space and within a fortnight in time are therefore rejoined.
+ * A row records when a cell was first and last seen and nothing in between, so
+ * a week in one village arrives as a crowd of arrival dates, a crowd of
+ * departure dates, and six days of silence — which the gap rule alone reads as
+ * two trips to the same place. It isn't: it's a week. A row whose two ends are
+ * this close together is therefore read as one continuous stay, and the days
+ * between them count as days away.
+ *
+ * Bounded, because the same shape of row means the opposite when the ends are
+ * far apart: first seen in August, last seen in December is two visits, not a
+ * four-month residency.
+ *
+ * This replaced a rule that merged whole *clusters* that were near each other
+ * in space and time. That rule could chain — each merge moved the cluster's
+ * centre, which brought the next one within range — and on real data it glued a
+ * fortnight in Portugal, a week in Slovakia and every day trip in between into
+ * one 58-day "trip". A row can only ever imply its own span, so it cannot
+ * chain.
  */
-export const TRIP_MERGE_DAYS = 16;
-/** How close "the same place" is, for that rejoining. */
-export const TRIP_MERGE_KM = 150;
+export const TRIP_STAY_DAYS = 16;
+/**
+ * How much of a day's evidence has to be away from home before it counts as a
+ * day away rather than a day out.
+ *
+ * Days, not events, are what a trip is made of — and the difference between a
+ * fortnight in Rome and a fortnight of driving to the next canton and back is
+ * not where you went, it is whether you came home at night. Both produce
+ * evidence far from home every day; only one produces evidence *at* home every
+ * day too. A day whose evidence is mostly around home is a day you were living
+ * at home, whatever else you did with it.
+ *
+ * Half, because the two sides are counted in the same unit — cells the day
+ * touched — and the day you fly out legitimately touches a few near home on the
+ * way to the airport.
+ */
+export const AWAY_DAY_SHARE = 0.5;
 /** Nearer than this to home and you weren't away, you were living. */
 export const HOME_RADIUS_KM = 55;
 /** Below this, a "trip" is a stray fix with a bad clock. */
@@ -74,6 +99,25 @@ export function dayKey(sec) {
 }
 
 /**
+ * A day key as a number that can be compared and stepped through.
+ *
+ * Counted as calendar days rather than as divisions of a timestamp, so the
+ * clocks going forward doesn't make two adjacent days look 1.04 days apart.
+ */
+export function dayNumber(key) {
+  const [y, m, d] = String(key).split('-').map(Number);
+  return Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d)
+    ? Date.UTC(y, m - 1, d) / 86400000
+    : NaN;
+}
+
+/** …and back, for stepping across the quiet middle of a stay. */
+function keyOfDay(n) {
+  const d = new Date(n * 86400000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+/**
  * Where you live, as a point — the centre of gravity of the cells you go back
  * to most.
  *
@@ -101,31 +145,23 @@ export function findHome(cellMeta) {
   scored.sort((a, b) => b.hits - a.hits);
   if (scored[0].hits < HOME_MIN_HITS) return null; // nowhere has earned it yet
   const top = scored.slice(0, 12);
-  let sumLng = 0;
+  // Averaged around the circle, not along the number line. A cell centre
+  // projects to an unwrapped longitude — 351 for Lisbon, not −9 — and a plain
+  // mean of those puts the home of anyone with a well-visited cell in the
+  // western hemisphere somewhere in the middle of Europe instead. Summing unit
+  // vectors is right wherever the cells are, including across the antimeridian.
+  let sumX = 0;
+  let sumY = 0;
   let sumLat = 0;
   let sumW = 0;
   for (const c of top) {
     const [lng, lat] = project(cellCenter(c.L, c.col, c.row));
-    sumLng += lng * c.hits;
+    sumX += Math.cos(lng * DEG) * c.hits;
+    sumY += Math.sin(lng * DEG) * c.hits;
     sumLat += lat * c.hits;
     sumW += c.hits;
   }
-  return { lng: sumLng / sumW, lat: sumLat / sumW, hits: top[0].hits };
-}
-
-// Mean position of a cluster's events, memoised because the merge pass asks
-// for it once per neighbour.
-function centerOf(c) {
-  if (!c.center) {
-    let lng = 0;
-    let lat = 0;
-    for (const e of c.events) {
-      lng += e.lng;
-      lat += e.lat;
-    }
-    c.center = [lng / c.events.length, lat / c.events.length];
-  }
-  return c.center;
+  return { lng: (Math.atan2(sumY, sumX) / DEG), lat: sumLat / sumW, hits: top[0].hits };
 }
 
 // One dated thing that happened somewhere: a cell's first sighting, or a route.
@@ -144,7 +180,16 @@ function events(cellMeta, routes) {
         const p = project(cellCenter(L, col, row));
         lngLat = [wrapLng(p[0]), p[1]];
       }
-      out.push({ at, lng: lngLat[0], lat: lngLat[1], cell: id, hits: Math.max(1, e.hits || 0) });
+      out.push({
+        at,
+        // How long this one row says the cell went on being seen — what the
+        // stay rule reads. 0 when the row is a single moment.
+        until: e.lastAt && e.lastAt > at ? e.lastAt : 0,
+        lng: lngLat[0],
+        lat: lngLat[1],
+        cell: id,
+        hits: Math.max(1, e.hits || 0),
+      });
       // Both ends, whenever they differ. A cell you passed through in March and
       // again in September belongs to two trips; a cell seen on the Friday and
       // again on the Sunday is one trip that has to know it lasted the weekend.
@@ -175,54 +220,90 @@ function events(cellMeta, routes) {
 /**
  * Work the stored history into trips.
  *
+ * A trip is a run of **days you didn't come home**, which is a different
+ * question from a run of events far from home and the reason this is built a
+ * day at a time. Someone who drives an hour out and back every day produces
+ * evidence beyond the home radius on every one of those days: read as events,
+ * that is one unbroken run and it came out as a 77-day "trip" to the next
+ * canton. Read as days, every one of them also has evidence at home, so none of
+ * them is a night away and there is no trip at all — while a fortnight in
+ * Portugal has eight days with no home evidence whatsoever.
+ *
+ * It is also what tells two trips apart when they are close together: going to
+ * Portugal, coming home for a day, and leaving again for Slovakia used to be
+ * one 58-day trip, because nothing in a list of away-events says you were ever
+ * back. One home day in the middle now ends the first trip and starts the
+ * second, which is what actually happened.
+ *
  * @param {Map<string, Array>} cellMeta
  * @param {Array<object>} routes  saved routes (metadata is enough)
- * @param {{home?:{lng:number,lat:number}, gapDays?:number, radiusKm?:number, minCells?:number}} [opts]
+ * @param {{home?:{lng:number,lat:number}, gapDays?:number, stayDays?:number,
+ *   radiusKm?:number, minCells?:number, awayShare?:number}} [opts]
  * @returns {Array<object>} newest first
  */
 export function buildTrips(cellMeta, routes = [], opts = {}) {
-  const gap = (opts.gapDays ?? TRIP_GAP_DAYS) * DAY;
+  const gap = opts.gapDays ?? TRIP_GAP_DAYS;
+  const stay = (opts.stayDays ?? TRIP_STAY_DAYS) * DAY;
   const radius = opts.radiusKm ?? HOME_RADIUS_KM;
   const minCells = opts.minCells ?? MIN_TRIP_CELLS;
+  const share = opts.awayShare ?? AWAY_DAY_SHARE;
   // `home: null` explicitly means "there isn't one" — distinct from leaving it
   // out, which means "work it out".
   const home = 'home' in opts ? opts.home : findHome(cellMeta);
   const all = events(cellMeta, routes);
   if (!all.length) return [];
 
-  // Being away is what makes it a trip. Without a home to be away from —
-  // a brand-new account, one import of one holiday — every cluster counts,
-  // because then the whole map is somewhere you went.
-  const away = home
-    ? all.filter((e) => distanceKm(home.lng, home.lat, e.lng, e.lat) > radius)
-    : all;
-
-  const clusters = [];
-  let cur = null;
-  for (const e of away) {
-    if (!cur || e.at - cur.end > gap) {
-      cur = { start: e.at, end: e.at, events: [e] };
-      clusters.push(cur);
+  // What each day has to say for itself: how much of its evidence was away from
+  // home, how much was at home, and whether a stay was passing through it.
+  // Without a home to be away from — a brand-new account, one import of one
+  // holiday — everything counts as away, because then the whole map is
+  // somewhere you went.
+  const ledger = new Map();
+  const dayOf = (key) => {
+    let d = ledger.get(key);
+    if (!d) ledger.set(key, (d = { away: 0, home: 0, held: 0, events: [] }));
+    return d;
+  };
+  for (const e of all) {
+    const far = !home || distanceKm(home.lng, home.lat, e.lng, e.lat) > radius;
+    const day = dayOf(dayKey(e.at));
+    if (far) {
+      day.away++;
+      day.events.push(e);
     } else {
-      cur.end = e.at;
-      cur.events.push(e);
+      day.home++;
     }
+    // One row seen over a few days is one stay, and the days in between are
+    // days it was there — see TRIP_STAY_DAYS. They are *held*, not counted as
+    // away: an inference about time, not a sighting, so it can carry a day that
+    // has nothing else on it but never outvote a day that has.
+    if (!far || !e.until || e.until - e.at > stay) continue;
+    const last = dayNumber(dayKey(e.until));
+    for (let n = dayNumber(dayKey(e.at)) + 1; n < last; n++) dayOf(keyOfDay(n)).held++;
   }
 
-  // Rejoin the halves of a stay — see TRIP_MERGE_DAYS. Done on the clusters
-  // rather than on the finished trips so the merged one is summarised once,
-  // from all of its events, instead of having two summaries added together.
-  const mergeGap = (opts.mergeDays ?? TRIP_MERGE_DAYS) * DAY;
-  const mergeKm = opts.mergeKm ?? TRIP_MERGE_KM;
+  // A day is a day away when it has evidence away from home and that evidence
+  // isn't swamped by evidence at home; a day with nothing but a held stay
+  // running through it counts too.
+  const dayList = [...ledger.entries()]
+    .map(([key, d]) => ({ key, n: dayNumber(key), ...d }))
+    .sort((a, b) => a.n - b.n);
   const trips = [];
-  for (const c of clusters) {
-    const prev = trips[trips.length - 1];
-    if (prev && c.start - prev.end <= mergeGap && distanceKm(...centerOf(prev), ...centerOf(c)) <= mergeKm) {
-      prev.end = Math.max(prev.end, c.end);
-      prev.events.push(...c.events);
-      prev.center = null; // it moved
+  let cur = null;
+  for (const d of dayList) {
+    const seen = d.away + d.home;
+    const awayDay = seen ? d.away > 0 && d.away / seen >= share : d.held > 0;
+    if (!awayDay) {
+      cur = null; // you were home: whatever was running has ended
+      continue;
+    }
+    // Silence is not the same as being home — nothing at all happened, which
+    // says nothing either way — so a short one carries the trip on.
+    if (cur && d.n - cur.lastDay <= gap + 1) {
+      cur.lastDay = d.n;
+      cur.events.push(...d.events);
     } else {
-      trips.push(c);
+      trips.push((cur = { lastDay: d.n, events: [...d.events] }));
     }
   }
 
@@ -255,16 +336,25 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
       sumLng += e.lng;
       sumLat += e.lat;
     }
-    // A day trip that lit two cells is noise unless it also drew a line.
-    if (cells.size < minCells && !tripRoutes.length) continue;
+    // A day trip that lit two cells is noise unless it also drew a line. A run
+    // of days held open by a stay with nothing dated inside it has no events at
+    // all, and is nothing on its own.
+    if (!t.events.length || (cells.size < minCells && !tripRoutes.length)) continue;
     const center = [sumLng / t.events.length, sumLat / t.events.length];
+    // The first and last thing that actually happened, not the run's outer
+    // edges: a stay held across a quiet middle must not be dated by the silence.
+    const start = t.events[0].at;
+    const end = t.events[t.events.length - 1].at;
     out.push({
       // Stable across rebuilds (it's derived from the data, not from the
       // order it was derived in), so the UI can select one and find it again.
-      id: `trip-${t.start}`,
-      start: t.start,
-      end: t.end,
-      days: Math.max(1, Math.round((t.end - t.start) / DAY) + 1),
+      id: `trip-${start}`,
+      start,
+      end,
+      // Calendar days, counted as calendar days — a trip that starts on Friday
+      // evening and ends on Sunday morning lasted three days, not 1.6. Measured
+      // between the same two dates the row shows, so the two can't disagree.
+      days: dayNumber(dayKey(end)) - dayNumber(dayKey(start)) + 1,
       cells: [...cells],
       routes: tripRoutes,
       lengthM: tripRoutes.reduce((m, r) => m + (r.lengthM || 0), 0),
