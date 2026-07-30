@@ -71,10 +71,20 @@ export function parseDateQuery(text) {
  * @param {(route:object) => void} opts.onRoute
  * @param {(key:string, detail:object) => void} [opts.onDay] show one day's
  *   ground on the map
+ * @param {() => Set<string>} [opts.hiddenTrips] ids of trips put away
+ * @param {(id:string|null, hide:boolean) => Promise<void>} [opts.onHideTrip]
+ * @param {() => ({name?:string}|null)} [opts.home] the home trips are measured from
+ * @param {() => void} [opts.onSetHome] open the home picker
+ * @param {() => boolean} [opts.homeShown] is it drawn on the map
+ * @param {(on:boolean) => void} [opts.onShowHome] draw it, or don't
  * @param {() => void} [opts.onOpen] called every time it opens, however it was
  *   opened — the trips it lists are derived lazily and this is what starts that
  */
-export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRoute, onDay, onOpen }) {
+export function mountSearch({
+  trips, routes, days, meta, onPlace, onTrip, onRoute, onDay,
+  hiddenTrips = () => new Set(), onHideTrip, home = () => null, onSetHome,
+  homeShown = () => false, onShowHome, onOpen,
+}) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('search-overlay');
   const input = $('search-input');
@@ -89,6 +99,22 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
   let calOpen = false;
   let items = []; // what's currently listed, for keyboard selection
   let active = -1;
+
+  // Trips live here rather than in a tab of their own. They used to be in both
+  // — this palette listed them, and Routes and statistics listed them again
+  // with its own field and its own calendar — which is two menus doing one
+  // thing. This is the one, because it is the one you can reach with ⌘K.
+  const TRIP_SORTS = {
+    recent: { label: 'Newest', sort: (a, b) => b.start - a.start },
+    days: { label: 'Longest', sort: (a, b) => b.days - a.days || b.start - a.start },
+    far: { label: 'Furthest', sort: (a, b) => b.farKm - a.farKm || b.start - a.start },
+  };
+  const TRIP_GROUPS = {
+    none: { label: 'Flat' },
+    country: { label: 'By country', of: (t) => t.country || '' },
+  };
+  let tripSort = 'recent';
+  let tripGroup = 'none';
 
   // The grid itself lives in src/calendar.js — the Trips tab shows the same one.
   const cal = mountCalendar({
@@ -124,11 +150,180 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
     day: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>',
   };
 
-  function section(label) {
+  function section(label, aside) {
     const el = document.createElement('div');
     el.className = 'search-section';
-    el.textContent = label;
+    const name = document.createElement('span');
+    name.textContent = label;
+    el.append(name);
+    if (aside) el.append(aside);
     return el;
+  }
+
+  // --- The trips browser -------------------------------------------------------
+
+  /** A segmented control that redraws the list when you pick a side. */
+  function seg(options, current, onPick) {
+    const el = document.createElement('div');
+    el.className = 'seg seg-mini';
+    for (const [key, opt] of Object.entries(options)) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `seg-btn${key === current ? ' active' : ''}`;
+      btn.textContent = opt.label;
+      btn.addEventListener('click', () => onPick(key));
+      el.append(btn);
+    }
+    return el;
+  }
+
+  function tripControls() {
+    const wrap = document.createElement('div');
+    wrap.className = 'stats-controls';
+    wrap.append(
+      seg(TRIP_SORTS, tripSort, (k) => { tripSort = k; render(input.value); }),
+      seg(TRIP_GROUPS, tripGroup, (k) => { tripGroup = k; render(input.value); }),
+    );
+    return wrap;
+  }
+
+  /** Everything a trip is findable by, not just what it ended up called. */
+  const tripMatches = (t, q) =>
+    !q || `${t.name} ${t.place ?? ''} ${t.region ?? ''} ${t.country ?? ''} ${(t.tags ?? []).join(' ')}`
+      .toLowerCase().includes(q);
+
+  function tripRow(t) {
+    const el = document.createElement('div');
+    el.className = 'trip-row';
+    const go = resultRow({
+      icon: ICON.trip,
+      title: t.name,
+      sub: `${tripDates(t)} · ${t.cells.length.toLocaleString()} cells${t.routes.length ? ` · ${t.routes.length} route${t.routes.length === 1 ? '' : 's'}` : ''}`,
+      right: t.farKm ? `${t.farKm} km away` : '',
+      onPick: () => {
+        close();
+        onTrip?.(t);
+      },
+    });
+    go.classList.add('trip-go');
+    // Putting one away is one press, because it is completely reversible — the
+    // trip is still derived, it is just skipped, and the row under the list
+    // brings every one of them back.
+    const hide = document.createElement('button');
+    hide.type = 'button';
+    hide.className = 'trip-hide';
+    hide.setAttribute('aria-label', `Hide ${t.name}`);
+    hide.title = 'Hide this trip';
+    hide.innerHTML =
+      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+    hide.addEventListener('click', async () => {
+      await onHideTrip?.(t.id, true);
+      render(input.value);
+    });
+    el.append(go, hide);
+    items.push({ el: go, pick: () => go.click() });
+    return el;
+  }
+
+  /** The list, optionally in blocks. The sort holds inside each one. */
+  function tripList(list) {
+    const out = [];
+    const ordered = (l) => [...l].sort(TRIP_SORTS[tripSort].sort);
+    const group = TRIP_GROUPS[tripGroup];
+    if (!group.of) {
+      for (const t of ordered(list)) out.push(tripRow(t));
+      return out;
+    }
+    const buckets = new Map();
+    for (const t of list) {
+      const key = group.of(t);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(t);
+    }
+    const blocks = [...buckets.entries()]
+      .sort((a, b) => !a[0] - !b[0] || b[1].length - a[1].length || a[0].localeCompare(b[0]));
+    for (const [key, group2] of blocks) {
+      const head = document.createElement('div');
+      head.className = 'search-section search-subsection';
+      const name = document.createElement('span');
+      name.textContent = key || 'At sea or off the map';
+      const note = document.createElement('i');
+      const days = group2.reduce((n, t) => n + t.days, 0);
+      note.textContent = `${group2.length} · ${days} day${days === 1 ? '' : 's'}`;
+      head.append(name, note);
+      out.push(head, ...ordered(group2).map(tripRow));
+    }
+    return out;
+  }
+
+  /**
+   * Where the trips are measured from, the way to correct it, and the switch
+   * that puts it on the map. All three belong together: "is this the right
+   * home" is a question you answer by looking at where it is, and the switch
+   * used to be four sections away in the appearance menu.
+   */
+  function homeRow() {
+    const set = home();
+    const el = document.createElement('div');
+    el.className = 'home-row';
+    el.innerHTML = '<span class="home-text"><b></b><small></small></span>';
+    el.querySelector('b').textContent = set?.name || 'Worked out from the cells you visit most';
+    el.querySelector('small').textContent = 'Home — everything here is measured from it';
+
+    const show = document.createElement('button');
+    show.type = 'button';
+    show.className = `home-set home-eye${homeShown() ? ' active' : ''}`;
+    show.title = homeShown() ? 'Stop showing it on the map' : 'Show it on the map';
+    show.setAttribute('aria-pressed', String(!!homeShown()));
+    show.innerHTML =
+      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11 12 4l8 7"/><path d="M6 10v9h12v-9"/></svg>'
+      + '<span>Map</span>';
+    show.addEventListener('click', () => {
+      onShowHome?.(!homeShown());
+      render(input.value);
+    });
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'home-set';
+    btn.textContent = set ? 'Change' : 'Set home';
+    btn.addEventListener('click', () => {
+      close();
+      onSetHome?.();
+    });
+    el.append(show, btn);
+    return el;
+  }
+
+  function hiddenRow(put) {
+    const el = document.createElement('div');
+    el.className = 'home-row';
+    el.innerHTML = '<span class="home-text"><b></b><small></small></span>';
+    el.querySelector('b').textContent = `${put.size} trip${put.size === 1 ? '' : 's'} hidden`;
+    el.querySelector('small').textContent = 'Runs you told the list to forget';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'home-set';
+    btn.textContent = 'Show them';
+    btn.addEventListener('click', async () => {
+      await onHideTrip?.(null, false);
+      render(input.value);
+    });
+    el.append(btn);
+    return el;
+  }
+
+  /** The trips section: all of them when nothing is typed, matches when it is. */
+  function addTrips(q) {
+    const put = hiddenTrips();
+    const all = trips().filter((t) => !put.has(t.id));
+    const hits = all.filter((t) => tripMatches(t, q));
+    if (!hits.length) return false;
+    resultsEl.append(section(q ? 'Trips' : 'Your trips', q ? null : tripControls()));
+    if (!q) resultsEl.append(homeRow());
+    resultsEl.append(...tripList(hits));
+    if (!q && put.size) resultsEl.append(hiddenRow(put));
+    return true;
   }
 
   function note(text) {
@@ -166,35 +361,19 @@ export function mountSearch({ trips, routes, days, meta, onPlace, onTrip, onRout
       return;
     }
 
-    if (!q) {
-      // Nothing typed: offer the most recent trips, which is what you'd have
-      // scrolled to anyway.
-      const recent = trips().slice(0, 5);
-      if (!recent.length) {
-        resultsEl.append(note('Search for a place, a route, or a date — or pick a day from the calendar.'));
-        return;
-      }
-      resultsEl.append(section('Recent trips'));
-      for (const t of recent) addTrip(t);
-      return;
-    }
-
     const lower = q.toLowerCase();
 
-    // Match a trip on everything it is called *and* everywhere it went. Typing
-    // "switzerland" finds the week in Zermatt, "valais" finds it too, and so
-    // does the name of a town it merely passed through — naming already asks
-    // the gazetteer about every cell of a trip, so it keeps every answer it got
-    // rather than only the one it used. A trip called after a canton because
-    // the valley it sat in has no town on the map is otherwise unfindable by
-    // anywhere you actually remember being.
-    const tripHits = trips()
-      .filter((t) => `${t.name} ${t.place ?? ''} ${t.region ?? ''} ${t.country ?? ''} ${(t.tags ?? []).join(' ')}`
-        .toLowerCase().includes(lower))
-      .slice(0, 4);
-    if (tripHits.length) {
-      resultsEl.append(section('Trips'));
-      for (const t of tripHits) addTrip(t);
+    // Nothing typed: the whole trip list, with its own ordering and grouping —
+    // this is the trips browser, not a preview of one. Typing narrows it, on
+    // everything a trip is called *and* everywhere it went, so "valais" finds
+    // the week in Zermatt and so does the name of a town it merely drove
+    // through.
+    const anyTrips = addTrips(lower);
+    if (!q) {
+      if (!anyTrips) {
+        resultsEl.append(note('Search for a place, a route, or a date — or pick a day from the calendar.'));
+      }
+      return;
     }
 
     const routeHits = routes()

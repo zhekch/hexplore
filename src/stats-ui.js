@@ -7,13 +7,11 @@ import { computeStats, EARTH_LAND_KM2 } from './stats.js';
 import { sourceLabel, IMPORT_SOURCES } from './locations.js';
 import { formatDistance, formatDuration, totalLength, thumbSegments } from './routes.js';
 import { auth } from './auth.js';
-import { buildTrips, nameTrips, findHome, dayKey, activeDays, dayDetail } from './trips.js';
+import { buildTrips, nameTrips } from './trips.js';
 import { loadPlaces, nearestTown, lakeAround } from './places.js';
 import { loadCountries, countryNear } from './countries.js';
 import { loadRegions, regionNear } from './regions.js';
 import { isKomootTourUrl } from './komoot.js';
-import { mountCalendar } from './calendar.js';
-import { parseDateQuery } from './search-ui.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -47,17 +45,12 @@ const pct = (v) =>
  * @param {() => Map<string, Array>} opts.meta provenance by cell id
  * @param {() => Array<object>} opts.routes saved routes (newest first)
  * @param {(route:object) => void} opts.onShowRoute  take me to this one
- * @param {(trip:object) => void} [opts.onShowTrip]   take me to this trip
- * @param {(key:string, detail:object) => void} [opts.onShowDay] take me to this day
  * @param {() => ({lng:number,lat:number,name:string}|null)} [opts.home] the
  *   home you confirmed, or null to use the one worked out from the cells
  * @param {(home:object|null) => Promise<void>} [opts.onSetHome] change it
  * @param {(route:object, before:object) => void} [opts.onRouteEdited] after a successful
  *   save, with the values it had before it — that's what Undo needs
  * @param {(route:object) => Promise<void>} [opts.onRouteDeleted] remove it everywhere
- * @param {() => Set<string>} [opts.hiddenTrips] ids of trips put away
- * @param {(id:string|null, hide:boolean) => Promise<void>} [opts.onHideTrip] put
- *   one away, or (with a null id) bring them all back
  * @param {() => string[]} [opts.knownSources] apps already used, for the picker
  */
 export function mountStats({
@@ -65,14 +58,10 @@ export function mountStats({
   meta,
   routes = () => [],
   onShowRoute,
-  onShowTrip,
-  onShowDay,
   home = () => null,
   onSetHome,
   onRouteEdited,
   onRouteDeleted,
-  hiddenTrips = () => new Set(),
-  onHideTrip,
   knownSources,
 }) {
   const $ = (id) => document.getElementById(id);
@@ -131,18 +120,6 @@ export function mountStats({
     activity: { label: 'By activity', of: (r) => r.sport || '' },
   };
 
-  // The same three questions, asked of trips. "Longest" means days here rather
-  // than kilometres: a trip is a length of time, and the distance a trip
-  // covered isn't stored — only how far from home it got.
-  const TRIP_SORTS = {
-    recent: { label: 'Newest', sort: (a, b) => b.start - a.start },
-    days: { label: 'Longest', sort: (a, b) => b.days - a.days || b.start - a.start },
-    far: { label: 'Furthest', sort: (a, b) => b.farKm - a.farKm || b.start - a.start },
-  };
-  const TRIP_GROUPS = {
-    none: { label: 'Flat' },
-    country: { label: 'By country', of: (t) => t.country || '' },
-  };
   // Sources that say nothing about which app a route came from belong at the
   // bottom, whatever their distance.
   const VAGUE_SOURCES = new Set(['unknown', 'other', 'gpx', 'kml', 'geojson', 'csv', 'manual']);
@@ -150,70 +127,10 @@ export function mountStats({
   let tab = 'routes';
   let routeSort = 'recent';
   let routeGroup = 'none';
-  let tripSort = 'recent';
-  let tripGroup = 'none';
 
   const close = () => {
     overlay.hidden = true;
   };
-
-  // --- Finding a trip ----------------------------------------------------------
-  // Browsing trips by name and browsing them by date were the same question
-  // asked on two screens: the Trips tab listed them, and the search palette
-  // listed them again with a calendar beside it. This is the calendar and the
-  // typing, moved to where the trips already are. (The palette keeps its own —
-  // it also answers for places, routes and whole countries, which this list has
-  // no business holding.)
-  const findRow = $('trip-find');
-  const findInput = $('trip-find-input');
-  const findCal = $('trip-calendar');
-  let tripQuery = '';
-  let calOpen = false;
-
-  const tripCal = mountCalendar({
-    title: $('trip-cal-title'),
-    grid: $('trip-cal-grid'),
-    days: () => activeDays(meta(), routes()),
-    trips: () => lastTrips ?? [],
-    onPick: (key) => {
-      tripCal.select(key);
-      const detail = dayDetail(key, lastTrips ?? [], routes(), meta());
-      // A day with nothing on it is not a dead end and not an error: the grid
-      // says so by not lighting it, and picking it just moves the selection.
-      if (!detail.cells) return;
-      close();
-      onShowDay?.(key, { ...detail, label: dayOf(key) });
-    },
-  });
-
-  function openTripCalendar(on) {
-    calOpen = on;
-    findCal.hidden = !on;
-    $('trip-cal-btn').classList.toggle('on', on);
-    if (on) tripCal.render();
-  }
-
-  findInput.addEventListener('input', () => {
-    // A date is a date, not a text search — and it opens the calendar on that
-    // month rather than filtering a list to nothing.
-    const asDate = parseDateQuery(findInput.value);
-    if (asDate) {
-      const [y, mo] = asDate.split('-');
-      tripCal.show(new Date(+y, mo ? +mo - 1 : 0, 1));
-      openTripCalendar(true);
-      return;
-    }
-    tripQuery = findInput.value.trim().toLowerCase();
-    renderTrips();
-  });
-  $('trip-cal-btn').addEventListener('click', () => openTripCalendar(!calOpen));
-  $('trip-cal-prev').addEventListener('click', () => tripCal.step(-1));
-  $('trip-cal-next').addEventListener('click', () => tripCal.step(1));
-
-  /** Everything a trip is findable by — the same list the search palette uses. */
-  const tripMatches = (t, q) =>
-    !q || `${t.name} ${t.place ?? ''} ${t.region ?? ''} ${t.country ?? ''} ${(t.tags ?? []).join(' ')}`
-      .toLowerCase().includes(q);
 
   function row(label, value, sub) {
     const el = document.createElement('div');
@@ -936,198 +853,6 @@ export function mountStats({
   // dates the cells and routes already carry, every time the tab is opened. It
   // costs a sweep of the map and buys a view of it organised the way anyone
   // actually remembers going places.
-  async function renderTrips() {
-    body.replaceChildren();
-    const loading = document.createElement('div');
-    loading.className = 'stats-loading';
-    loading.textContent = 'Working out where you went…';
-    body.append(loading);
-    await new Promise((r) => setTimeout(r, 20)); // let the dialog paint first
-
-    const set = home();
-    const all = buildTrips(meta(), routes(), set ? { home: set } : {});
-    try {
-      await nameThem(all);
-    } catch {
-      for (const t of all) t.name = t.name || 'Somewhere';
-    }
-    // Trips are derived, so one you have put away can't be deleted — there is
-    // no row to remove. It is remembered by id and skipped, which comes to the
-    // same thing and can be undone.
-    const put = hiddenTrips();
-    const kept = all.filter((t) => !put.has(t.id));
-    // The calendar draws every trip that exists, filter or no filter: a month
-    // grid that lost its pills as you typed would be answering a different
-    // question from the one the field asks.
-    lastTrips = kept;
-    const list = kept.filter((t) => tripMatches(t, tripQuery));
-    if (calOpen) tripCal.render();
-
-    body.replaceChildren();
-    if (!list.length && tripQuery) {
-      const empty = document.createElement('div');
-      empty.className = 'stats-loading';
-      empty.textContent = `No trip matches “${findInput.value.trim()}”. Try a town, a region or a country — a trip is findable by anywhere it went, not just by its name.`;
-      body.append(empty);
-      return;
-    }
-    if (!list.length && put.size) {
-      const empty = document.createElement('div');
-      empty.className = 'stats-loading';
-      empty.textContent = `Every trip is hidden — ${put.size} of them.`;
-      body.append(empty, hiddenRow(put));
-      return;
-    }
-    if (!list.length) {
-      const empty = document.createElement('div');
-      empty.className = 'stats-loading';
-      empty.textContent = meta().size
-        ? 'No trips yet — a trip is a run of days spent well away from where you usually are. Import some dated history and they appear here.'
-        : 'Nothing on the map yet.';
-      body.append(empty);
-      return;
-    }
-
-    const away = list.reduce((n, t) => n + t.days, 0);
-    const longest = list.reduce((a, b) => (b.days > a.days ? b : a), list[0]);
-    body.append(
-      row('Trips', String(list.length)),
-      row('Days away', away.toLocaleString()),
-      row('Longest', plural(longest.days, 'day'), longest.name),
-      row('Furthest', `${Math.max(...list.map((t) => t.farKm)).toLocaleString()} km`, 'from home'),
-    );
-    body.append(homeRow(list));
-    // The heading and the list are rebuilt together, and that is not a detail:
-    // the segmented control captures which option is current when it is built,
-    // both to light one up and to ignore a press on the one already chosen.
-    // Rebuilding only the list left that capture stale — the first press
-    // worked, the highlight never moved, and pressing the *original* choice
-    // afterwards was read as "you picked the one you already have" and did
-    // nothing at all. There was no way back to Newest.
-    const section = document.createElement('div');
-    body.append(section);
-    renderTripList();
-
-    function renderTripList() {
-      // Only this section, though: the totals and the home row above it don't
-      // change with the sort, and re-deriving every trip to reorder them would
-      // take a second for nothing.
-      const at = body.scrollTop;
-      section.replaceChildren();
-      section.append(
-        headRow(
-          'Every trip',
-          sortAndGroup(
-            TRIP_SORTS, tripSort, TRIP_GROUPS, tripGroup,
-            (key) => { tripSort = key; renderTripList(); },
-            (key) => { tripGroup = key; renderTripList(); },
-          ),
-        ),
-        ...groupedList(
-          list,
-          TRIP_GROUPS[tripGroup],
-          TRIP_SORTS[tripSort].sort,
-          (t) => tripRow(t),
-          (key, group) => ({
-            label: key || 'At sea or off the map',
-            note: `${plural(group.length, 'trip')} · ${plural(group.reduce((n, t) => n + t.days, 0), 'day')}`,
-            vague: !key,
-          }),
-        ),
-      );
-      if (put.size) section.append(hiddenRow(put));
-      body.scrollTop = at;
-    }
-  }
-
-  function tripRow(t) {
-    const el = document.createElement('div');
-    el.className = 'trip-row';
-
-    const go = document.createElement('button');
-    go.type = 'button';
-    go.className = 'trip-go';
-    go.innerHTML =
-      '<span class="trip-main"><b></b><small></small></span><span class="trip-side"><b></b><small></small></span>';
-    go.querySelector('.trip-main b').textContent = t.name;
-    go.querySelector('.trip-main small').textContent = tripWhen(t);
-    go.querySelector('.trip-side b').textContent = `${t.cells.length.toLocaleString()} cells`;
-    go.querySelector('.trip-side small').textContent = [
-      t.routes.length ? `${t.routes.length} route${t.routes.length === 1 ? '' : 's'}` : '',
-      t.lengthM ? formatDistance(t.lengthM) : '',
-    ].filter(Boolean).join(' · ') || `${t.farKm} km away`;
-    go.title = 'Show this trip on the map';
-    go.addEventListener('click', () => {
-      close();
-      onShowTrip?.(t);
-    });
-
-    // Putting one away is one press, because it is completely reversible — the
-    // trip is still derived, it is just skipped, and the row under the list
-    // brings every one of them back. A confirm step for something undoable is
-    // just a second press.
-    const hide = document.createElement('button');
-    hide.type = 'button';
-    hide.className = 'trip-hide';
-    hide.setAttribute('aria-label', `Hide ${t.name}`);
-    hide.title = 'Hide this trip';
-    hide.innerHTML =
-      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
-    hide.addEventListener('click', async () => {
-      await onHideTrip?.(t.id, true);
-      renderTrips();
-    });
-
-    el.append(go, hide);
-    return el;
-  }
-
-  function hiddenRow(put) {
-    const el = document.createElement('div');
-    el.className = 'home-row';
-    el.innerHTML = '<span class="home-text"><b></b><small></small></span>';
-    el.querySelector('b').textContent = `${plural(put.size, 'trip')} hidden`;
-    el.querySelector('small').textContent = 'Runs you told the list to forget';
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'home-set';
-    btn.textContent = 'Show them';
-    btn.addEventListener('click', async () => {
-      await onHideTrip?.(null, false);
-      renderTrips();
-    });
-    el.append(btn);
-    return el;
-  }
-
-  // Everything in this tab is measured from home: what counts as away, how far
-  // each trip went, and therefore what is a trip at all. A guess about
-  // something that personal has to be visible and correctable, so it says which
-  // it is and offers the change.
-  function homeRow(list) {
-    const set = home();
-    const el = document.createElement('div');
-    el.className = 'home-row';
-    el.innerHTML = '<span class="home-text"><b></b><small></small></span>';
-    el.querySelector('b').textContent = set?.name || guessedHomeName || 'Not worked out yet';
-    el.querySelector('small').textContent = set
-      ? 'Home, as you set it'
-      : 'Home, guessed from the cells you visit most';
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'home-set';
-    btn.textContent = set ? 'Change' : 'Set home';
-    btn.addEventListener('click', () => {
-      close();
-      onSetHome?.(set);
-    });
-    el.append(btn);
-    return el;
-  }
-
-  let guessedHomeName = '';
-
   // Town, then region, then country — the three datasets that already ship, each
   // a lazy chunk. Loaded together because a trip name wants all three: the
   // region decides which part of the trip the name comes from, and the town and
@@ -1164,27 +889,8 @@ export function mountStats({
     // on, when it sat on any — "Lake Baikal" is a place, "Irkutsk Oblast" is a
     // form to fill in.
     nameTrips(list, at, (t) => lakeAround(t.bbox));
-    // The row above the list says where home came out, which is the only way to
-    // notice that it is wrong.
-    const guess = home() ?? findHome(meta());
-    if (guess) {
-      const p = at(guess.lng, guess.lat);
-      guessedHomeName = p.town || p.region || p.country || '';
-    }
   }
 
-  function tripWhen(t) {
-    const a = new Date(t.start * 1000);
-    const b = new Date(t.end * 1000);
-    const one = dayKey(t.start) === dayKey(t.end);
-    const long = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-    const short = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
-    return one
-      ? long.format(a)
-      : `${short.format(a)} – ${long.format(b)} · ${t.days} day${t.days === 1 ? '' : 's'}`;
-  }
-
-  // --- Tabs -------------------------------------------------------------------
   async function showCells() {
     // Already worked out for this opening: re-render straight from the numbers.
     if (last) {
@@ -1222,13 +928,8 @@ export function mountStats({
     for (const btn of tabs.querySelectorAll('[data-tab]')) {
       btn.classList.toggle('active', btn.dataset.tab === tab);
     }
-    // The find row belongs to the trips list, so it comes and goes with it —
-    // and it sits outside the body so redrawing the list doesn't take the
-    // cursor out of the field you are typing in.
-    findRow.hidden = tab !== 'trips';
     body.scrollTop = 0;
     if (tab === 'routes') renderRoutes();
-    else if (tab === 'trips') renderTrips();
     else showCells();
   }
 

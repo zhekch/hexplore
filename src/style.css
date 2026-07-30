@@ -1830,51 +1830,6 @@ body {
 /* The Trips tab's find row: type to narrow the list, or open the calendar and
    pick a day. Outside .stats-body on purpose — the list redraws on every
    keystroke, and a field inside it would lose the caret each time. */
-.trip-find {
-  margin-top: 12px;
-}
-
-.trip-find[hidden] {
-  display: none;
-}
-
-.trip-find-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.trip-find-input {
-  flex: 1;
-  min-width: 0;
-  appearance: none;
-  padding: 9px 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 13.5px;
-  color: #fff;
-  outline: none;
-}
-
-.trip-find-input::placeholder {
-  color: rgba(255, 255, 255, 0.38);
-}
-
-/* The calendar drops out of the row rather than into the scrolling list, so
-   picking a day never scrolls the thing you are picking from. */
-.trip-find .search-calendar {
-  margin-top: 8px;
-  padding: 10px 12px 4px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-}
-
 .stats-body {
   margin-top: 14px;
   max-height: min(58vh, 460px);
@@ -4251,6 +4206,49 @@ body {
   color: #fff;
 }
 
+/* The trips browser lives in the search palette now, so its rows sit among the
+   search hits: the heading carries the ordering controls, and a block heading
+   inside it (grouped by country) is one step quieter than the section above it. */
+.search-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.search-subsection {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  padding-left: 2px;
+}
+
+.search-subsection i {
+  font-style: normal;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+/* The row is the trip plus the × that puts it away, so the hit inside it has to
+   give up being the whole row. */
+.trip-row .search-hit {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Show it on the map: a toggle, so it says which state it is in. */
+.home-eye {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.home-eye.active {
+  background: rgba(96, 172, 255, 0.24);
+  border-color: rgba(96, 172, 255, 0.5);
+  color: #fff;
+}
+
 /* --- Trips --------------------------------------------------------------------
    Derived, not stored, so a row is a reading of the map rather than a record —
    which is why it is a button that takes you there and has nothing to edit. */
@@ -4397,24 +4395,6 @@ body {
 
 [data-theme='light'] .search-input,
 [data-theme='light'] .search-hit,
-[data-theme='light'] .trip-find-row {
-  border-color: rgba(15, 23, 42, 0.14);
-  background: rgba(15, 23, 42, 0.04);
-  color: rgba(15, 23, 42, 0.5);
-}
-
-[data-theme='light'] .trip-find-input {
-  color: #0f172a;
-}
-
-[data-theme='light'] .trip-find-input::placeholder {
-  color: rgba(15, 23, 42, 0.42);
-}
-
-[data-theme='light'] .trip-find .search-calendar {
-  border-color: rgba(15, 23, 42, 0.12);
-}
-
 [data-theme='light'] .cal-title,
 [data-theme='light'] .trip-row,
 [data-theme='light'] .trip-go {

@@ -136,7 +136,7 @@ map for its card. The list sorts by **newest or longest** and groups by **app or
 activity**, and the two are independent — so "the longest ride, and the longest
 hike" is one question you can ask.
 
-**Trips.** *Routes and statistics → Trips* groups your history into the runs of
+**Trips.** The search panel groups your history into the runs of
 days you didn't come home: `Zermatt, Switzerland · Aug 10 – Aug 16, 2024 ·
 36 cells`. Tap one and the map flies there and draws it — a dot everywhere you
 were, threaded in the order you were there, so a trip comes back as the shape of
@@ -160,11 +160,12 @@ things override that: a night away is always a trip, and so is any day you
 bothered to record a route on. And you can put any trip away by hand — one press
 on the row, and one press on the row underneath the list brings them all back.
 
-Sort the list by **newest, longest or furthest from home**, and **group it by
-country**; the sort holds inside each group. There's a field at the top to
-filter by anywhere a trip went — a town it passed through, the canton it crossed
-— and a **calendar** beside it, so "which weekend was that?" is answered on the
-same screen as the list rather than in a separate search.
+**Trips live in the search panel** (the magnifier, or ⌘K). Open it with nothing
+typed and it *is* the trip list: sort by **newest, longest or furthest from
+home**, **group by country** — the sort holds inside each group — put one away
+with the ×, and set where home is. Start typing and it narrows, on anywhere a
+trip went rather than only its name, with your routes and any place on Earth
+underneath.
 
 Each one is named after **where you actually spent the time** — measured from
 the gaps between your own fixes, so a day out is named after the four hours in
@@ -177,11 +178,12 @@ region instead, which is the honest answer rather than a town you drove past.
 You can also **find a trip by anywhere it went**, not only by what it is called:
 searching a town it passed through, or the canton it crossed, will turn it up.
 
-Everything in that tab is measured from **home**, which the map guesses from the
-cells you go back to most. If it guesses wrong, the row at the top of the tab
+Everything here is measured from **home**, which the map guesses from the
+cells you go back to most. If it guesses wrong, the row above the list
 lets you set it — search for a town, or **point at it on the map**: the dialog
-steps aside, you tap where you live, and confirm. Menu → **Home** draws it on
-the map, which is the quickest way to see that the guess is off.
+steps aside, you tap where you live, and confirm. **Map** on the same row draws
+a little house where it thinks you live, which is the quickest way to see that
+the guess is off.
 
 **Statistics.** How much ground you've actually covered, as a share of Earth's
 land and of every country you've touched. **Open a country** to see the same for

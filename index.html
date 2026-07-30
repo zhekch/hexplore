@@ -94,10 +94,6 @@
               <span>Train tracks</span>
               <input type="checkbox" id="rail-toggle" />
             </label>
-            <label class="menu-row">
-              <span>Home<small>Mark where the trips are measured from</small></span>
-              <input type="checkbox" id="home-toggle" />
-            </label>
           </section>
 
           <section class="menu-section">
@@ -200,39 +196,7 @@
         </div>
         <div class="seg seg-mini stats-tabs" id="stats-tabs">
           <button type="button" class="seg-btn active" data-tab="routes">Routes</button>
-          <button type="button" class="seg-btn" data-tab="trips">Trips</button>
           <button type="button" class="seg-btn" data-tab="cells">Statistics</button>
-        </div>
-        <!-- The Trips tab's own search and calendar. Browsing trips by name and
-             browsing them by date were two screens asking the same question;
-             this is the second one, folded into the first. Lives outside
-             #stats-body so it doesn't get wiped every time the list redraws. -->
-        <div class="trip-find" id="trip-find" hidden>
-          <div class="trip-find-row">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
-              <circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.4-4.4" />
-            </svg>
-            <input class="trip-find-input" id="trip-find-input" type="text"
-              placeholder="Filter by place, or type a date" autocomplete="off"
-              autocapitalize="none" autocorrect="off" spellcheck="false" />
-            <button type="button" class="search-cal-btn" id="trip-cal-btn" aria-label="Calendar" title="Pick a day">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="3" y="5" width="18" height="16" rx="3" /><path d="M8 3v4M16 3v4M3 10h18" />
-              </svg>
-            </button>
-          </div>
-          <div class="search-calendar" id="trip-calendar" hidden>
-            <div class="cal-head">
-              <button type="button" class="cal-nav" id="trip-cal-prev" aria-label="Previous month">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
-              </button>
-              <div class="cal-title" id="trip-cal-title"></div>
-              <button type="button" class="cal-nav" id="trip-cal-next" aria-label="Next month">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
-              </button>
-            </div>
-            <div class="cal-grid" id="trip-cal-grid"></div>
-          </div>
         </div>
         <div class="stats-body" id="stats-body">
           <div class="stats-loading">Crunching your cells…</div>
