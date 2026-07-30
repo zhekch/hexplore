@@ -24,7 +24,11 @@ const check = (ok, label, detail) => {
 };
 
 const DAY = 86400;
-const T = (iso) => Math.floor(new Date(iso).getTime() / 1000);
+// Local midday for a bare date, not UTC midnight. Which day a timestamp belongs
+// to is worked out in local time (dayKey), so a fixture pinned to midnight UTC
+// lands on the day before for anyone west of Greenwich, and the calendar
+// assertions below quietly failed there.
+const T = (iso) => Math.floor(new Date(iso.length === 10 ? `${iso}T12:00:00` : iso).getTime() / 1000);
 
 // Cells are addressed the way the map addresses them, so the coordinates below
 // are real: this walks out from a known cell rather than inventing ids.
@@ -155,8 +159,8 @@ const gazetteer = (bands, country = 'Italy') => (lng) => {
 };
 
 // Rome for a week, and a day's drive down the motorway through Abruzzo. The
-// drive lights five times as much ground as the week does — the point of the
-// test is that the week still wins.
+// drive lights nearly seven times as much ground as the week does — the point
+// of the test is that the week still wins.
 const italy = gazetteer([
   { to: 12.9, region: 'Lazio', town: 'Rome', pop: 2600 },
   { to: 13.9, region: 'Abruzzo', town: 'Avezzano', pop: 42 },
@@ -202,6 +206,47 @@ const stayed = buildTrips(merge(homeCells, village), []);
 nameTrips(stayed, lazio);
 check(stayed[0].name === 'Fiumicino, Italy', 'a week in the small place beats an afternoon in the big one',
   stayed[0].name);
+
+// Ground that resolves to nothing is not a place you were. The country outlines
+// are rounded to ~1 km, so cells just off a coast fall outside every country —
+// and pooling all of them into one nameless region let four days at sea out-day
+// the city the trip was actually in.
+const aegean = gazetteer([
+  { to: 12.0, empty: true }, // open water: the datasets have nothing here
+  { to: 99, region: 'Attiki', town: 'Athens', pop: 3150 },
+], 'Greece');
+const sailing = merge(
+  patch(10.60, 41.00, 4, T('2024-07-03'), T('2024-07-04'), 3),
+  patch(11.40, 41.20, 4, T('2024-07-05'), T('2024-07-06'), 3),
+  patch(12.50, 41.90, 20, T('2024-07-01'), T('2024-07-02'), 30),
+  patch(12.70, 41.95, 20, T('2024-07-07'), T('2024-07-07'), 30),
+);
+const sailed = buildTrips(sailing, [], { home: null });
+nameTrips(sailed, aegean);
+check(sailed.length === 1, 'the sailing week is one trip', `${sailed.length}`);
+check(sailed[0].name === 'Athens, Greece', 'four days at sea do not outvote three days in the city',
+  sailed[0].name);
+check(sailed[0].country === 'Greece', 'and the trip keeps the country, so the search box can find it',
+  `region=${sailed[0].region} country=${sailed[0].country}`);
+
+// Visits are the tie-break under days — and they belong to the stored row, not
+// to each end of it. Both towns here are the same size and were seen on the same
+// two days, so only the visit counts can decide: Aville's two cells each span
+// both days (one row, two events) for 10 visits, Bville's two don't, for 14.
+// Counting a row's visits at both of its ends would make Aville 20 and flip it.
+const evenSize = gazetteer([
+  { to: 12.55, region: 'Lazio', town: 'Aville', pop: 80 },
+  { to: 99, region: 'Lazio', town: 'Bville', pop: 80 },
+]);
+const visits = merge(
+  patch(12.40, 41.80, 2, T('2024-05-02'), T('2024-05-03'), 5),
+  patch(12.70, 41.90, 1, T('2024-05-02'), T('2024-05-02'), 7),
+  patch(12.70, 41.95, 1, T('2024-05-03'), T('2024-05-03'), 7),
+);
+const tie = buildTrips(merge(homeCells, visits), []);
+nameTrips(tie, evenSize);
+check(tie[0].name === 'Bville, Italy', 'visits break a tie between places seen on the same days, counted once',
+  tie[0].name);
 
 // A trip that is nothing but a route still has a position and a date, so it
 // still has a name.

@@ -241,7 +241,9 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
     for (const e of t.events) {
       if (e.cell) cells.add(e.cell);
       if (e.route) tripRoutes.push(e.route);
-      const key = e.cell ?? `route/${e.route.id}`;
+      // Cells key by id, routes by identity — a route that hasn't been saved yet
+      // has no id, and two of them must not merge into one place.
+      const key = e.cell ?? e.route;
       let spot = spots.get(key);
       if (!spot) spots.set(key, (spot = { lng: e.lng, lat: e.lat, hits: 0, days: new Set() }));
       spot.hits += e.hits ?? 0;
@@ -315,9 +317,20 @@ function heartOf(trip, placeAt) {
   const regions = new Map();
   for (const s of trip.spots) {
     const at = placeAt(s.lng, s.lat) ?? {};
+    // Ground the datasets can't place is not somewhere you were — it is the
+    // absence of an answer, and it must not compete with the places that have
+    // one. The country outlines are rounded to ~1 km, so cells just off a coast
+    // fall outside every country (the same ones the statistics book as
+    // offshore); pooling them made a single nameless "region" holding *every*
+    // countryless day of the trip, which then out-dayed the city the trip was
+    // actually in. A week in Athens with four days' sailing came out as "At sea
+    // or off the map", with no country left on it for the search box to match.
+    // A trip that is nothing but such ground still ends up there, by finding no
+    // region at all and falling through to its centre.
+    if (!at.country && !at.region) continue;
     // By id where there is one: two countries can both have a Córdoba, and
     // merging them would invent a region you spent twice as long in.
-    const key = at.regionId || (at.region && at.country ? `${at.country}/${at.region}` : at.country || '');
+    const key = at.regionId || (at.region ? `${at.country}/${at.region}` : at.country);
     let r = regions.get(key);
     if (!r) {
       regions.set(key, (r = {
@@ -377,7 +390,8 @@ function heartOf(trip, placeAt) {
  * @param {(lng:number, lat:number) =>
  *   {town?:string, pop?:number, region?:string, regionId?:string, country?:string}} placeAt
  * @param {(trip:object) => (string|null)} [landmarkFor] the lake (or other named
- *   feature) a trip sits on, for the trips that have no town in them at all
+ *   feature) a trip sits on — asked only when the region it spent its days in
+ *   has no settlement in it
  */
 export function nameTrips(trips, placeAt, landmarkFor) {
   for (const t of trips) {

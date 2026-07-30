@@ -33,7 +33,11 @@ const check = (ok, label, detail) => {
   ok ? pass++ : fail++;
 };
 
-const T = (iso) => Math.floor(new Date(iso).getTime() / 1000);
+// Local midday, not UTC midnight. Which day a timestamp belongs to is worked out
+// in local time (dayKey), so a fixture pinned to midnight UTC lands on the day
+// before for anyone west of Greenwich and the dates expected below stop
+// matching — `TZ=America/New_York npm test` is the way to notice.
+const T = (day) => Math.floor(new Date(`${day}T12:00:00`).getTime() / 1000);
 
 // Node can't import JSON without an attribute Vite dislikes, so each module
 // takes the parsed data — the same door the build scripts use.
@@ -77,7 +81,10 @@ const s = await computeStats(new Set(meta.keys()), meta);
 
 console.log('\nwhat the panel says at the top');
 check(s.cells === meta.size, 'every cell is counted', `${s.cells} of ${meta.size}`);
-check(s.km2 > 0 && s.km2 < 200, 'a hundred-odd sub-kilometre cells cover a hundred-odd km²', `${s.km2.toFixed(1)} km²`);
+// A level-0 cell is ~0.9 km flat-to-flat at the equator and these are all at
+// European latitudes, so a hundred-odd of them is about 40 km² — tight enough
+// that a factor-of-a-million slip in the m²-to-km² conversion cannot hide.
+check(s.km2 > 30 && s.km2 < 50, 'a hundred-odd cells up here cover about 40 km²', `${s.km2.toFixed(1)} km²`);
 check(Math.abs(s.worldPct - (s.km2 / EARTH_LAND_KM2) * 100) < 1e-9, 'the world share divides by the land area');
 // Ground area shrinks with latitude, and the statistics are the only place that
 // shows it: the same cell is worth less the further north it is.
@@ -110,13 +117,13 @@ check(regionsOf('Switzerland').length >= 1, 'so does Switzerland',
 check(s.regions.every((r) => byId.has(r.country)),
   'every region belongs to a country that is on the list too');
 check(s.regions.every((r) => r.pct > 0 && r.pct <= 100), 'and every region share is a percentage');
-for (const c of s.countries) {
-  const n = regionsOf(c.id).length;
-  if (n) {
-    check(n <= Math.max(n, c.regionsTotal), `${c.id} never says "${n} of fewer than ${n}"`, `${n} of ${c.regionsTotal}`);
-    break;
-  }
-}
+// The panel prints "5 of 26" from these two numbers, and "5 of 3" would be
+// nonsense. It holds by construction — a region is only ever attributed to the
+// country whose ISO it was looked up under — so what this really guards is that
+// join staying honest.
+const overClaimed = s.countries.filter((c) => regionsOf(c.id).length > c.regionsTotal);
+check(overClaimed.length === 0, 'no country claims more regions than it is divided into',
+  overClaimed.map((c) => `${c.id}: ${regionsOf(c.id).length} of ${c.regionsTotal}`).join(', '));
 // Italy is divided into its 110 provinces in this dataset, not its 20 regions —
 // which is why the level is chosen per country by unit count (see regions-fine)
 // rather than assumed.

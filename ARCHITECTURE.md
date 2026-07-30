@@ -705,7 +705,7 @@ row, it's a reading of the rows.
      days it was seen on and nothing about the hours, so days rank regions,
      visits break ties between regions seen on the same number of days, and
      ground covered breaks what is left. Six days in Rome therefore outrank one
-     day's drive through five times as much of Abruzzo.
+     day's drive through nearly seven times as much of Abruzzo.
   2. **the best-known settlement inside that region**, scoring time spent × a
      factor that grows with population (`1 + log₁₀(1 + pop)`). Nobody calls a
      week in Rome "Fiumicino", and a city of half a million is worth about twice
@@ -713,10 +713,19 @@ row, it's a reading of the rows.
      loses it when you actually slept in the village all week.
 
   Then a landmark (the lake it sat on), then the region, then the country, and
-  only ground with none of those falls through to *"At sea or off the map"*. The
-  old rule — the place under the geometric centre of the trip — named six days
-  in Rome with a day out to Florence after Montefiascone, the hill town halfway
-  between them, and that case is now a test.
+  only a trip with none of those anywhere in it falls through to *"At sea or off
+  the map"*. The old rule — the place under the geometric centre of the trip —
+  named six days in Rome with a day out to Florence after Montefiascone, the
+  hill town halfway between them, and that case is now a test.
+- **Ground the datasets can't place doesn't get a vote.** The country outlines
+  are rounded to ~1 km, so cells just off a coast fall outside every country —
+  the same ones the statistics book as offshore. Pooling them made a single
+  nameless "region" holding *every* countryless day of the trip, which then
+  out-dayed the city the trip was actually in: a week in Athens with four days'
+  sailing came out as "At sea or off the map", with no country left on it for
+  the search box to match. They are skipped now, and a trip that is nothing but
+  such ground still ends up there by finding no region at all and falling back
+  to its centre.
 - **Naming asks about every cell, so the answers are cached** at ~1 km
   (`src/stats-ui.js`). Being a kilometre out cannot change which country or town
   a cell belongs to often enough to matter, and it turns ~1,500 lookups into
@@ -727,9 +736,11 @@ home is where the visits are and not where the trip was, that a week is one trip
 and two weekends are two, that a weekend away lasts two days, that twice in a
 year is twice, that an undated cell invents nothing, and — with a pretend
 gazetteer of longitude bands, so the argument under test is which places a trip
-weighs most rather than which shapes are where — that the week beats the drive
-and the city beats the village only when the time is comparable.
-`scripts/test/stats.mjs` runs the same case against the real datasets.
+weighs most rather than which shapes are where — that the week beats the drive,
+that the city beats the village only when the time is comparable, that four days
+at sea don't outvote three days in the city, and that a stored row's visits are
+counted once and not at both of its ends. `scripts/test/stats.mjs` runs the same
+case against the real datasets.
 
 ## Coverage
 
