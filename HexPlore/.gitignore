@@ -1,0 +1,23 @@
+# Xcode build products and per-user state.
+#
+# Package.resolved is deliberately NOT ignored: it pins the exact MapLibre
+# version this app was built against, and an app (unlike a library) wants that
+# pinned in the repo so a fresh clone builds the same thing.
+
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager's local checkout cache, not the resolved versions.
+.swiftpm/
+.build/
+
+# macOS
+.DS_Store
