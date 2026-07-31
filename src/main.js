@@ -246,7 +246,13 @@ function readChromeLuminance() {
   const gl = map.painter?.context?.gl;
   const canvas = map.getCanvas();
   if (!gl || !canvas) return null;
-  const boxes = [document.getElementById('layers-cluster'), document.getElementById('layers-menu')]
+  // Every surface that is glass rather than paint, so all of them agree. The
+  // palette earns its place here now that it is a veil over the map like the
+  // menu: it covers the middle of the screen, and a bright valley there under a
+  // dark corner up by the buttons would otherwise leave it wearing white text
+  // on a pale card.
+  const boxes = ['layers-cluster', 'layers-menu', 'search-card']
+    .map((id) => document.getElementById(id))
     .filter((el) => el && !el.hidden && el.offsetParent)
     .map((el) => el.getBoundingClientRect());
   if (!boxes.length) return null;
@@ -5041,6 +5047,9 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // the field rather than in front of it. Deriving them is a sweep of the map
     // and a 2 MB dataset, and making you wait to type is the wrong way round.
     onOpen: () => {
+      // The palette is glass over the map, so opening it changes what the
+      // contrast reading is being taken across.
+      refreshChrome();
       stats.ensureTrips().then(() => search.refresh()).catch(() => {});
     },
   });

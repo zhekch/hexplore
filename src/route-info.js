@@ -10,7 +10,7 @@
 // route list and hands over one plain object.
 
 import { sourceLabel } from './locations.js';
-import { formatDistance, formatDuration } from './routes.js';
+import { formatDistance, formatDuration, recordedSeconds } from './routes.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -89,7 +89,7 @@ export function mountRouteInfo({ onClose, onZoom, onMore, onOnly, isSolo } = {})
     if (started && ended && started === ended && r.lastAt > r.firstAt) {
       row('Started', clock(r.firstAt));
     }
-    row('Duration', formatDuration(r.lastAt - r.firstAt));
+    row('Duration', formatDuration(recordedSeconds(r)));
     row('Shape', `${(r.points ?? 0).toLocaleString()} points`);
 
     card.hidden = false;

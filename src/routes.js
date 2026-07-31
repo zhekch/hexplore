@@ -62,6 +62,13 @@ const PRECISION = 1e5;
 // seconds of each other and their lengths differ by at most 0.4%. The tolerances
 // below are an order of magnitude looser than that, and still nowhere near
 // loose enough to catch two genuinely different outings.
+// Below this, the clock was left running rather than the ride being slow. Two
+// real Komoot tours claim 596 h for 20 km (0.03 km/h) and 163 h for 11.5 km —
+// between them 759 of the 956 hours the map thought it had recorded. The
+// slowest genuine outing on the same map is a 1.2 km/h walk with stops, so this
+// sits ten times below anything real and seven times above the glitches.
+export const ROUTE_MIN_SPEED_KMH = 0.5;
+
 const DUP_START_SEC = 120; // how far apart two recordings of one start can be
 const DUP_LENGTH_TOL = 0.05; // 5% — observed worst case is 0.4%
 const DUP_BBOX_IOU = 0.6; // and they have to have happened in the same place
@@ -558,6 +565,26 @@ export function formatDuration(sec) {
 }
 
 export const totalLength = (routes) => routes.reduce((m, r) => m + (r.lengthM || 0), 0);
+
+/**
+ * How long a route actually took, or 0 when the clock cannot be believed.
+ *
+ * A recording that was never stopped keeps counting: one tour here says it took
+ * twenty-five days to cover twenty kilometres. Both ends of it are real
+ * timestamps, so nothing upstream can tell they are wrong — but a route that
+ * implies you moved slower than `ROUTE_MIN_SPEED_KMH` is a clock left running,
+ * not an outing, and adding it to a total makes the total meaningless rather
+ * than approximate.
+ *
+ * Undated and reversed spans return 0 the same way: the answer to "how long did
+ * this take" is "no idea", and 0 is how the callers already spell that.
+ */
+export function recordedSeconds(route) {
+  const sec = route?.firstAt && route?.lastAt > route.firstAt ? route.lastAt - route.firstAt : 0;
+  if (!sec) return 0;
+  const km = (route.lengthM || 0) / 1000;
+  return km / (sec / 3600) < ROUTE_MIN_SPEED_KMH ? 0 : sec;
+}
 
 // --- The same ride, recorded twice ---------------------------------------------
 
