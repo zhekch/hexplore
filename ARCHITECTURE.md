@@ -1233,6 +1233,48 @@ question was being answered about somebody else's layer. Ours is `hexplore-rail`
 now, and the guard asks for our own layer by our own id. The general rule: a
 basemap is somebody else's style and its ids are theirs to choose.
 
+## How sharp a region is
+
+The overview boundary set is what gets drawn until the detailed per-country
+boundaries arrive at `REGION_FINE_ZOOM`, and for a long time it was built for a
+question rather than for a picture: a region is only ever asked "is this cell
+inside you?", a cell is ~900 m across, so a kilometre of slack costs no
+correctness. It costs a great deal of appearance. Two decimals put every vertex
+on a ~1.1 km grid and `SIMPLIFY_MAX_DEG` allowed 6.6 km of deviation on top,
+which is a bay missing from a coastline — and the clamp spent that budget
+precisely on the large, familiar regions whose outlines anyone would recognise.
+
+Three decimals (~110 m) and a 3.3 km clamp take a Swiss canton from 19–36 points
+to 31–53, the whole set from 133k points to 207k, and the file from 2.5 MB to
+4.0 MB. It is a lazily-loaded, immutably-cached chunk, which is what makes that
+trade worth making; all three numbers are constants at the top of
+`scripts/build-regions.mjs`, so the next person to disagree can rebuild.
+
+The build is reproducible: at the old constants it reproduces the previous file
+byte for byte.
+
+## A clock left running
+
+Both ends of a route's span are real timestamps, so nothing upstream can tell
+they are wrong — but a recording that was never stopped keeps counting. Two real
+Komoot tours claim 596 hours for 20 km and 163 hours for 11.5 km, and between
+them they were contributing **759 of the 956 hours** the statistics said had been
+recorded. "Time recorded: 916 h" is not an approximate answer, it is a wrong one.
+
+`recordedSeconds` is the single answer to "how long did this take", used by the
+route card, the route list and the total alike. It returns 0 — the same thing an
+undated route returns — when the span implies moving slower than
+`ROUTE_MIN_SPEED_KMH`. Covering twenty kilometres at 0.03 km/h is not slow, it is
+stationary. The floor sits ten times below the slowest genuine outing on the same
+map (a 1.2 km/h walk with stops) and seven times above the worst glitch, so
+neither side is anywhere near it.
+
+At import, Komoot's own `duration` is now preferred over the last coordinate's
+offset. The duration is the tour's answer to the question; the last coordinate is
+a guess at it, and one stray fix — a phone waking up days later — ruins the
+guess. Nothing rewrites what is already stored, so the two bad rows keep their
+timestamps and are simply not counted.
+
 ## The same ride, recorded twice
 
 A route's identity is a hash of its own simplified geometry plus its dates. That
@@ -1296,6 +1338,14 @@ Rec. 709 — a plain mean calls a saturated blue lake as bright as a beach.
 straddle the decision, because a single one makes the chrome flicker between
 colours while you pan along a shoreline, which is worse than either colour would
 have been on its own.
+
+**The palette is the same glass as the menu.** It used to be its own material —
+`rgba(24, 26, 32, 0.86)`, a near-opaque slab with more blue in it than red — so
+opening it read as a colder, darker app arriving on top of the map rather than a
+panel of the one already there. It is a white veil over the map now, exactly as
+the menu is, and it joins the luminance sample when it is open: it covers the
+middle of the screen, and a bright valley there under a dark corner by the
+buttons would otherwise leave it wearing white text on a pale card.
 
 **It reuses the light theme rather than inventing one.** `[data-chrome='light']`
 mirrors the light basemap's own chrome values, scoped to the surfaces that float

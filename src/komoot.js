@@ -186,7 +186,17 @@ export async function fetchTour({ id, shareToken }) {
   }
   if (!points.length) throw new Error('That tour has no usable coordinates.');
 
-  const lastAt = startedAt ? points[points.length - 1].t : 0;
+  // Komoot's own `duration` is the tour's answer to "how long did this take",
+  // and the last coordinate's offset is only a guess at it — a guess that one
+  // stray point ruins. Two real tours here end twenty-five days and seven days
+  // after they started, for twenty kilometres and eleven: a recording left
+  // running, with a final fix landing whenever the phone next looked. The
+  // duration is preferred where the API gives one, and the coordinates are the
+  // fallback for tours that carry none.
+  const durationSec = Math.max(0, Math.round(+tour?.duration || 0));
+  const lastAt = startedAt
+    ? startedAt + (durationSec || points[points.length - 1].t - startedAt)
+    : 0;
   const name = String(tour?.name ?? '').trim();
   return {
     tour: {
@@ -199,7 +209,7 @@ export async function fetchTour({ id, shareToken }) {
       // the one you'd see on its site, which need not match what the simplified
       // line measures out to here.
       distanceM: +tour?.distance || 0,
-      durationSec: +tour?.duration || 0,
+      durationSec,
     },
     points,
     tracks: [{ name, segments: [points], firstAt: startedAt, lastAt, sport: sportLabel(tour?.sport) }],

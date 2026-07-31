@@ -3905,11 +3905,20 @@ body {
   display: flex;
   flex-direction: column;
   border-radius: 20px;
-  background: rgba(24, 26, 32, 0.86);
+  /* The same glass the menu is made of, and for the reason the menu is made of
+     it: a veil of white over whatever the map is, so the two surfaces are the
+     same material at the same moment. This card used to be its own thing —
+     rgba(24, 26, 32, 0.86), a near-opaque slab with more blue in it than red —
+     which read as a colder, darker app opening on top of the map rather than a
+     panel of the one already there. The scrim behind it does the work that
+     opacity was doing. */
+  background: rgba(255, 255, 255, 0.08);
   -webkit-backdrop-filter: blur(26px) saturate(170%);
   backdrop-filter: blur(26px) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
   overflow: hidden;
   animation: search-in 0.16s ease;
 }
@@ -4543,8 +4552,8 @@ body {
 }
 
 [data-theme='light'] .search-card {
-  background: rgba(255, 255, 255, 0.94);
-  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(248, 250, 252, 0.9);
+  border-color: rgba(15, 23, 42, 0.16);
 }
 
 [data-theme='light'] .search-input,
@@ -5122,8 +5131,8 @@ body {
 }
 
 [data-chrome='light'] .search-card {
-  background: rgba(255, 255, 255, 0.94);
-  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(248, 250, 252, 0.9);
+  border-color: rgba(15, 23, 42, 0.16);
 }
 
 [data-chrome='light'] .search-card .search-input,

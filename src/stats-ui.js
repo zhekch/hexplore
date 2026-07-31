@@ -5,7 +5,7 @@
 
 import { computeStats, EARTH_LAND_KM2 } from './stats.js';
 import { sourceLabel, IMPORT_SOURCES } from './locations.js';
-import { formatDistance, formatDuration, totalLength, thumbSegments } from './routes.js';
+import { formatDistance, formatDuration, totalLength, thumbSegments, recordedSeconds } from './routes.js';
 import { auth } from './auth.js';
 import { buildTrips, nameTrips } from './trips.js';
 import { loadPlaces, nearestTown, lakeAround } from './places.js';
@@ -462,7 +462,7 @@ export function mountStats({
     if (started && ended && started === ended && r.lastAt > r.firstAt) {
       body.append(detailRow('Started', clock(r.firstAt)));
     }
-    const duration = formatDuration(r.lastAt - r.firstAt);
+    const duration = formatDuration(recordedSeconds(r));
     if (duration) body.append(detailRow('Duration', duration));
     if (r.firstAt && r.lastAt > r.firstAt && r.lengthM > 0) {
       const kmh = (r.lengthM / 1000) / ((r.lastAt - r.firstAt) / 3600);
@@ -604,9 +604,11 @@ export function mountStats({
     const metres = totalLength(list);
     const longest = list.reduce((a, b) => (b.lengthM > a.lengthM ? b : a));
     // Only routes that carry both ends of a clock can be timed; saying "3 h"
-    // when half of them are undated would be a made-up number.
-    const timed = list.filter((r) => r.firstAt && r.lastAt > r.firstAt);
-    const seconds = timed.reduce((n, r) => n + (r.lastAt - r.firstAt), 0);
+    // when half of them are undated would be a made-up number. A recording that
+    // was never stopped is thrown out for the same reason — see
+    // recordedSeconds. Two of them were contributing 759 of 956 hours.
+    const timed = list.filter((r) => recordedSeconds(r) > 0);
+    const seconds = timed.reduce((n, r) => n + recordedSeconds(r), 0);
     const dated = list.filter((r) => r.firstAt).map((r) => r.firstAt);
 
     body.append(

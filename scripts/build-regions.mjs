@@ -32,10 +32,15 @@ const SRC =
 // Natural Earth cannot supply them at any tolerance, because even its raw 10m
 // geometry gives a Swiss canton ~270 points where the national survey gives
 // 7,000.
-// Two decimals (~1 km) for the overview set: a region is only ever asked "is
-// this cell inside you?" there, and a cell is ~900 m across. The fine set is
-// drawn at street zooms, so it gets three (~100 m).
-const DECIMALS = 2;
+// Three decimals (~110 m), the same precision the fine set is stored at.
+//
+// Two was the reasoning for a long time, and the reasoning was about the
+// question rather than the picture: a region is only ever asked "is this cell
+// inside you?", and a cell is ~900 m across, so a kilometre of slack costs no
+// correctness. But this geometry is also *drawn*, up to the zoom where the
+// detailed boundaries take over, and there a kilometre of snapping is a
+// staircase down the side of every canton. The extra digit costs 11%.
+const DECIMALS = 3;
 // Slivers this small are rounding artefacts of the line above, not places.
 const MIN_RING_POINTS = 4;
 // How hard to simplify, as a fraction of each region's own size.
@@ -46,9 +51,15 @@ const MIN_RING_POINTS = 4;
 // would then never be credited for. So each region is simplified relative to
 // its own bounding box and clamped, which spends the bytes where the shape is
 // big enough for anyone to notice.
-const SIMPLIFY_FRACTION = Number(process.env.SIMPLIFY_FRACTION ?? 0.02);
+// Loosened from 0.02/0.06 once the shapes started being looked at rather than
+// only asked about. The clamp was the louder of the two: 6.6 km of permitted
+// deviation is a bay missing from a coastline, and it was being spent on
+// exactly the large, familiar regions whose outlines anyone would recognise.
+// Together these take a Swiss canton from 19–36 points to 31–53, the whole set
+// from 133k points to 207k, and the file from 2.5 MB to 4.0 MB.
+const SIMPLIFY_FRACTION = Number(process.env.SIMPLIFY_FRACTION ?? 0.012);
 const SIMPLIFY_MIN_DEG = Number(process.env.SIMPLIFY_MIN_DEG ?? 0.003); // ~330 m
-const SIMPLIFY_MAX_DEG = Number(process.env.SIMPLIFY_MAX_DEG ?? 0.06); //  ~6.6 km
+const SIMPLIFY_MAX_DEG = Number(process.env.SIMPLIFY_MAX_DEG ?? 0.03); //  ~3.3 km
 // A piece of a multipolygon smaller than this share of the region's largest
 // piece is a rock, a sandbank or a rounding artefact. The largest piece is
 // always kept, so no region can vanish.
