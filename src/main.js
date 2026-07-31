@@ -18,7 +18,7 @@ import {
 import {
   loadCountries,
   countriesLoaded,
-  countryAt,
+  countryNear,
   countryIdAt,
   mergeCountries,
   countryGeometry,
@@ -496,14 +496,33 @@ if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(accent)) accent = DEFAULT_ACCENT;
 //
 // Ramps run cool → hot / old → new and are sampled with an `interpolate`
 // expression on the per-feature value `v` (0..1).
+// How far out "how often was I around here" looks. A cell is read together
+// with the hex this many levels above it — level 0's neighbourhood is a level-2
+// hex, about 9 km across. Without it the finest level is almost all floor:
+// `hits` counts arrivals in one 1 km hexagon, and going back to a city lands on
+// a different street rather than the same hexagon, so five visits produce five
+// cells seen once rather than one cell seen five times.
+const HEAT_NEIGHBOURHOOD = 2;
+// Where the hot end of a ramp is pinned. Deliberately not the maximum: a single
+// cell at home can hold four orders of magnitude more arrivals than anywhere
+// else, and measured against it the entire rest of the world sits in the bottom
+// fifth of the ramp. Everything above this pins to the hottest color, which is
+// the honest answer — past a point, "more" stops being a distinction worth a
+// shade.
+const HEAT_HOT_PERCENTILE = 0.98;
+
 const HEAT_MODES = {
   flat: { label: 'Single color' },
   visits: {
     label: 'Most visited',
     legend: ['Rare', 'Often'],
     ramp: ['#2b3a6b', '#2f6fa8', '#39a0a0', '#8fc55f', '#f2d049', '#f08b3a', '#e4562f'],
-    // Visit counts are heavily skewed (home dwarfs everything), so compress.
-    value: (s, r) => Math.log(s.hits) / Math.log(Math.max(2, r.maxHits)),
+    // A cell's own arrivals plus what a typical cell around it got, against the
+    // hot percentile rather than the maximum — see HEAT_NEIGHBOURHOOD and
+    // HEAT_HOT_PERCENTILE. Areas that carry their own neighbourhood (a whole
+    // country) have no `near` and are read on their own count.
+    value: (s, r) =>
+      Math.min(1, Math.log(s.hits + (s.near ?? 0)) / Math.log(Math.max(2, r.hotHits))),
   },
   // Not a ramp: a color per source. "Where did this part of the map come from"
   // is a question about categories, so cool→hot would be meaningless here — the
@@ -953,6 +972,42 @@ function addSource(e, src, hits) {
   }
 }
 
+/**
+ * How busy the area around one rolled-up cell is: arrivals per cell across the
+ * hex `HEAT_NEIGHBOURHOOD` levels above it. Read beside the cell's own count so
+ * that being seen once in the middle of a city and being seen once on a
+ * motorway are not the same answer — which, before this, they were.
+ *
+ * Falls back to the cell's own density at the coarsest level, where there is
+ * nothing further out to ask.
+ */
+function neighbourhoodOf(level, key) {
+  const up = Math.min(MAX_LEVEL, level + HEAT_NEIGHBOURHOOD);
+  const own = (e) => (e ? e.hits / e.cells : 0);
+  if (up === level) return own(litSets[level].get(key));
+  const sep = key.indexOf('/');
+  let col = +key.slice(0, sep);
+  let row = +key.slice(sep + 1);
+  for (let l = level; l < up; l++) [col, row] = parentOf(l, col, row);
+  return own(litSets[up].get(`${col}/${row}`)) || own(litSets[level].get(key));
+}
+
+function attachNeighbourhoods(level) {
+  for (const [key, e] of litSets[level]) e.near = neighbourhoodOf(level, key);
+}
+
+/**
+ * The value the hot end of a ramp is pinned to — `HEAT_HOT_PERCENTILE` of the
+ * counts actually present, rather than the largest of them. See the constant.
+ */
+function hotOf(lit) {
+  if (!lit.size) return 2;
+  const all = [];
+  for (const e of lit.values()) all.push(e.hits + (e.near ?? 0));
+  all.sort((a, b) => a - b);
+  return Math.max(2, all[Math.min(all.length - 1, Math.floor(all.length * HEAT_HOT_PERCENTILE))]);
+}
+
 // Which source speaks for this cell: the one that saw you there most often.
 // Ties go to the alphabetically first, so the map doesn't shuffle between loads.
 function dominantSource(e) {
@@ -1044,8 +1099,11 @@ function recomputeLit() {
     sourceOrder = [];
   }
 
+  for (let l = 0; l <= MAX_LEVEL; l++) attachNeighbourhoods(l);
+
   litRange = litSets.map((lit) => {
-    const r = { maxHits: 1, minTime: 0, maxTime: 0, minAge: 0, maxAge: 0 };
+    const r = { maxHits: 1, hotHits: 2, minTime: 0, maxTime: 0, minAge: 0, maxAge: 0 };
+    r.hotHits = hotOf(lit);
     for (const e of lit.values()) {
       if (e.hits > r.maxHits) r.maxHits = e.hits;
       if (e.time) {
@@ -1089,6 +1147,7 @@ function rollUpPainted(id) {
   if (!age) age = time;
   if (time || age) return false; // dated — litRange would need the full pass
 
+  const touched = [];
   for (let l = L; l <= MAX_LEVEL; l++) {
     if (l > L) [col, row] = parentOf(l - 1, col, row);
     const key = `${col}/${row}`;
@@ -1100,7 +1159,16 @@ function rollUpPainted(id) {
     } else {
       litSets[l].set(key, (e = { hits, time: 0, age: 0, cells: 1, ids: [id] }));
     }
+    touched.push([l, key]);
     if (e.hits > litRange[l].maxHits) litRange[l].maxHits = e.hits;
+  }
+  // Only the chain this cell sits in can have moved, so the neighbourhoods are
+  // refreshed rather than rebuilt. `hotHits` is left alone on purpose: it is a
+  // 98th percentile over tens of thousands of cells, and one hand-painted cell
+  // worth a single visit cannot move it anywhere the next full pass won't.
+  for (const [l, key] of touched) {
+    const e = litSets[l].get(key);
+    if (e) e.near = neighbourhoodOf(l, key);
   }
   countryDirty = true;
   return true;
@@ -1246,10 +1314,20 @@ function mergeAreas(kind, litIds, fine) {
 
 function buildAreaFC(kind, fine = false) {
   // Resolve from a rolled-up level rather than from every fine cell: a couple
-  // hundred point-in-polygon tests instead of tens of thousands, which is what
+  // thousand point-in-polygon tests instead of tens of thousands, which is what
   // was freezing the page.
+  //
+  // Both kinds resolve at REGION_FROM_LEVEL. Countries used to resolve at
+  // MAX_LEVEL, where a hex is 83 km across and the whole thing is attributed to
+  // whichever country its *centre* lands in — which is fine for Poland and
+  // catastrophic for anywhere small or anywhere you stayed near a border.
+  // Bratislava is 10 km from Austria and 15 km from Hungary: of the 1,774
+  // arrivals recorded in Slovakia, exactly one was painted onto Slovakia and
+  // the rest onto its neighbours, so a country visited five times rendered as
+  // the emptiest place on the map. At this level 98% of that misattribution
+  // goes away, and the region pass was already paying the same price.
   const isRegionKind = kind === 'region';
-  const fromLevel = isRegionKind ? REGION_FROM_LEVEL : MAX_LEVEL;
+  const fromLevel = REGION_FROM_LEVEL;
   const memo = isRegionKind ? cellRegionMemo : cellCountryMemo;
   const litIds = new Set();
   const perCountry = new Map(); // id → rolled-up stats, for the heat maps
@@ -1261,7 +1339,9 @@ function buildAreaFC(kind, fine = false) {
       const row = +key.slice(sep + 1);
       const [lng, lat] = project(cellCenter(fromLevel, col, row));
       const lngW = wrapLng(lng);
-      const at = countryAt(lngW, lat);
+      // countryNear, not countryAt: a 9 km hex centred in a bay or on the wrong
+      // side of a border sliver belongs to the land beside it, not to nowhere.
+      const at = countryNear(lngW, lat);
       const country = at?.id ?? null;
       // The region lookup is handed the country, which drops all but a couple
       // of dozen of the 4,553 shapes before any geometry is touched.
@@ -1311,6 +1391,11 @@ function buildAreaFC(kind, fine = false) {
       }
     }
     e.src = best;
+    // A country is its own neighbourhood, so it is read on its own count. The
+    // field is cleared rather than left alone because the entry was spread from
+    // the first hex that landed in it, and would otherwise carry that one hex's
+    // surroundings as if they were the country's.
+    e.near = 0;
   }
 
   // Recorded before the heat branch, which returns without reaching the merge:
@@ -1321,7 +1406,7 @@ function buildAreaFC(kind, fine = false) {
   // color; otherwise they dissolve into one borderless shape.
   const heat = heatMetric();
   if (heat) {
-    const range = { maxHits: 1, minTime: 0, maxTime: 0, minAge: 0, maxAge: 0 };
+    const range = { maxHits: 1, hotHits: hotOf(perCountry), minTime: 0, maxTime: 0, minAge: 0, maxAge: 0 };
     for (const e of perCountry.values()) {
       if (e.hits > range.maxHits) range.maxHits = e.hits;
       if (e.time) {

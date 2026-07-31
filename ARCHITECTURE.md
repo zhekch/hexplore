@@ -1178,6 +1178,48 @@ questions twice in two files is how they slowly stop agreeing about which side
 of a border a cell is on.
 
 
+## What "Most visited" is measuring
+
+The ramp answers *how often were you around here*, and getting there took
+undoing three separate ways it was answering something else.
+
+**A country used to be decided by the centre of an 83 km hexagon.** `buildAreaFC`
+resolves each rolled-up cell to a country with one point-in-polygon test, and
+for the country level it read from `MAX_LEVEL` — where a hex is 83 km across and
+the whole thing is credited to whatever country its centre lands in. For Poland
+that is harmless. For anywhere small, or anywhere you stayed near a border, it
+is not: of 1,774 arrivals recorded in Slovakia, **exactly one** was painted onto
+Slovakia and the rest onto Hungary and Austria, so a country visited five times
+rendered as the emptiest place on the map while its neighbour rendered as one of
+the busiest. Switzerland leaked 2,347 arrivals into France the same way. Both
+kinds now resolve at `REGION_FROM_LEVEL` (9 km), which the region pass was
+already paying for, and misattribution across the whole map drops from 8,713
+arrivals to 176 — what is left is microstates smaller than one hex. The lookup
+is `countryNear` rather than `countryAt`, so a hex centred in a bay belongs to
+the land beside it instead of to nowhere.
+
+**A cell is read with its surroundings** — see `HEAT_NEIGHBOURHOOD`. `hits`
+counts arrivals inside one 1 km hexagon, and going back to a city lands on a
+different street rather than the same hexagon, so five visits produce five cells
+seen once rather than one cell seen five times. 85% of a real map's cells sit at
+exactly one arrival, and `log(1)` is zero however the scale is drawn: the finest
+level was almost entirely floor. Reading a cell together with the average across
+the hex two levels above it separates *seen once in the middle of a city* from
+*seen once on a motorway*, which is the distinction the mode exists to make.
+
+**The hot end is a percentile, not a maximum** — see `HEAT_HOT_PERCENTILE`. One
+cell at home can hold four orders of magnitude more arrivals than anywhere else,
+and measured against it the entire rest of the world sits in the bottom fifth of
+the ramp. Pinning the top at the 98th percentile and clamping past it takes the
+share of the map above the first third of the ramp from 2% to 18% at the finest
+level. Everything above the pin is the hottest colour, which is the honest
+answer — past a point, "more" stops being a distinction worth a shade.
+
+**What it still does not measure is trips.** `hits` is arrivals, not visits: a
+weekend that recorded 1,700 fixes and five weekends that recorded 1,700 fixes
+look the same, because they are the same number of arrivals. Counting distinct
+days per cell would answer the other question, and nothing stores them.
+
 ## Two vector levels
 
 Two of the levels are polygons rather than hexagons, and they have to hand over
@@ -1283,15 +1325,17 @@ holding; what it no longer has is a monopoly on the calendar.
 
 **The list keeps two columns down each side, and a row moves between them.**
 The outer one is the edge the section headings and the home card draw their
-boxes on, 15 px in — the palette's gutter, which the magnifier and the close
-button stand on too; the inner one is 25 px, where their *text* sits. The home
-card draws a 1 px edge of its own, so it is padded 9 px rather than 10 to land
-there. At rest a row stands on the outer column and its distance ends on the
-inner one; pointing at a row swaps them, so the icon tucks in to meet the
-headings and the distance slides out to make room for the × that puts the trip
-away. Both are transforms of 10 px and 26 px, not padding — nothing reflows, and
-the right label is deliberately left out of the left-hand slide because it is
-already busy going the other way.
+boxes on, 15 px in — the palette's gutter, which the magnifier, the close
+button and the section headings stand on too; the inner one is 25 px, where the
+home card's *text* sits. The card draws a 1 px edge of its own, so it is padded
+9 px rather than 10 to land there. A heading sits on the outer column rather
+than the inner one because it labels the block beneath it, and the block's own
+edge is that column; indented to the inner one it floated between the two,
+belonging to neither. At rest a row stands on the outer column at *both* ends; pointing at
+one tucks the whole row in to meet the headings, and a trip's distance keeps
+going past the inner column to make room for the × that puts the trip away. The
+two ends carry mirrored values because they are measured from opposite edges.
+All of it is transforms rather than padding, so nothing reflows.
 
 That × is the reason any of this moves. In the flow it held a 34 px lane open on
 *every* row to carry something invisible until you point at one, which pushed
