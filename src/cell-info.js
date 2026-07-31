@@ -33,6 +33,15 @@ function shortRange(first, last) {
 
 const coord = (lat, lng) => `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`;
 
+const km2 = (v) =>
+  v >= 1000 ? `${Math.round(v).toLocaleString()} km²`
+  : v >= 10 ? `${v.toFixed(0)} km²`
+  : `${v.toFixed(1)} km²`;
+
+// A country you have crossed once is a fraction of a percent of itself, and
+// "0%" is a wrong answer rather than a small one.
+const pct = (v) => (v >= 1 ? `${v.toFixed(0)}%` : v >= 0.1 ? `${v.toFixed(1)}%` : `${v.toFixed(2)}%`);
+
 /**
  * Wires the card (markup lives in index.html).
  * @returns {{show:(info:object)=>void, hide:()=>void, visible:()=>boolean}}
@@ -40,6 +49,7 @@ const coord = (lat, lng) => `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`;
 export function mountCellInfo({ onClose } = {}) {
   const $ = (id) => document.getElementById(id);
   const card = $('cell-info');
+  const titleEl = $('cell-info-title');
   const closeBtn = $('cell-info-close');
   const coordEl = $('cell-info-coord');
   const rowsEl = $('cell-info-rows');
@@ -66,7 +76,13 @@ export function mountCellInfo({ onClose } = {}) {
   }
 
   function show(info) {
-    coordEl.textContent = `${coord(info.lat, info.lng)} · ${info.sizeLabel}`;
+    // A cell is a place on the map, so it is named by its coordinates; a region
+    // has a name of its own and the coordinates of one point inside it would be
+    // noise.
+    titleEl.textContent = info.title ?? 'Visited';
+    coordEl.textContent = info.title
+      ? info.sizeLabel
+      : `${coord(info.lat, info.lng)} · ${info.sizeLabel}`;
     rowsEl.replaceChildren();
 
     const seen = range(info.firstAt, info.lastAt);
@@ -79,6 +95,17 @@ export function mountCellInfo({ onClose } = {}) {
     }
     row('Added to map', day(info.addedAt) ?? 'unknown');
     if (info.cellCount > 1) row('Cells inside', info.cellCount.toLocaleString());
+    // How much of it you have actually been to. Only an area can answer this —
+    // for a single cell the question is the cell.
+    if (info.covered) {
+      row(
+        'Ground covered',
+        info.coveredPct >= 0.05
+          ? `${km2(info.covered)} · ${pct(info.coveredPct)}`
+          : km2(info.covered),
+        `${Math.round(info.covered).toLocaleString()} km² of ${info.coveredOf}`,
+      );
+    }
     // Visits are the number the heat map reads; the raw fix count only earns a
     // line of its own when it says something different (a recorded track).
     if (info.hits) row('Visits', info.hits.toLocaleString());

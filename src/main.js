@@ -43,6 +43,9 @@ import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
   loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView,
 } from './regions.js';
+import { geometryAreaM2 } from './regions.js';
+import { countryAreaKm2 } from './countries.js';
+import { cellAreaKm2 } from './stats.js';
 import { asMulti, unionGeometries } from './polygon.js';
 import { mountBackup } from './backup-ui.js';
 import { createHistory, plural } from './history.js';
@@ -1718,7 +1721,7 @@ function cellIdAt(lngLat) {
 // the map know?". The clicked cell is whatever the current zoom is showing, so
 // zoomed out you get the aggregate of everything inside it.
 let cellInfo = null; // set by mountCellInfo() once the DOM is wired
-let selection = null; // { L, col, row } of the highlighted cell
+let selection = null; // { L, col, row } of the highlighted cell, or { area }
 let lastInfoLngLat = null; // where you tapped, so zooming can re-resolve it
 
 // Ground size of a cell at the current latitude (Mercator cells shrink as you
@@ -1737,11 +1740,10 @@ const cellSizeLabel = (level) =>
       ? 'region'
       : `${cellSizeKm(level)} cell`;
 
-// Roll the provenance of every stored cell inside (L, col, row) into one
-// summary plus a per-source breakdown.
-function gatherInfo(L, col, row) {
-  const ids = storedUnder(L, col, row);
-  if (!ids.length) return null;
+// Roll the provenance of a set of stored cells into one summary plus a
+// per-source breakdown. Taken by the cell card and by the region/country card,
+// which differ only in how they decide which cells to ask about.
+function rollUpIds(ids) {
   const bySource = new Map();
   let addedAt = 0;
   let firstAt = 0;
@@ -1772,11 +1774,7 @@ function gatherInfo(L, col, row) {
       lastAt = Math.max(lastAt, m.lastAt || 0);
     }
   }
-  const [lng, lat] = project(cellCenter(L, col, row));
   return {
-    lat,
-    lng: wrapLng(lng),
-    sizeLabel: cellSizeLabel(L),
     cellCount: ids.length,
     hits,
     fixes,
@@ -1787,10 +1785,30 @@ function gatherInfo(L, col, row) {
   };
 }
 
+function gatherInfo(L, col, row) {
+  const ids = storedUnder(L, col, row);
+  if (!ids.length) return null;
+  const [lng, lat] = project(cellCenter(L, col, row));
+  return {
+    ...rollUpIds(ids),
+    lat,
+    lng: wrapLng(lng),
+    sizeLabel: cellSizeLabel(L),
+  };
+}
+
 // The highlight ring around the inspected cell — same rounded outline the
 // regions use, so it reads as part of the same language.
 function selectionFC() {
   if (!selection || !map.getSource('sel')) return EMPTY;
+  // A selected region is outlined by its own border rather than by a ring, so
+  // the highlight says which shape was picked instead of merely where.
+  if (selection.area) {
+    const g = areaGeometry(selection.area.kind, selection.area.id, fineRegionsLoaded());
+    return g
+      ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: g }] }
+      : EMPTY;
+  }
   const { L, col, row } = selection;
   const [cx, cy] = cellCenter(L, col, row);
   const ring = fullHexOffsets(radiusOf(L)).map(([dx, dy]) => [cx + dx, cy + dy]);
@@ -1811,6 +1829,100 @@ function closeCellInfo() {
   selection = null;
   updateSelection();
   cellInfo?.hide();
+}
+
+/**
+ * Which region or country is under a point, at the level that is on screen.
+ * Resolved from the point itself rather than from the hex it falls in — the
+ * fills are drawn from 9 km hexes and a click near a border deserves a better
+ * answer than the hex's centre gives.
+ */
+function areaAt(lngLat) {
+  if (!isVectorLevel(currentLevel)) return null;
+  const kind = vectorKindOf(currentLevel);
+  const lng = wrapLng(lngLat.lng);
+  const country = countryNear(lng, lngLat.lat);
+  if (!country) return null;
+  if (kind !== 'region') return { kind, id: country.id, name: country.id, of: null };
+  const region = regionNear(lng, lngLat.lat, country.iso);
+  if (region) return { kind, id: region.id, name: region.name, of: country.id };
+  // A country the dataset never subdivided stands in as its own region — the
+  // same stand-in the fill was built from, so the two agree about what was
+  // clicked. See buildAreaFC.
+  if (regionsInCountry(country.iso) === 0) {
+    return { kind, id: `${WHOLE_COUNTRY}${country.id}`, name: country.id, of: null };
+  }
+  return null;
+}
+
+/**
+ * Every stored cell inside one area, found through the same 9 km lookup the
+ * fill was built from — so what the card counts is exactly what is painted.
+ */
+function storedInArea(kind, id) {
+  const memo = kind === 'region' ? cellRegionMemo : cellCountryMemo;
+  const lit = litSets[REGION_FROM_LEVEL];
+  const out = [];
+  for (const [key, cid] of memo) {
+    if (cid !== id) continue;
+    const e = lit?.get(key);
+    if (e?.ids) out.push(...e.ids);
+  }
+  return out;
+}
+
+/** Ground area of a set of cells, each measured at its own latitude. */
+function groundKm2(ids) {
+  let km2 = 0;
+  for (const id of ids) {
+    const [L, col, row] = id.split('/').map(Number);
+    if (!Number.isFinite(L)) continue;
+    km2 += cellAreaKm2(L, project(cellCenter(L, col, row))[1]);
+  }
+  return km2;
+}
+
+/** How big the region or country itself is, for the share of it you have been to. */
+function areaKm2(area) {
+  if (area.kind !== 'region' || area.id.startsWith(WHOLE_COUNTRY)) {
+    return countryAreaKm2(area.id.startsWith(WHOLE_COUNTRY) ? area.id.slice(WHOLE_COUNTRY.length) : area.id);
+  }
+  const g = regionGeometry(area.id);
+  return g ? geometryAreaM2(g) / 1e6 : 0;
+}
+
+/**
+ * The card for a whole region or country. Same shape as the cell card because
+ * it is the same question asked of more ground — "when was I here, how often,
+ * and where does that come from" — with the two answers only a region can give:
+ * how much of it you have been to, and how much of it there is.
+ */
+function showAreaInfoAt(lngLat) {
+  const area = areaAt(lngLat);
+  if (!area) return false;
+  const ids = storedInArea(area.kind, area.id);
+  if (!ids.length) return false;
+  closeRouteInfo(); // the two cards share the same spot on screen
+  lastInfoLngLat = lngLat;
+  const covered = groundKm2(ids);
+  const whole = areaKm2(area);
+  selection = { area };
+  updateSelection();
+  cellInfo?.show({
+    ...rollUpIds(ids),
+    title: area.name,
+    sizeLabel: [area.kind === 'region' ? (area.of ? `Region in ${area.of}` : 'Region') : 'Country',
+      whole ? `${Math.round(whole).toLocaleString()} km²` : null].filter(Boolean).join(' · '),
+    covered,
+    coveredPct: whole ? (covered / whole) * 100 : 0,
+    coveredOf: area.name,
+  });
+  return true;
+}
+
+/** Re-answer the same spot after a zoom, with whichever card the level wants. */
+function reopenInfoAt(lngLat) {
+  if (!showAreaInfoAt(lngLat)) showCellInfoAt(lngLat);
 }
 
 function showCellInfoAt(lngLat) {
@@ -2395,10 +2507,20 @@ function trackFC(points) {
  *
  * @param {{kind:string, id:string, label:string, points:Array}|null} what
  */
+const TRACK_LAYERS = ['trip-glow', 'trip-link', 'trip-dot'];
+
 function showTrack(what) {
   shownTrack = what ? { kind: what.kind, id: what.id, label: what.label } : null;
   const src = map.getSource('trip');
   if (src) src.setData(what ? trackFC(what.points) : EMPTY);
+  // Raised on every showing rather than positioned once: a saved route sits
+  // above it in the stack the rest of the time, and it should — a route is
+  // something you switched on and left on. But while a day or a trip is being
+  // shown it is the question on screen, so it goes over everything except home.
+  if (what && map.getLayer('trip-dot')) {
+    for (const id of TRACK_LAYERS) map.moveLayer(id);
+    syncHomeMarker(); // puts home back on top of the three we just raised
+  }
   updateTrackChip();
 }
 
@@ -3711,7 +3833,7 @@ function updateGrid(force = false) {
       paintedZoom = map.getZoom();
       currentLevel = level;
       coverage = WORLD_COVERAGE;
-      if (selection && lastInfoLngLat) showCellInfoAt(lastInfoLngLat);
+      if (selection && lastInfoLngLat) reopenInfoAt(lastInfoLngLat);
       return;
     }
     blobRole = currentAsBlob ? 'out' : 'in';
@@ -3771,7 +3893,7 @@ function updateGrid(force = false) {
 
   // The info card describes a cell at a particular level, so a zoom that
   // changes the level re-resolves it against the bigger (or smaller) hex.
-  if (levelChanged && selection && lastInfoLngLat) showCellInfoAt(lastInfoLngLat);
+  if (levelChanged && selection && lastInfoLngLat) reopenInfoAt(lastInfoLngLat);
 }
 
 // --- Hover (tweened via feature-state for a soft glass highlight) ----------
@@ -4243,15 +4365,21 @@ function installGrid() {
   // to be a 16% wash over the same hexagons, which was legible only against a
   // dark basemap and said nothing about direction. Solid dots with a dark rim
   // read on all four basemaps, including a photograph.
+  //
+  // No `beforeId` on any of the three: what a day or a trip actually was is the
+  // one thing on screen you asked to see, so it goes over the basemap's own
+  // buildings and labels rather than under them. Home is added after this and
+  // so stays above it — the marker you navigate by should not be buried under
+  // the answer to a different question.
   map.addSource('trip', { type: 'geojson', data: EMPTY, tolerance: 0 });
   map.addLayer({
     id: 'trip-glow', type: 'line', source: 'trip', layout: lineLayout,
     paint: { 'line-color': TRACK_COLOR, 'line-opacity': 0.4, 'line-width': 9, 'line-blur': 7 },
-  }, firstSymbol);
+  });
   map.addLayer({
     id: 'trip-link', type: 'line', source: 'trip', layout: lineLayout,
     paint: { 'line-color': TRACK_COLOR, 'line-opacity': 0.85, 'line-width': TRACK_LINK_WIDTH },
-  }, firstSymbol);
+  });
   map.addLayer({
     id: 'trip-dot', type: 'circle', source: 'trip',
     paint: {
@@ -4264,7 +4392,7 @@ function installGrid() {
       'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 4, 0.8, 12, 1.6],
       'circle-stroke-color': 'rgba(14, 16, 22, 0.75)',
     },
-  }, firstSymbol);
+  });
 
   // Saved routes go above the regions *and* above the basemap's own lines: a
   // line you actually walked reading as if it ran under the streets looks like
@@ -4397,7 +4525,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // under it; otherwise view mode inspects the cell.
       const route = routeAt(e.point);
       if (route) showRouteInfo(route);
-      else showCellInfoAt(e.lngLat);
+      // At the two vector levels there are no hexes on screen, so a tap is
+      // about the shape it landed on. Falls through to the cell card when the
+      // spot has nothing on it, which is what the fill says too.
+      else if (!showAreaInfoAt(e.lngLat)) showCellInfoAt(e.lngLat);
       return;
     }
     if (isCtrl(e.originalEvent)) return; // Ctrl gesture is handled as painting

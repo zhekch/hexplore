@@ -738,9 +738,9 @@ row, it's a reading of the rows.
   it is what lets one thin outline read on a dark map, a light one and a
   photograph without a coloured disc behind it guaranteeing contrast by
   shouting. It is added with no `beforeId`, which puts it on top of the whole
-  stack — above the basemap's own labels, not merely above the blobs. Everything
-  else the app draws names an anchor inside the basemap, so nothing lands over
-  it; `syncHomeMarker` raises it again anyway, because a marker you have to hunt
+  stack — above the basemap's own labels, not merely above the blobs. The only
+  other thing drawn that high is the day/trip highlight, and `syncHomeMarker`
+  raises home again whenever that is shown, because a marker you have to hunt
   for is not a marker. The tick for it sits on the home card itself, because "is this the
   right home" is a question you answer by looking at where it is — it started
   four sections away in the appearance menu. It gets a line of its own under the
@@ -1177,6 +1177,45 @@ point-in-polygon and area maths both datasets share — answering the same two
 questions twice in two files is how they slowly stop agreeing about which side
 of a border a cell is on.
 
+
+**The highlight is drawn over the basemap, not under it.** The three `trip-*`
+layers take no `beforeId`, so a day's dots sit above buildings, road casings and
+labels — what you asked to see should not be interrupted by street names. They
+sit *below* a saved route the rest of the time, because a route is something you
+switched on and left on, and `showTrack` raises them past it only while a day or
+a trip is actually being shown. Home is re-raised immediately after, so the
+order from the top is always home, then the highlight, then everything else.
+
+## Tapping a region
+
+At the two vector levels there are no hexagons on screen, so a tap is about the
+shape it landed on rather than about the 83 km cell underneath it. The card is
+the same one a cell gets, because it is the same question asked of more ground —
+when was I here, how often, and where does that come from — with the two answers
+only an area can give: how much of it you have been to, and how much of it there
+is.
+
+**The area is resolved from the point, not from the hex.** `areaAt` runs
+`countryNear`/`regionNear` on the tapped coordinate, so a tap near a border gets
+a better answer than the 9 km hex's centre would give. But the *cells* it counts
+come from `cellRegionMemo`/`cellCountryMemo` — the same 9 km lookup the fill was
+built from — so the card can never disagree with what is painted. A country the
+dataset never subdivided uses the same `WHOLE_COUNTRY` stand-in the fill does,
+for the same reason.
+
+**Nothing lit means no card.** An unvisited region, or open sea, falls through
+to the cell card, which finds nothing and closes — the same answer the fill is
+already giving by being empty there.
+
+**Ground covered is measured per cell, at its own latitude.** The grid is
+Mercator, so a cell's ground area shrinks with `cos²(lat)`; summing a constant
+would tell someone in Tromsø they have covered twice what they have. The share
+is against the region's own polygon area, and it is printed to two decimals when
+it is under a tenth of a percent — a country you crossed once is a fraction of
+itself, and "0%" is a wrong answer rather than a small one.
+
+**The selection highlight is the region's own border**, not the hex ring a cell
+gets, so it says which shape was picked rather than merely where.
 
 ## What "Most visited" is measuring
 
