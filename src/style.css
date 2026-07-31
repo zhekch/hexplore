@@ -3890,9 +3890,14 @@ body {
   justify-content: center;
   align-items: flex-start;
   padding: 8vh 16px 16px;
+  /* A scrim and nothing else. This used to carry `backdrop-filter: blur(2px)`
+     as well, which quietly cost the card its own blur: an element with a
+     backdrop-filter becomes a *backdrop root*, so everything inside it can only
+     filter what is painted within — and all the card had behind it was this
+     flat colour. Blurring a flat colour looks exactly like not blurring it,
+     which is why the palette read as a sheet of glass with a sharp map behind
+     it while the menu, which has no such ancestor, blurred properly. */
   background: rgba(0, 0, 0, 0.35);
-  -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);
 }
 
 .search-overlay[hidden] {
@@ -5235,4 +5240,29 @@ body {
   background: rgba(15, 23, 42, 0.07);
   border-color: rgba(15, 23, 42, 0.14);
   color: #0f172a;
+}
+
+/* The second copy of an outing, while the fold is open. A dot rather than a
+   badge: the row still has to read as a route, and the only thing being said is
+   "this one is the duplicate" — which is a mark, not a sentence. Red because it
+   is the one colour in the list that means nothing else. */
+.stats-route.is-dupe {
+  position: relative;
+}
+
+.stats-route-dupe {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  translate: 0 -50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e4562f;
+  box-shadow: 0 0 0 2px rgba(228, 86, 47, 0.22);
+}
+
+/* The count, under the list it is a footnote to. */
+.route-fold {
+  margin: 14px 0 2px;
 }

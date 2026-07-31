@@ -66,6 +66,7 @@ export function mountStats({
   foldedRoutes = () => 0,
   showFolded = () => false,
   onShowFolded,
+  isFolded = () => false,
 }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('stats-overlay');
@@ -561,6 +562,16 @@ export function mountStats({
       el.prepend(svg);
     }
     el.querySelector('b').textContent = r.name || 'Route';
+    // Only visible while the fold is open, because that is the only time one of
+    // these is in the list — and then it has to be obvious which rows are the
+    // second copy, or "show them" just makes the list longer for no reason.
+    if (isFolded(r)) {
+      el.classList.add('is-dupe');
+      const dot = document.createElement('span');
+      dot.className = 'stats-route-dupe';
+      dot.title = 'The same outing as the row above — folded away unless you ask for it';
+      el.append(dot);
+    }
     // Where, when, and what it came out of, on one line — never the place twice
     // when it is also the title, and never the app when it's the heading above.
     const place = r.place && r.place !== r.name ? r.place : null;
@@ -671,29 +682,6 @@ export function mountStats({
         ),
       ),
     );
-    // What the fold is holding back, and the way to look at it. Silently
-    // dropping a route somebody remembers importing is the failure this whole
-    // dialog exists to avoid — the number is the honest part, and the button is
-    // what makes it a decision rather than a disappearance.
-    const folded = foldedRoutes();
-    if (folded || showFolded()) {
-      const el = document.createElement('div');
-      el.className = 'route-fold';
-      const text = document.createElement('span');
-      text.textContent = showFolded()
-        ? `Showing every copy — ${plural(folded, 'route')} here ${folded === 1 ? 'is' : 'are'} the same outing recorded twice`
-        : `${plural(folded, 'route')} recorded twice, folded into the copy above`;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'home-set';
-      btn.textContent = showFolded() ? 'Fold them' : 'Show them';
-      btn.addEventListener('click', () => {
-        onShowFolded?.(!showFolded());
-        redraw();
-      });
-      el.append(text, btn);
-      body.append(el);
-    }
     body.append(...groupedList(
       list,
       ROUTE_GROUPS[routeGroup],
@@ -707,6 +695,31 @@ export function mountStats({
         vague: key === '' || VAGUE_SOURCES.has(key),
       }),
     ));
+
+    // Under the list, not over it. Silently dropping a route somebody remembers
+    // importing is the failure this dialog exists to avoid, so the count has to
+    // be said — but it is a footnote about the list, and a footnote goes at the
+    // end. Above the routes it was the first thing read in a tab that is
+    // supposed to open on your routes.
+    const folded = foldedRoutes();
+    if (folded || showFolded()) {
+      const el = document.createElement('div');
+      el.className = 'route-fold';
+      const text = document.createElement('span');
+      text.textContent = showFolded()
+        ? `${plural(folded, 'route')} marked ● above ${folded === 1 ? 'is' : 'are'} the same outing recorded twice`
+        : `${plural(folded, 'route')} recorded twice, folded into the copy that carries the link`;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'home-set';
+      btn.textContent = showFolded() ? 'Fold them' : 'Show them';
+      btn.addEventListener('click', () => {
+        onShowFolded?.(!showFolded());
+        redraw();
+      });
+      el.append(text, btn);
+      body.append(el);
+    }
   }
 
   // Every control in this tab redraws the list it is in, so they all need the

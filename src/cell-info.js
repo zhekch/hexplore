@@ -98,7 +98,9 @@ export function mountCellInfo({ onClose } = {}) {
         row('Time', timeFmt.format(new Date(info.firstAt * 1000)));
       }
     }
-    row('Added to map', day(info.addedAt) ?? 'unknown');
+    // "Added to map" is a fact about the import, not about the place — it says
+    // when a file was dropped in, which is never the question anyone opened this
+    // card to ask.
     if (info.cellCount > 1) row('Cells inside', info.cellCount.toLocaleString());
     // How much of it you have actually been to. Only an area can answer this —
     // for a single cell the question is the cell.

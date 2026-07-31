@@ -1226,6 +1226,16 @@ been chosen *first*, because the pending promise finally resolved on somebody
 else's style load. `styleParsed` answers the question that was actually being
 asked, and `swapStyle` is the only place it is cleared.
 
+**The palette's blur needed the overlay to stop filtering.** `.search-overlay`
+carried `backdrop-filter: blur(2px)`, and an element with a backdrop-filter
+becomes a *backdrop root* — so everything inside it can only filter what is
+painted within, and all the card had behind it was a flat scrim. Blurring a flat
+colour looks exactly like not blurring it, which is why the palette read as glass
+with a sharp map behind it while the menu blurred properly. The scrim stays; the
+filter is gone. `.modal-overlay` and `.auth-overlay` have the same arrangement
+and are left alone: their 10px blurs the *whole* background on purpose, and
+their cards' own filters are merely redundant.
+
 The train tracks failed differently and more quietly. `addRailLayer` asked
 "does a source called `rail` exist" and returned having added nothing — but
 CARTO's styles ship a layer of their own called `rail`, so on Light and Dark the

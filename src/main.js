@@ -288,11 +288,14 @@ function readChromeLuminance() {
 function applyChromeContrast() {
   const lum = readChromeLuminance();
   if (lum == null) return;
-  const next = chromeLight ? lum > CHROME_LIGHT_LEAVE : lum > CHROME_LIGHT_ENTER;
-  if (next === chromeLight) return;
-  chromeLight = next;
-  document.documentElement.toggleAttribute('data-chrome', false);
-  if (next) document.documentElement.setAttribute('data-chrome', 'light');
+  chromeLight = chromeLight ? lum > CHROME_LIGHT_LEAVE : lum > CHROME_LIGHT_ENTER;
+  // Against the document rather than against the last decision. Returning early
+  // when the answer has not changed leaves no way back if the attribute and this
+  // flag ever disagree — and then the chrome stays whatever it was, for good.
+  const on = document.documentElement.getAttribute('data-chrome') === 'light';
+  if (on === chromeLight) return;
+  if (chromeLight) document.documentElement.setAttribute('data-chrome', 'light');
+  else document.documentElement.removeAttribute('data-chrome');
 }
 
 /** Ask for a fresh reading at the next frame the map draws anyway. */
@@ -548,10 +551,31 @@ map.on('render', () => {
   chromeDue = false;
   applyChromeContrast();
 });
-map.on('styledata', refreshChrome);
+
+// A reading taken the moment the basemap changes is a reading of the *old*
+// basemap: `styledata` fires while the new one is still tiles-in-flight, so
+// switching from Light to Dark left the menu wearing its light colours until
+// something else happened to ask again — reopening it, usually, which is how
+// this was noticed. So each change also owes one more reading once the map has
+// settled, and `idle` is exactly that moment.
+//
+// The flag is what stops it spinning: refreshChrome() calls triggerRepaint(),
+// a repaint ends in another `idle`, and an unguarded handler would ask forever.
+// One change, one settled reading.
+let chromeSettleDue = false;
+const askChromeAgain = () => {
+  chromeSettleDue = true;
+  refreshChrome();
+};
+map.on('styledata', askChromeAgain);
+map.on('idle', () => {
+  if (!chromeSettleDue) return;
+  chromeSettleDue = false;
+  refreshChrome();
+});
 
 map.on('moveend', () => {
-  refreshChrome();
+  askChromeAgain();
   if (!REMEMBER_VIEW) return;
   try {
     const c = map.getCenter();
@@ -5077,6 +5101,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     routes: () => listedRoutes(),
     foldedRoutes: () => foldedCount(),
     showFolded: () => showDupes,
+    isFolded: (r) => dupeOf.has(r.id),
     onShowFolded: (on) => {
       showDupes = on;
       syncRoutes();
