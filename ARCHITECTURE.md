@@ -1685,6 +1685,62 @@ inside the hexagon you tapped. Cells, their sources and their dates live in
 SQLite on the server (`cell_sources`), per account; saved routes live beside
 them in `routes`.
 
+## Derived on the server, once
+
+Trips, coverage and the calendar are readings of the rows rather than rows
+themselves. Nothing stores them, and for as long as there was one client that
+was plainly right: they cost no import path, no schema and no migration, and
+they re-derive themselves the moment new history arrives.
+
+A second client changes the arithmetic. Two implementations of an eight-hundred
+line heuristic do not fail loudly when they disagree — they produce a phone and
+a laptop that show different holidays, and you find out months later. So
+`server/derive.js` works them out once and both clients render what they are
+given.
+
+**It is the same code, not a copy.** `src/trips.js` and `src/stats.js` are pure
+ES modules with no DOM in them, so the server imports the very files the browser
+uses. There is one definition of what a trip is, and it is the one with the
+tests. A port to Swift would have been a second definition; this is not.
+
+**The gazetteers are the only part that needed care.** In the browser they are
+dynamic imports of JSON, which plain Node will not do without an import
+attribute. Every loader already takes the parsed data as an argument for exactly
+that reason — the note above `loadCountries` says so — so the server reads the
+8.1 MB off disk and hands it over, and the argument-less `loadCountries()` inside
+`computeStats` then finds it already loaded. Nothing had to change in `src/` to
+make this work, which is the strongest evidence that those modules really were
+pure.
+
+**Lazily, and once.** The datasets are not read at boot: a server whose owner
+never opens the statistics should not pay for them. The first derived request
+spends about 60 ms parsing them and every later one spends none.
+
+**The cache is keyed on a signature of the rows, not on a counter.** Six paths
+write cells — the map's own edits, undo's restore, the file importer, the Home
+Assistant poller, the Strava poller, a route delete — and a counter has to be
+remembered at all six. Two cheap aggregates cannot be forgotten by any of them:
+`COUNT(*)`, `MAX(added_at)`, `MAX(last_at)` and `SUM(hits)` over `cell_sources`,
+plus count, newest and total length over `routes`. `SUM(hits)` is there because
+re-importing a file changes visit counts in place without touching the row count
+or any timestamp.
+
+A cache hit never opens the database at all: the handlers pass a `supply`
+callback rather than the data, and a hit never calls it. That is pinned by a
+test which counts the calls.
+
+**Preferences stopped being entirely opaque.** The server stored the preferences
+blob and gave it back without reading it. It now reads one key — `home` — because
+a derived home that ignored the answer you gave when the guess was wrong would be
+worse than no derivation, and the alternative (every client sending its own home
+up with each request) is precisely the disagreement this exists to remove.
+
+**The web app has not been switched over.** It still derives in the browser, from
+the same modules, so the two cannot drift — but they are not yet the same
+computation, and until the web app consumes the endpoints there is a second place
+the inputs could differ. Moving it over would also make it faster: the trips list
+currently costs a 2 MB gazetteer download that the server has already paid for.
+
 ## Run & host
 
 ```sh

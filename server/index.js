@@ -20,6 +20,12 @@
 //   POST /api/routes {routes}              → {ok,added,skipped} | 401
 //   POST /api/routes/places {places}       → {ok,updated}       | 401
 //   POST /api/routes/delete {id}           → {ok,route,total}   | 401
+//   -- derived, read-only (server/derive.js): worked out here so two clients
+//      signed into one account cannot answer differently.
+//   GET  /api/trips                        → {trips,home}       | 401
+//   GET  /api/stats                        → {cells,km2,countries,regions,days,…} | 401
+//   GET  /api/days                         → {days:{"YYYY-MM-DD":{cells,routes}}} | 401
+//   GET  /api/day/:YYYY-MM-DD              → {key,routes,cells,points,trip} | 401/400
 //   GET  /api/ha                           → {link}             | 401
 //   POST /api/ha {baseUrl,token,…}         → {link}             | 401
 //   POST /api/ha/probe {baseUrl,token}     → {entities}         | 401
@@ -70,6 +76,7 @@ import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeLimiter, clientIp } from './rate-limit.js';
+import * as derive from './derive.js';
 
 const scrypt = promisify(scryptCb);
 // The same folding the browser importer uses, so a fix from Home Assistant and
@@ -311,6 +318,21 @@ const q = {
 
   rows: db.prepare('SELECT cell_id, source, added_at, first_at, last_at, hits, fixes FROM cell_sources WHERE user_id = ? ORDER BY cell_id'),
   countCells: db.prepare('SELECT COUNT(DISTINCT cell_id) AS n FROM cell_sources WHERE user_id = ?'),
+  // What the derived endpoints key their cache on. Aggregates rather than a
+  // counter this file has to remember to bump: six separate paths write cells
+  // (the map's edits, undo's restore, the importer, the Home Assistant poller,
+  // the Strava poller) and a signature read from the rows cannot be forgotten
+  // by any of them. SUM(hits) is here because a re-import changes visit counts
+  // in place without touching the row count or any timestamp.
+  cellSignature: db.prepare(`
+    SELECT COUNT(*) AS n, COALESCE(MAX(added_at), 0) AS added, COALESCE(MAX(last_at), 0) AS last,
+           COALESCE(SUM(hits), 0) AS hits
+    FROM cell_sources WHERE user_id = ?
+  `),
+  routeSignature: db.prepare(`
+    SELECT COUNT(*) AS n, COALESCE(MAX(added_at), 0) AS added, COALESCE(SUM(length_m), 0) AS len
+    FROM routes WHERE user_id = ?
+  `),
   hasCell: db.prepare('SELECT 1 FROM cell_sources WHERE user_id = ? AND cell_id = ? LIMIT 1'),
   // Adding an existing (cell, source) keeps its original added_at — the row is
   // only refreshed with whatever the new import knows.
@@ -807,6 +829,72 @@ function userCellRows(user) {
 }
 
 const cellCount = (user) => q.countCells.get(user.id)?.n ?? 0;
+
+// --- Derived reads --------------------------------------------------------------
+// Trips, coverage and the calendar are worked out here rather than in each
+// client, so two devices signed into one account cannot disagree about them.
+// See server/derive.js for why.
+
+/**
+ * Everything the derivations need, read at most once per request and not at all
+ * on a cache hit — which is the common case, since the inputs change only when
+ * you import something or edit the map.
+ */
+function derivedInput(user) {
+  let held = null;
+  return () => {
+    if (held) return held;
+
+    mergeBakedImport(user);
+
+    const cellMeta = new Map();
+    const cellIds = [];
+    for (const r of q.rows.all(user.id)) {
+      const entry = {
+        source: r.source,
+        addedAt: r.added_at,
+        firstAt: r.first_at,
+        lastAt: r.last_at,
+        hits: r.hits,
+        fixes: r.fixes ?? 0,
+      };
+      const list = cellMeta.get(r.cell_id);
+      if (list) {
+        list.push(entry);
+      } else {
+        cellMeta.set(r.cell_id, [entry]);
+        cellIds.push(r.cell_id);
+      }
+    }
+
+    // Preferences are otherwise opaque to this server, and one key is now not:
+    // where you told it you live. A derived home that ignored the answer you
+    // gave when the guess was wrong would be worse than no derivation at all,
+    // and the alternative — every client passing its own home up with each
+    // request — is exactly the disagreement this endpoint exists to remove.
+    let home = null;
+    try {
+      const stored = JSON.parse(q.prefs.get(user.id)?.prefs ?? '{}')?.home;
+      if (stored && Number.isFinite(+stored.lng) && Number.isFinite(+stored.lat)) {
+        home = { lng: +stored.lng, lat: +stored.lat, name: String(stored.name ?? '') };
+      }
+    } catch {
+      /* unreadable preferences are the same as unset ones */
+    }
+
+    return (held = { cellMeta, cellIds, routes: q.routes.all(user.id).map(routeOut), home });
+  };
+}
+
+/**
+ * What a cached derivation is keyed on. Two cheap aggregates rather than a
+ * counter this file has to remember to bump on all six write paths.
+ */
+function derivedSignature(user) {
+  const cells = q.cellSignature.get(user.id) ?? {};
+  const routes = q.routeSignature.get(user.id) ?? {};
+  return [cells.n, cells.added, cells.last, cells.hits, routes.n, routes.added, routes.len].join(':');
+}
 
 // --- Routes ------------------------------------------------------------------
 // Geometry arrives from the browser already thinned out (src/routes.js), but
@@ -1469,6 +1557,48 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       const withGeom = query.get('geom') === '1';
       const rows = withGeom ? q.routesGeom.all(user.id) : q.routes.all(user.id);
       return send(res, 200, { routes: rows.map(routeOut) });
+    }
+
+    // --- Derived, read-only -----------------------------------------------------
+    // The map's own readings of the rows: which trips the history implies, how
+    // much ground is covered, and which days have anything on them. Worked out
+    // once here so a phone and a laptop cannot answer differently — see
+    // server/derive.js.
+    //
+    // All four are cached against a signature of the rows, so the cost is paid
+    // on the first request after something changes and never again. The first
+    // of them also parses 8.1 MB of geography, which is why an untouched map
+    // answers in a millisecond and the first one after an import does not.
+
+    if (req.method === 'GET' && pathname === '/api/trips') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const out = await derive.trips(user.id, derivedSignature(user), derivedInput(user));
+      return send(res, 200, out);
+    }
+
+    if (req.method === 'GET' && pathname === '/api/stats') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const out = await derive.stats(user.id, derivedSignature(user), derivedInput(user));
+      return send(res, 200, out);
+    }
+
+    if (req.method === 'GET' && pathname === '/api/days') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      return send(res, 200, { days: derive.days(user.id, derivedSignature(user), derivedInput(user)) });
+    }
+
+    if (req.method === 'GET' && pathname.startsWith('/api/day/')) {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const key = pathname.slice('/api/day/'.length);
+      // The key is a calendar day and nothing else. Checked rather than trusted
+      // because it reaches dayBounds, which will happily parse a surprise.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return send(res, 400, { error: 'expected a YYYY-MM-DD day' });
+      const out = await derive.day(user.id, derivedSignature(user), derivedInput(user), key);
+      return send(res, 200, out);
     }
 
     if (req.method === 'POST' && pathname === '/api/routes') {
