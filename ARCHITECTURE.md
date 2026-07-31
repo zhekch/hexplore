@@ -737,11 +737,15 @@ row, it's a reading of the rows.
   white pass under a dark one, which is the trick the basemap's own labels use:
   it is what lets one thin outline read on a dark map, a light one and a
   photograph without a coloured disc behind it guaranteeing contrast by
-  shouting. The tick for it sits on the home row itself, because "is this the
+  shouting. The tick for it sits on the home card itself, because "is this the
   right home" is a question you answer by looking at where it is — it started
-  four sections away in the appearance menu. Where home *is* follows the
-  account; whether you are currently looking at it is a way of looking at the
-  map, so it stays in localStorage beside the rail overlay.
+  four sections away in the appearance menu. It gets a line of its own under the
+  home rather than a seat beside it: two controls in one row left the switch
+  competing with *Change* for the width, and it lost badly enough to be labelled
+  "Map", which reads as a noun rather than as something you can turn on. Where
+  home *is* follows the account; whether you are currently looking at it is a
+  way of looking at the map, so it stays in localStorage beside the rail
+  overlay.
 - **Home has to be earned.** Somewhere needs `HOME_MIN_HITS` repeat visits
   before it can claim the title. Without that rule, an account holding one
   imported holiday decides the holiday is home, every cell in it is "not away",
@@ -1272,6 +1276,20 @@ carries its own copy of both — a field that filters the list by anywhere a tri
 went, and the same month grid. The palette keeps its own because it also answers
 for places, routes and whole countries, which the trips list has no business
 holding; what it no longer has is a monopoly on the calendar.
+
+**The list keeps one column down each side.** Everything in it — the section
+heading, the home card's text, the trip icons — starts 16 px in, and everything
+on the other side — *Change*, the show-home tick, each trip's distance — ends
+16 px in. The home card draws a 1 px edge of its own, so it is padded 9 px
+rather than 10 to land on the same column. The × that puts a trip away is the
+one thing that will not fit in that scheme: in the flow it held a 34 px lane
+open on *every* row to carry something that is invisible until you point at
+one, which pushed every distance a third of an inch off the edge the rest of the
+list ends at. So it is overlaid on the row instead, and the distance slides out
+of its way while it is there — a transform rather than a reflow, and the column
+is intact the rest of the time. Hidden, it also gives up `pointer-events`: an
+invisible button lying across the tail of "1127 km away" is a thing you can
+plausibly aim at and miss.
 
 ## Colours with an opacity
 
