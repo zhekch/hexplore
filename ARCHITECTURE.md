@@ -1215,6 +1215,17 @@ highlight never went away, and a chip that says "Showing Arth" over an empty map
 is worse than no chip at all. This is why `shownTrack` keeps the points and not
 just the label.
 
+**A second `setStyle` waits for the first to *parse*, and nothing more.**
+`map.isStyleLoaded()` looks like the right question and is not: it is
+`Style.loaded()`, which also requires every tile manager to have finished and the
+image manager to be loaded, so it stays false for as long as any tile is in
+flight. The code then waited on `map.once('style.load')` — an event that only
+fires when a style loads, which is precisely the thing it was gating. A basemap
+switch could sit unapplied for ten seconds and then land on whichever key had
+been chosen *first*, because the pending promise finally resolved on somebody
+else's style load. `styleParsed` answers the question that was actually being
+asked, and `swapStyle` is the only place it is cleared.
+
 The train tracks failed differently and more quietly. `addRailLayer` asked
 "does a source called `rail` exist" and returned having added nothing — but
 CARTO's styles ship a layer of their own called `rail`, so on Light and Dark the
