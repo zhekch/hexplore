@@ -737,7 +737,11 @@ row, it's a reading of the rows.
   white pass under a dark one, which is the trick the basemap's own labels use:
   it is what lets one thin outline read on a dark map, a light one and a
   photograph without a coloured disc behind it guaranteeing contrast by
-  shouting. The tick for it sits on the home card itself, because "is this the
+  shouting. It is added with no `beforeId`, which puts it on top of the whole
+  stack — above the basemap's own labels, not merely above the blobs. Everything
+  else the app draws names an anchor inside the basemap, so nothing lands over
+  it; `syncHomeMarker` raises it again anyway, because a marker you have to hunt
+  for is not a marker. The tick for it sits on the home card itself, because "is this the
   right home" is a question you answer by looking at where it is — it started
   four sections away in the appearance menu. It gets a line of its own under the
   home rather than a seat beside it: two controls in one row left the switch
@@ -1279,7 +1283,8 @@ holding; what it no longer has is a monopoly on the calendar.
 
 **The list keeps two columns down each side, and a row moves between them.**
 The outer one is the edge the section headings and the home card draw their
-boxes on, 6 px in; the inner one is 16 px, where their *text* sits — the home
+boxes on, 15 px in — the palette's gutter, which the magnifier and the close
+button stand on too; the inner one is 25 px, where their *text* sits. The home
 card draws a 1 px edge of its own, so it is padded 9 px rather than 10 to land
 there. At rest a row stands on the outer column and its distance ends on the
 inner one; pointing at a row swaps them, so the icon tucks in to meet the
