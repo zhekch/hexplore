@@ -262,56 +262,68 @@ export function mountSearch({
    * home" is a question you answer by looking at where it is, and the switch
    * used to be four sections away in the appearance menu.
    */
+  /** The card's own line: something on the left, one control on the right. */
+  function cardLine(title, sub, action, onDo) {
+    const line = document.createElement('div');
+    line.className = 'home-line';
+    line.innerHTML = '<span class="home-text"><b></b><small></small></span>';
+    line.querySelector('b').textContent = title;
+    line.querySelector('small').textContent = sub;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'home-set';
+    btn.textContent = action;
+    btn.addEventListener('click', onDo);
+    line.append(btn);
+    return line;
+  }
+
   function homeRow() {
     const set = home();
     const el = document.createElement('div');
     el.className = 'home-row';
-    el.innerHTML = '<span class="home-text"><b></b><small></small></span>';
-    el.querySelector('b').textContent = set?.name || 'Worked out from the cells you visit most';
-    el.querySelector('small').textContent = 'Home — everything here is measured from it';
+    el.append(cardLine(
+      set?.name || 'Worked out from the cells you visit most',
+      'Home — everything here is measured from it',
+      set ? 'Change' : 'Set home',
+      () => {
+        close();
+        onSetHome?.();
+      },
+    ));
 
     // A checkbox, not a button that remembers: "is it on the map" is a state,
     // and the app already spells state as a tick everywhere else in the menu.
+    // On its own line under the home, because beside it there were two controls
+    // competing for one row and the switch lost — it had to shrink to "Map",
+    // which reads as a noun rather than something you can turn on.
     const show = document.createElement('label');
     show.className = 'home-show';
-    show.title = 'Show it on the map';
     show.innerHTML =
-      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11 12 4l8 7"/><path d="M6 10v9h12v-9"/></svg>'
-      + '<span>Map</span><input type="checkbox" />';
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11 12 4l8 7"/><path d="M6 10v9h12v-9"/></svg>'
+      + '<span>Show home on the map</span><input type="checkbox" />';
     const box = show.querySelector('input');
     box.checked = !!homeShown();
     box.addEventListener('change', () => {
       onShowHome?.(box.checked);
       render(input.value);
     });
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'home-set';
-    btn.textContent = set ? 'Change' : 'Set home';
-    btn.addEventListener('click', () => {
-      close();
-      onSetHome?.();
-    });
-    el.append(show, btn);
+    el.append(show);
     return el;
   }
 
   function hiddenRow(put) {
     const el = document.createElement('div');
     el.className = 'home-row';
-    el.innerHTML = '<span class="home-text"><b></b><small></small></span>';
-    el.querySelector('b').textContent = `${put.size} trip${put.size === 1 ? '' : 's'} hidden`;
-    el.querySelector('small').textContent = 'Runs you told the list to forget';
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'home-set';
-    btn.textContent = 'Show them';
-    btn.addEventListener('click', async () => {
-      await onHideTrip?.(null, false);
-      render(input.value);
-    });
-    el.append(btn);
+    el.append(cardLine(
+      `${put.size} trip${put.size === 1 ? '' : 's'} hidden`,
+      'Runs you told the list to forget',
+      'Show them',
+      async () => {
+        await onHideTrip?.(null, false);
+        render(input.value);
+      },
+    ));
     return el;
   }
 
