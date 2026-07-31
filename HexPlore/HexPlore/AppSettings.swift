@@ -1,28 +1,35 @@
-// `Combine` explicitly, not by way of SwiftUI: this target turns on
-// MemberImportVisibility, which stops a transitive import from lending its
-// members — and `@Published` and `ObservableObject` are Combine's, not
-// SwiftUI's.
+// `Combine` explicitly — this target turns on MemberImportVisibility, so a
+// transitive import does not lend its members, and `@Published` is Combine's.
 import Combine
 import Foundation
-import SwiftUI
+import WebKit
 
-/// Where this app's server lives, and the handful of things the app itself
-/// remembers.
+/// The handful of things this app knows that the web app does not.
 ///
-/// `ObservableObject` rather than `@Observable`, because the deployment target
-/// is iOS 16 and the macro is 17.
+/// Which is deliberately almost nothing: where the server is, and whether to
+/// reload it. Everything else — who you are, what your map looks like, what you
+/// have imported — belongs to the site and is stored on the server, where both
+/// this and a laptop can see it.
+@MainActor
 final class AppSettings: ObservableObject {
 
     /// The address you open Hexplore at.
     ///
-    /// **It has to be HTTPS in practice.** App Transport Security refuses plain
-    /// `http://` unless the app ships an exception, browser geolocation needs a
-    /// secure origin anyway, and `tailscale serve` in front of `npm start`
-    /// gives you an HTTPS URL reachable only from your own devices — which is
-    /// what README.md already recommends for a phone.
+    /// HTTPS everywhere except your own network: `Info.plist` allows plain
+    /// `http` to local names only, so `192.168.1.10:3001` works at home and
+    /// anything on the public internet has to be `https`. `tailscale serve` in
+    /// front of `npm start` is the way in from outside, and browser geolocation
+    /// needs a secure origin regardless.
     @Published var serverURL: String {
-        didSet { UserDefaults.standard.set(serverURL, forKey: Keys.serverURL) }
+        didSet {
+            guard serverURL != oldValue else { return }
+            UserDefaults.standard.set(serverURL, forKey: Keys.serverURL)
+            reloadToken += 1
+        }
     }
+
+    /// Bumped to make the web view load again.
+    @Published private(set) var reloadToken = 0
 
     private enum Keys {
         static let serverURL = "serverURL"
@@ -32,8 +39,8 @@ final class AppSettings: ObservableObject {
         serverURL = UserDefaults.standard.string(forKey: Keys.serverURL) ?? ""
     }
 
-    /// The server URL as something you can actually make a request to, or nil
-    /// while it is empty or malformed.
+    /// The server address as something loadable, or nil while it is empty or
+    /// malformed. A bare hostname is assumed to be https.
     var baseURL: URL? {
         let trimmed = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -43,4 +50,22 @@ final class AppSettings: ObservableObject {
     }
 
     var isConfigured: Bool { baseURL != nil }
+
+    func reload() {
+        reloadToken += 1
+    }
+
+    /// Sign out, by forgetting what the site remembers.
+    ///
+    /// There is no native session to end — the web app holds it — so this throws
+    /// away the cookies and storage the web view keeps, which is the same thing
+    /// as signing out and is the only account action this app is in a position
+    /// to offer.
+    func signOut() async {
+        let store = WKWebsiteDataStore.default()
+        let types = WKWebsiteDataStore.allWebsiteDataTypes()
+        let records = await store.dataRecords(ofTypes: types)
+        await store.removeData(ofTypes: types, for: records)
+        reloadToken += 1
+    }
 }
