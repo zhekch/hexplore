@@ -285,17 +285,42 @@ function readChromeLuminance() {
   return n ? total / n : null;
 }
 
-function applyChromeContrast() {
-  const lum = readChromeLuminance();
-  if (lum == null) return;
-  chromeLight = chromeLight ? lum > CHROME_LIGHT_LEAVE : lum > CHROME_LIGHT_ENTER;
-  // Against the document rather than against the last decision. Returning early
-  // when the answer has not changed leaves no way back if the attribute and this
-  // flag ever disagree — and then the chrome stays whatever it was, for good.
+/**
+ * Put the current decision on the document.
+ *
+ * Written against what is there rather than against the last decision:
+ * returning early on "nothing changed" leaves no way back if the attribute and
+ * the flag ever disagree, and then the chrome stays as it is for good.
+ */
+function writeChrome() {
   const on = document.documentElement.getAttribute('data-chrome') === 'light';
   if (on === chromeLight) return;
   if (chromeLight) document.documentElement.setAttribute('data-chrome', 'light');
   else document.documentElement.removeAttribute('data-chrome');
+}
+
+/**
+ * Take the new basemap's word for it, immediately.
+ *
+ * Sampling cannot answer this quickly: the pixels only mean something once the
+ * new map has painted, which is a couple of seconds of tiles away, and until
+ * then the menu sat in the old basemap's colours. But the basemap already
+ * declares whether it is light or dark — that is where `data-theme` comes from,
+ * and it flips on the same tick you click. So the chrome flips with it and the
+ * reading that follows only has to *correct* the guess, which it does for the
+ * one case the declaration cannot cover: imagery, which is nominally dark and
+ * is a snowfield often enough to matter.
+ */
+function presumeChrome() {
+  chromeLight = STYLES[styleKey]?.theme === 'light';
+  writeChrome();
+}
+
+function applyChromeContrast() {
+  const lum = readChromeLuminance();
+  if (lum == null) return;
+  chromeLight = chromeLight ? lum > CHROME_LIGHT_LEAVE : lum > CHROME_LIGHT_ENTER;
+  writeChrome();
 }
 
 /** Ask for a fresh reading at the next frame the map draws anyway. */
@@ -424,6 +449,7 @@ if (!STYLES[styleKey]) styleKey = 'dark';
 // Apply the matching chrome colors before the map initializes to avoid a
 // white-on-light flash when the saved basemap is Voyager.
 document.documentElement.dataset.theme = STYLES[styleKey].theme;
+presumeChrome();
 // Train tracks are deliberately session-only and always start disabled after
 // a page reload. Their state still survives basemap switches within the page.
 let railOn = false;
@@ -4298,6 +4324,7 @@ function swapStyle(style) {
 function setStyleKey(key) {
   if (!STYLES[key] || key === styleKey) return;
   styleKey = key;
+  presumeChrome(); // before anything is fetched, let alone painted
   try {
     localStorage.setItem(STYLE_KEY, key);
   } catch {

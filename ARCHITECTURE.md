@@ -1337,6 +1337,16 @@ colours works everywhere on it. Satellite imagery is whatever the satellite saw
 disappears on the third. No fixed choice survives panning across all three, so
 the map is asked what is underneath and the chrome answers.
 
+**The basemap's own word comes first; the reading only corrects it.** Sampling
+cannot answer quickly — the pixels mean nothing until the new map has painted,
+which is a couple of seconds of tiles away, and until then the menu sat in the
+old basemap's colours. That was the lag you could watch. But every basemap
+already declares whether it is light or dark; that is where `data-theme` comes
+from, and it flips on the same tick as the click. `presumeChrome` makes the
+chrome flip with it — about a millisecond — and leaves the reading to correct
+the guess for the one case a declaration cannot cover: imagery, which is
+nominally dark and is a snowfield often enough to matter.
+
 **The pixels are read inside a render.** The drawing buffer is only valid within
 that callback unless the map is built with `preserveDrawingBuffer`, which costs a
 copy of every frame to serve a question asked a few times a minute. So
