@@ -10,48 +10,37 @@ import WebKit
 /// enormous amount of effort to arrive back where the browser already is, so the
 /// phone hosts them rather than replacing them.
 ///
-/// Nothing is injected and nothing is hidden. What you get is the site, exactly
-/// as it is on a laptop, which is the point — a bug here is a bug there, and a
-/// fix there is a fix here.
-///
-/// A view *controller* rather than a bare view, for one reason:
-/// `additionalSafeAreaInsets`. The map is drawn edge to edge, under the status
-/// bar and under the tab bar, and the page has to be told how much of its own
-/// bottom edge is spoken for or it puts its buttons underneath the tab bar.
-/// That is what `bottomInset` carries, and `src/style.css` reads it back out as
-/// `env(safe-area-inset-bottom)`.
+/// Nothing is restyled and nothing is hidden. The one thing the host tells the
+/// page is its own geometry — how much of each edge the status bar and the tab
+/// bar are standing on — because that is a fact about the window which the page
+/// has no other way to learn. See ``WebViewController/pushSafeArea()``.
 struct WebPanel: UIViewControllerRepresentable {
 
     let url: URL
     /// Bumped to force a reload — changing the server, or asking for one.
     let reloadToken: Int
-    /// How much of the bottom edge the native tab bar and home indicator cover.
-    let bottomInset: CGFloat
 
     func makeUIViewController(context: Context) -> WebViewController {
         let controller = WebViewController()
         controller.load(url: url, token: reloadToken)
-        controller.coveredAtBottom = bottomInset
         return controller
     }
 
     func updateUIViewController(_ controller: WebViewController, context: Context) {
-        controller.coveredAtBottom = bottomInset
         controller.load(url: url, token: reloadToken)
     }
 }
 
-/// Hosts the web view, owns its safe area, and answers for it.
-final class WebViewController: UIViewController, WKUIDelegate {
+/// Hosts the web view, and answers for it.
+final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDelegate {
+
+    /// Appended to the User-Agent, and the whole of how the server knows this is
+    /// the app. Changing it means changing `IOS_CLIENT` in server/index.js.
+    static let userAgentTag = "HexploreiOS"
 
     private var webView: WKWebView!
     private var loaded: (url: URL, token: Int)?
     private let locations = CLLocationManager()
-
-    /// How much of the bottom edge belongs to the tab bar and home indicator.
-    var coveredAtBottom: CGFloat = 0 {
-        didSet { applySafeArea() }
-    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -61,17 +50,22 @@ final class WebViewController: UIViewController, WKUIDelegate {
         // Signing in every launch would be its own reason not to use this.
         configuration.websiteDataStore = .default()
         configuration.allowsInlineMediaPlayback = true
+        // How the server tells this app apart from a browser: it lands at the
+        // end of the User-Agent, so `server/index.js` can key a layout on it.
+        //
+        // Set on the configuration *before* the web view exists, because
+        // `WKWebView` copies its configuration at init — assigning to
+        // `webView.configuration` afterwards writes to a copy nobody reads,
+        // which is exactly how the first attempt failed silently.
+        configuration.applicationNameForUserAgent = Self.userAgentTag
 
         webView = WKWebView(frame: view.bounds, configuration: configuration)
         webView.uiDelegate = self
+        webView.navigationDelegate = self
         webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         webView.allowsBackForwardNavigationGestures = false
         // The page is a full-bleed dark map; bouncing past it shows white.
         webView.scrollView.bounces = false
-        // The page positions its own chrome against the viewport and reads the
-        // safe area itself. Letting the scroll view also inset the content would
-        // apply the same allowance twice.
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.isOpaque = false
         webView.backgroundColor = UIColor(red: 0.07, green: 0.078, blue: 0.102, alpha: 1)
         view.addSubview(webView)
@@ -80,7 +74,7 @@ final class WebViewController: UIViewController, WKUIDelegate {
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        applySafeArea()
+        pushSafeArea()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -93,26 +87,69 @@ final class WebViewController: UIViewController, WKUIDelegate {
         requestLocationIfNeeded()
     }
 
-    /// Add whatever the tab bar covers on top of what the device already claims.
-    ///
-    /// The window's own inset is the home indicator; the difference is the tab
-    /// bar. Adding the total would count the home indicator twice and lift every
-    /// button a thumb's width too high.
-    private func applySafeArea() {
-        guard isViewLoaded else { return }
-        let deviceBottom = view.window?.safeAreaInsets.bottom ?? 0
-        let extra = max(0, coveredAtBottom - deviceBottom)
-        // Guarded, because assigning this triggers another layout pass.
-        if abs(additionalSafeAreaInsets.bottom - extra) > 0.5 {
-            additionalSafeAreaInsets.bottom = extra
-        }
-    }
-
     func load(url: URL, token: Int) {
         guard isViewLoaded else { return }
         guard loaded?.url != url || loaded?.token != token else { return }
         loaded = (url, token)
         webView.load(URLRequest(url: url))
+    }
+
+    // MARK: - Telling the page where the edges are
+
+    /// Hand the page the four insets, as the CSS variables `src/style.css`
+    /// already reads.
+    ///
+    /// This exists because `env(safe-area-inset-*)` does not work here, and it
+    /// took measuring to establish rather than reasoning: with the map drawn
+    /// edge to edge this controller's `view.safeAreaInsets.bottom` is a correct
+    /// **83** — the tab bar and the home indicator — and the scroll view adjusts
+    /// by the same 83, and yet the page reads `env(safe-area-inset-bottom)` as
+    /// `0px`. Every button therefore stayed in the corner it was meant to move
+    /// out of, and nothing in the Swift said anything was wrong.
+    ///
+    /// So the number is sent rather than inferred. `:root` in `src/style.css`
+    /// still defaults these to `env()`, which is what a real browser uses and
+    /// what makes the same rules work in mobile Safari; setting them inline on
+    /// the root element simply wins where that default is not filled in.
+    private func pushSafeArea() {
+        guard isViewLoaded, let webView else { return }
+        let insets = view.safeAreaInsets
+        let script = """
+        (function (style) {
+          style.setProperty('--safe-t', '\(Int(insets.top.rounded()))px');
+          style.setProperty('--safe-r', '\(Int(insets.right.rounded()))px');
+          style.setProperty('--safe-b', '\(Int(insets.bottom.rounded()))px');
+          style.setProperty('--safe-l', '\(Int(insets.left.rounded()))px');
+        })(document.documentElement.style);
+        """
+        webView.evaluateJavaScript(script)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Again on load, because a page that has just replaced itself has none
+        // of the properties the last one was given.
+        pushSafeArea()
+
+        #if DEBUG
+        // What the page ends up with. The chrome's position depends entirely on
+        // these reaching it, and a wrong guess about that is invisible from the
+        // Swift side — which is how `env(safe-area-inset-*)` silently reporting
+        // zero survived a whole round of "it should work".
+        webView.evaluateJavaScript(
+            """
+            JSON.stringify({
+              client: document.documentElement.dataset.client || '(none)',
+              safeB: getComputedStyle(document.documentElement).getPropertyValue('--safe-b').trim(),
+              layersBottom: (document.getElementById('layers')
+                ? getComputedStyle(document.getElementById('layers')).bottom : '(absent)'),
+              attribBottom: (document.querySelector('.maplibregl-ctrl-top-right')
+                ? getComputedStyle(document.querySelector('.maplibregl-ctrl-top-right')).bottom : '(absent)')
+            })
+            """
+        ) { value, _ in
+            if let value { print("[HexPlore] \(value)") }
+        }
+        #endif
     }
 
     // MARK: - Location
@@ -122,7 +159,7 @@ final class WebViewController: UIViewController, WKUIDelegate {
     /// Only ever asked on iOS 27 and later — before that WebKit decides for
     /// itself and shows its own prompt, which is why the real work is the
     /// `NSLocationWhenInUseUsageDescription` in Info.plist and the authorization
-    /// request below rather than this method.
+    /// request above rather than this method.
     @available(iOS 27.0, *)
     func webView(
         _ webView: WKWebView,
@@ -138,7 +175,7 @@ final class WebViewController: UIViewController, WKUIDelegate {
         decisionHandler(.grant)
     }
 
-    /// Ask iOS for location, once, the first time the map is on screen.
+    /// Ask iOS for location, once.
     ///
     /// It has to come from the app: a web view cannot raise the system prompt on
     /// its own, so without this the page's locate button fails silently with a

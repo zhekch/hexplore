@@ -5251,3 +5251,41 @@ body {
 .route-fold {
   margin: 14px 0 2px;
 }
+
+/* --- Inside the iOS app -------------------------------------------------------
+   The page is served with `data-client="ios"` when the request carries the
+   app's User-Agent (see IOS_CLIENT in server/index.js), so the layout is right
+   on the first paint rather than after a script has run.
+
+   Two things are true there and nowhere else: a native tab bar covers the
+   bottom of the screen, and the top-right corner is under the status bar.
+   Everything else is the phone layout, because that is what it is. */
+
+/* The attribution lives top-right, which inside the app is beneath the status
+   bar — visible, and impossible to tap. It moves to the bottom-left, the one
+   corner nothing else is using: the tab bar is centred and the buttons are on
+   the right. It stays a link, and stays on screen, which is what the licences
+   actually ask for. */
+html[data-client='ios'] .maplibregl-ctrl-top-right {
+  top: auto;
+  right: auto;
+  bottom: 0;
+  left: 0;
+}
+
+html[data-client='ios'] .maplibregl-ctrl-top-right .maplibregl-ctrl-attrib {
+  margin: 0 0 calc(8px + var(--safe-b)) calc(12px + var(--safe-l));
+}
+
+/* The button cluster clears the tab bar by more than the usual margin. The safe
+   area ends exactly where the tab bar does, so a button resting on it is a
+   button you miss — you press the tab bar instead. Ten more pixels is the
+   difference between "next to" and "on top of". */
+html[data-client='ios'] .layers {
+  bottom: calc(22px + var(--safe-b));
+}
+
+/* The pencil rides above the cluster, so it moves with it. */
+html[data-client='ios'] .hud {
+  bottom: calc(127px + var(--safe-b));
+}

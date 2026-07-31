@@ -242,6 +242,22 @@ to open, and how to forget it. Everything about your *map* stays on the Map tab,
 where a laptop finds it in the same place. Duplicating any of it natively would
 mean two screens that have to agree.
 
+### The server knows which client asked
+
+The web view appends `HexploreiOS` to its User-Agent, and `server/index.js`
+serves `index.html` with `data-client="ios"` on the `<html>` tag when it sees it
+(`IOS_CLIENT`, `indexForClient`). The rewritten copy is cached like the original
+and carries its own etag suffix, so a browser and the app can never be handed
+each other's.
+
+Doing it on the server rather than in a script is what makes the layout right on
+the **first paint**. A class added after the page boots means watching the
+buttons jump.
+
+It marks a viewport, not an account: nothing about the data differs. What it
+buys is the handful of rules at the end of `src/style.css` — the button cluster
+clearing the tab bar, and the attribution moving out from under the status bar.
+
 **Neither side derives anything.** Trips, coverage and the calendar are worked
 out once by the server (`server/derive.js`), so a phone and a laptop cannot
 disagree about them — see "Derived on the server, once" in ARCHITECTURE.md.
@@ -252,23 +268,27 @@ The map runs under the status bar and under the tab bar, which is how a map
 should look. The site's own buttons — geolocate, menu, pencil — stack in the
 bottom-right corner on a phone, so drawing over that corner would bury them.
 
-They stay put because the page is **told** how much of its bottom edge is
-covered, in three steps:
+They stay put because the app **hands the page its own geometry**:
+`WebViewController.pushSafeArea()` sets `--safe-t/r/b/l` on the root element from
+`view.safeAreaInsets`, and every viewport-anchored rule in `src/style.css` adds
+them.
 
-1. A `GeometryReader` that ignores the safe area reports the insets it is
-   ignoring — tab bar plus home indicator.
-2. `WebViewController` adds the difference between that and the device's own
-   inset as `additionalSafeAreaInsets`. The difference, not the total: the
-   window already claims the home indicator, and adding it twice lifts every
-   button a thumb's width too high.
-3. `src/style.css` reads it back as `env(safe-area-inset-bottom)` and every
-   viewport-anchored element adds it.
+**`env(safe-area-inset-*)` does not work here, and it took measuring to find
+out.** With the map drawn edge to edge the controller's
+`view.safeAreaInsets.bottom` is a correct **83** — tab bar plus home indicator —
+and the scroll view adjusts by the same 83, and the page still read
+`env(safe-area-inset-bottom)` as `0px`. Every button stayed in the corner it was
+meant to move out of, `viewport-fit=cover` was present, and nothing on the Swift
+side looked wrong. A `#if DEBUG` readback in `didFinish` prints what the page
+actually ends up with; it is there because reasoning about this was wrong twice.
 
-This is why the web app gained safe-area handling and `viewport-fit=cover`,
-neither of which it had. **They are worth having anyway**: without them the same
-buttons sit under the home indicator in mobile Safari, which was already true
-before this app existed. `env()` is zero on a desktop browser, so nothing there
-moved.
+The CSS still *defaults* these variables to `env()`, which is what a real
+browser uses. So the same rules give mobile Safari its notch and home-indicator
+handling — which it never had — and the app simply overrides them with numbers
+it can measure.
+
+Measured after the change: `--safe-b` is `83px` and the button cluster's computed
+`bottom` is `105px`, clear of the tab bar.
 
 **The tab bar is pinned to dark.** The site is dark — its login card, its menu,
 three of its four basemaps — and a tab bar that followed the system into light

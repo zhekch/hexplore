@@ -2138,6 +2138,42 @@ function sendStatic(req, res, entry, immutable) {
   res.end(req.method === 'HEAD' ? undefined : body);
 }
 
+// --- Telling the iOS app apart ---------------------------------------------------
+// The app appends this to its User-Agent (WebViewController.userAgentTag). It is
+// the whole of the identification, and it buys one thing: the page can be served
+// already knowing it is inside an app with a native tab bar over the bottom of
+// the screen, so its chrome is laid out correctly on the first paint rather than
+// jumping once a script has run.
+//
+// Nothing about the *data* changes — this marks a viewport, not an account.
+const IOS_CLIENT = 'HexploreiOS';
+const isIosApp = (req) => String(req.headers['user-agent'] ?? '').includes(IOS_CLIENT);
+
+// One rewritten copy of index.html, rebuilt only when the real one changes. The
+// etag carries a suffix so a browser and the app can never be handed each
+// other's copy out of a cache in between.
+let iosIndex = { from: null, entry: null };
+
+function indexForClient(req, entry) {
+  if (!entry || !isIosApp(req)) return entry;
+  if (iosIndex.from !== entry.etag) {
+    const html = entry.body
+      .toString('utf8')
+      .replace('<html lang="en">', '<html lang="en" data-client="ios">');
+    const body = Buffer.from(html, 'utf8');
+    iosIndex = {
+      from: entry.etag,
+      entry: {
+        etag: `${entry.etag.slice(0, -1)}-ios"`,
+        body,
+        type: entry.type,
+        gz: body.length >= GZIP_MIN_BYTES ? gzipSync(body) : null,
+      },
+    };
+  }
+  return iosIndex.entry;
+}
+
 async function serveStatic(req, res, pathname) {
   let rel;
   try {
@@ -2161,11 +2197,14 @@ async function serveStatic(req, res, pathname) {
   const entry = await loadStatic(file);
   // Vite writes content-hashed names into /assets/, so those URLs never point
   // at different bytes and can be cached indefinitely.
-  if (entry) return sendStatic(req, res, entry, rel.startsWith('/assets/'));
+  if (entry) {
+    const isIndex = rel === '/index.html' || rel.endsWith('/index.html');
+    return sendStatic(req, res, isIndex ? indexForClient(req, entry) : entry, rel.startsWith('/assets/'));
+  }
 
   // SPA fallback: serve index.html for unknown non-file routes.
   const fallback = await loadStatic(path.join(DIST, 'index.html'));
-  if (fallback) return sendStatic(req, res, fallback, false);
+  if (fallback) return sendStatic(req, res, indexForClient(req, fallback), false);
   send(res, 404, { error: 'not found' });
 }
 
