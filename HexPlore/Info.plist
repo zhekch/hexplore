@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Everything else in Info.plist is generated from build settings
+	     (GENERATE_INFOPLIST_FILE). This file exists for the one key that cannot
+	     be expressed as a build setting, because it is a nested dictionary. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Not NSAllowsArbitraryLoads. This permits plain http only to local
+		     names — a server at 192.168.x.x or hexplore.local, which is exactly
+		     how this app is self-hosted on a home network. Anything on the
+		     public internet still has to be HTTPS, so putting the map behind
+		     `tailscale serve` remains the right way to reach it from outside. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Hexplore connects to the server you run on your own network.</string>
+</dict>
+</plist>

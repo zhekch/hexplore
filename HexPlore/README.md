@@ -204,28 +204,67 @@ Swift's `.rounded()` rounds a half away from zero and gives `-3`. They disagree
 only exactly on a cell boundary, which is precisely where a map gets clicked.
 `HexGrid.jsRound` reproduces the JavaScript and has a test of its own.
 
+## How the two tabs divide the work
+
+**Map** is native. A map is the one thing a phone does better than a web view:
+the gestures, the GPU, and eventually the background location a browser cannot
+have at all.
+
+**Settings** is the web app's own menu, in a web view. The import dialogs, the
+sync connectors, the backup schedule and the statistics are some nine thousand
+lines of interface that already work against this same server, and rebuilding
+them in SwiftUI would be a great deal of effort for a screen that looks the same.
+
+Loading the site plainly would give you a second map behind the settings you came
+for, so the web view injects a stylesheet that takes the map surface off screen
+and a script that opens the menu. **That is a stopgap rather than a design.** The
+honest version is a mode the web app itself supports — it already reads
+`?debuglevels`, so a `?panel=settings` that boots without a map would be a small
+change there and would delete the injection entirely.
+
+**Neither side derives anything.** Trips, coverage and the calendar are worked
+out once by the server (`server/derive.js`), so this app and the browser cannot
+disagree about them — see "Derived on the server, once" in ARCHITECTURE.md.
+
+## Signing in
+
+Once, natively. `POST /api/login` answers with a `sid` cookie, `URLSession`
+stores it, and `Session.adoptCookies` copies it into the web view's own store —
+`WKWebView` keeps cookies separately, so without that step the Settings tab would
+show a login form to somebody who had just signed in on the Map tab.
+
 ## What is ported
 
 - **The hex lattice** (`HexGrid`) — projection, cell resolution, roll-up to
   coarser levels, column wrapping at the antimeridian, and the canonical
   `"{level}/{col}/{row}"` id the server keys on.
-- **The blob shaping curve** (`BlobShaping`) — the tuning constants and
-  `alphaCurve`, the smoothstep that decides where a blob's edge is.
-- **The map** — MapLibre with the Dark and Light basemaps.
+- **Cell geometry** — reading a stored id back, the six corners of a cell, and
+  the same zoom → level mapping `levelForZoom` uses in `src/main.js`, so the
+  phone and the laptop show the same coarseness at the same place.
+- **The blob shaping curve** (`BlobShaping`) and **the Metal renderer**
+  (`BlobRenderer`) — written and tested, not yet on the map.
+- **The API client** — sign in, and fetch cells, trips and statistics.
+- **The map** — MapLibre with the Dark and Light basemaps, drawing your visited
+  cells.
 
 ## What is not, in the order it probably wants doing
 
-1. **The API client.** Sign in against the existing Node server, fetch cells and
-   routes. Nothing is drawn from real data until this exists.
-2. **The blob renderer, in Metal.** `BlobShaping` is the maths; the pixels are
-   still to write. This is the piece with the clearest native payoff — see below.
+1. **The blob look.** Cells currently draw as hexagons — which is the web app's
+   own vector fallback for browsers without canvas filters, so it is a real
+   rendering rather than a placeholder, but it is not the poured-ink look. The
+   Metal pipeline is written; what is missing is feeding its output to an
+   `MLNImageSource` pinned to the viewport, which is what the canvas source does
+   in the browser.
+2. **Colouring modes.** Only the single accent wash. Visits, first seen and type
+   all need the per-cell history the API already returns.
 3. **Terrain and Satellite.** Both are built at load time by rewriting somebody
-   else's style JSON (`src/basemap.js`): a zoom diet for the labels, road classes
-   gated per class, forest drawn below z10. They declare themselves unavailable
-   until that is ported rather than silently falling back to Dark.
-4. **The level machinery** — five zoom levels, the 3× steps, the crossfades, and
-   the two vector levels (regions, then countries).
-5. **Background location.** The one thing the web app categorically cannot do,
+   else's style JSON (`src/basemap.js`). `MLNMapView.styleJSON` makes this
+   perfectly possible; the rewriting is what is missing. They declare themselves
+   unavailable rather than silently falling back to Dark.
+4. **The two vector levels** — regions and countries, and the crossfades between
+   them.
+5. **Editing.** The map is read-only here.
+6. **Background location.** The one thing the web app categorically cannot do,
    and the strongest reason for this app to exist at all.
 
 ### Why Metal, specifically
