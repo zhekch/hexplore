@@ -109,8 +109,11 @@ export function mountSearch({
     days: { label: 'Longest', sort: (a, b) => b.days - a.days || b.start - a.start },
     far: { label: 'Furthest', sort: (a, b) => b.farKm - a.farKm || b.start - a.start },
   };
+  // Grouping is one thing you either want or don't, so it is one pill rather
+  // than a pair — "Flat" was a name for the absence of the other side, and a
+  // segmented control with an off-switch in it reads as two ways of grouping.
   const TRIP_GROUPS = {
-    none: { label: 'Flat' },
+    none: {},
     country: { label: 'By country', of: (t) => t.country || '' },
   };
   let tripSort = 'recent';
@@ -177,12 +180,43 @@ export function mountSearch({
     return el;
   }
 
+  /** One pill that is either on or off — a segmented control with one side. */
+  function segToggle(label, on, onPick) {
+    const el = document.createElement('div');
+    el.className = 'seg seg-mini';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `seg-btn${on ? ' active' : ''}`;
+    btn.textContent = label;
+    btn.setAttribute('aria-pressed', String(on));
+    btn.addEventListener('click', () => onPick(!on));
+    el.append(btn);
+    return el;
+  }
+
+  /** A caption over a control, so a row of pills says what it is deciding. */
+  function controlGroup(caption, control) {
+    const el = document.createElement('div');
+    el.className = 'control-group';
+    const cap = document.createElement('span');
+    cap.className = 'control-cap';
+    cap.textContent = caption;
+    el.append(cap, control);
+    return el;
+  }
+
   function tripControls() {
     const wrap = document.createElement('div');
     wrap.className = 'stats-controls';
     wrap.append(
-      seg(TRIP_SORTS, tripSort, (k) => { tripSort = k; render(input.value); }),
-      seg(TRIP_GROUPS, tripGroup, (k) => { tripGroup = k; render(input.value); }),
+      controlGroup('Sort by', seg(TRIP_SORTS, tripSort, (k) => {
+        tripSort = k;
+        render(input.value);
+      })),
+      controlGroup('Filter by', segToggle(TRIP_GROUPS.country.label, tripGroup === 'country', (on) => {
+        tripGroup = on ? 'country' : 'none';
+        render(input.value);
+      })),
     );
     return wrap;
   }

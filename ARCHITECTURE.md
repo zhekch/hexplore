@@ -1277,19 +1277,30 @@ went, and the same month grid. The palette keeps its own because it also answers
 for places, routes and whole countries, which the trips list has no business
 holding; what it no longer has is a monopoly on the calendar.
 
-**The list keeps one column down each side.** Everything in it — the section
-heading, the home card's text, the trip icons — starts 16 px in, and everything
-on the other side — *Change*, the show-home tick, each trip's distance — ends
-16 px in. The home card draws a 1 px edge of its own, so it is padded 9 px
-rather than 10 to land on the same column. The × that puts a trip away is the
-one thing that will not fit in that scheme: in the flow it held a 34 px lane
-open on *every* row to carry something that is invisible until you point at
-one, which pushed every distance a third of an inch off the edge the rest of the
-list ends at. So it is overlaid on the row instead, and the distance slides out
-of its way while it is there — a transform rather than a reflow, and the column
-is intact the rest of the time. Hidden, it also gives up `pointer-events`: an
-invisible button lying across the tail of "1127 km away" is a thing you can
-plausibly aim at and miss.
+**The list keeps two columns down each side, and a row moves between them.**
+The outer one is the edge the section headings and the home card draw their
+boxes on, 6 px in; the inner one is 16 px, where their *text* sits — the home
+card draws a 1 px edge of its own, so it is padded 9 px rather than 10 to land
+there. At rest a row stands on the outer column and its distance ends on the
+inner one; pointing at a row swaps them, so the icon tucks in to meet the
+headings and the distance slides out to make room for the × that puts the trip
+away. Both are transforms of 10 px and 26 px, not padding — nothing reflows, and
+the right label is deliberately left out of the left-hand slide because it is
+already busy going the other way.
+
+That × is the reason any of this moves. In the flow it held a 34 px lane open on
+*every* row to carry something invisible until you point at one, which pushed
+every distance a third of an inch off the edge the rest of the list ends at. So
+it is overlaid instead. Hidden, it also gives up `pointer-events`: an invisible
+button lying across the tail of "1127 km away" is a thing you can plausibly aim
+at and miss.
+
+**The controls above the list are captioned, and grouping is one pill.** Two
+rows of pills side by side are two questions, and which pill answers which is
+not something a shape can say — so *Sort by* and *Filter by* say it. Grouping
+lost its second side with the caption: "Flat" was only ever a name for the
+absence of *By country*, and a segmented control containing its own off-switch
+reads as two ways of grouping rather than one you can turn off.
 
 ## Colours with an opacity
 
