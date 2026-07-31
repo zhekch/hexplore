@@ -741,7 +741,10 @@ row, it's a reading of the rows.
   stack — above the basemap's own labels, not merely above the blobs. The only
   other thing drawn that high is the day/trip highlight, and `syncHomeMarker`
   raises home again whenever that is shown, because a marker you have to hunt
-  for is not a marker. The tick for it sits on the home card itself, because "is this the
+  for is not a marker. Setting home, and the switch that draws it, live in
+  **Export & settings** under *Personal*, beside the Editing switch — three
+  surfaces each opened for another reason used to hold one setting about you
+  apiece. The tick for it sits on the home card itself, because "is this the
   right home" is a question you answer by looking at where it is — it started
   four sections away in the appearance menu. It gets a line of its own under the
   home rather than a seat beside it: two controls in one row left the switch
@@ -1210,9 +1213,14 @@ already giving by being empty there.
 **Ground covered is measured per cell, at its own latitude.** The grid is
 Mercator, so a cell's ground area shrinks with `cos²(lat)`; summing a constant
 would tell someone in Tromsø they have covered twice what they have. The share
-is against the region's own polygon area, and it is printed to two decimals when
-it is under a tenth of a percent — a country you crossed once is a fraction of
-itself, and "0%" is a wrong answer rather than a small one.
+is against the region's own polygon area, and the scale keeps adding decimals
+until it runs out and then says `<0.01%` — a country you crossed once is a
+fraction of itself, and "0%" is a wrong answer rather than a small one. The
+first version refused to print any share under 0.05%, which is above the real
+answer for most countries: France (0.031%) and Spain (0.014%) showed a number of
+square kilometres and no share at all. `scripts/test/coverage-scale.mjs` pins
+every band, including that each one is reachable — an unreachable threshold is
+exactly how that got in.
 
 **The selection highlight is the region's own border**, not the hex ring a cell
 gets, so it says which shape was picked rather than merely where.

@@ -33,14 +33,19 @@ function shortRange(first, last) {
 
 const coord = (lat, lng) => `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`;
 
-const km2 = (v) =>
+export const km2 = (v) =>
   v >= 1000 ? `${Math.round(v).toLocaleString()} km²`
   : v >= 10 ? `${v.toFixed(0)} km²`
   : `${v.toFixed(1)} km²`;
 
-// A country you have crossed once is a fraction of a percent of itself, and
-// "0%" is a wrong answer rather than a small one.
-const pct = (v) => (v >= 1 ? `${v.toFixed(0)}%` : v >= 0.1 ? `${v.toFixed(1)}%` : `${v.toFixed(2)}%`);
+// A country you have crossed once is a fraction of a percent of itself, and "0%"
+// is a wrong answer rather than a small one — so the scale keeps adding decimals
+// until it runs out, and then says so rather than rounding the answer away.
+export const pct = (v) =>
+  v >= 1 ? `${v.toFixed(0)}%`
+  : v >= 0.1 ? `${v.toFixed(1)}%`
+  : v >= 0.005 ? `${v.toFixed(2)}%`
+  : '<0.01%';
 
 /**
  * Wires the card (markup lives in index.html).
@@ -98,9 +103,12 @@ export function mountCellInfo({ onClose } = {}) {
     // How much of it you have actually been to. Only an area can answer this —
     // for a single cell the question is the cell.
     if (info.covered) {
+      // The share is dropped only when there is nothing to compare against —
+      // a region whose polygon area we don't have. Being a very small fraction
+      // of France is a fact about France, not a reason to withhold it.
       row(
         'Ground covered',
-        info.coveredPct >= 0.05
+        info.coveredPct > 0
           ? `${km2(info.covered)} · ${pct(info.coveredPct)}`
           : km2(info.covered),
         `${Math.round(info.covered).toLocaleString()} km² of ${info.coveredOf}`,

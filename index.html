@@ -143,12 +143,6 @@
               </svg>
               <span>Export &amp; settings<small id="settings-menu-note">Backups</small></span>
             </button>
-            <!-- Last, because it changes what a tap on the map *does* rather
-                 than opening anything, and it is the one switch you leave off. -->
-            <label class="menu-row">
-              <span>Editing</span>
-              <input type="checkbox" id="edit-toggle" />
-            </label>
           </section>
 
           <div class="layers-account" id="layers-account" hidden>
@@ -428,6 +422,38 @@
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
           </button>
+        </div>
+
+        <!-- Above the export list on purpose: these are settings about you and
+             your map, and the list below is about getting a copy of it out.
+             Home used to live in the trips palette and Editing in the layers
+             menu, which meant "things about me" was in three places. -->
+        <div class="settings-group">
+          <div class="settings-group-head">Personal</div>
+          <div class="home-row">
+            <div class="home-line">
+              <span class="home-text">
+                <b id="settings-home-name"></b>
+                <small>Home — everything on the map is measured from it</small>
+              </span>
+              <button type="button" class="home-set" id="settings-home-set">Change</button>
+            </div>
+            <label class="home-show">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 11 12 4l8 7" />
+                <path d="M6 10v9h12v-9" />
+              </svg>
+              <span>Show home on the map</span>
+              <input type="checkbox" id="settings-home-shown" />
+            </label>
+          </div>
+          <!-- The one switch that changes what a tap on the map *does* rather
+               than what it shows, which is why it is last and why it is here
+               rather than in the menu you open to change the view. -->
+          <label class="import-row">
+            <span>Editing<small>Puts the pencil on the map, so a tap marks or clears a cell</small></span>
+            <input type="checkbox" id="edit-toggle" />
+          </label>
         </div>
 
         <div class="sync-options">

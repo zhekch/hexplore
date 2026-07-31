@@ -4737,7 +4737,13 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onStatus: () => settings?.setBackupStatus(backupUi.summary()),
   });
   sync = mountSync({ homeAssistant, strava: stravaUi, files: importer });
-  settings = mountSettings({ backup: backupUi });
+  settings = mountSettings({
+    backup: backupUi,
+    home: () => homePlace,
+    onSetHome: () => homeUi.open(homePlace),
+    homeShown: () => homeShown,
+    onShowHome: (on) => setHomeShown(on),
+  });
   document.getElementById('sync-open').addEventListener('click', () => {
     setMenuOpen(false);
     sync.open();
@@ -4770,10 +4776,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     },
     hiddenTrips: () => hiddenTripIds,
     onHideTrip: setTripHidden,
-    home: () => homePlace,
-    onSetHome: () => homeUi.open(homePlace),
-    homeShown: () => homeShown,
-    onShowHome: (on) => setHomeShown(on),
     // A day with a dot on it is a day you should be able to look at, and until
     // now the calendar could only tell you it existed. Same treatment as a
     // trip — the ground it covered, threaded in the order you covered it.
