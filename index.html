@@ -279,7 +279,7 @@
         <div class="modal-head">
           <div>
             <div class="modal-title">Import locations</div>
-            <div class="modal-sub">KML, GPX, GeoJSON, CSV, or a JSON export from Google Timeline, Snapchat or Apple Photos.</div>
+            <div class="modal-sub">KML, GPX, TCX, FIT, GeoJSON, CSV, a whole ZIP, or a JSON export from Google Timeline, Snapchat or Apple Photos.</div>
           </div>
           <button class="cell-info-close" id="import-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -304,18 +304,23 @@
             <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z" />
             <circle cx="12" cy="10" r="2.6" />
           </svg>
-          <span>No file? Paste Komoot tour links instead</span>
+          <span>Paste Komoot links</span>
         </button>
 
         <!-- What used to be behind the ⓘ beside "Import locations" in the menu.
              It belongs here: it answers the questions you have while looking at
-             this dialog, and it costs nothing once the file has been read. -->
+             this dialog, and it costs nothing once the file has been read.
+             It says what you can't guess from the file picker — that the big
+             archives go in whole — rather than repeating the format list above
+             it. -->
         <p class="import-note" id="import-note">
-          Files are parsed <b>in your browser</b> — nothing leaves this device until you press
-          Import, and then only the cells. You see what was found before anything is saved, and
-          re-importing refreshes dates and counts instead of duplicating cells. Files that drew a
-          line can keep it as a <b>saved route</b> as well. Fixes less than an hour apart in the
-          same cell count as one visit, so a recorded activity doesn't drown out everywhere else
+          <b>Strava's bulk export</b> goes in whole: drop the ZIP that “Request your archive”
+          sends you and every activity inside it is read, still gzipped, and filed under Strava —
+          which is the way in now that its API wants a subscription. Any other zipped export
+          expands the same way. Re-importing refreshes dates and counts instead of duplicating
+          cells, so the same archive can be dropped again next year. Anything that drew a line
+          can keep it as a <b>saved route</b>, and fixes less than an hour apart in one cell
+          count as a single visit, so a recorded activity doesn't drown out everywhere else
           you've been.
         </p>
 
@@ -360,8 +365,8 @@
               <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
             </svg>
             <span class="sync-option-text">
-              <b>Files</b>
-              <small id="sync-files-note">GPX, KML, FIT, ZIP — or a Komoot link</small>
+              <b>Files and links</b>
+              <small id="sync-files-note">GPX, KML, FIT, a Strava export — or a Komoot link</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -424,39 +429,25 @@
           </button>
         </div>
 
-        <!-- Above the export list on purpose: these are settings about you and
-             your map, and the list below is about getting a copy of it out.
-             Home used to live in the trips palette and Editing in the layers
-             menu, which meant "things about me" was in three places. -->
-        <div class="settings-group">
-          <div class="settings-group-head">Personal</div>
-          <div class="home-row">
-            <div class="home-line">
-              <span class="home-text">
-                <b id="settings-home-name"></b>
-                <small>Home — everything on the map is measured from it</small>
-              </span>
-              <button type="button" class="home-set" id="settings-home-set">Change</button>
-            </div>
-            <label class="home-show">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M4 11 12 4l8 7" />
-                <path d="M6 10v9h12v-9" />
-              </svg>
-              <span>Show home on the map</span>
-              <input type="checkbox" id="settings-home-shown" />
-            </label>
-          </div>
-          <!-- The one switch that changes what a tap on the map *does* rather
-               than what it shows, which is why it is last and why it is here
-               rather than in the menu you open to change the view. -->
-          <label class="import-row">
-            <span>Editing<small>Puts the pencil on the map, so a tap marks or clears a cell</small></span>
-            <input type="checkbox" id="edit-toggle" />
-          </label>
-        </div>
-
         <div class="sync-options">
+          <!-- First in the list on purpose: these are settings about you and
+               your map, and the two below are about getting a copy of it out.
+               Home used to live in the trips palette and Editing in the layers
+               menu, which meant "things about me" was in three places. -->
+          <button type="button" class="sync-option" data-settings="personal">
+            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.6" />
+              <path d="M4.8 20a7.2 7.2 0 0 1 14.4 0" />
+            </svg>
+            <span class="sync-option-text">
+              <b>Personal</b>
+              <small id="settings-personal-note">Home and editing</small>
+            </span>
+            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m9 5 7 7-7 7" />
+            </svg>
+          </button>
+
           <button type="button" class="sync-option" data-settings="export" disabled>
             <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M12 3v12" />
@@ -487,6 +478,53 @@
 
         <div class="modal-actions">
           <button type="button" class="modal-btn primary" id="settings-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="personal-overlay" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">Personal</div>
+            <div class="modal-sub">Where the map is measured from, and what a tap on it does.</div>
+          </div>
+          <button class="cell-info-close" id="personal-close" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="home-row">
+          <div class="home-line">
+            <span class="home-text">
+              <b id="settings-home-name"></b>
+              <small>Home — everything on the map is measured from it</small>
+            </span>
+            <button type="button" class="home-set" id="settings-home-set">Change</button>
+          </div>
+          <label class="home-show">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 11 12 4l8 7" />
+              <path d="M6 10v9h12v-9" />
+            </svg>
+            <span>Show home on the map</span>
+            <input type="checkbox" id="settings-home-shown" />
+          </label>
+        </div>
+
+        <!-- The one switch that changes what a tap on the map *does* rather
+             than what it shows, which is why it is last and why it is here
+             rather than in the menu you open to change the view. -->
+        <label class="import-row">
+          <span>Editing<small>Puts the pencil on the map, so a tap marks or clears a cell</small></span>
+          <input type="checkbox" id="edit-toggle" />
+        </label>
+
+        <div class="modal-actions">
+          <button type="button" class="modal-btn" id="personal-back">Back</button>
+          <button type="button" class="modal-btn primary" id="personal-done">Done</button>
         </div>
       </div>
     </div>

@@ -36,6 +36,7 @@ import { mountKomoot } from './komoot-ui.js';
 import { mountStrava } from './strava-ui.js';
 import { mountSync } from './sync-ui.js';
 import { mountSettings } from './settings-ui.js';
+import { mountPersonal } from './personal-ui.js';
 import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
 import { activeDays, findHome } from './trips.js';
@@ -177,6 +178,11 @@ const CHROME_LIGHT_LEAVE = 0.48;
 // A square this many CSS pixels across, sampled at the middle of each control.
 // Big enough to survive one bright roof, small enough to stay a cheap read.
 const CHROME_SAMPLE_PX = 36;
+// How long a newly chosen basemap's own word is protected from being read over.
+// `idle` normally lifts it far sooner; this is only the backstop for a basemap
+// that never finishes loading, which never sends one — and a stuck tile must
+// not be able to switch the reading off for the rest of the session.
+const CHROME_PRESUME_MS = 4000;
 
 const PLACE_ICON = 'place-marker';
 
@@ -229,6 +235,14 @@ const EMPTY = { type: 'FeatureCollection', features: [] };
 // Whether the chrome is currently wearing dark text, and whether a read is due.
 let chromeLight = false;
 let chromeDue = false;
+// A basemap that has been chosen but is not on screen yet. `chromePresumed`
+// says the chrome is wearing that basemap's own word and no reading may argue
+// with it; `chromeStyleSeen` says the basemap in question has at least parsed,
+// because the map also sits idle in the gap before a built style has been
+// fetched and that idle is still the outgoing map. See the `idle` handler.
+let chromePresumed = false;
+let chromeStyleSeen = false;
+let chromePresumeTimer = 0;
 
 /**
  * Read the frame under the map controls and decide whether white text still
@@ -310,13 +324,50 @@ function writeChrome() {
  * reading that follows only has to *correct* the guess, which it does for the
  * one case the declaration cannot cover: imagery, which is nominally dark and
  * is a snowfield often enough to matter.
+ *
+ * The guess also has to be protected until the basemap it is a guess about is
+ * the one being drawn, or the correction arrives before the thing it is meant
+ * to correct — see applyChromeContrast.
  */
 function presumeChrome() {
   chromeLight = STYLES[styleKey]?.theme === 'light';
+  chromePresumed = true;
+  chromeStyleSeen = false;
+  clearTimeout(chromePresumeTimer);
+  chromePresumeTimer = setTimeout(trustChrome, CHROME_PRESUME_MS);
   writeChrome();
 }
 
+/**
+ * Let readings speak again.
+ *
+ * Called from `idle`, which is the honest signal — every tile that was coming
+ * has come, so what is on screen is the basemap the guess was about. The
+ * deadline behind it exists because a basemap that never finishes loading never
+ * sends one, and satellite is the basemap most likely to hang *and* the one
+ * that needs the reading most. Protecting the guess for good would turn one
+ * stuck tile into imagery with no contrast correction at all.
+ */
+function trustChrome() {
+  clearTimeout(chromePresumeTimer);
+  if (!chromePresumed) return;
+  chromePresumed = false;
+  refreshChrome();
+}
+
+/**
+ * A reading is only worth having once the basemap it is a reading *of* is on
+ * screen. Between choosing one and its first painted frame the map still shows
+ * the outgoing basemap, and `styledata` fires squarely inside that window: the
+ * new style has parsed, none of its tiles have arrived, and the pixels under
+ * the menu are still the old map's. Switching from Light to Dark took the
+ * chrome dark on the click and a reading of the departing light map put it
+ * straight back, where it stayed until the settled reading a second later —
+ * which is the lag this whole mechanism was built to remove, arriving by its
+ * own hand. So while a presumption stands the declaration is simply left alone.
+ */
 function applyChromeContrast() {
+  if (chromePresumed) return;
   const lum = readChromeLuminance();
   if (lum == null) return;
   chromeLight = chromeLight ? lum > CHROME_LIGHT_LEAVE : lum > CHROME_LIGHT_ENTER;
@@ -594,7 +645,21 @@ const askChromeAgain = () => {
   refreshChrome();
 };
 map.on('styledata', askChromeAgain);
+// Which basemap the presumption is about. Reset by presumeChrome and set here,
+// so an idle that lands in the gap before a chosen style has even been fetched
+// cannot be mistaken for the chosen style having been drawn.
+map.on('style.load', () => {
+  chromeStyleSeen = true;
+});
 map.on('idle', () => {
+  // Idle means every tile that was coming has come, so the basemap the chrome
+  // presumed about is the one on screen and a reading may finally argue with
+  // its declaration. Until then applyChromeContrast leaves the guess alone.
+  if (chromePresumed && chromeStyleSeen) {
+    chromeSettleDue = false;
+    trustChrome();
+    return;
+  }
   if (!chromeSettleDue) return;
   chromeSettleDue = false;
   refreshChrome();
@@ -4980,6 +5045,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   // entry hands off to its own dialog and comes back to its hub on Back.
   let sync = null;
   let settings = null;
+  let personalUi = null;
   homeAssistant = mountHomeAssistant({
     onSynced: () => hydrateVisited(),
     onClose: () => sync?.open(),
@@ -5043,13 +5109,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onStatus: () => settings?.setBackupStatus(backupUi.summary()),
   });
   sync = mountSync({ homeAssistant, strava: stravaUi, files: importer });
-  settings = mountSettings({
-    backup: backupUi,
+  personalUi = mountPersonal({
+    onClose: () => settings?.open(),
     home: () => homePlace,
     onSetHome: () => homeUi.open(homePlace),
     homeShown: () => homeShown,
     onShowHome: (on) => setHomeShown(on),
   });
+  settings = mountSettings({ personal: personalUi, backup: backupUi });
   document.getElementById('sync-open').addEventListener('click', () => {
     setMenuOpen(false);
     sync.open();
