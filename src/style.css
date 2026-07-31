@@ -4850,3 +4850,215 @@ body {
   border-color: rgba(15, 23, 42, 0.22);
   border-top-color: rgba(15, 23, 42, 0.85);
 }
+
+/* --- Chrome over a satellite basemap ------------------------------------------
+   Under a vector basemap the ground is a palette we chose, so one set of glass
+   colours works everywhere on it. Satellite imagery is whatever the satellite
+   saw: a lake, a forest, a snowfield. White-on-glass reads on the first two and
+   disappears on the third, and no fixed choice survives panning across all
+   three — so the map is asked what is underneath and the chrome answers. See
+   sampleChrome() in main.js.
+
+   These are the light theme's own values, applied to the surfaces that float
+   over the map and to nothing else. A dialog has an opaque background of its
+   own and has never needed this; the search palette is dark glass over a dark
+   scrim, which is why it was never the one that failed. */
+[data-chrome='light'] .hud-pencil,
+[data-chrome='light'] .layers-btn {
+  background: rgba(248, 250, 252, 0.86);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow:
+    0 8px 24px rgba(15, 23, 42, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  color: rgba(15, 23, 42, 0.9);
+}
+
+[data-chrome='light'] .hud-pencil:hover,
+[data-chrome='light'] .layers-btn:hover {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+[data-chrome='light'] .hud-panel,
+[data-chrome='light'] .layers-menu {
+  background: rgba(248, 250, 252, 0.9);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow:
+    0 16px 44px rgba(15, 23, 42, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  color: rgba(15, 23, 42, 0.94);
+}
+
+[data-chrome='light'] .hud-done {
+  background: rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+
+[data-chrome='light'] .hud-done:hover {
+  background: rgba(15, 23, 42, 0.14);
+}
+
+[data-chrome='light'] .hud-row,
+[data-chrome='light'] .layers-menu .seg-btn,
+[data-chrome='light'] .hud-panel .seg-btn {
+  color: rgba(15, 23, 42, 0.68);
+}
+
+[data-chrome='light'] .hud-row b,
+[data-chrome='light'] .layers-menu .seg-btn.active,
+[data-chrome='light'] .hud-panel .seg-btn.active {
+  color: #0f172a;
+}
+
+[data-chrome='light'] .menu-subhead {
+  color: rgba(15, 23, 42, 0.82);
+}
+
+[data-chrome='light'] .hud-hint,
+[data-chrome='light'] .menu-heading,
+[data-chrome='light'] .layers-heading {
+  color: rgba(15, 23, 42, 0.56);
+}
+
+[data-chrome='light'] .hud-hint,
+[data-chrome='light'] .menu-row {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-chrome='light'] .hud-color-row input[type='color'],
+[data-chrome='light'] .menu-row input[type='color'],
+[data-chrome='light'] .layers-color-row input[type='color'] {
+  border-color: rgba(15, 23, 42, 0.25);
+}
+
+[data-chrome='light'] .layers-color-row {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-chrome='light'] .layers-menu .seg,
+[data-chrome='light'] .hud-panel .seg {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-chrome='light'] .layers-menu .seg-btn.active,
+[data-chrome='light'] .hud-panel .seg-btn.active {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 1px 4px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+[data-chrome='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
+  background: rgba(248, 250, 252, 0.86);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
+}
+
+[data-chrome='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button:hover,
+[data-chrome='light'] .layers-cluster .maplibregl-ctrl-group button:hover {
+  background-color: rgba(15, 23, 42, 0.08);
+}
+
+[data-chrome='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
+[data-chrome='light'] .layers-cluster .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: none;
+}
+
+[data-chrome='light'] .layers-cluster {
+  background: rgba(248, 250, 252, 0.86);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow:
+    0 8px 24px rgba(15, 23, 42, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+[data-chrome='light'] .layers-cluster .layers-btn {
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-chrome='light'] .layers-cluster .layers-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+[data-chrome='light'] .layers-cluster .layers-btn:active {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+[data-chrome='light'] .layers-cluster .layers-btn + .layers-btn {
+    border-right-color: rgba(15, 23, 42, 0.14);
+}
+
+[data-chrome='light'] .layers-cluster .maplibregl-ctrl-group {
+    border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-chrome='light'] .maplibregl-ctrl-attrib {
+  background: rgba(248, 250, 252, 0.8) !important;
+}
+
+[data-chrome='light'] .maplibregl-ctrl-attrib a,
+[data-chrome='light'] .maplibregl-ctrl-attrib {
+  color: rgba(15, 23, 42, 0.62) !important;
+}
+
+[data-chrome='light'] .layers-account {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-chrome='light'] .layers-account-name {
+  color: rgba(15, 23, 42, 0.9);
+}
+
+[data-chrome='light'] .layers-account-logout {
+  background: rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+
+[data-chrome='light'] .layers-account-logout:hover {
+  background: rgba(15, 23, 42, 0.14);
+}
+
+[data-chrome='light'] .menu-action {
+  background: rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+
+[data-chrome='light'] .menu-action:hover {
+  background: rgba(15, 23, 42, 0.14);
+}
+
+[data-chrome='light'] .menu-row small {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+[data-chrome='light'] .menu-action small {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-chrome='light'] .detail-now,
+[data-chrome='light'] .legend-note {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+[data-chrome='light'] .legend-labels,
+[data-chrome='light'] .legend-key {
+  color: rgba(15, 23, 42, 0.86);
+}
+
+[data-chrome='light'] .menu-note,
+[data-chrome='light'] .legend-empty {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-chrome='light'] .menu-section + .menu-section,
+[data-chrome='light'] .menu-scroll > .layers-account {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-chrome='light'] .legend-bar {
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.2);
+}

@@ -1200,6 +1200,38 @@ switched on and left on, and `showTrack` raises them past it only while a day or
 a trip is actually being shown. Home is re-raised immediately after, so the
 order from the top is always home, then the highlight, then everything else.
 
+## Chrome over a photograph
+
+Under a vector basemap the ground is a palette we chose, so one set of glass
+colours works everywhere on it. Satellite imagery is whatever the satellite saw
+— a lake, a forest, a snowfield — and white-on-glass reads on the first two and
+disappears on the third. No fixed choice survives panning across all three, so
+the map is asked what is underneath and the chrome answers.
+
+**The pixels are read inside a render.** The drawing buffer is only valid within
+that callback unless the map is built with `preserveDrawingBuffer`, which costs a
+copy of every frame to serve a question asked a few times a minute. So
+`refreshChrome()` marks a reading as due and the `render` hook takes it: a small
+square at the middle of each floating control, every fourth pixel, weighted
+Rec. 709 — a plain mean calls a saturated blue lake as bright as a beach.
+
+**Two thresholds, not one.** `CHROME_LIGHT_ENTER` and `CHROME_LIGHT_LEAVE`
+straddle the decision, because a single one makes the chrome flicker between
+colours while you pan along a shoreline, which is worse than either colour would
+have been on its own.
+
+**It reuses the light theme rather than inventing one.** `[data-chrome='light']`
+mirrors the light basemap's own chrome values, scoped to the surfaces that float
+over the map and to nothing else — a dialog has an opaque background of its own
+and has never needed this, and the search palette is dark glass over a dark
+scrim, which is why it was never the one that failed. Selectors shared with
+dialogs (`.seg`, `.seg-btn`) are scoped under `.layers-menu` / `.hud-panel` so a
+bright mountain cannot reach into the statistics dialog.
+
+**Everything about it is best-effort.** A WebGL context that will not give up its
+pixels leaves the chrome exactly as the basemap's own theme set it, which is the
+answer that was right before any of this existed.
+
 ## Dates with no year in them
 
 "October 15" is a question about every October 15 you have, not one arbitrary

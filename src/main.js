@@ -167,6 +167,17 @@ function addHomeImage() {
   map.addImage(HOME_ICON, { width: px * dpr, height: px * dpr, data: ctx.getImageData(0, 0, px * dpr, px * dpr).data }, { pixelRatio: dpr });
 }
 
+// --- Chrome contrast ----------------------------------------------------------
+// How dark the ground under the controls has to get before white text is
+// readable again, and how bright before it isn't. Two thresholds, not one: a
+// single one makes the chrome flicker between colours while you pan along a
+// shoreline, which is worse than either colour would have been.
+const CHROME_LIGHT_ENTER = 0.60; // perceived luminance, 0..1
+const CHROME_LIGHT_LEAVE = 0.48;
+// A square this many CSS pixels across, sampled at the middle of each control.
+// Big enough to survive one bright roof, small enough to stay a cheap read.
+const CHROME_SAMPLE_PX = 36;
+
 const PLACE_ICON = 'place-marker';
 
 /**
@@ -214,6 +225,76 @@ function addPlaceImage() {
 }
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
+
+// Whether the chrome is currently wearing dark text, and whether a read is due.
+let chromeLight = false;
+let chromeDue = false;
+
+/**
+ * Read the frame under the map controls and decide whether white text still
+ * works over it.
+ *
+ * The pixels have to be taken *during* a render: the drawing buffer is only
+ * valid inside that callback unless the map is built with
+ * `preserveDrawingBuffer`, which costs a full copy of every frame to serve a
+ * question asked a few times a minute. So this schedules a read and the render
+ * hook performs it. Everything about it is best-effort — a WebGL context that
+ * won't give up its pixels leaves the chrome exactly as the basemap's own theme
+ * set it, which is the answer that was right before any of this existed.
+ */
+function readChromeLuminance() {
+  const gl = map.painter?.context?.gl;
+  const canvas = map.getCanvas();
+  if (!gl || !canvas) return null;
+  const boxes = [document.getElementById('layers-cluster'), document.getElementById('layers-menu')]
+    .filter((el) => el && !el.hidden && el.offsetParent)
+    .map((el) => el.getBoundingClientRect());
+  if (!boxes.length) return null;
+  const rect = canvas.getBoundingClientRect();
+  const dpr = canvas.width / Math.max(1, rect.width);
+  const side = Math.max(2, Math.round(CHROME_SAMPLE_PX * dpr));
+  let total = 0;
+  let n = 0;
+  for (const b of boxes) {
+    // WebGL's origin is bottom-left; the page's is top-left.
+    const cx = Math.round((b.left + b.width / 2 - rect.left) * dpr);
+    const cy = Math.round((rect.bottom - (b.top + b.height / 2)) * dpr);
+    const x = Math.max(0, Math.min(canvas.width - side, cx - side / 2));
+    const y = Math.max(0, Math.min(canvas.height - side, cy - side / 2));
+    const px = new Uint8Array(side * side * 4);
+    try {
+      gl.readPixels(x, y, side, side, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    } catch {
+      return null;
+    }
+    // Every 4th pixel: the answer is an average, and a quarter of them is
+    // plenty of one.
+    for (let i = 0; i < px.length; i += 16) {
+      // Rec. 709 luma — green carries most of what the eye calls brightness,
+      // so a plain mean would call a saturated blue lake as bright as a beach.
+      total += (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) / 255;
+      n++;
+    }
+  }
+  return n ? total / n : null;
+}
+
+function applyChromeContrast() {
+  const lum = readChromeLuminance();
+  if (lum == null) return;
+  const next = chromeLight ? lum > CHROME_LIGHT_LEAVE : lum > CHROME_LIGHT_ENTER;
+  if (next === chromeLight) return;
+  chromeLight = next;
+  document.documentElement.toggleAttribute('data-chrome', false);
+  if (next) document.documentElement.setAttribute('data-chrome', 'light');
+}
+
+/** Ask for a fresh reading at the next frame the map draws anyway. */
+function refreshChrome() {
+  chromeDue = true;
+  map.triggerRepaint();
+}
+
 
 // --- Startup view --------------------------------------------------------------
 // Priority: last saved view (if REMEMBER_VIEW) → IP-based location (city
@@ -447,7 +528,18 @@ placeGeolocate();
 
 // Persist the camera so the next visit can resume where you left off
 // (only used when REMEMBER_VIEW is on).
+// The chrome's contrast is read inside a render, because that is the only
+// moment the drawing buffer is valid — see readChromeLuminance. Panning changes
+// what is underneath; so does a new basemap, and so does opening the menu.
+map.on('render', () => {
+  if (!chromeDue) return;
+  chromeDue = false;
+  applyChromeContrast();
+});
+map.on('styledata', refreshChrome);
+
 map.on('moveend', () => {
+  refreshChrome();
   if (!REMEMBER_VIEW) return;
   try {
     const c = map.getCenter();
@@ -4237,6 +4329,7 @@ const menuClosers = [];
 
 function setMenuOpen(open) {
   layersMenu.hidden = !open;
+  refreshChrome();
   if (!open) for (const close of menuClosers) close();
   // On phones the menu becomes a bottom sheet and the buttons underneath it
   // get out of the way.
