@@ -198,18 +198,42 @@ const ROAD_CLASS_GATES = [
 ];
 
 // The layers whose filter is `class in (primary, secondary, tertiary, trunk)`.
+// Everything the upstream styles draw as road-like: the tiers themselves, plus
+// the railways and piers that clutter at the same zooms.
+const ROAD_LAYER = /^(highway|railway|road_)/;
+
 const MAJOR_ROAD_LAYERS = new Set([
   'highway_major_subtle',
   'highway_major_casing',
   'highway_major_inner',
 ]);
 
+// Below this zoom Terrain and Satellite draw no roads at all — not faint ones,
+// none. A motorway network seen from a country away is texture, not
+// information: you cannot follow it, you cannot name it, and on a photograph it
+// is a grey scribble over the thing you came to look at. Fading them was the
+// first answer and it was the wrong one; at z3 a whisper across the whole of
+// Europe is still a whisper across the whole of Europe.
+//
+// It is a floor applied with MAX, never assignment — `highway_minor` is already
+// held to z13 and `highway_path` to z15, and this must not undo that.
+const ROAD_MIN_ZOOM = 8;
+// And by here they are drawn properly. Between the two they arrive gradually,
+// so the first road does not appear at full strength on one notch of the wheel.
+const ROAD_FULL_ZOOM = 11;
+
 // Light keeps its roads on the map when you zoom out, but barely visible — the
 // network is there to orient by, not to be read, and that restraint is most of
 // why it feels calm at world zoom. OpenFreeMap draws the same lines at full
 // strength from z0, so on a zoomed-out terrain or satellite map the roads were
-// the loudest thing on screen while Light's had faded to a whisper.
-const ROAD_FADE = ['interpolate', ['linear'], ['zoom'], 3, 0.05, 6, 0.22, 9, 0.7, 11, 1];
+// the loudest thing on screen while Light's had faded to a whisper. This map
+// now goes one step further than Light and draws none below ROAD_MIN_ZOOM.
+const ROAD_FADE = [
+  'interpolate', ['linear'], ['zoom'],
+  ROAD_MIN_ZOOM, 0,
+  ROAD_MIN_ZOOM + 1, 0.45,
+  ROAD_FULL_ZOOM, 1,
+];
 
 function gateRoadClasses(layer) {
   layer.filter = [
@@ -248,10 +272,17 @@ function applyZoomDiet(style) {
     // Never *lower* an upstream gate — this is a diet, not a redesign.
     if (gate !== undefined && (layer.minzoom ?? 0) < gate) layer.minzoom = gate;
     if (MAJOR_ROAD_LAYERS.has(layer.id)) gateRoadClasses(layer);
-    // Every road tier fades out as the map zooms out. Railways and piers ride
-    // along: they are the same kind of clutter at the same zooms.
-    if (layer.type === 'line' && /^(highway|railway|road_)/.test(layer.id)) {
-      patchLayer(layer, { paint: { 'line-opacity': ROAD_FADE } });
+    // Every road tier fades in as the map zooms in, and does not exist below
+    // ROAD_MIN_ZOOM. Railways and piers ride along: they are the same kind of
+    // clutter at the same zooms.
+    if (ROAD_LAYER.test(layer.id)) {
+      // MAX, so a tier already held further in keeps its own floor.
+      if ((layer.minzoom ?? 0) < ROAD_MIN_ZOOM) layer.minzoom = ROAD_MIN_ZOOM;
+      // A layer that upstream stops drawing before roads are allowed back is
+      // simply dropped: keeping it would leave minzoom past maxzoom, which is a
+      // layer that can never draw and only costs a parse.
+      if (layer.maxzoom !== undefined && layer.maxzoom <= ROAD_MIN_ZOOM) continue;
+      if (layer.type === 'line') patchLayer(layer, { paint: { 'line-opacity': ROAD_FADE } });
     }
     kept.push(layer);
   }

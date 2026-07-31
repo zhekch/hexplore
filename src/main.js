@@ -51,7 +51,7 @@ import { mountBackup } from './backup-ui.js';
 import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
 import { busy } from './busy.js';
-import { routesToFC, totalLength, formatDistance, canonicalSport } from './routes.js';
+import { routesToFC, totalLength, formatDistance, canonicalSport, duplicateRoutes } from './routes.js';
 import { reconcilePrefs } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
@@ -396,6 +396,12 @@ async function resolveStyle(key) {
 const STYLE_KEY = 'visited-map:style:v1';
 
 // OpenRailwayMap raster overlay (train tracks). Attribution is required.
+// Namespaced, because a basemap is somebody else's style and its layer ids are
+// theirs to choose: CARTO's already uses `rail`. Anything we add to the map
+// carries this prefix so a future basemap cannot quietly take one of our names.
+const RAIL_SRC = 'hexplore-rail';
+const RAIL_LAYER = 'hexplore-rail';
+
 const RAIL_SOURCE = {
   type: 'raster',
   tiles: ['https://a.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png'],
@@ -2096,6 +2102,21 @@ const ROUTE_LAYERS = ['route-glow', 'route-line'];
 
 let routesOn = localStorage.getItem(ROUTES_KEY) === 'on';
 let routeList = []; // newest first; carries `geom` only once routeGeom is true
+// Copies of one outing, folded away: hidden route id → the id standing in for
+// it. Derived from the list every time it changes rather than stored, because
+// it is a fact about the data and not a judgement about it — a tour imported
+// next year folds against what is already here without anyone deciding again.
+let dupeOf = new Map();
+let showDupes = false; // "show me both anyway", for the length of this visit
+
+/** The routes worth listing: one row per outing, whichever copy speaks for it. */
+const listedRoutes = () => (showDupes ? routeList : routeList.filter((r) => !dupeOf.has(r.id)));
+/** How many rows the fold is currently holding back. */
+const foldedCount = () => dupeOf.size;
+
+function refoldRoutes() {
+  dupeOf = duplicateRoutes(routeList);
+}
 let routeGeom = false; // whether the lines themselves have been fetched
 let routeInfo = null; // set by mountRouteInfo() once the DOM is wired
 let homeAssistant = null; // set by mountHomeAssistant()
@@ -2348,7 +2369,7 @@ const sportColor = (key) => sportColors.get(key) ?? ROUTE_COLOR;
 /** Every activity present in the list, most-used first. */
 function sportsPresent() {
   const counts = new Map();
-  for (const r of routeList) counts.set(sportKey(r), (counts.get(sportKey(r)) ?? 0) + 1);
+  for (const r of listedRoutes()) counts.set(sportKey(r), (counts.get(sportKey(r)) ?? 0) + 1);
   return [...counts.entries()]
     .sort((a, b) => (a[0] === ROUTE_NO_SPORT) - (b[0] === ROUTE_NO_SPORT) || b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([key, n]) => ({ key, n }));
@@ -2362,7 +2383,9 @@ let soloRoute = null;
 
 const visibleRoutes = () => {
   if (soloRoute != null) return routeList.filter((r) => r.id === soloRoute);
-  return routeList.filter((r) => !hiddenSports.has(sportKey(r)));
+  // The fold applies here too, or the second copy would still be drawn — two
+  // lines over one road, one of which nothing in the list admits to.
+  return listedRoutes().filter((r) => !hiddenSports.has(sportKey(r)));
 };
 
 /** Draw only this route, or (with null) go back to everything. */
@@ -2415,16 +2438,19 @@ const routeAlphaExpr = () => routeMatchExpr(hexAlpha);
 async function loadRoutes(withGeom = routesOn) {
   if (!authed) {
     routeList = [];
+    refoldRoutes();
     routeGeom = false;
     syncRoutes();
     return;
   }
   try {
     routeList = await auth.getRoutes(withGeom);
+    refoldRoutes();
     routeGeom = withGeom;
   } catch (e) {
     console.warn('Loading routes failed:', e);
     routeList = [];
+    refoldRoutes();
     routeGeom = false;
   }
   syncRoutes();
@@ -2591,7 +2617,11 @@ function fitBboxOnMap(b) {
 // the shape of the days comes back for free. A translucent tint over the same
 // hexagons said "somewhere in here"; a line through them says where you went
 // and which way round.
-let shownTrack = null; // { kind, id, label } — what the chip is naming
+// What the chip is naming, and the points behind it. The points are kept
+// because a basemap switch rebuilds the whole style: installGrid re-creates the
+// `trip` source empty, and without them there is nothing to put back — the
+// highlight vanished while the chip went on claiming to be showing it.
+let shownTrack = null; // { kind, id, label, points }
 
 /** Longer a silence than this and the thread is cut rather than drawn across. */
 const TRACK_LINK_GAP_SEC = 36 * 3600;
@@ -2663,7 +2693,9 @@ function showPlacePin(lngLat) {
 const TRACK_LAYERS = ['trip-glow', 'trip-link', 'trip-dot'];
 
 function showTrack(what) {
-  shownTrack = what ? { kind: what.kind, id: what.id, label: what.label } : null;
+  shownTrack = what
+    ? { kind: what.kind, id: what.id, label: what.label, points: what.points ?? [] }
+    : null;
   const src = map.getSource('trip');
   if (src) src.setData(what ? trackFC(what.points) : EMPTY);
   // Raised on every showing rather than positioned once: a saved route sits
@@ -2849,6 +2881,7 @@ function dropRouteLocally(id) {
   if (selectedRoute === id) setSelectedRoute(null);
   if (soloRoute === id) soloRoute = null; // nothing left to isolate
   routeList = routeList.filter((r) => r.id !== id);
+  refoldRoutes();
   updateSoloChip();
   syncRoutes();
 }
@@ -2861,12 +2894,15 @@ function updateRoutesUi() {
   // Nothing to show is not a failure — it's an invitation.
   box.disabled = !routeList.length;
   const shown = visibleRoutes();
-  // When some activities are switched off, the count has to say so — otherwise
-  // "12 routes" next to four lines on the map reads as a bug.
-  note.textContent = routeList.length
-    ? (shown.length === routeList.length
-        ? `${routeList.length === 1 ? '1 route' : `${routeList.length} routes`} · ${formatDistance(totalLength(routeList))}`
-        : `${shown.length} of ${routeList.length} shown · ${formatDistance(totalLength(shown))}`)
+  // Counted against the folded list, not the raw one: a route imported twice is
+  // one route, and saying "81" beside 70 lines is the bug this fold exists to
+  // stop. The same goes for the distance — the second copy was adding its
+  // kilometres to the total as if you had ridden them again.
+  const listed = listedRoutes();
+  note.textContent = listed.length
+    ? (shown.length === listed.length
+        ? `${listed.length === 1 ? '1 route' : `${listed.length} routes`} · ${formatDistance(totalLength(listed))}`
+        : `${shown.length} of ${listed.length} shown · ${formatDistance(totalLength(shown))}`)
     : 'Import a GPX or KML track to save one';
   renderRouteOptions();
 }
@@ -4242,8 +4278,8 @@ function syncRailLayer() {
   if (railOn) {
     addRailLayer();
   } else {
-    if (map.getLayer('rail')) map.removeLayer('rail');
-    if (map.getSource('rail')) map.removeSource('rail');
+    if (map.getLayer(RAIL_LAYER)) map.removeLayer(RAIL_LAYER);
+    if (map.getSource(RAIL_SRC)) map.removeSource(RAIL_SRC);
   }
 }
 
@@ -4413,11 +4449,18 @@ const RAIL_BEFORE = () => (map.getLayer('tile-fill') ? 'tile-fill' : undefined);
 let firstInstall = true;
 
 function addRailLayer() {
-  if (map.getSource('rail')) return;
-  map.addSource('rail', RAIL_SOURCE);
+  // Our own layer, asked for by our own id — not "does a source called rail
+  // exist". CARTO's styles ship a layer *called* `rail` (their own railway
+  // lines, drawn from the basemap's transportation source), so on any basemap
+  // built from them `getLayer('rail')` answered yes about somebody else's
+  // layer and this returned having added nothing. The overlay simply stopped
+  // existing when you switched to Light or Dark, while every check said it was
+  // fine. Namespacing ours puts the question beyond doubt.
+  if (map.getLayer(RAIL_LAYER)) return;
+  if (!map.getSource(RAIL_SRC)) map.addSource(RAIL_SRC, RAIL_SOURCE);
   // Sit above the basemap but beneath our tiles/regions.
   map.addLayer(
-    { id: 'rail', type: 'raster', source: 'rail', paint: { 'raster-opacity': 0.85 } },
+    { id: RAIL_LAYER, type: 'raster', source: RAIL_SRC, paint: { 'raster-opacity': 0.85 } },
     RAIL_BEFORE(),
   );
 }
@@ -4626,6 +4669,12 @@ function installGrid() {
   styleReady = true;
   syncRailLayer();
   syncHomeMarker();
+  // A style rebuild dropped the sources above and re-created them empty, so
+  // anything the page was already showing has to be put back. The chip never
+  // went away, and a chip that says "Showing Arth" over an empty map is worse
+  // than no chip at all.
+  if (shownTrack) showTrack(shownTrack);
+  if (placePin) showPlacePin(placePin);
 
   // Repopulate geometry for the new style and restore the current opacities.
   applyColors();
@@ -4938,8 +4987,8 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   // closed); this is the same job for every other way in.
   const search = mountSearch({
     trips: () => stats.trips() ?? [],
-    routes: () => routeList,
-    days: () => activeDays(cellMeta, routeList),
+    routes: () => listedRoutes(),
+    days: () => activeDays(cellMeta, listedRoutes()),
     meta: () => cellMeta,
     onPlace: (lngLat, { bounds } = {}) => {
       showPlacePin(lngLat);
@@ -4994,7 +5043,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   const stats = mountStats({
     cells: () => visited,
     meta: () => cellMeta,
-    routes: () => routeList,
+    routes: () => listedRoutes(),
+    foldedRoutes: () => foldedCount(),
+    showFolded: () => showDupes,
+    onShowFolded: (on) => {
+      showDupes = on;
+      syncRoutes();
+      updateRoutesUi();
+    },
     home: () => homePlace,
     // Picking a route in the list opens it in the dialog; "Show on map" is the
     // one that closes the panel, switches the layer on and flies there.
@@ -5229,6 +5285,7 @@ mountAuth({
     closeCellInfo();
     closeRouteInfo();
     routeList = [];
+    refoldRoutes();
     routeGeom = false;
     syncRoutes();
     recomputeLit();

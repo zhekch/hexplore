@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server/index.js",
-    "test": "node scripts/test/net-guard.mjs && node scripts/test/guess-sport.mjs && node scripts/test/komoot-urls.mjs && node scripts/test/route-link.mjs && node scripts/test/routes-api.mjs && node scripts/test/reimport-sport.mjs && node scripts/test/prefs-sync.mjs && node scripts/test/cron.mjs && node scripts/test/backup.mjs && node scripts/test/undo-api.mjs && node scripts/test/trips.mjs && node scripts/test/search.mjs && node scripts/test/colors.mjs && node scripts/test/coverage-scale.mjs && node scripts/test/stats.mjs",
+    "test": "node scripts/test/net-guard.mjs && node scripts/test/guess-sport.mjs && node scripts/test/komoot-urls.mjs && node scripts/test/route-link.mjs && node scripts/test/routes-api.mjs && node scripts/test/reimport-sport.mjs && node scripts/test/prefs-sync.mjs && node scripts/test/cron.mjs && node scripts/test/backup.mjs && node scripts/test/undo-api.mjs && node scripts/test/trips.mjs && node scripts/test/search.mjs && node scripts/test/colors.mjs && node scripts/test/route-dupes.mjs && node scripts/test/coverage-scale.mjs && node scripts/test/stats.mjs",
     "import": "node scripts/import-locations.mjs",
     "build:countries": "node scripts/build-countries.mjs",
     "build:places": "node scripts/build-places.mjs",

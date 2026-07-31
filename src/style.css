@@ -5062,3 +5062,168 @@ body {
 [data-chrome='light'] .legend-bar {
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.2);
 }
+
+/* What the duplicate fold is holding back, and the way to see it. Shaped like
+   the hidden-trips row in the palette, because it is the same promise: nothing
+   disappeared, it is behind this. */
+.route-fold {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 10px 0 4px;
+  padding: 10px 11px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+[data-theme='light'] .route-fold {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: rgba(15, 23, 42, 0.12);
+  color: rgba(15, 23, 42, 0.6);
+}
+
+/* --- The palette follows the chrome too ---------------------------------------
+   The palette is chrome as much as the menu is: it floats over the map with the
+   map still visible around it, and it is opened by a button that has already
+   gone dark. Leaving it behind meant the two halves of the same control surface
+   wore different themes at the same moment, which reads as two apps rather than
+   one map.
+
+   Scoped under .search-card rather than by selector, because .search-card wraps
+   the palette and nothing else — the statistics, settings and home dialogs are
+   its siblings, never its descendants, so `.seg`, `.home-row` and the rest
+   cannot reach them however they are reused later.
+
+   The scrim stays dark on purpose. It is not a surface, it is the map being
+   pushed back, and data-chrome goes light exactly when the map behind it is
+   bright enough to need pushing back harder. */
+[data-chrome='light'] .search-card .seg-btn {
+  color: rgba(15, 23, 42, 0.68);
+}
+
+[data-chrome='light'] .search-card .seg-btn.active {
+  color: #0f172a;
+}
+
+[data-chrome='light'] .search-card .seg {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-chrome='light'] .search-card .seg-btn.active {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 1px 4px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+[data-chrome='light'] .search-card {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-chrome='light'] .search-card .search-input,
+[data-chrome='light'] .search-card .search-hit,
+[data-chrome='light'] .search-card .cal-title,
+[data-chrome='light'] .search-card .trip-row,
+[data-chrome='light'] .search-card .trip-go {
+  color: #0f172a;
+}
+
+[data-chrome='light'] .search-card .home-show {
+  border-top-color: rgba(15, 23, 42, 0.12);
+  color: rgba(15, 23, 42, 0.82);
+}
+
+[data-chrome='light'] .search-card .trip-hide {
+  color: rgba(15, 23, 42, 0.4);
+}
+
+[data-chrome='light'] .search-card .trip-hide:hover {
+  background: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+
+[data-chrome='light'] .search-card .search-input::placeholder,
+[data-chrome='light'] .search-card .search-bar-icon,
+[data-chrome='light'] .search-card .search-section,
+[data-chrome='light'] .search-card .control-cap,
+[data-chrome='light'] .search-card .search-note,
+[data-chrome='light'] .search-card .search-hit-text small,
+[data-chrome='light'] .search-card .search-hit-right,
+[data-chrome='light'] .search-card .trip-main small,
+[data-chrome='light'] .search-card .trip-side small {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-chrome='light'] .search-card .search-bar,
+[data-chrome='light'] .search-card .search-calendar {
+  border-bottom-color: rgba(15, 23, 42, 0.1);
+}
+
+[data-chrome='light'] .search-card .search-hit-icon,
+[data-chrome='light'] .search-card .search-cal-btn,
+[data-chrome='light'] .search-card .search-close,
+[data-chrome='light'] .search-card .cal-nav {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.12);
+  color: rgba(15, 23, 42, 0.7);
+}
+
+[data-chrome='light'] .search-card .search-hit:hover,
+[data-chrome='light'] .search-card .search-hit.active,
+[data-chrome='light'] .search-card .trip-row:hover,
+[data-chrome='light'] .search-card .cal-day:hover:not(.cal-blank) {
+  background: rgba(15, 23, 42, 0.07);
+}
+
+[data-chrome='light'] .search-card .cal-day {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-chrome='light'] .search-card .cal-day.has {
+  color: #0f172a;
+  background: rgba(37, 99, 235, 0.14);
+}
+
+[data-chrome='light'] .search-card .cal-day.has i,
+[data-chrome='light'] .search-card .cal-day.trip i {
+  background: #3b76e0;
+}
+
+[data-chrome='light'] .search-card .cal-day.has-route i,
+[data-chrome='light'] .search-card .cal-day.trip.has-route i {
+  background: #22a55f;
+}
+
+[data-chrome='light'] .search-card .cal-weekday {
+  color: rgba(15, 23, 42, 0.4);
+}
+
+[data-chrome='light'] .search-card .cal-day.picked {
+  background: rgba(37, 99, 235, 0.75);
+  color: #fff;
+}
+
+[data-chrome='light'] .search-card .home-row {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-chrome='light'] .search-card .home-text b {
+  color: #0f172a;
+}
+
+[data-chrome='light'] .search-card .home-text small {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-chrome='light'] .search-card .home-set {
+  background: rgba(15, 23, 42, 0.07);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}

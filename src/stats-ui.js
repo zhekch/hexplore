@@ -63,6 +63,9 @@ export function mountStats({
   onRouteEdited,
   onRouteDeleted,
   knownSources,
+  foldedRoutes = () => 0,
+  showFolded = () => false,
+  onShowFolded,
 }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('stats-overlay');
@@ -666,6 +669,29 @@ export function mountStats({
         ),
       ),
     );
+    // What the fold is holding back, and the way to look at it. Silently
+    // dropping a route somebody remembers importing is the failure this whole
+    // dialog exists to avoid — the number is the honest part, and the button is
+    // what makes it a decision rather than a disappearance.
+    const folded = foldedRoutes();
+    if (folded || showFolded()) {
+      const el = document.createElement('div');
+      el.className = 'route-fold';
+      const text = document.createElement('span');
+      text.textContent = showFolded()
+        ? `Showing every copy — ${plural(folded, 'route')} here ${folded === 1 ? 'is' : 'are'} the same outing recorded twice`
+        : `${plural(folded, 'route')} recorded twice, folded into the copy above`;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'home-set';
+      btn.textContent = showFolded() ? 'Fold them' : 'Show them';
+      btn.addEventListener('click', () => {
+        onShowFolded?.(!showFolded());
+        redraw();
+      });
+      el.append(text, btn);
+      body.append(el);
+    }
     body.append(...groupedList(
       list,
       ROUTE_GROUPS[routeGroup],
