@@ -1,7 +1,13 @@
 #!/bin/bash
-# Run the HexploreCore tests — the pure maths, on the Mac, in about a second.
+# Run the HexploreCore tests — the maths and the Metal pipeline.
 #
-#   HexPlore/Tools/test-core.sh
+#   HexPlore/Tools/test-core.sh          on the Mac, about a second
+#   HexPlore/Tools/test-core.sh --ios    on the iOS Simulator, about a minute
+#
+# The Mac run is the one to use while working: no simulator to boot, no signing,
+# no Xcode. The --ios run is the one that proves the code works where it is
+# actually going to run — same 26 tests, including the GPU ones against the
+# simulator's Metal stack rather than the Mac's.
 #
 # Two workarounds are baked in, both of which cost an afternoon to find:
 #
@@ -38,7 +44,21 @@ mkdir -p "$scratch"
 
 echo "Xcode:   ${DEVELOPER_DIR:-<xcode-select default>}"
 echo "Scratch: $scratch"
-echo
 
 cd "$package"
+
+if [[ "${1:-}" == "--ios" ]]; then
+  shift
+  simulator="${HEXPLORE_SIMULATOR:-iPhone 17 Pro}"
+  echo "Where:   iOS Simulator — $simulator"
+  echo
+  exec xcodebuild test \
+    -scheme HexploreCore \
+    -destination "platform=iOS Simulator,name=$simulator" \
+    -derivedDataPath "$scratch/ios" \
+    "$@"
+fi
+
+echo "Where:   this Mac"
+echo
 exec swift test --scratch-path "$scratch" "$@"

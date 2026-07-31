@@ -34,14 +34,20 @@ public final class BlobRenderer {
 
     public enum Failure: Error, CustomStringConvertible {
         case noDevice
+        case noMetalPerformanceShaders
         case noShaderLibrary(String)
         case pipelineFailed(String)
 
         public var description: String {
             switch self {
-            case .noDevice: "No Metal device — this needs a real GPU."
-            case .noShaderLibrary(let why): "Could not load BlobShaders.metal: \(why)"
-            case .pipelineFailed(let why): "Could not build a render pipeline: \(why)"
+            case .noDevice:
+                "No Metal device — this needs a real GPU."
+            case .noMetalPerformanceShaders:
+                "This GPU has no Metal Performance Shaders, so the blur has nothing to run on."
+            case .noShaderLibrary(let why):
+                "Could not load BlobShaders.metal: \(why)"
+            case .pipelineFailed(let why):
+                "Could not build a render pipeline: \(why)"
             }
         }
     }
@@ -66,6 +72,16 @@ public final class BlobRenderer {
             throw Failure.noDevice
         }
         self.device = device
+
+        // Asked once, here, rather than discovered at encode time. The blur is
+        // MPS, and MPS is not on every device this app now reaches — the floor
+        // is iOS 16, and older simulator runtimes in particular have shipped
+        // without it. Failing in the initialiser means the caller can fall back
+        // to drawing plain polygons, the way the web app does on a browser with
+        // no canvas filter; failing inside a command buffer would just crash.
+        guard MPSSupportsMTLDevice(device) else {
+            throw Failure.noMetalPerformanceShaders
+        }
 
         guard let queue = device.makeCommandQueue() else {
             throw Failure.noDevice

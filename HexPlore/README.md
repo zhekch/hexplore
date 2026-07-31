@@ -24,11 +24,63 @@ window make sense.
 | **DerivedData** | Where build products go. Never in the repo, always safe to delete — deleting it is the standard first move when Xcode starts lying to you |
 | **Package** | A dependency. This project has two, and they arrive differently — see below |
 
-**To run it:** open `HexPlore.xcodeproj`, pick a simulator in the dropdown at the
-top, press ⌘R. The first build fetches MapLibre (~25 MB) and takes a few
-minutes; after that it is seconds.
-
 **⌘R** runs, **⌘B** builds, **⌘.** stops, **⌘⇧K** cleans.
+
+## Running it
+
+### In the simulator
+
+Open `HexPlore.xcodeproj`, pick any iPhone in the dropdown at the top, press
+**⌘R**. The first build fetches MapLibre (~25 MB) and takes a few minutes; after
+that it is seconds. Nothing needs signing and there is no Apple Developer
+account involved.
+
+From a terminal, the same thing:
+
+```sh
+xcodebuild -project HexPlore/HexPlore.xcodeproj -scheme HexPlore \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+```
+
+### On your own iPhone
+
+Three one-time steps, and the second is the one nobody guesses:
+
+1. **Set a team.** Select the project in the sidebar → the `HexPlore` target →
+   **Signing & Capabilities** → **Team**. Add your Apple ID if it is not listed.
+   The project ships with no team set, because a team is personal and does not
+   belong in a repo.
+2. **Turn on Developer Mode on the phone.** iOS 16 and later hide it until you
+   have tried to install something: **Settings → Privacy & Security → Developer
+   Mode**, on, and the phone restarts.
+3. **Trust yourself.** After the first install, **Settings → General → VPN &
+   Device Management** → your Apple ID → Trust. Until you do, the app is on the
+   home screen and refuses to open.
+
+Plug the phone in, pick it in the destination dropdown, ⌘R.
+
+**With a free Apple ID** the app expires after **seven days** and you re-run ⌘R
+to renew it; a paid Developer account makes it a year. If signing complains that
+the bundle identifier is taken, change `PRODUCT_BUNDLE_IDENTIFIER` — it must be
+unique across everyone using free provisioning.
+
+Worth knowing: **"my location" needs HTTPS**, and so does anything that talks to
+the server, so a phone build wants the map served over `tailscale serve` rather
+than plain `http://` on the LAN.
+
+## Deployment target
+
+**iOS 16.0.** Verified rather than declared — the built binary reports
+`minos 16.0` and the shipped `Info.plist` says `MinimumOSVersion 16.0`.
+
+Nothing in the app wants anything newer. MapLibre itself supports iOS 12; the
+Metal and Metal Performance Shaders calls the blob renderer makes have been
+available since iOS 10. Xcode 27 will not accept a target below 15.0, so 16 is
+close to the floor the toolchain allows anyway.
+
+If you ever need to move it, it is set in two places that must agree:
+`IPHONEOS_DEPLOYMENT_TARGET` in the project (both Debug and Release), and
+`platforms:` in `HexploreCore/Package.swift`.
 
 ### The one genuinely surprising thing
 
@@ -82,12 +134,30 @@ used, which is what an app wants (a library would not).
 
 ## Running the tests
 
+26 tests, three suites, and three ways to run them.
+
 ```sh
-HexPlore/Tools/test-core.sh
+HexPlore/Tools/test-core.sh          # on this Mac — about a second
+HexPlore/Tools/test-core.sh --ios    # on the iOS Simulator — about a minute
 ```
 
-20 tests, about a second. Two environment workarounds are baked into that script
-because this machine needs both:
+The Mac run is the one to use while working: no simulator to boot, no signing,
+no Xcode. The `--ios` run is the one that proves the code works where it is
+going to run — the same 26 tests, with the GPU ones exercising the simulator's
+Metal stack rather than the Mac's. Both are expected to pass; if only one fails,
+that difference is the interesting part.
+
+**In Xcode, open the package, not the project.** `File → Open →
+`HexPlore/HexploreCore/Package.swift`` gives you the test navigator, inline
+results and ⌘U. Pressing ⌘U on `HexPlore.xcodeproj` does nothing useful and says
+so — a package dependency's test targets are not built by the app's scheme, and
+wiring them in by hand does not work either ("no test bundles available to
+test"). That is the tooling being consistent rather than a gap to paper over:
+the app target has no tests of its own, and the core's tests do not want a
+simulator.
+
+Two environment workarounds are baked into the script because this machine needs
+both:
 
 - **`DEVELOPER_DIR`** — `xcode-select` here points at the Command Line Tools
   rather than at Xcode, so `swift test` cannot find an iOS toolchain. The script
