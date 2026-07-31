@@ -66,6 +66,19 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         webView.allowsBackForwardNavigationGestures = false
         // The page is a full-bleed dark map; bouncing past it shows white.
         webView.scrollView.bounces = false
+        // Said out loud, because edge to edge depends on it and the default does
+        // not say what it does: `.automatic` insets the content by the safe area
+        // whenever the view decides the content scrolls, which for a page that
+        // is *nearly* the height of the screen is a judgement call this code
+        // should not be leaving to it. `.never` is the one value that always
+        // means "the page is exactly as big as the web view".
+        //
+        // It was briefly `.always`, on the theory that WebKit derives the page's
+        // `env(safe-area-inset-*)` from the same adjustment. It does not — that
+        // read `0px` either way — so the setting bought nothing. The page is
+        // told where its edges are by `pushSafeArea()` instead, which is a
+        // measurement rather than a hope.
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.isOpaque = false
         webView.backgroundColor = UIColor(red: 0.07, green: 0.078, blue: 0.102, alpha: 1)
         view.addSubview(webView)
@@ -139,6 +152,10 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
             """
             JSON.stringify({
               client: document.documentElement.dataset.client || '(none)',
+              // Edge to edge means the page is as tall as the screen. Anything
+              // shorter is the scroll view insetting the content, which is a
+              // bar at each end of the map.
+              pageHeight: window.innerHeight,
               safeB: getComputedStyle(document.documentElement).getPropertyValue('--safe-b').trim(),
               layersBottom: (document.getElementById('layers')
                 ? getComputedStyle(document.getElementById('layers')).bottom : '(absent)'),
