@@ -40,6 +40,30 @@ check(d('42') === null, 'a number that is not a year is not a date');
 // search containing one jump into the calendar.
 check(d('1990') === '1990' && d('1889') === null, 'years are bounded', `${d('1889')}`);
 
+// A date with no year in it. ISO 8601 already has a notation for exactly this
+// ("--MM-DD"), and it is what lets "October 15" mean every October 15 you have
+// rather than one arbitrary one.
+console.log('\ndates with no year in them');
+check(d('october 15') === '--10-15', 'month then day', d('october 15'));
+check(d('15 october') === '--10-15', 'and day then month', d('15 october'));
+check(d('oct 15') === '--10-15', 'abbreviated', d('oct 15'));
+check(d('October 15, 2025') === '2025-10-15', 'a year anywhere in it pins the date', d('October 15, 2025'));
+check(d('2025 october 15') === '2025-10-15', 'in any order', d('2025 october 15'));
+check(d('2025 october') === '2025-10', 'year before month is still that month', d('2025 october'));
+check(d('october') === '--10', 'a bare month is every October', d('october'));
+
+// The strictness that keeps this from swallowing text searches. A month has to
+// be spelled out — two bare numbers stay ambiguous forever — and an
+// abbreviation only counts when exactly one month starts that way.
+check(d('10 15') === null, 'two bare numbers are not a date', `${d('10 15')}`);
+check(d('ju') === null, 'an ambiguous abbreviation is no month at all', `${d('ju')}`);
+check(d('mar') === '--03', 'but an unambiguous one is', d('mar'));
+check(d('october 32') === null, 'a day that month cannot have', `${d('october 32')}`);
+check(d('february 30') === null, 'nor February the 30th', `${d('february 30')}`);
+check(d('february 29') === '--02-29', 'though the 29th exists somewhere', d('february 29'));
+check(d('october 2500') === null, 'a year outside the range is not one', `${d('october 2500')}`);
+check(d('1 2 3 october') === null, 'and three numbers is nobody\u2019s date', `${d('1 2 3 october')}`);
+
 console.log('\nplaces by name');
 // Node can't import JSON without an attribute Vite dislikes, so the module
 // takes the parsed data — the same door scripts/build-places.mjs uses.

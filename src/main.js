@@ -167,6 +167,52 @@ function addHomeImage() {
   map.addImage(HOME_ICON, { width: px * dpr, height: px * dpr, data: ctx.getImageData(0, 0, px * dpr, px * dpr).data }, { pixelRatio: dpr });
 }
 
+const PLACE_ICON = 'place-marker';
+
+/**
+ * The pin dropped where a searched-for place is, drawn the same way the house
+ * is and for the same reason: one image the style owns, stroked twice so a thin
+ * outline reads on a dark map, a light one and a photograph alike.
+ *
+ * A teardrop rather than a house — it answers a different question. The house
+ * says "this is where you live"; the pin says "this is the Venice you asked
+ * for", and it goes away as soon as you look at something else.
+ */
+function addPlaceImage() {
+  if (map.hasImage(PLACE_ICON)) return;
+  const px = 30;
+  const dpr = Math.min(3, Math.max(1, Math.round(window.devicePixelRatio || 1)));
+  const c = document.createElement('canvas');
+  c.width = px * dpr;
+  c.height = px * dpr;
+  const ctx = c.getContext('2d');
+  if (!ctx) return;
+  ctx.scale(dpr, dpr);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  const pin = () => {
+    // A drop with its point at the bottom, so the tip marks the spot rather
+    // than the middle of the shape doing it.
+    ctx.beginPath();
+    ctx.moveTo(15, 27);
+    ctx.bezierCurveTo(15, 27, 24, 17.5, 24, 11.5);
+    ctx.arc(15, 11.5, 9, 0, Math.PI, true);
+    ctx.bezierCurveTo(6, 17.5, 15, 27, 15, 27);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(15, 11.5, 3.3, 0, Math.PI * 2);
+    ctx.stroke();
+  };
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.lineWidth = 4.5;
+  pin();
+  ctx.strokeStyle = '#1b2431';
+  ctx.lineWidth = 2;
+  pin();
+  map.addImage(PLACE_ICON, { width: px * dpr, height: px * dpr, data: ctx.getImageData(0, 0, px * dpr, px * dpr).data }, { pixelRatio: dpr });
+}
+
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
 // --- Startup view --------------------------------------------------------------
@@ -2507,6 +2553,21 @@ function trackFC(points) {
  *
  * @param {{kind:string, id:string, label:string, points:Array}|null} what
  */
+// The pin dropped by a place search. It is an answer to one question, so it
+// lasts exactly as long as that question does: the next tap on the map takes it
+// away, and takes nothing else with it.
+let placePin = null;
+
+function showPlacePin(lngLat) {
+  placePin = lngLat ? { lng: lngLat.lng, lat: lngLat.lat } : null;
+  const src = map.getSource('place');
+  if (!src) return;
+  src.setData(placePin
+    ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [placePin.lng, placePin.lat] } }] }
+    : EMPTY);
+  if (placePin) syncHomeMarker(); // keeps home above the pin
+}
+
 const TRACK_LAYERS = ['trip-glow', 'trip-link', 'trip-dot'];
 
 function showTrack(what) {
@@ -4431,6 +4492,22 @@ function installGrid() {
   // Just the house. It used to sit on a coloured disc, which made a marker you
   // could not miss and also could not see past — on a map this is one point
   // among a country's worth of ink, and it only has to be findable, not loud.
+  // The pin for a searched place. Below home for the same reason the highlight
+  // is: home is where you navigate from, and it should never be the thing that
+  // disappeared under an answer.
+  addPlaceImage();
+  map.addSource('place', { type: 'geojson', data: EMPTY, tolerance: 0 });
+  map.addLayer({
+    id: 'place-pin', type: 'symbol', source: 'place',
+    layout: {
+      'icon-image': PLACE_ICON,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.75, 12, 1],
+      'icon-anchor': 'bottom',
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+    },
+  });
+
   map.addLayer({
     id: 'home-icon', type: 'symbol', source: 'home',
     layout: {
@@ -4517,6 +4594,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // answer to the question on screen and nothing else.
     if (homePick.on) {
       placeHomePin(e.lngLat);
+      return;
+    }
+    // Putting the pin away is the whole of that tap. Answering "where is Venice"
+    // and then opening a card about the ground beside it would be two answers
+    // to a question you asked once. Panning never lands here — MapLibre tells a
+    // drag from a click — so the pin survives being looked around.
+    if (placePin) {
+      showPlacePin(null);
       return;
     }
     if (currentLevel == null) return;
@@ -4764,6 +4849,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     days: () => activeDays(cellMeta, routeList),
     meta: () => cellMeta,
     onPlace: (lngLat, { bounds } = {}) => {
+      showPlacePin(lngLat);
       if (bounds?.length === 4) fitBboxOnMap(bounds);
       else {
         releaseCameraLock();

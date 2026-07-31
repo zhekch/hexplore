@@ -599,5 +599,50 @@ check(overDays.spots.every((s) => s.at === T('2024-08-10')),
   'from when a place was first reached, not last',
   overDays.spots.map((s) => dayKey(s.at)).join(', '));
 
+// --- Days out, not days leavingTrips ---------------------------------------------------
+// Five Saturdays of sightseeing around one country used to read as one seven-day
+// trip. The share rule alone cannot tell them apart from a week abroad: it
+// counts cells, and driving across a canton lights far more of them than
+// walking around your own village, so the morning and evening at home are
+// outvoted by the middle of the day. What separates the two is *when* you were
+// home, not how much.
+console.log('\ndays out are not days away');
+
+// A day that leaves home in the morning, covers ground, and is back by evening.
+const saturdayOut = (lng, lat, date, n = 8) => merge(
+  patch(7.44, 46.95, 1, T(`${date}T08:00:00`)),          // home, first thing
+  patch(lng, lat, n, T(`${date}T13:00:00`)),             // the day itself
+  patch(7.45, 46.95, 1, T(`${date}T19:00:00`)),          // home again
+);
+
+const outingTrips = buildTrips(
+  merge(homeCells, saturdayOut(8.55, 47.37, '2024-03-02'), saturdayOut(8.54, 47.38, '2024-03-03')),
+  [], { home },
+);
+check(outingTrips.length === 0 || outingTrips.every((t) => t.days === 1),
+  'two Saturdays out do not fuse into one trip',
+  outingTrips.map((t) => `${dayKey(t.start)}..${dayKey(t.end)}`).join(' | ') || '(none)');
+
+// The discriminating half: a day that leaves and does *not* come back is the
+// first day of something, and must still join the days after it. Without this,
+// the rule would shorten every real trip by its first day.
+const leavingDay = merge(
+  homeCells,
+  patch(7.44, 46.95, 1, T('2024-05-10T08:00:00')),       // home in the morning…
+  patch(12.33, 45.44, 6, T('2024-05-10T20:00:00')),      // …Venice by night
+  patch(12.34, 45.44, 6, T('2024-05-11T12:00:00')),
+  patch(12.35, 45.44, 6, T('2024-05-12T12:00:00')),
+);
+const leavingTrips = buildTrips(leavingDay, [], { home });
+check(leavingTrips.length === 1 && leavingTrips[0].days === 3, 'a day you leave on still belongs to the trip',
+  leavingTrips.map((t) => `${dayKey(t.start)}..${dayKey(t.end)} (${t.days}d)`).join(' | ') || '(none)');
+
+// And a day out that goes somewhere worth naming is still somewhere you went —
+// it stands on its own rather than being erased. Whether it earns a place in
+// the list is dropRoutine's call, not this rule's.
+const farDayTrips = buildTrips(merge(homeCells, saturdayOut(9.84, 46.50, '2024-06-15', 20)), [], { home });
+check(farDayTrips.length === 1 && farDayTrips[0].days === 1, 'but a day out is still a day somewhere',
+  farDayTrips.map((t) => `${dayKey(t.start)} (${t.days}d)`).join(' | ') || '(none)');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

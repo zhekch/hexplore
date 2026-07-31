@@ -33,27 +33,63 @@ function tripDates(t) {
   return sameDay ? dayFmt.format(a) : `${spanFmt.format(a)} – ${dayFmt.format(b)}`;
 }
 
-// A typed date, in the forms people actually type. Returns "YYYY-MM-DD", a
-// "YYYY-MM" month, or null. Deliberately strict about which number is the day:
-// 3/4 is ambiguous in a way no amount of guessing fixes, so only the
-// unambiguous separators and orders are read.
+// A typed date, in the forms people actually type. Returns one of
+//
+//   "YYYY-MM-DD"  one day
+//   "YYYY-MM"     one month
+//   "YYYY"        one year
+//   "--MM-DD"     that day in every year   (ISO 8601's own "date without year")
+//   "--MM"        that month in every year
+//
+// or null. Deliberately strict about which number is the day: 3/4 is ambiguous
+// in a way no amount of guessing fixes, so only the unambiguous separators and
+// orders are read — which is also why a day without a year is only accepted
+// when the month is spelled out. "10 15" could be anything; "15 october" and
+// "october 15" could not.
+const MONTH_AT = (word) => {
+  const w = String(word).toLowerCase();
+  // Whole names first, so "mar" can't be beaten by "March" losing to "May" —
+  // and abbreviations only when exactly one month starts that way, so "ju" is
+  // no month at all rather than quietly meaning June.
+  const exact = MONTHS.findIndex((n) => n.toLowerCase() === w);
+  if (exact >= 0) return exact;
+  const hits = MONTHS.map((n, i) => [n, i]).filter(([n]) => n.toLowerCase().startsWith(w));
+  return hits.length === 1 ? hits[0][1] : -1;
+};
+const pad = (n) => String(n).padStart(2, '0');
+const dayOk = (mi, d) => d >= 1 && d <= [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mi];
+
 export function parseDateQuery(text) {
-  const q = String(text ?? '').trim();
+  const q = String(text ?? '').trim().replace(/,/g, ' ').replace(/\s+/g, ' ');
   if (!q) return null;
   let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(q);
-  if (m) return `${m[1]}-${String(+m[2]).padStart(2, '0')}-${String(+m[3]).padStart(2, '0')}`;
+  if (m) return `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
   m = /^(\d{4})-(\d{1,2})$/.exec(q);
-  if (m) return `${m[1]}-${String(+m[2]).padStart(2, '0')}`;
+  if (m) return `${m[1]}-${pad(+m[2])}`;
   // 12.08.2024 and 12/08/2024 — day first, as written everywhere this app is
   // likely to be read.
   m = /^(\d{1,2})[./](\d{1,2})[./](\d{4})$/.exec(q);
-  if (m) return `${m[3]}-${String(+m[2]).padStart(2, '0')}-${String(+m[1]).padStart(2, '0')}`;
-  // "August 2024", "aug 2024"
-  m = /^([a-zA-Z]{3,})\s+(\d{4})$/.exec(q);
-  if (m) {
-    const i = MONTHS.findIndex((n) => n.toLowerCase().startsWith(m[1].toLowerCase()));
-    if (i >= 0) return `${m[2]}-${String(i + 1).padStart(2, '0')}`;
+  if (m) return `${m[3]}-${pad(+m[2])}-${pad(+m[1])}`;
+
+  // Everything with the month spelled out, in any order people write it:
+  // "october 15", "15 october", "october 15 2025", "2025 october 15",
+  // "october 2025", "2025 october", "october".
+  const words = q.split(' ');
+  const monthWord = words.findIndex((w) => /^[a-zA-Z]{3,}$/.test(w) && MONTH_AT(w) >= 0);
+  if (monthWord >= 0 && words.every((w, i) => i === monthWord || /^\d{1,4}$/.test(w))) {
+    const mi = MONTH_AT(words[monthWord]);
+    const nums = words.filter((_, i) => i !== monthWord).map(Number);
+    if (nums.length > 2) return null;
+    const year = nums.find((n) => n >= 1000);
+    const day = nums.find((n) => n < 1000);
+    if (nums.some((n) => n >= 1000 && (n < 1990 || n > 2100))) return null;
+    if (day !== undefined && !dayOk(mi, day)) return null;
+    if (year !== undefined && day !== undefined) return `${year}-${pad(mi + 1)}-${pad(day)}`;
+    if (year !== undefined) return `${year}-${pad(mi + 1)}`;
+    if (day !== undefined) return `--${pad(mi + 1)}-${pad(day)}`;
+    return `--${pad(mi + 1)}`;
   }
+
   // A bare year is a month query for January… but reading "2024" as a date at
   // all would swallow every text search for a number, so it stays a year.
   if (/^\d{4}$/.test(q) && +q >= 1990 && +q <= 2100) return q;
@@ -300,6 +336,86 @@ export function mountSearch({
     return el;
   }
 
+  /** "15 October" / "October", written out. */
+  function recurringLabel(pattern) {
+    // "--10-15" splits into four parts, not three: the leading "--" is two
+    // empty ones. Slicing them off first is the whole of the difference.
+    const [mo, d] = pattern.slice(2).split('-');
+    return d ? `${+d} ${MONTHS[+mo - 1]}` : MONTHS[+mo - 1];
+  }
+
+  /**
+   * Every year that has something on a date with no year in it. One row per
+   * year, newest first, each opening that day the way the calendar does — the
+   * question "what was I doing on my birthday" has as many answers as you have
+   * birthdays, and picking between them is the point.
+   */
+  function addRecurring(pattern) {
+    const [mo, dd] = pattern.slice(2).split('-');
+    const hits = [...days().entries()]
+      .filter(([key]) => (dd ? key.endsWith(`-${mo}-${dd}`) : key.slice(5, 7) === mo))
+      .sort((a, b) => (a[0] < b[0] ? 1 : -1));
+    if (!hits.length) return false;
+    // A whole month has as many days as it has; a single date has one per year.
+    const byYear = new Map();
+    for (const [key, has] of hits) {
+      const y = key.slice(0, 4);
+      const e = byYear.get(y) ?? { cells: 0, routes: 0, days: 0, first: key };
+      e.cells += has.cells;
+      e.routes += has.routes;
+      e.days++;
+      e.first = key; // the list is newest first, so this ends on the earliest
+      byYear.set(y, e);
+    }
+    resultsEl.append(section(recurringLabel(pattern)));
+    for (const [key, has] of dd ? hits : []) {
+      addDayRow(key, has);
+    }
+    if (!dd) {
+      for (const [y, e] of byYear) {
+        const el = resultRow({
+          icon: ICON.day,
+          title: `${MONTHS[+mo - 1]} ${y}`,
+          sub: [
+            `${e.days} day${e.days === 1 ? '' : 's'} recorded`,
+            e.cells ? `${e.cells.toLocaleString()} new cells` : '',
+            e.routes ? `${e.routes} route${e.routes === 1 ? '' : 's'}` : '',
+          ].filter(Boolean).join(' · '),
+          onPick: () => {
+            cal.show(new Date(+y, +mo - 1, 1));
+            openCalendar(true);
+            renderCalendar();
+            input.value = `${MONTHS[+mo - 1]} ${y}`;
+            render(input.value);
+          },
+        });
+        resultsEl.append(el);
+        items.push({ el, pick: () => el.click() });
+      }
+    }
+    return true;
+  }
+
+  /** One day, as a row you can open — the same thing a calendar dot means. */
+  function addDayRow(key, has) {
+    const [y, m, d] = key.split('-').map(Number);
+    const el = resultRow({
+      icon: ICON.day,
+      title: dayFmt.format(new Date(y, m - 1, d)),
+      sub: [
+        has.cells ? `${has.cells.toLocaleString()} new cell${has.cells === 1 ? '' : 's'}` : '',
+        has.routes ? `${has.routes} route${has.routes === 1 ? '' : 's'}` : '',
+      ].filter(Boolean).join(' · ') || 'nothing new',
+      onPick: () => {
+        cal.show(new Date(y, m - 1, 1));
+        openCalendar(true);
+        selectDay(key);
+      },
+    });
+    resultsEl.append(el);
+    items.push({ el, pick: () => el.click() });
+  }
+
   /** The trips section: all of them when nothing is typed, matches when it is. */
   function addTrips(q) {
     const put = hiddenTrips();
@@ -339,7 +455,19 @@ export function mountSearch({
     // calendar on that month rather than answering with a list, because the
     // next thing you want is the days around it.
     const asDate = parseDateQuery(q);
-    if (asDate) {
+    // "October 15" and "October" name a date with no year in it, which is a
+    // question about every year at once — the calendar can only stand on one
+    // month, so this one is answered with a list instead.
+    if (asDate?.startsWith('--')) {
+      const anyYears = addRecurring(asDate);
+      // A bare month is also a place: March is a town, and May is a name. A
+      // day-and-month is neither, so only the month falls through to the rest
+      // of the search.
+      if (asDate.length > 4) {
+        if (!anyYears) resultsEl.append(note(`Nothing recorded on ${recurringLabel(asDate)}, in any year.`));
+        return;
+      }
+    } else if (asDate) {
       const [y, mo, d] = asDate.split('-');
       cal.show(new Date(+y, mo ? +mo - 1 : 0, 1));
       openCalendar(true);
