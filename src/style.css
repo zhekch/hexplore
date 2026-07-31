@@ -3974,8 +3974,12 @@ body {
   display: none;
 }
 
+/* Flush with the gutter, not with a row's text. A heading labels the block
+   under it, and the block's own edge — the home card's box, a trip row's
+   resting icon — is that edge. Indented to 25 it floated between the two
+   columns, belonging to neither. */
 .search-section {
-  padding: 9px 10px 5px;
+  padding: 9px 0 5px;
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -4052,23 +4056,30 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* At rest a row stands flush with the outer edge — the same edge the home card
-   above it draws — and pointing at one tucks it into the column the headings
-   keep. The mirror of what the distance does on the right, and the row's own
-   10px of padding is exactly the distance there is to travel. The right label
-   is left out of it: it has a slide of its own, going the other way. */
+/* At rest a row stands flush with the gutter on both sides — the same edges the
+   home card and the section headings draw on — and pointing at one tucks the
+   whole row inwards by its own 10px of padding. The two ends travel in opposite
+   directions because they are measured from opposite edges, which is why the
+   right label carries the mirrored value rather than the same one. */
 .search-results .search-hit > .search-hit-icon,
 .search-results .search-hit > .search-hit-text {
   translate: -10px 0;
   transition: translate 0.12s ease;
 }
 
+.search-results .search-hit > .search-hit-right {
+  translate: 10px 0;
+  transition: translate 0.12s ease;
+}
+
 .search-results .search-hit:hover > .search-hit-icon,
 .search-results .search-hit:hover > .search-hit-text,
+.search-results .search-hit:hover > .search-hit-right,
 .search-results .search-hit.active > .search-hit-icon,
 .search-results .search-hit.active > .search-hit-text,
-.trip-row:hover .search-hit > .search-hit-icon,
-.trip-row:hover .search-hit > .search-hit-text {
+.search-results .search-hit.active > .search-hit-right,
+.search-results .trip-row:hover .search-hit > .search-hit-icon,
+.search-results .trip-row:hover .search-hit > .search-hit-text {
   translate: 0 0;
 }
 
@@ -4255,7 +4266,7 @@ body {
   gap: 16px;
   /* "Sort by" now starts in the same column as "Your trips" above it, so the
      two need daylight between them or they read as one stacked label. */
-  padding: 7px 10px 10px;
+  padding: 7px 0 10px;
 }
 
 /* Two rows of pills side by side are two questions, and which pill answers
@@ -4417,8 +4428,10 @@ body {
   transition: translate 0.12s ease;
 }
 
-.trip-row:hover .search-hit-right,
-.trip-row:has(.trip-hide:focus-visible) .search-hit-right {
+/* Further than the rest of the row: a trip's distance has to clear the × as
+   well as tuck in, so it keeps going past the inner column. */
+.search-results .trip-row:hover .search-hit > .search-hit-right,
+.search-results .trip-row:has(.trip-hide:focus-visible) .search-hit > .search-hit-right {
   translate: -26px 0;
 }
 
@@ -4430,7 +4443,7 @@ body {
     pointer-events: auto;
   }
 
-  .trip-row .search-hit-right {
+  .search-results .trip-row .search-hit > .search-hit-right {
     translate: -26px 0;
   }
 }
