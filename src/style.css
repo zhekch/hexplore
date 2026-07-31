@@ -4046,6 +4046,26 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* At rest a row stands flush with the outer edge — the same edge the home card
+   above it draws — and pointing at one tucks it into the column the headings
+   keep. The mirror of what the distance does on the right, and the row's own
+   10px of padding is exactly the distance there is to travel. The right label
+   is left out of it: it has a slide of its own, going the other way. */
+.search-results .search-hit > .search-hit-icon,
+.search-results .search-hit > .search-hit-text {
+  translate: -10px 0;
+  transition: translate 0.12s ease;
+}
+
+.search-results .search-hit:hover > .search-hit-icon,
+.search-results .search-hit:hover > .search-hit-text,
+.search-results .search-hit.active > .search-hit-icon,
+.search-results .search-hit.active > .search-hit-text,
+.trip-row:hover .search-hit > .search-hit-icon,
+.trip-row:hover .search-hit > .search-hit-text {
+  translate: 0 0;
+}
+
 /* --- The calendar -------------------------------------------------------------
    Its own grid rather than <input type="date">. The native picker is an opaque
    OS panel that cannot show which days have anything on them, and that — "which
@@ -4222,7 +4242,26 @@ body {
    itself to make room. */
 .search-results > .stats-controls {
   justify-content: center;
-  padding: 2px 10px 8px;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 2px 10px 10px;
+}
+
+/* Two rows of pills side by side are two questions, and which pill answers
+   which is not something a shape can say — so each says it in words. */
+.control-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.control-cap {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.34);
 }
 
 .search-subsection {
@@ -4478,6 +4517,7 @@ body {
 
 [data-theme='light'] .search-input::placeholder,
 [data-theme='light'] .search-section,
+[data-theme='light'] .control-cap,
 [data-theme='light'] .search-note,
 [data-theme='light'] .search-hit-text small,
 [data-theme='light'] .search-hit-right,
