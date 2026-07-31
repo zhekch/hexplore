@@ -304,7 +304,7 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
   const ledger = new Map();
   const dayOf = (key) => {
     let d = ledger.get(key);
-    if (!d) ledger.set(key, (d = { away: 0, home: 0, held: 0, events: [] }));
+    if (!d) ledger.set(key, (d = { away: 0, home: 0, held: 0, events: [], first: null, last: null }));
     return d;
   };
   for (const e of all) {
@@ -316,6 +316,10 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
     } else {
       day.home++;
     }
+    // Where the day began and where it ended, which is a different question
+    // from how much of it was spent where — see the day-trip rule below.
+    if (!day.first || e.at < day.first.at) day.first = { at: e.at, far };
+    if (!day.last || e.at > day.last.at) day.last = { at: e.at, far };
     // One row seen over a few days is one stay, and the days in between are
     // days it was there — see TRIP_STAY_DAYS. They are *held*, not counted as
     // away: an inference about time, not a sighting, so it can carry a day that
@@ -340,13 +344,26 @@ export function buildTrips(cellMeta, routes = [], opts = {}) {
       cur = null; // you were home: whatever was running has ended
       continue;
     }
+    // A day that both began and ended near home is a day out, and a week of
+    // them is a week of days out — not one week away. It still counts as a day
+    // away, because a Saturday spent 130 km from home is somewhere you went;
+    // what it must not do is *join* the days either side of it, which is how
+    // five separate Saturdays became one seven-day trip. So it stands alone,
+    // and whether it is worth listing at all is left to dropRoutine — which is
+    // the part that knows the difference between St. Moritz and the same drive
+    // you make every other weekend.
+    //
+    // Both ends have to be near home: the day you leave and the day you come
+    // back are genuinely half a day away each, and they belong to the trip.
+    const cameHome = d.first && d.last && d.first !== d.last && !d.first.far && !d.last.far;
     // Silence is not the same as being home — nothing at all happened, which
     // says nothing either way — so a short one carries the trip on.
-    if (cur && d.n - cur.lastDay <= gap + 1) {
+    if (!cameHome && cur && d.n - cur.lastDay <= gap + 1) {
       cur.lastDay = d.n;
       cur.events.push(...d.events);
     } else {
       trips.push((cur = { lastDay: d.n, events: [...d.events] }));
+      if (cameHome) cur = null; // nothing after it continues this one either
     }
   }
 

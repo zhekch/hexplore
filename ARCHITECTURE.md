@@ -758,6 +758,17 @@ row, it's a reading of the rows.
   imported holiday decides the holiday is home, every cell in it is "not away",
   and the trip vanishes from the list it exists to be in. A map that has never
   seen you come back has no home yet and is all trip.
+- **A day that began and ended near home is a day out, not a day away.** The
+  share rule alone cannot see this: it counts cells, and driving across a canton
+  lights far more of them than walking around your own village, so the morning
+  and evening at either end were outvoted by the middle of the day and five
+  separate Saturdays fused into one seven-day trip. Such a day still *counts* as
+  a day away — a Saturday spent 130 km from home is somewhere you went — but it
+  stands alone rather than joining the days either side, and whether it is worth
+  listing is left to `dropRoutine`, which is the part that knows the difference
+  between St. Moritz and the drive you make every other weekend. Both ends have
+  to be near home, so the day you leave and the day you come back are untouched:
+  those really are half a day away each, and they belong to the trip.
 - **A trip is a run of days you did not come home** — not a run of events far
   from home, which is a different question and the one that used to be asked.
   Away is `HOME_RADIUS_KM` (55 km); each day is then weighed as a whole, and a
@@ -1188,6 +1199,41 @@ sit *below* a saved route the rest of the time, because a route is something you
 switched on and left on, and `showTrack` raises them past it only while a day or
 a trip is actually being shown. Home is re-raised immediately after, so the
 order from the top is always home, then the highlight, then everything else.
+
+## Dates with no year in them
+
+"October 15" is a question about every October 15 you have, not one arbitrary
+one. `parseDateQuery` answers it with ISO 8601's own notation for a date without
+a year — `--MM-DD`, and `--MM` for a bare month — and the palette lists the years
+that have something on it rather than opening a calendar, because a calendar can
+only stand on one month.
+
+The strictness is the point. A month has to be spelled out: `10 15` stays
+ambiguous forever and reading it as a date would swallow every text search that
+contains two numbers. An abbreviation counts only when exactly one month starts
+that way, so `ju` is no month at all rather than quietly meaning June. Order
+does not matter — `october 15`, `15 october`, `2025 october 15` and
+`October 15, 2025` are all read — because the thing that disambiguates is the
+word, not the position.
+
+**A bare month falls through to the rest of the search.** March is a town and
+May is a name, so `--MM` lists its years *and* then searches places, routes and
+trips as usual. `--MM-DD` does not: nothing is called "15 October".
+
+## The pin a place search drops
+
+Asking where Venice is and being shown a card about the ground beside it is two
+answers to a question asked once. So the pin is the whole answer, and the next
+tap on the map is the whole of putting it away — that tap selects nothing,
+opens nothing, and falls through to nothing. Panning never reaches it, because
+MapLibre tells a drag from a click, so the pin survives being looked around.
+
+It is drawn like the house and for the same reasons — one image the style owns,
+stroked white-then-dark so a thin outline reads on any basemap — but as a
+teardrop anchored at its tip, because it answers a different question and points
+at a spot rather than occupying one. It sits below home in the stack: home is
+what you navigate *from*, and it should never be the thing that vanished under
+an answer.
 
 ## Tapping a region
 
