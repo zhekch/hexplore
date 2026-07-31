@@ -6,6 +6,11 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		7EA0000000000000000000C1 /* HexploreCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7EA0000000000000000000B1 /* HexploreCore */; };
+		7EA0000000000000000000C2 /* MapLibre in Frameworks */ = {isa = PBXBuildFile; productRef = 7EA0000000000000000000B2 /* MapLibre */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		7E2405E8301D4620008324E9 /* HexPlore.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HexPlore.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -22,6 +27,8 @@
 		7E2405E5301D4620008324E9 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				7EA0000000000000000000C1 /* HexploreCore in Frameworks */,
+				7EA0000000000000000000C2 /* MapLibre in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -60,6 +67,10 @@
 				7E2405EA301D4620008324E9 /* HexPlore */,
 			);
 			name = HexPlore;
+			packageProductDependencies = (
+				7EA0000000000000000000B1 /* HexploreCore */,
+				7EA0000000000000000000B2 /* MapLibre */,
+			);
 			productName = HexPlore;
 			productReference = 7E2405E8301D4620008324E9 /* HexPlore.app */;
 			productType = "com.apple.product-type.application";
@@ -88,6 +99,10 @@
 			);
 			mainGroup = 7E2405DF301D4620008324E9;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				7EA0000000000000000000A1 /* XCLocalSwiftPackageReference "HexploreCore" */,
+				7EA0000000000000000000A2 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7E2405E9301D4620008324E9 /* Products */;
 			projectDirPath = "";
@@ -316,6 +331,36 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		7EA0000000000000000000A1 /* XCLocalSwiftPackageReference "HexploreCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = HexploreCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		7EA0000000000000000000A2 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/maplibre/maplibre-gl-native-distribution";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.28.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		7EA0000000000000000000B1 /* HexploreCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HexploreCore;
+		};
+		7EA0000000000000000000B2 /* MapLibre */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EA0000000000000000000A2 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */;
+			productName = MapLibre;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7E2405E0301D4620008324E9 /* Project object */;
 	validationLevel = 1;

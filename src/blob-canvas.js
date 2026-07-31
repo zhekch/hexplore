@@ -224,10 +224,13 @@ function blurRgba(data, w, h, sigma) {
 // alpha, washing the whole canvas rectangle and drawing its straight edge
 // across the map. The floor also discards the blur's outermost tail, where the
 // stored color is a rounding artefact of a nearly-zero alpha and reads as dirt.
-const ALPHA_FLOOR = 0.05;
+export const ALPHA_FLOOR = 0.05;
 const lutCache = new Map();
 
-function alphaLut(edge) {
+// Exported so the iOS port can be checked against it rather than against a
+// second copy of the formula: this curve is what decides a blob's outline, and
+// a Metal shader that disagrees with it draws a different map.
+export function alphaLut(edge) {
   let lut = lutCache.get(edge);
   if (lut) return lut;
   lut = new Uint8Array(256);
