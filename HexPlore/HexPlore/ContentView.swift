@@ -38,12 +38,20 @@ private struct MapTab: View {
 
     var body: some View {
         if let url = settings.baseURL {
-            // Deliberately *not* ignoring the bottom safe area: the web app
-            // stacks its own buttons in the bottom-right corner on a phone and
-            // its CSS knows nothing about safe-area insets, so a view drawn
-            // under the tab bar would cover them.
-            WebPanel(url: url, reloadToken: settings.reloadToken)
-                .ignoresSafeArea(edges: .top)
+            // Edge to edge: the map runs under the status bar and under the tab
+            // bar, which is how a map should look. The buttons stay where they
+            // are because the page is *told* how much of its bottom edge is
+            // covered — the reader reports the insets it is ignoring, the web
+            // view turns them into its own safe area, and `src/style.css` reads
+            // them back as `env(safe-area-inset-bottom)`.
+            GeometryReader { proxy in
+                WebPanel(
+                    url: url,
+                    reloadToken: settings.reloadToken,
+                    bottomInset: proxy.safeAreaInsets.bottom
+                )
+            }
+            .ignoresSafeArea()
         } else {
             unconfigured
         }

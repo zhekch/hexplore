@@ -246,19 +246,53 @@ mean two screens that have to agree.
 out once by the server (`server/derive.js`), so a phone and a laptop cannot
 disagree about them — see "Derived on the server, once" in ARCHITECTURE.md.
 
-### Two details that are easy to get wrong
+### Edge to edge, without losing the buttons
 
-**The web view stops above the tab bar.** The site stacks its own buttons —
-geolocate, menu, pencil — in the bottom-right corner on a phone, and its CSS has
-no `safe-area-inset` handling at all. Anything drawn under the bottom of the page
-covers those buttons rather than sitting beside them, so SwiftUI is left to inset
-the view. One line, and it costs nothing; teaching the page about a tab bar would
-mean editing its CSS for a host it should not have to know about.
+The map runs under the status bar and under the tab bar, which is how a map
+should look. The site's own buttons — geolocate, menu, pencil — stack in the
+bottom-right corner on a phone, so drawing over that corner would bury them.
+
+They stay put because the page is **told** how much of its bottom edge is
+covered, in three steps:
+
+1. A `GeometryReader` that ignores the safe area reports the insets it is
+   ignoring — tab bar plus home indicator.
+2. `WebViewController` adds the difference between that and the device's own
+   inset as `additionalSafeAreaInsets`. The difference, not the total: the
+   window already claims the home indicator, and adding it twice lifts every
+   button a thumb's width too high.
+3. `src/style.css` reads it back as `env(safe-area-inset-bottom)` and every
+   viewport-anchored element adds it.
+
+This is why the web app gained safe-area handling and `viewport-fit=cover`,
+neither of which it had. **They are worth having anyway**: without them the same
+buttons sit under the home indicator in mobile Safari, which was already true
+before this app existed. `env()` is zero on a desktop browser, so nothing there
+moved.
 
 **The tab bar is pinned to dark.** The site is dark — its login card, its menu,
 three of its four basemaps — and a tab bar that followed the system into light
 mode put a white strip under all of it, which read as a bar belonging to some
 other app.
+
+### Location
+
+The page's "my location" button needs two things the page cannot arrange for
+itself.
+
+**Permission**, which only the app can ask for: `NSLocationWhenInUseUsageDescription`
+in `Info.plist`, and a `requestWhenInUseAuthorization()` the first time the map
+is on screen. It is asked then rather than when the button is pressed because
+before iOS 27 a web view has no way to tell the app it wants a position — and a
+permission still undetermined at the moment of the press is a button that does
+nothing. On iOS 27 and later `requestGeolocationPermissionFor` is also
+implemented, and grants without a second dialog: your own map asking, on a
+server you run, having already been through the system prompt once.
+
+**A secure context**, which is not negotiable and not ours to grant.
+`navigator.geolocation` is refused outright over plain `http://192.168.x.x`
+however the permissions are set — https or `localhost` only. One more reason for
+`tailscale serve`.
 
 ## Signing in
 

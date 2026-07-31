@@ -17,5 +17,7 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Hexplore connects to the server you run on your own network.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Hexplore uses your location to show where you are on the map.</string>
 </dict>
 </plist>

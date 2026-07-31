@@ -2,7 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- `viewport-fit=cover` lets the page reach the edges of a screen with a
+         notch or a home indicator — and, more to the point, it is what makes
+         `env(safe-area-inset-*)` report anything at all. Without it those are
+         all zero, the chrome in style.css sits exactly where it always did, and
+         inside the iOS app it sits under the tab bar. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" href="data:," />
     <title>Visited Map</title>
   </head>
