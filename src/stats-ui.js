@@ -562,6 +562,12 @@ export function mountStats({
       el.prepend(svg);
     }
     el.querySelector('b').textContent = r.name || 'Route';
+    // The mark hangs off the row's right edge, so it needs a lane kept clear of
+    // it or it lands on top of the distance. The lane goes on every row while
+    // the fold is open, not only the marked ones: the distances are a column of
+    // right-aligned numbers, and one that stepped left for the two marked rows
+    // would read as a fault of its own.
+    el.classList.toggle('dupe-lane', showFolded() && foldedRoutes() > 0);
     // Only visible while the fold is open, because that is the only time one of
     // these is in the list — and then it has to be obvious which rows are the
     // second copy, or "show them" just makes the list longer for no reason.

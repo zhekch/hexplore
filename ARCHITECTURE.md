@@ -1347,6 +1347,25 @@ chrome flip with it — about a millisecond — and leaves the reading to correc
 the guess for the one case a declaration cannot cover: imagery, which is
 nominally dark and is a snowfield often enough to matter.
 
+**The guess is protected until the basemap it is a guess about is on screen.**
+Otherwise the correction arrives before the thing it is meant to correct.
+`styledata` fires while the chosen basemap has parsed and none of its tiles have
+landed, so a reading taken there is a reading of the map on its way out:
+switching Light → Dark took the chrome dark on the click and a reading of the
+departing light map put it straight back, where it stayed until the settled
+reading a second later. Measured, that was `data-chrome` going dark at 0 ms,
+light at +1052 ms and dark again at +4006 ms — the lag this mechanism exists to
+remove, arriving by its own hand. So `applyChromeContrast` returns early while a
+presumption stands, and `idle` lifts it: every tile that was coming has come, so
+what is under the menu is what the guess was about. `CHROME_PRESUME_MS` is the
+backstop, because a basemap that never finishes loading never sends an `idle` —
+and satellite is both the likeliest to hang and the one that needs the reading
+most, so protecting the guess for good would trade a one-second flicker for
+imagery with no contrast correction at all. Two flags rather than one: `idle`
+also fires in the gap before a *built* style has been fetched, and that idle is
+still the outgoing basemap, so the lift also waits on the chosen style's
+`style.load`.
+
 **The pixels are read inside a render.** The drawing buffer is only valid within
 that callback unless the map is built with `preserveDrawingBuffer`, which costs a
 copy of every frame to serve a question asked a few times a minute. So

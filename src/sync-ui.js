@@ -4,9 +4,8 @@
 // Both halves of that are here because from the outside they are one question —
 // *how does my history get in?* — and the answer differing in whether you pick
 // a file or the server fetches it on a timer is an implementation detail you
-// shouldn't have to know before you can find the button. Files (and, behind
-// them, a pasted Komoot link) do it once; Home Assistant and Strava are set up
-// once and then keep doing it.
+// shouldn't have to know before you can find the button. Files and links do it
+// once; Home Assistant and Strava are set up once and then keep doing it.
 //
 // What goes the other way lives in its own dialog (src/settings-ui.js).
 //
