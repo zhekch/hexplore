@@ -741,7 +741,11 @@ row, it's a reading of the rows.
   stack — above the basemap's own labels, not merely above the blobs. The only
   other thing drawn that high is the day/trip highlight, and `syncHomeMarker`
   raises home again whenever that is shown, because a marker you have to hunt
-  for is not a marker. Setting home, and the switch that draws it, live in
+  for is not a marker. Everything we add to the map carries a `hexplore-`
+  prefix where a collision is possible: CARTO's styles ship a layer of their own
+  called `rail`, and for as long as ours had that name too, switching to Light
+  or Dark left `getLayer('rail')` answering yes about somebody else's layer
+  while the train-track overlay quietly stopped existing. Setting home, and the switch that draws it, live in
   **Export & settings** under *Personal*, beside the Editing switch — three
   surfaces each opened for another reason used to hold one setting about you
   apiece. The tick for it sits on the home card itself, because "is this the
@@ -1200,6 +1204,68 @@ switched on and left on, and `showTrack` raises them past it only while a day or
 a trip is actually being shown. Home is re-raised immediately after, so the
 order from the top is always home, then the highlight, then everything else.
 
+## What a basemap switch takes with it
+
+`setStyle` replaces the whole style, and everything the app added goes with it —
+sources, layers and images alike. `installGrid` rebuilds all of it on
+`style.load`, and anything the page was already *showing* has to be put back by
+hand, because the source it lived in is now a new and empty one. The trip
+highlight and the searched-place pin are restored there; the chip naming the
+highlight never went away, and a chip that says "Showing Arth" over an empty map
+is worse than no chip at all. This is why `shownTrack` keeps the points and not
+just the label.
+
+The train tracks failed differently and more quietly. `addRailLayer` asked
+"does a source called `rail` exist" and returned having added nothing — but
+CARTO's styles ship a layer of their own called `rail`, so on Light and Dark the
+question was being answered about somebody else's layer. Ours is `hexplore-rail`
+now, and the guard asks for our own layer by our own id. The general rule: a
+basemap is somebody else's style and its ids are theirs to choose.
+
+## The same ride, recorded twice
+
+A route's identity is a hash of its own simplified geometry plus its dates. That
+is exactly right for "you already imported this file" and no use at all when two
+apps watch one afternoon: Komoot and Strava produce different point streams,
+which simplify to different lines, which hash to different keys. Both rows are
+legitimate, distinct data about one ride — so the map drew the line twice,
+listed it twice, and counted its kilometres twice. On a real map, 81 rows were
+70 outings and 342 km of the 1,779 km total had been ridden once.
+
+**The start time carries it.** You cannot begin two rides in the same minute,
+and in practice the two clocks agree to within five seconds. `DUP_START_SEC`,
+`DUP_LENGTH_TOL` and `DUP_BBOX_IOU` are set an order of magnitude looser than
+the worst real pair (5 s, 0.4%) and are still nowhere near loose enough to fuse
+two outings.
+
+Three signals are deliberately *not* used, each because the real data says so:
+
+- **the end time**, and any overlap computed from it. One real Komoot row claims
+  a 9,802-minute ride for what Strava recorded as 110 minutes. The end of a tour
+  is not a clock.
+- **the activity.** The same walk came back as *Walking* from one app and
+  *Hiking* from the other.
+- **the source.** The obvious duplicate is Komoot against Strava, but the same
+  map holds Strava against Strava — gating on a difference would miss exactly
+  the pair that prompted this.
+
+**Which copy survives** is `preferredRoute`, ordered so the answer is identical
+on every device and every reload: a link first, because a Komoot route opens on
+Komoot and no amount of Strava data turns into that; then a recorded activity
+over one this app guessed from the speed, which is what separates the two Strava
+rows that are the same run; then known ascent, then more points, then the older
+row. On the eleven real pairs that chain keeps every Komoot row and, among
+same-source pairs, the one that was not guessed at — *Bern → Zollikofen* over
+*bern zollikofen*.
+
+**Derived, never stored.** It is a fact about the data rather than a judgement
+about it, so `duplicateRoutes` runs whenever the list changes; a tour imported
+next year folds against what is already there without anyone deciding again.
+The fold applies to the drawing as well as the list, or the second line would
+still be on the map with nothing admitting to it — and the Routes tab says how
+many are folded and offers them back, because silently dropping a route someone
+remembers importing is the failure this dialog exists to avoid.
+
 ## Chrome over a photograph
 
 Under a vector basemap the ground is a palette we chose, so one set of glass
@@ -1657,12 +1723,16 @@ inside the filter the layer already has — trunk early, primary at z8, secondar
 at z11, tertiary at z13. Zoom in a filter is only evaluated at integer zooms,
 which for a road appearing is the right granularity.
 
-**Roads fade out as the map zooms out** (`ROAD_FADE`). Light keeps its network on
-the map at world zoom but barely visible, which is most of why it feels calm
-there; OpenFreeMap draws the same lines at full strength from z0, so on a
-zoomed-out terrain or satellite map the roads were the loudest thing on screen.
-The ramp is 0.05 at z3 to full by z11. Boundaries are exempt — at world zoom they
-are the only thing telling you which country you are looking at.
+**Roads stop below `ROAD_MIN_ZOOM`, and arrive by `ROAD_FULL_ZOOM`.** Light
+keeps its network on the map at world zoom but barely visible; Terrain and
+Satellite now go one step further and draw none at all. Fading them was the
+first answer and it was the wrong one — a whisper across the whole of Europe is
+still a whisper across the whole of Europe, and on a photograph it is a grey
+scribble over the thing you came to look at. The floor is applied with MAX, so
+the tiers already held further in (`highway_minor` at z13, `highway_path` at
+z15) keep their own; a layer whose upstream `maxzoom` ends before roads are
+allowed back is dropped outright rather than left as a layer that can never
+draw.
 
 **Tuning the visited wash per basemap**: each entry in `STYLES` (`src/main.js`)
 takes `cellAlpha` and `heatAlpha`, multipliers on the defaults in

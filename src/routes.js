@@ -51,6 +51,21 @@ export const ROUTE_MIN_LENGTH_M = 100;
 // simplification tolerance.
 const PRECISION = 1e5;
 
+// --- The same ride, recorded twice ---------------------------------------------
+// Two apps watching one afternoon produce two different point streams, which
+// simplify to two different lines, which hash to two different keys — so the
+// per-file duplicate check that stops you importing the same GPX twice cannot
+// see this at all. These three numbers are what does.
+//
+// They are set from what the real pairs actually look like, not from what felt
+// safe: across every duplicate on a real map the two rows start within 5
+// seconds of each other and their lengths differ by at most 0.4%. The tolerances
+// below are an order of magnitude looser than that, and still nowhere near
+// loose enough to catch two genuinely different outings.
+const DUP_START_SEC = 120; // how far apart two recordings of one start can be
+const DUP_LENGTH_TOL = 0.05; // 5% — observed worst case is 0.4%
+const DUP_BBOX_IOU = 0.6; // and they have to have happened in the same place
+
 const round = (v) => Math.round(v * PRECISION) / PRECISION;
 
 // --- Measuring -----------------------------------------------------------------
@@ -543,3 +558,99 @@ export function formatDuration(sec) {
 }
 
 export const totalLength = (routes) => routes.reduce((m, r) => m + (r.lengthM || 0), 0);
+
+// --- The same ride, recorded twice ---------------------------------------------
+
+const bboxIou = (a, b) => {
+  if (!a || !b || a.length !== 4 || b.length !== 4) return 0;
+  const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+  const h = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+  if (w <= 0 || h <= 0) return 0;
+  const over = w * h;
+  const area = (x) => Math.max(0, x[2] - x[0]) * Math.max(0, x[3] - x[1]);
+  const union = area(a) + area(b) - over;
+  return union > 0 ? over / union : 0;
+};
+
+/**
+ * Are these two rows the same outing, recorded by two apps?
+ *
+ * The start time carries this. You cannot begin two rides in the same minute,
+ * and in practice the two clocks agree to within a few seconds — so it is the
+ * gate, and the other two only have to rule out the freak case of two different
+ * things starting together.
+ *
+ * What is deliberately not used:
+ *  · the *end* time, and any overlap computed from it. One real Komoot row
+ *    claims a 9,802-minute ride for what Strava recorded as 110 minutes; the
+ *    end of a tour is not a reliable clock.
+ *  · `sport` — the same walk came back as "Walking" from one app and "Hiking"
+ *    from the other.
+ *  · `source` — the obvious duplicate is Komoot against Strava, but real maps
+ *    also hold Strava against Strava, and gating on a difference would miss
+ *    exactly those.
+ *  · `points` — a tie-break at most. Both sides pass through the same
+ *    simplifier, so the counts land close, but "close" is not a fact to bet on.
+ */
+export function routesLookAlike(a, b) {
+  if (!a?.firstAt || !b?.firstAt) return false; // undated: nothing to compare
+  if (Math.abs(a.firstAt - b.firstAt) > DUP_START_SEC) return false;
+  const longest = Math.max(a.lengthM || 0, b.lengthM || 0);
+  if (!longest) return false;
+  if (Math.abs((a.lengthM || 0) - (b.lengthM || 0)) / longest > DUP_LENGTH_TOL) return false;
+  // `bounds` is what the API calls it; `bbox` is what a freshly built route
+  // carries before it has been round-tripped. Both are [w, s, e, n].
+  return bboxIou(a.bounds ?? a.bbox, b.bounds ?? b.bbox) >= DUP_BBOX_IOU;
+}
+
+/**
+ * Which copy speaks for the outing. Ordered so the answer is the same on every
+ * device and every reload — a fold that changed its mind between loads would be
+ * worse than showing both.
+ *
+ * A link leads because it is the one thing a copy can have that the other
+ * cannot be given: a Komoot route opens on Komoot, and no amount of Strava data
+ * turns into that. After it, a sport somebody actually recorded beats one this
+ * app guessed from the speed — which is what separates the two Strava rows that
+ * are the same run, where neither has a link.
+ */
+export function preferredRoute(a, b) {
+  const rank = [
+    (r) => (r.link ? 1 : 0),
+    (r) => (r.sportGuessed ? 0 : 1),
+    (r) => (r.elevUp > 0 ? 1 : 0),
+    (r) => r.points || 0,
+  ];
+  for (const of of rank) {
+    const d = of(b) - of(a);
+    if (d) return d > 0 ? b : a;
+  }
+  return (a.id ?? 0) <= (b.id ?? 0) ? a : b; // stable, and the older row wins
+}
+
+/**
+ * Fold copies of one outing together. Returns a Map of hidden route id → the id
+ * of the route standing in for it, derived fresh from the list every time: this
+ * is a fact about the data rather than a judgement about it, so storing it
+ * would only mean a stale answer after the next import.
+ */
+export function duplicateRoutes(routes) {
+  const folded = new Map();
+  // By start time, so the scan is local rather than every pair against every
+  // other — a map with a thousand routes would otherwise do half a million
+  // comparisons to find a handful of duplicates.
+  const byStart = [...routes].filter((r) => r.firstAt).sort((a, b) => a.firstAt - b.firstAt);
+  for (let i = 0; i < byStart.length; i++) {
+    const a = byStart[i];
+    if (folded.has(a.id)) continue;
+    for (let j = i + 1; j < byStart.length; j++) {
+      const b = byStart[j];
+      if (b.firstAt - a.firstAt > DUP_START_SEC) break;
+      if (folded.has(b.id) || !routesLookAlike(a, b)) continue;
+      const keep = preferredRoute(a, b);
+      folded.set(keep === a ? b.id : a.id, keep.id);
+      if (keep !== a) break; // `a` is spoken for; move on to the next start
+    }
+  }
+  return folded;
+}
