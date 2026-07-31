@@ -1527,6 +1527,31 @@ body {
 }
 
 /* Sync: the picker that fronts Home Assistant / Komoot / Strava */
+/* Settings about you, above the list about getting your data back out. Home
+   used to live in the trips palette and Editing in the layers menu, so "things
+   about me" was spread across three surfaces that each open for another
+   reason. */
+.settings-group {
+  margin-top: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-group-head {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+  margin-bottom: 10px;
+}
+
+/* The home card came from the search palette, where the list around it already
+   supplied the outer margin. Here it is the first thing in its own block. */
+.settings-group .home-row {
+  margin: 0;
+}
+
 .sync-options {
   display: flex;
   flex-direction: column;
@@ -4723,6 +4748,14 @@ body {
 
 .home-here:hover {
   background: rgba(255, 255, 255, 0.14);
+}
+
+[data-theme='light'] .settings-group {
+  border-bottom-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .settings-group-head {
+  color: rgba(15, 23, 42, 0.55);
 }
 
 [data-theme='light'] .home-row,

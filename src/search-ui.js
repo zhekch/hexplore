@@ -73,17 +73,12 @@ export function parseDateQuery(text) {
  *   ground on the map
  * @param {() => Set<string>} [opts.hiddenTrips] ids of trips put away
  * @param {(id:string|null, hide:boolean) => Promise<void>} [opts.onHideTrip]
- * @param {() => ({name?:string}|null)} [opts.home] the home trips are measured from
- * @param {() => void} [opts.onSetHome] open the home picker
- * @param {() => boolean} [opts.homeShown] is it drawn on the map
- * @param {(on:boolean) => void} [opts.onShowHome] draw it, or don't
  * @param {() => void} [opts.onOpen] called every time it opens, however it was
  *   opened — the trips it lists are derived lazily and this is what starts that
  */
 export function mountSearch({
   trips, routes, days, meta, onPlace, onTrip, onRoute, onDay,
-  hiddenTrips = () => new Set(), onHideTrip, home = () => null, onSetHome,
-  homeShown = () => false, onShowHome, onOpen,
+  hiddenTrips = () => new Set(), onHideTrip, onOpen,
 }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('search-overlay');
@@ -290,62 +285,6 @@ export function mountSearch({
     return out;
   }
 
-  /**
-   * Where the trips are measured from, the way to correct it, and the switch
-   * that puts it on the map. All three belong together: "is this the right
-   * home" is a question you answer by looking at where it is, and the switch
-   * used to be four sections away in the appearance menu.
-   */
-  /** The card's own line: something on the left, one control on the right. */
-  function cardLine(title, sub, action, onDo) {
-    const line = document.createElement('div');
-    line.className = 'home-line';
-    line.innerHTML = '<span class="home-text"><b></b><small></small></span>';
-    line.querySelector('b').textContent = title;
-    line.querySelector('small').textContent = sub;
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'home-set';
-    btn.textContent = action;
-    btn.addEventListener('click', onDo);
-    line.append(btn);
-    return line;
-  }
-
-  function homeRow() {
-    const set = home();
-    const el = document.createElement('div');
-    el.className = 'home-row';
-    el.append(cardLine(
-      set?.name || 'Worked out from the cells you visit most',
-      'Home — everything here is measured from it',
-      set ? 'Change' : 'Set home',
-      () => {
-        close();
-        onSetHome?.();
-      },
-    ));
-
-    // A checkbox, not a button that remembers: "is it on the map" is a state,
-    // and the app already spells state as a tick everywhere else in the menu.
-    // On its own line under the home, because beside it there were two controls
-    // competing for one row and the switch lost — it had to shrink to "Map",
-    // which reads as a noun rather than something you can turn on.
-    const show = document.createElement('label');
-    show.className = 'home-show';
-    show.innerHTML =
-      '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11 12 4l8 7"/><path d="M6 10v9h12v-9"/></svg>'
-      + '<span>Show home on the map</span><input type="checkbox" />';
-    const box = show.querySelector('input');
-    box.checked = !!homeShown();
-    box.addEventListener('change', () => {
-      onShowHome?.(box.checked);
-      render(input.value);
-    });
-    el.append(show);
-    return el;
-  }
-
   function hiddenRow(put) {
     const el = document.createElement('div');
     el.className = 'home-row';
@@ -371,7 +310,7 @@ export function mountSearch({
     // On their own line, centred. Beside the heading they had to share a row
     // barely wide enough for one of them, and "Your trips" wrapped to two lines
     // to make room.
-    if (!q) resultsEl.append(tripControls(), homeRow());
+    if (!q) resultsEl.append(tripControls());
     resultsEl.append(...tripList(hits));
     if (!q && put.size) resultsEl.append(hiddenRow(put));
     return true;

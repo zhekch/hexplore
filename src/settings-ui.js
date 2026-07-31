@@ -12,11 +12,34 @@
 /**
  * @param {object} opts
  * @param {{open:Function}} opts.backup the Backups dialog
+ * @param {() => ({name?:string}|null)} opts.home where the map is measured from
+ * @param {() => void} opts.onSetHome hand the map over to the home picker
+ * @param {() => boolean} opts.homeShown whether the marker is drawn
+ * @param {(on:boolean) => void} opts.onShowHome
  */
-export function mountSettings({ backup }) {
+export function mountSettings({ backup, home, onSetHome, homeShown, onShowHome }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('settings-overlay');
   const backupNote = $('settings-backup-note');
+  const homeName = $('settings-home-name');
+  const homeSet = $('settings-home-set');
+  const homeBox = $('settings-home-shown');
+
+  // Read on every opening rather than wired once: home can be changed from the
+  // picker this dialog opens, and the answer has to be current when you come
+  // back to it.
+  function drawHome() {
+    const set = home?.();
+    homeName.textContent = set?.name || 'Worked out from the cells you visit most';
+    homeSet.textContent = set ? 'Change' : 'Set home';
+    homeBox.checked = !!homeShown?.();
+  }
+
+  homeSet.addEventListener('click', () => {
+    close();
+    onSetHome?.();
+  });
+  homeBox.addEventListener('change', () => onShowHome?.(homeBox.checked));
 
   // Export is listed and disabled rather than left out. There is nothing behind
   // it yet, and saying so is more honest than a menu that quietly grows an
@@ -24,6 +47,7 @@ export function mountSettings({ backup }) {
   const targets = { backup };
 
   const open = () => {
+    drawHome();
     overlay.hidden = false;
   };
   const close = () => {
