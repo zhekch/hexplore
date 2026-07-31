@@ -4241,6 +4241,30 @@ const railToggle = document.getElementById('rail-toggle');
 // actual layer once our custom sources/layers are ready again.
 let styleReady = false;
 
+// Has the current style finished *parsing* — which is the only thing a second
+// setStyle() has to wait for.
+//
+// Deliberately not `map.isStyleLoaded()`. That is Style.loaded(), which also
+// insists every tile manager has finished and the image manager is loaded, so
+// it stays false long after `style.load` has fired — for as long as any tile is
+// in flight, which over a slow connection or a raster overlay is most of the
+// time. The code then waited on `map.once('style.load')`, an event that only
+// fires when a style loads: the very thing it was waiting to start. A basemap
+// switch could sit unapplied for ten seconds and then land on whichever key had
+// been chosen *first*, because the pending promise finally resolved on somebody
+// else's style load.
+let styleParsed = false;
+
+/** Resolves once the style in place has parsed. Never waits on tiles. */
+const styleSettled = () =>
+  (styleParsed ? Promise.resolve() : new Promise((r) => map.once('style.load', r)));
+
+/** Swap the basemap, marking the style unparsed for the duration. */
+function swapStyle(style) {
+  styleParsed = false;
+  map.setStyle(style);
+}
+
 function setStyleKey(key) {
   if (!STYLES[key] || key === styleKey) return;
   styleKey = key;
@@ -4257,11 +4281,8 @@ function setStyleKey(key) {
   // this is async — but the key and the UI have already moved, and a slow fetch
   // must not be able to apply over a basemap the user has since switched away
   // from.
-  Promise.all([
-    resolveStyle(key),
-    map.isStyleLoaded() ? Promise.resolve() : new Promise((r) => map.once('style.load', r)),
-  ]).then(([style]) => {
-    if (style && styleKey === key) map.setStyle(style);
+  Promise.all([resolveStyle(key), styleSettled()]).then(([style]) => {
+    if (style && styleKey === key) swapStyle(style);
   });
 }
 
@@ -4483,6 +4504,7 @@ function labelStart() {
 }
 
 function installGrid() {
+  styleParsed = true; // whatever is in place now has parsed; see styleSettled
   const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
   const lineLayout = { 'line-join': 'round', 'line-cap': 'round' };
   const isRegion = ['==', ['get', 'k'], 1];
@@ -4708,11 +4730,11 @@ if (STYLES[styleKey].build) {
   const wanted = styleKey;
   Promise.all([
     resolveStyle(wanted),
-    map.isStyleLoaded() ? Promise.resolve() : new Promise((r) => map.once('style.load', r)),
+    styleSettled(),
   ]).then(([style]) => {
     if (style && styleKey === wanted) {
       styleReady = false;
-      map.setStyle(style);
+      swapStyle(style);
     }
   });
 }
