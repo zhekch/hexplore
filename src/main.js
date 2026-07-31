@@ -2376,6 +2376,10 @@ function syncHomeMarker() {
   src.setData(at
     ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [at.lng, at.lat] } }] }
     : EMPTY);
+  // Belt and braces for the top of the stack: anything that ever gets added
+  // without an anchor would otherwise land over it, and this is the one layer
+  // whose whole job is to be the thing you can see.
+  if (at && map.getLayer('home-icon')) map.moveLayer('home-icon');
 }
 
 // Picking a home by pointing at it. "The middle of the map" was a guess about a
@@ -4203,11 +4207,12 @@ function installGrid() {
     },
   }, beforeLabels);
 
-  // Where the trips are measured from. Off by default and drawn above
-  // everything else when it is on: it is a single point on a map that may have
-  // a country's worth of ink on it, so it has to survive being drawn over a
-  // blob. Two circles rather than an image — no sprite to load, no icon to go
-  // missing on a style switch.
+  // Where the trips are measured from. Off by default, and on top of the whole
+  // stack when it is on — no `beforeId`, unlike everything else here. It is one
+  // point on a map that may have a country's worth of ink and a basemap's worth
+  // of labels on it, and a marker you have to hunt for is not a marker. Every
+  // layer added after this one names an anchor inside the basemap, so they all
+  // land underneath it and it stays where it was put.
   addHomeImage();
   map.addSource('home', { type: 'geojson', data: EMPTY, tolerance: 0 });
   // Just the house. It used to sit on a coloured disc, which made a marker you
@@ -4221,7 +4226,7 @@ function installGrid() {
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
     },
-  }, firstSymbol);
+  });
 
   // Highlight ring for the cell being inspected in view mode — added last so
   // it sits above the region fills.

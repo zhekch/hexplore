@@ -3900,7 +3900,9 @@ body {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 12px 12px 12px 15px;
+  /* Left padding matches the list's gutter, so the magnifier stands in the
+     same column a row's icon rests on. */
+  padding: 12px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.09);
 }
 
@@ -3955,11 +3957,15 @@ body {
   color: #fff;
 }
 
+/* The gutter the whole palette is laid out from. A row's own padding is
+   measured on top of it, so this is the one number that decides how far the
+   card's glass edge stays clear of anything written on it — at 6px the list
+   was leaning on it. */
 .search-results {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
-  padding: 6px;
+  padding: 6px 14px 14px;
 }
 
 .search-results::-webkit-scrollbar {
@@ -4071,7 +4077,7 @@ body {
    OS panel that cannot show which days have anything on them, and that — "which
    weekend was that?" — is the only reason to open a calendar here at all. */
 .search-calendar {
-  padding: 10px 12px 4px;
+  padding: 10px 14px 4px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.09);
 }
 
@@ -4240,20 +4246,30 @@ body {
    the heading they had to share a row barely wide enough for one of them, so
    they were pinned to the right edge and "Your trips" wrapped underneath
    itself to make room. */
+/* One question to each end of the line, so neither reads as a continuation of
+   the other — centred and adjacent they looked like one long control that had
+   been split for no reason. */
 .search-results > .stats-controls {
-  justify-content: center;
+  justify-content: space-between;
   align-items: flex-end;
   gap: 16px;
-  padding: 2px 10px 10px;
+  /* "Sort by" now starts in the same column as "Your trips" above it, so the
+     two need daylight between them or they read as one stacked label. */
+  padding: 7px 10px 10px;
 }
 
 /* Two rows of pills side by side are two questions, and which pill answers
-   which is not something a shape can say — so each says it in words. */
+   which is not something a shape can say — so each says it in words, over the
+   edge of its own control rather than over the middle of it. */
 .control-group {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 5px;
+}
+
+.stats-controls > .control-group:last-child {
+  align-items: flex-end;
 }
 
 .control-cap {
@@ -4516,6 +4532,7 @@ body {
 }
 
 [data-theme='light'] .search-input::placeholder,
+[data-theme='light'] .search-bar-icon,
 [data-theme='light'] .search-section,
 [data-theme='light'] .control-cap,
 [data-theme='light'] .search-note,
