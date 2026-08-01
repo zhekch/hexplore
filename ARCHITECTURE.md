@@ -1872,10 +1872,19 @@ was the only way to read your own answers.
 
 Two halves, and both are needed:
 
-- **Remove the reason to scroll.** `src/keyboard.js` measures the keyboard —
-  `window.innerHeight` is the layout viewport, which the keyboard does not
-  shrink, and `visualViewport.height` is what you can see of it, so the gap
-  between them is the keys — and publishes it as `--kb` on `:root`. Every panel
+- **Remove the reason to scroll.** Publish the keyboard's height as `--kb` on
+  `:root`. In a browser `src/keyboard.js` measures it — `window.innerHeight` is
+  the layout viewport, which the keyboard does not shrink, and
+  `visualViewport.height` is what you can see of it, so the gap between them is
+  the keys. **In the iOS app that measurement is always zero**, and finding out
+  why cost an afternoon: a plain `WKWebView` does not resize its viewport for
+  the keyboard at all. It leaves the page the full height of the web view, adds
+  an obscured inset to the scroll view, and scrolls. `innerHeight`,
+  `visualViewport.height` and `env()` all read exactly as they did — the same
+  discovery as `pushSafeArea()`, one layer along. So the app sends the number
+  instead (`observeKeyboard()` in `WebPanel.swift`, from
+  `keyboardWillChangeFrameNotification`) and marks the document
+  `data-kb-host`, which is `keyboard.js`'s signal to stand down. Every panel
   that holds a text field subtracts it: the modal and auth overlays take it off
   their bottom padding so a card centres in what is left, the search card caps
   its height at the overlay's remaining content box, and `.ha-scroll` (the
@@ -1887,6 +1896,13 @@ Two halves, and both are needed:
   scroll view has nothing to move in the first place — the panels' own scroll
   areas (the layers menu, the search results, the sync dialogs) are separate
   scroll views inside the content and are untouched by it.
+
+  This is also what decides *which* scroller a drag belongs to. Close the
+  keyboard and the trips list has always scrolled perfectly: with nothing
+  obscured the page has nowhere to go, so the innermost scroller wins by
+  default. Open it and the obscured inset gives the page somewhere to go, and
+  the page — being the outer, always-scrollable one — takes drags the list
+  should have had. Pinning it hands them back.
 
 The web half also works in mobile Safari, where there is no such switch. It is
 what makes the app half safe, too: with scrolling off, a page WebKit has nudged

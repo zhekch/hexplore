@@ -76,11 +76,12 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         // map, the search results and the status bar's worth of chrome up the
         // screen, where they stay.
         //
-        // Off, then. The page keeps itself clear of the keyboard on its own
-        // (src/keyboard.js publishes its height as `--kb`), so nothing here
-        // needs revealing by moving it. The panels' own scroll areas — the
-        // layers menu, the search results, the sync dialogs — are separate
-        // scroll views inside the content and are untouched by this.
+        // Off, then. The page keeps itself clear of the keyboard instead, using
+        // the height `observeKeyboard()` hands it, so nothing here ever needs
+        // revealing by being moved. The panels' own scroll areas — the layers
+        // menu, the search results, the sync dialogs — are separate scroll
+        // views inside the content and are untouched by this: with the page
+        // pinned, a drag over a list is the list's, which is the whole point.
         webView.scrollView.isScrollEnabled = false
         // Said out loud, because edge to edge depends on it and the default does
         // not say what it does: `.automatic` insets the content by the safe area
@@ -100,6 +101,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         view.addSubview(webView)
         view.backgroundColor = webView.backgroundColor
         webView.hideInputAccessoryBar()
+        observeKeyboard()
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -122,6 +124,70 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         guard loaded?.url != url || loaded?.token != token else { return }
         loaded = (url, token)
         webView.load(URLRequest(url: url))
+    }
+
+    // MARK: - Telling the page where the keyboard is
+
+    /// Watch the keyboard, because the page cannot.
+    ///
+    /// This is the same discovery as `pushSafeArea()`, one layer along, and it
+    /// cost the same afternoon. `src/keyboard.js` derives the keyboard's height
+    /// from `window.innerHeight - visualViewport.height`, which is correct in
+    /// mobile Safari and **always zero here**: a plain `WKWebView` does not
+    /// resize its viewport for the keyboard at all. WebKit leaves the page the
+    /// full height of the web view, adds an obscured inset to the scroll view,
+    /// and scrolls. Nothing the page can read changes — not `innerHeight`, not
+    /// `visualViewport.height`, not `env()`.
+    ///
+    /// Which is why the panels kept ending up behind the keys inside the app
+    /// while behaving perfectly in a browser, and why the whole page was the
+    /// only thing left to drag: with `--kb` stuck at 0 the search card kept its
+    /// full height, its results list had nothing to overflow, and the scroll
+    /// view underneath was the one scroller with anywhere to go.
+    ///
+    /// So the number is sent, exactly as the safe areas are. `willChangeFrame`
+    /// rather than `didShow`, so the layout moves with the keyboard instead of
+    /// after it.
+    private func observeKeyboard() {
+        let centre = NotificationCenter.default
+        centre.addObserver(
+            self, selector: #selector(keyboardFrameChanged),
+            name: UIResponder.keyboardWillChangeFrameNotification, object: nil
+        )
+        centre.addObserver(
+            self, selector: #selector(keyboardWillHide),
+            name: UIResponder.keyboardWillHideNotification, object: nil
+        )
+    }
+
+    @objc private func keyboardFrameChanged(_ note: Notification) {
+        guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+              let window = view.window
+        else { return }
+        // The notification's frame is in screen coordinates; what the page needs
+        // is how much of *this view* the keyboard stands on. A hardware keyboard
+        // or a floating one lands mostly or entirely off the bottom, and this
+        // arithmetic gives the right answer — nothing — for both.
+        let inView = view.convert(window.convert(frame, from: nil), from: window)
+        pushKeyboard(max(0, view.bounds.maxY - inView.minY))
+    }
+
+    @objc private func keyboardWillHide(_ note: Notification) {
+        pushKeyboard(0)
+    }
+
+    /// Hand the page the keyboard's height as `--kb`, the variable `style.css`
+    /// already lays out around.
+    private func pushKeyboard(_ overlap: CGFloat) {
+        guard isViewLoaded, let webView else { return }
+        // `data-kb-host` tells src/keyboard.js to stop measuring and leave this
+        // alone: two writers for one variable, one of which is always wrong
+        // here, is how it would start flickering.
+        let script = """
+        document.documentElement.dataset.kbHost = '1';
+        document.documentElement.style.setProperty('--kb', '\(Int(overlap.rounded()))px');
+        """
+        webView.evaluateJavaScript(script)
     }
 
     // MARK: - Telling the page where the edges are

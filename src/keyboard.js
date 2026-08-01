@@ -17,6 +17,13 @@
 // style.css). A field that is already visible is one WebKit has no cause to go
 // looking for.
 //
+// **This file only measures anything in a browser.** `innerHeight` minus
+// `visualViewport.height` is the keyboard in mobile Safari and is flat zero in
+// a WKWebView, which does not resize its viewport for the keyboard at all — it
+// insets the scroll view and scrolls instead, changing nothing the page can
+// read. The app therefore sets `--kb` from Swift and marks the document
+// `data-kb-host`, and everything below stands down when it sees that.
+//
 // The iOS app additionally turns the web view's own scrolling off — see
 // `webView.scrollView.isScrollEnabled` in WebPanel.swift — because a native
 // switch is the only thing that stops a *deliberate* drag. This half is what
@@ -54,6 +61,11 @@ export function trackKeyboard() {
   };
 
   const apply = () => {
+    // The iOS app measures the keyboard itself and sets `--kb` from Swift,
+    // because none of what `measure()` reads changes inside a WKWebView — see
+    // `observeKeyboard()` in WebPanel.swift. Two writers for one variable, one
+    // of which is always wrong there, is how it would start flickering.
+    if (root.dataset.kbHost) return;
     const kb = measure();
     if (kb === applied) return;
     applied = kb;
