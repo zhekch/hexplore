@@ -4493,10 +4493,48 @@ function updateLayersUi() {
   // Let the CSS restyle the glass panels for light basemaps (dark text/glass)
   // so they don't become white-on-white.
   document.documentElement.dataset.theme = STYLES[styleKey].theme;
+  // Rows just came and went — the legend, the Type list, the per-activity
+  // controls. Whether the menu still fits is a different answer than it was.
+  refreshMenuOverflow();
 }
 
 // Things that must be dismissed when the menu closes (the colour picker).
 const menuClosers = [];
+
+/**
+ * Tell the menu whether it is currently taller than the room it has, and how
+ * close to the bottom it is scrolled.
+ *
+ * The panel's height is worked out from the space that is free (see
+ * `--menu-chrome` in style.css), so on any current phone the whole menu fits
+ * and nothing scrolls. On a short screen — an SE, a laptop window dragged
+ * small, a Type legend with a dozen sources — it genuinely cannot, and the clip
+ * lands wherever it lands: usually part-way down a row, which reads as a
+ * rendering fault rather than as "there is more below". The fade this drives is
+ * the difference between those two readings, and it is only worth drawing when
+ * there is really something under it.
+ */
+function refreshMenuOverflow() {
+  // Looked up on the spot rather than held in a module-scope const. This is
+  // called from updateLayersUi(), which is defined a hundred lines further up;
+  // a const down here would sit in its temporal dead zone the moment anything
+  // called that during start-up, and the failure would be a blank menu.
+  const box = document.querySelector('.menu-scroll');
+  if (!box) return;
+  const room = box.scrollHeight - box.clientHeight;
+  // A pixel of slack: sub-pixel layout leaves fractional remainders that would
+  // otherwise keep the fade on a menu already scrolled to the end.
+  box.classList.toggle('is-overflowing', room > 1);
+  box.classList.toggle('is-at-end', room <= 1 || box.scrollTop >= room - 1);
+}
+
+const menuScroll = document.querySelector('.menu-scroll');
+menuScroll?.addEventListener('scroll', refreshMenuOverflow, { passive: true });
+// The box itself only resizes when the viewport does — it is capped, so rows
+// arriving inside it change `scrollHeight` and nothing this could observe.
+// `updateLayersUi()` is the other half, and it runs on every change that adds
+// or removes a row.
+if (menuScroll) new ResizeObserver(refreshMenuOverflow).observe(menuScroll);
 
 function setMenuOpen(open) {
   layersMenu.hidden = !open;
@@ -4505,7 +4543,10 @@ function setMenuOpen(open) {
   // On phones the menu becomes a bottom sheet and the buttons underneath it
   // get out of the way.
   document.body.classList.toggle('menu-open', open);
-  if (open) updateLayersUi();
+  if (open) {
+    updateLayersUi();
+    refreshMenuOverflow();
+  }
 }
 
 function wireLayersControl() {

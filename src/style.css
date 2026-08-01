@@ -389,7 +389,31 @@ body {
 
 /* Menu sections */
 .menu-scroll {
-  max-height: min(72vh, 620px);
+  /* The height that is actually free between the status bar and the button the
+     menu grows out of — not a fraction of the screen and not a round number.
+     Those were `min(72vh, 620px)`, and `min(64vh, 520px)` on a phone, which had
+     nothing to do with the space there was: on an iPhone the 520px cap bit at
+     around 600px of content, so the menu scrolled when it did not need to and
+     the clip landed *inside* "Export & settings", leaving an 18px slice of an
+     empty-looking rounded box at the bottom of the panel. It read as a
+     rendering fault rather than as a row you could scroll to, which is exactly
+     what it was.
+     `--menu-chrome` is everything stacked below and above this box: the
+     cluster's offset from the bottom (22px), the buttons themselves (48px), the
+     gap above them (10px), this panel's own padding top and bottom (24px), and
+     20px of daylight under the status bar. Same figures whichever edge the menu
+     is anchored to — on a wide screen it opens downwards from the top-left and
+     the stack is simply the other way up. */
+  --menu-chrome: 124px;
+  /* How far up the last row the fade reaches when there is more below. Roughly
+     half a row: enough that a clipped row is plainly *fading out* rather than
+     cut, and not so much that the row above it is hard to read. */
+  --menu-fade: 26px;
+  max-height: calc(100vh - var(--safe-t) - var(--safe-b) - var(--menu-chrome));
+  /* Small viewport units, so a phone's collapsing address bar cannot leave the
+     menu taller than the screen it is on. Declared second: a browser without
+     `dvh` keeps the line above. */
+  max-height: calc(100dvh - var(--safe-t) - var(--safe-b) - var(--menu-chrome));
   overflow-y: auto;
   overscroll-behavior: contain;
   /* No rail, on any device. The menu is a glass panel a few rows tall, and an
@@ -397,6 +421,17 @@ body {
      width that kept the swatches clear of the rounded corner. Scrolling itself
      is untouched: wheel, trackpad and drag all still work. */
   scrollbar-width: none;
+}
+
+/* Only while there is something under the fold, and only until you reach it —
+   see refreshMenuOverflow() in src/main.js. A mask rather than a gradient
+   overlay because the menu is glass: anything painted on top of the last row
+   would be a band of colour over a blurred backdrop, and would have to know
+   what the backdrop was. A mask takes the row's own pixels away instead, so
+   whatever is behind the panel shows through exactly as it does elsewhere. */
+.menu-scroll.is-overflowing:not(.is-at-end) {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--menu-fade)), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--menu-fade)), transparent);
 }
 
 .menu-scroll::-webkit-scrollbar {
@@ -2299,9 +2334,9 @@ body {
     transform-origin: bottom center;
   }
 
-  .menu-scroll {
-    max-height: min(64vh, 520px);
-  }
+  /* No narrower cap here any more. The base rule already measures the space
+     that is free, and a phone is the one place where guessing at it was
+     actually wrong. */
 
   .modal-overlay {
     padding: 12px;
@@ -3874,7 +3909,11 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 8vh 16px 16px;
+  /* The safe areas are part of the padding, not an afterthought: inside the iOS
+     app this overlay covers the whole screen, status bar included, so a plain
+     8vh put the search field *under* the clock and the signal bars. */
+  padding: calc(8vh + var(--safe-t)) calc(16px + var(--safe-r))
+    calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
   /* A scrim and nothing else. This used to carry `backdrop-filter: blur(2px)`
      as well, which quietly cost the card its own blur: an element with a
      backdrop-filter becomes a *backdrop root*, so everything inside it can only
@@ -4532,12 +4571,20 @@ body {
 
 @media (max-width: 560px) {
   .search-overlay {
-    padding: 12px 10px;
+    /* 12px *below the status bar*, not 12px from the top of the screen. This
+       rule is why the field sat under the clock inside the app: it replaces the
+       base padding wholesale, so dropping the safe area here dropped it
+       entirely. */
+    padding: calc(12px + var(--safe-t)) calc(10px + var(--safe-r))
+      calc(12px + var(--safe-b)) calc(10px + var(--safe-l));
     align-items: flex-start;
   }
 
   .search-card {
-    max-height: 88vh;
+    /* Whatever is left once the safe areas have taken theirs. 88vh of a screen
+       whose top 59px belong to the status bar is taller than the space there
+       is, and the card overflowed the bottom of it. */
+    max-height: calc(88dvh - var(--safe-t) - var(--safe-b));
   }
 }
 
