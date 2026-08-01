@@ -238,9 +238,13 @@ sampled it. Coming back the next day counts again. Files with no timestamps
 fall back to run-length: each unbroken pass through a cell counts once, and
 re-entering it later in the file counts again.
 
-The raw fix count is still kept (`fixes` in `cell_sources`) and the cell card
-shows it underneath the visit count when the two differ. Older imports predate
-the column and show visits only; re-importing fills it in.
+The raw fix count is still kept (`fixes` in `cell_sources`) and the import and
+sync screens still report it, because "this file held 40,000 points" is a fact
+about the file. The cell card used to show it underneath the visit count
+whenever the two differed, which was nearly always and never meant anything: it
+says how often a recorder happened to sample, so an hour parked with a workout
+app running outranked a week somewhere. It is no longer shown as a fact about a
+place — `rollUpIds` doesn't even total it.
 
 **Re-importing is the point.** Cells are stored per source, so importing the
 same export again refreshes its dates and visit counts in place rather than
@@ -1444,11 +1448,17 @@ is.
 
 **The area is resolved from the point, not from the hex.** `areaAt` runs
 `countryNear`/`regionNear` on the tapped coordinate, so a tap near a border gets
-a better answer than the 9 km hex's centre would give. But the *cells* it counts
-come from `cellRegionMemo`/`cellCountryMemo` — the same 9 km lookup the fill was
-built from — so the card can never disagree with what is painted. A country the
-dataset never subdivided uses the same `WHOLE_COUNTRY` stand-in the fill does,
-for the same reason.
+the shape it actually landed on. The *cells* it counts come from
+`cellRegionMemo`/`cellCountryMemo`, the same per-cell lookup the fill was built
+from — so the card can never disagree with what is painted, and every cell it
+counts is genuinely inside the shape it names. A country the dataset never
+subdivided uses the same `WHOLE_COUNTRY` stand-in the fill does, for the same
+reason.
+
+`storedInArea` filters on `visited` as well as on the memo. The memo is never
+invalidated by an edit — a cell centre never moves, so its answer is good
+forever — which means an erased cell keeps its entry, and the card must not go
+on counting it.
 
 **Nothing lit means no card.** An unvisited region, or open sea, falls through
 to the cell card, which finds nothing and closes — the same answer the fill is
@@ -1474,20 +1484,48 @@ gets, so it says which shape was picked rather than merely where.
 The ramp answers *how often were you around here*, and getting there took
 undoing three separate ways it was answering something else.
 
-**A country used to be decided by the centre of an 83 km hexagon.** `buildAreaFC`
-resolves each rolled-up cell to a country with one point-in-polygon test, and
-for the country level it read from `MAX_LEVEL` — where a hex is 83 km across and
-the whole thing is credited to whatever country its centre lands in. For Poland
-that is harmless. For anywhere small, or anywhere you stayed near a border, it
-is not: of 1,774 arrivals recorded in Slovakia, **exactly one** was painted onto
-Slovakia and the rest onto Hungary and Austria, so a country visited five times
-rendered as the emptiest place on the map while its neighbour rendered as one of
-the busiest. Switzerland leaked 2,347 arrivals into France the same way. Both
-kinds now resolve at `REGION_FROM_LEVEL` (9 km), which the region pass was
-already paying for, and misattribution across the whole map drops from 8,713
-arrivals to 176 — what is left is microstates smaller than one hex. The lookup
-is `countryNear` rather than `countryAt`, so a hex centred in a bay belongs to
-the land beside it instead of to nowhere.
+**An area used to be decided by the centre of a hexagon it wasn't in.**
+`buildAreaFC` resolves each visited cell to a country or a region with one
+point-in-polygon test, and it used to run that test not on the cell but on the
+hexagon the cell had been rolled up into — first `MAX_LEVEL` (83 km), then
+`REGION_FROM_LEVEL` (9 km). Rolling up was a saving: two thousand tests instead
+of twenty-three thousand.
+
+It was also wrong, and going from 83 km to 9 km only made it wrong less often.
+Whatever the size, one centre decides for every cell underneath it. At 83 km, of
+1,774 arrivals recorded in Slovakia **exactly one** was painted onto Slovakia and
+the rest onto Hungary and Austria, so a country visited five times rendered as
+the emptiest place on the map; Switzerland leaked 2,347 arrivals into France the
+same way. At 9 km the countries came good — 8,713 misattributed arrivals down to
+176 — but regions did not, because plenty of regions are *smaller than the
+hexagon deciding for them*. Appenzell Innerrhoden is 172 km²; a level-2 hexagon
+is about 60 km² and its centre lands inside the canton while its cells sit in
+Sankt Gallen. A real map lit it, and its card reported "3 visits", off seven
+cells that were every one of them in Sankt Gallen. Liechtenstein's Mauren and
+the Aosta Valley went the same way. The statistics panel — which has always
+resolved per cell — listed none of the three, so the map and the panel gave two
+answers about the same rows and the panel was the right one.
+
+**So there is no roll-up any more, and one function answers for both.**
+`areaOfCell` in `src/stats.js` takes a stored cell id and returns the country or
+region it is in; `buildAreaFC` and `computeStats` both go through it, which is
+what makes "lit on the map" and "counted in the panel" the same set by
+construction rather than by two implementations agreeing. `scripts/test/area-attribution.mjs`
+pins that, and pins the Appenzell case from both ends.
+
+The saving that motivated the roll-up turned out not to be needed. The note it
+came from predates both the region tile index and passing the already-resolved
+country into the region lookup, which together drop all but a couple of dozen of
+the 4,553 shapes before any geometry is touched. Measured on a 23k-cell map: 115
+ms for the first build at the region level, 1.1 ms for every build after it,
+because the answer is memoised per cell id and a cell centre never moves. The
+polygon union in `mergeRegions` costs more than either.
+
+The lookup is `countryNear` rather than `countryAt`, so a cell centred in a bay
+belongs to the land beside it instead of to nowhere. `computeStats` keeps
+`countryAt` for its own country tally, because it has a second question to
+answer — how much of what you covered was *sea* — and "near land" is the wrong
+answer to that one.
 
 **A cell is read with its surroundings** — see `HEAT_NEIGHBOURHOOD`. `hits`
 counts arrivals inside one 1 km hexagon, and going back to a city lands on a
@@ -1679,8 +1717,7 @@ board a half-transparent swatch just looks like a darker one.
 
 Tap any colored area in view mode and a card shows what's inside it: when you
 were there (from the dates in the imported data), when it landed on the map,
-how many visits (and, if different, how many raw location fixes) it came from,
-and the breakdown by source. Zoomed out, the card aggregates every stored cell
+how many visits it came from, and the breakdown by source. Zoomed out, the card aggregates every stored cell
 inside the hexagon you tapped. Cells, their sources and their dates live in
 SQLite on the server (`cell_sources`), per account; saved routes live beside
 them in `routes`.

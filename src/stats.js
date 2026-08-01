@@ -7,7 +7,7 @@
 // center (~22k exact point-in-country tests take well under half a second).
 
 import { SQRT3, radiusOf, cellCenter, project, MAX_LEVEL } from './hexgrid.js';
-import { loadCountries, countryAt, countryAreaKm2, countryCount } from './countries.js';
+import { loadCountries, countryAt, countryNear, countryAreaKm2, countryCount } from './countries.js';
 import { loadRegions, regionNear, regionAreaKm2, regionsInCountry } from './regions.js';
 import { dayKey, longestStreak } from './trips.js';
 
@@ -16,6 +16,64 @@ import { dayKey, longestStreak } from './trips.js';
 export const EARTH_LAND_KM2 = 148_940_000;
 
 const wrapLng = (lng) => (((lng + 180) % 360) + 360) % 360 - 180;
+
+// Marks a "region" that is really a whole country, for the countries the
+// admin-1 dataset doesn't subdivide. The prefix can't collide: real region ids
+// are "Country/Name".
+export const WHOLE_COUNTRY = '\u0000country:';
+
+/**
+ * Which country, or which admin-1 region, one stored cell belongs to.
+ *
+ * Lives here, beside the coverage sweep, because the map's region level asks
+ * exactly this question of exactly these rows and used to answer it its own
+ * way — from the centre of a 9 km hexagon that a cell merely fell inside. That
+ * lit regions nobody had been to (Appenzell Innerrhoden off cells in Sankt
+ * Gallen) while this file, reading the cells themselves, correctly listed none
+ * of them. Two answers to one question is the bug; this is the one answer.
+ *
+ * `countryNear`, not `countryAt`: the outlines are simplified to about a
+ * kilometre, so a cell in a lagoon or a fjord is inside no polygon at all and
+ * would otherwise belong nowhere. The coverage sweep below still uses
+ * `countryAt`, because it has a second question to answer — how much of what
+ * you covered was *sea* — and "near land" is the wrong answer to that one.
+ *
+ * @param {'region'|'country'} kind
+ * @param {string} id stored cell id, "L/col/row"
+ * @returns {string|null} the area's id, or null for a cell in no country at all
+ */
+export function areaOfCell(kind, id) {
+  const [L, col, row] = String(id).split('/').map(Number);
+  if (!Number.isFinite(L) || !Number.isFinite(col) || !Number.isFinite(row)) return null;
+  if (L > MAX_LEVEL) return null; // stored at a level that no longer exists
+  const [lng, lat] = project(cellCenter(L, col, row));
+  return areaAtPoint(kind, wrapLng(lng), lat);
+}
+
+/**
+ * The same lookup from a point. Not exported: the map answers a *click* with
+ * the region's name and its country as well as its id, which it has the
+ * datasets to do and this does not, so `areaAt` in src/main.js asks the same
+ * two questions in the same order rather than wrapping this.
+ *
+ * A handful of countries have no admin-1 entry in the dataset at all
+ * (microstates, some dependencies). Falling through to null would make them
+ * *vanish* at the region level while still being lit one level further out,
+ * which reads as a rendering bug and is one; the country stands in as its own
+ * region instead. It has to be exactly that narrow — `regionNear` already
+ * snaps the border and coastal slivers where the two datasets disagree, so a
+ * miss here means the country really has no regions. An earlier version stood
+ * the whole country in on any miss, and one stray cell in a 1 km sliver off the
+ * Ligurian coast coloured in the entire of Italy underneath its cantons.
+ */
+function areaAtPoint(kind, lng, lat) {
+  const at = countryNear(lng, lat);
+  if (!at) return null;
+  if (kind !== 'region') return at.id;
+  const region = regionNear(lng, lat, at.iso);
+  if (region) return region.id;
+  return regionsInCountry(at.iso) === 0 ? `${WHOLE_COUNTRY}${at.id}` : null;
+}
 
 // Ground area of one cell at `lat`, in km².
 export function cellAreaKm2(level, lat) {

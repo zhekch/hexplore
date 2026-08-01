@@ -46,7 +46,7 @@ import {
 } from './regions.js';
 import { geometryAreaM2 } from './regions.js';
 import { countryAreaKm2 } from './countries.js';
-import { cellAreaKm2 } from './stats.js';
+import { cellAreaKm2, areaOfCell, WHOLE_COUNTRY } from './stats.js';
 import { asMulti, unionGeometries } from './polygon.js';
 import { mountBackup } from './backup-ui.js';
 import { createHistory, plural } from './history.js';
@@ -1291,6 +1291,45 @@ function dominantSource(e) {
   return best;
 }
 
+/**
+ * What one stored cell contributes to anything that aggregates cells: the
+ * roll-up, and the region and country levels.
+ *
+ * Shared rather than written twice because the area levels used to read their
+ * numbers off a rolled-up hexagon instead of off the cells themselves, and the
+ * moment they stopped, the two had to agree about what a cell is worth. `own`
+ * is the cell's dominant source, and only worked out when a mode is going to
+ * colour by it — it costs a comparison per provenance row and nothing reads it
+ * otherwise.
+ */
+function cellStats(id, byType) {
+  // Cells marked by hand have no fix count worth showing, so they weigh 1.
+  let hits = 0;
+  let time = 0;
+  let age = 0;
+  let own = null;
+  let ownN = -1;
+  for (const m of cellMeta.get(id) ?? []) {
+    if (m.source !== 'manual' && m.source !== 'unknown') hits += m.hits || 0;
+    if (m.lastAt > time) time = m.lastAt;
+    if (m.firstAt && (!age || m.firstAt < age)) age = m.firstAt;
+    if (byType) {
+      const n = m.hits || 1;
+      if (n > ownN || (n === ownN && m.source < own)) {
+        own = m.source;
+        ownN = n;
+      }
+    }
+  }
+  // No fix count (hand-marked, or carried over from before provenance) still
+  // counts as one visit. Dates are left at 0 on purpose: "we don't know when"
+  // is its own answer, and the date heat maps grey those cells out rather
+  // than pretending they happened when they were added.
+  if (!hits) hits = 1;
+  if (!age) age = time;
+  return { hits, time, age, own, ownN };
+}
+
 function recomputeLit() {
   // A full rebuild already accounts for anything sitting in the queue.
   paintQueue.length = 0;
@@ -1304,32 +1343,8 @@ function recomputeLit() {
     let [L, col, row] = id.split('/').map(Number);
     if (L > MAX_LEVEL) continue; // stored at a level that no longer exists
 
-    // Fold this cell's provenance into the numbers the heat maps use. Cells
-    // marked by hand have no fix count worth showing, so they weigh 1.
-    let hits = 0;
-    let time = 0;
-    let age = 0;
-    let own = null; // this cell's own dominant source
-    let ownN = -1;
-    for (const m of cellMeta.get(id) ?? []) {
-      if (m.source !== 'manual' && m.source !== 'unknown') hits += m.hits || 0;
-      if (m.lastAt > time) time = m.lastAt;
-      if (m.firstAt && (!age || m.firstAt < age)) age = m.firstAt;
-      if (byType) {
-        const n = m.hits || 1;
-        if (n > ownN || (n === ownN && m.source < own)) {
-          own = m.source;
-          ownN = n;
-        }
-      }
-    }
+    const { hits, time, age, own, ownN } = cellStats(id, byType);
     if (byType && own) sourceCells.set(own, (sourceCells.get(own) ?? 0) + 1);
-    // No fix count (hand-marked, or carried over from before provenance) still
-    // counts as one visit. Dates are left at 0 on purpose: "we don't know when"
-    // is its own answer, and the date heat maps grey those cells out rather
-    // than pretending they happened when they were added.
-    if (!hits) hits = 1;
-    if (!age) age = time;
 
     for (let l = L; l <= MAX_LEVEL; l++) {
       if (l > L) [col, row] = parentOf(l - 1, col, row);
@@ -1449,10 +1464,10 @@ function rollUpPainted(id) {
 // polygon union) is only recomputed when the lit set changes AND that level is
 // actually on screen, so painting hexes never pays for it.
 //
-// Regions are resolved from a *finer* roll-up than countries. A 73 km cell
-// centre is a fine proxy for "which country", and a terrible one for a canton
-// of 37 km²: Basel-Stadt would never light up at all. Level 2 (~8 km) costs
-// more lookups and is the smallest thing the region set can honestly answer.
+// Both are resolved from the stored cells themselves — see buildAreaFC. There
+// is no roll-up in between, because a roll-up means one hexagon's centre
+// deciding for every cell under it, and there is no size of hexagon that is
+// honest about a canton of 37 km².
 //
 // The region half of this builds correct geometry and is not yet wired to a
 // zoom level. Rendering it would mean two vector levels, and the crossfade
@@ -1461,7 +1476,6 @@ function rollUpPainted(id) {
 // on the same source and the outgoing one is never handed over. Doing it
 // properly means giving `hex-prev` real geometry for vector → vector fades —
 // worth doing, not worth bolting on. See ARCHITECTURE.md.
-const REGION_FROM_LEVEL = 2;
 
 // The two coarsest steps are not hexagons. Level 4's cells are ~73 km across,
 // which says nothing a canton doesn't say better — and "which cantons have I
@@ -1487,10 +1501,6 @@ function neighbourVectorLevel(level, zoom) {
   if (level === COUNTRY_LEVEL) return REGION_LEVEL;
   return null;
 }
-// Marks a "region" that is really a whole country, for the countries the
-// admin-1 dataset doesn't subdivide. The prefix can't collide: real region ids
-// are "Country/Name".
-const WHOLE_COUNTRY = '\u0000country:';
 
 // Three caches, not two: the regions are held at both resolutions, because the
 // coarse geometry is the right thing to tile when you are looking at a
@@ -1546,8 +1556,11 @@ function useFineRegions() {
 // Which cache a request lands in.
 const areaCacheKey = (kind) => (kind === 'region' && useFineRegions() ? 'regionFine' : kind);
 let countryDirty = true;
-const cellCountryMemo = new Map(); // coarse "col/row" -> country id (centers never move)
-const cellRegionMemo = new Map(); //  finer  "col/row" -> region id
+// Keyed by stored cell id, and never invalidated by an edit: a cell's centre
+// never moves, so the answer for "L/col/row" is the same every time it is
+// asked. Only a dataset arriving late clears them (see ensureAreaFC).
+const cellCountryMemo = new Map(); // "L/col/row" -> country id
+const cellRegionMemo = new Map(); //  "L/col/row" -> region id
 
 // Longitudes come back from cellCenter() in [0,360) because cell columns are
 // stored normalized; fold them into [-180,180] before the country lookup, or
@@ -1581,75 +1594,55 @@ function mergeAreas(kind, litIds, fine) {
 }
 
 function buildAreaFC(kind, fine = false) {
-  // Resolve from a rolled-up level rather than from every fine cell: a couple
-  // thousand point-in-polygon tests instead of tens of thousands, which is what
-  // was freezing the page.
+  // Resolved from each stored cell, at the level it was stored — not from a
+  // rolled-up hexagon.
   //
-  // Both kinds resolve at REGION_FROM_LEVEL. Countries used to resolve at
-  // MAX_LEVEL, where a hex is 83 km across and the whole thing is attributed to
-  // whichever country its *centre* lands in — which is fine for Poland and
-  // catastrophic for anywhere small or anywhere you stayed near a border.
-  // Bratislava is 10 km from Austria and 15 km from Hungary: of the 1,774
-  // arrivals recorded in Slovakia, exactly one was painted onto Slovakia and
-  // the rest onto its neighbours, so a country visited five times rendered as
-  // the emptiest place on the map. At this level 98% of that misattribution
-  // goes away, and the region pass was already paying the same price.
+  // Both kinds used to resolve from a 9 km hex, whose *centre* decided for
+  // every cell inside it. For countries that is nearly always harmless. For
+  // regions it is not, because plenty of regions are smaller than the hexagon
+  // deciding for them: a real map lit Appenzell Innerrhoden with "3 visits"
+  // off seven cells that were all in Sankt Gallen, and Liechtenstein's Mauren
+  // and the Aosta Valley the same way — three places the owner had never been,
+  // coloured in and counted, while the statistics panel (which has always read
+  // the cells themselves) correctly listed none of them. Reading the same
+  // cells here is what makes the two agree, and agreeing is the point: they
+  // are answering the same question about the same rows.
+  //
+  // The cost is the reason it was ever a roll-up — twenty-odd thousand
+  // point-in-polygon tests rather than two thousand. That reason is gone. The
+  // note it came from predates both the region tile index and passing the
+  // country into the region lookup, which together drop all but a couple of
+  // dozen of the 4,553 shapes before any geometry is touched. Measured on a
+  // 23k-cell map: 115 ms for the first build at the region level, and 1.1 ms
+  // for every build after it, because a cell centre never moves and the answer
+  // is memoised per cell id. The polygon union below costs more than either.
   const isRegionKind = kind === 'region';
-  const fromLevel = REGION_FROM_LEVEL;
   const memo = isRegionKind ? cellRegionMemo : cellCountryMemo;
+  const byType = HEAT_MODES[heatMode]?.categorical;
+  const slotOf = byType ? new Map(sourceOrder.map((src, i) => [src, i])) : null;
   const litIds = new Set();
-  const perCountry = new Map(); // id → rolled-up stats, for the heat maps
-  for (const [key, stat] of litSets[fromLevel]) {
-    let cid = memo.get(key);
-    if (cid === undefined) {
-      const sep = key.indexOf('/');
-      const col = +key.slice(0, sep);
-      const row = +key.slice(sep + 1);
-      const [lng, lat] = project(cellCenter(fromLevel, col, row));
-      const lngW = wrapLng(lng);
-      // countryNear, not countryAt: a 9 km hex centred in a bay or on the wrong
-      // side of a border sliver belongs to the land beside it, not to nowhere.
-      const at = countryNear(lngW, lat);
-      const country = at?.id ?? null;
-      // The region lookup is handed the country, which drops all but a couple
-      // of dozen of the 4,553 shapes before any geometry is touched.
-      // A handful of countries have no admin-1 entry in the dataset at all
-      // (microstates, some dependencies). Falling through to null would make
-      // them *vanish* at the region level while still being lit one level
-      // further out, which reads as a rendering bug and is one. The country
-      // itself stands in as its own region — the honest answer for a place
-      // that isn't subdivided.
-      //
-      // It has to be exactly that narrow. regionNear() snaps the border and
-      // coastal slivers where the two datasets disagree, so a miss here means
-      // the country really has no regions — an earlier version stood the whole
-      // country in on any miss, and one stray cell in a 1 km sliver off the
-      // Ligurian coast coloured in the entire of Italy underneath its cantons.
-      cid = isRegionKind
-        ? (at
-            ? (regionNear(lngW, lat, at.iso)?.id
-               ?? (regionsInCountry(at.iso) === 0 ? `${WHOLE_COUNTRY}${country}` : null))
-            : null)
-        : country;
-      memo.set(key, cid);
-    }
+  const perArea = new Map(); // id → rolled-up stats, for the heat maps
+  for (const id of visited) {
+    let cid = memo.get(id);
+    if (cid === undefined) memo.set(id, (cid = areaOfCell(kind, id)));
     if (!cid) continue;
     litIds.add(cid);
-    let e = perCountry.get(cid);
-    if (e) {
-      e.hits += stat.hits;
-      e.cells += stat.cells;
-      if (stat.time > e.time) e.time = stat.time;
-      if (stat.age && (!e.age || stat.age < e.age)) e.age = stat.age;
-    } else {
-      perCountry.set(cid, (e = { ...stat }));
-      e.srcN = new Map();
-    }
+    const stat = cellStats(id, byType);
+    let e = perArea.get(cid);
+    // `near` stays 0: a whole region is its own neighbourhood, so it is read on
+    // its own count rather than against the ring of hexes around it.
+    if (!e) perArea.set(cid, (e = { hits: 0, time: 0, age: 0, near: 0, srcN: new Map() }));
+    e.hits += stat.hits;
+    if (stat.time > e.time) e.time = stat.time;
+    if (stat.age && (!e.age || stat.age < e.age)) e.age = stat.age;
     // A whole country is colored by whichever app covers the most of it — by
     // ground, not by visits, which is the question the country level answers.
-    if (stat.src !== undefined) e.srcN.set(stat.src, (e.srcN.get(stat.src) ?? 0) + stat.cells);
+    if (byType && stat.own) {
+      const src = slotOf.get(stat.own) ?? TYPE_MAX;
+      e.srcN.set(src, (e.srcN.get(src) ?? 0) + 1);
+    }
   }
-  for (const e of perCountry.values()) {
+  for (const e of perArea.values()) {
     let best = TYPE_MAX;
     let bestN = -1;
     for (const [src, n] of e.srcN ?? []) {
@@ -1659,11 +1652,6 @@ function buildAreaFC(kind, fine = false) {
       }
     }
     e.src = best;
-    // A country is its own neighbourhood, so it is read on its own count. The
-    // field is cleared rather than left alone because the entry was spread from
-    // the first hex that landed in it, and would otherwise carry that one hex's
-    // surroundings as if they were the country's.
-    e.near = 0;
   }
 
   // Recorded before the heat branch, which returns without reaching the merge:
@@ -1674,8 +1662,8 @@ function buildAreaFC(kind, fine = false) {
   // color; otherwise they dissolve into one borderless shape.
   const heat = heatMetric();
   if (heat) {
-    const range = { maxHits: 1, hotHits: hotOf(perCountry), minTime: 0, maxTime: 0, minAge: 0, maxAge: 0 };
-    for (const e of perCountry.values()) {
+    const range = { maxHits: 1, hotHits: hotOf(perArea), minTime: 0, maxTime: 0, minAge: 0, maxAge: 0 };
+    for (const e of perArea.values()) {
       if (e.hits > range.maxHits) range.maxHits = e.hits;
       if (e.time) {
         if (!range.minTime || e.time < range.minTime) range.minTime = e.time;
@@ -1687,7 +1675,7 @@ function buildAreaFC(kind, fine = false) {
       }
     }
     const features = [];
-    for (const [id, stat] of perCountry) {
+    for (const [id, stat] of perArea) {
       const geometry = areaGeometry(kind, id, fine);
       if (geometry) {
         features.push({ type: 'Feature', properties: { k: 1, v: heat(stat, range) }, geometry });
@@ -2014,35 +2002,33 @@ function rollUpIds(ids) {
   let firstAt = 0;
   let lastAt = 0;
   let hits = 0;
-  let fixes = 0;
   const earlier = (a, b) => (b && (!a || b < a) ? b : a); // 0 means "unknown"
   for (const id of ids) {
     for (const m of cellMeta.get(id) ?? []) {
       let s = bySource.get(m.source);
       if (!s) {
-        bySource.set(m.source, (s = { key: m.source, cells: 0, hits: 0, fixes: 0, addedAt: 0, firstAt: 0, lastAt: 0 }));
+        bySource.set(m.source, (s = { key: m.source, cells: 0, hits: 0, addedAt: 0, firstAt: 0, lastAt: 0 }));
       }
       s.cells++;
       s.hits += m.hits || 0;
-      s.fixes += m.fixes || 0;
       s.addedAt = earlier(s.addedAt, m.addedAt);
       s.firstAt = earlier(s.firstAt, m.firstAt);
       s.lastAt = Math.max(s.lastAt, m.lastAt || 0);
       // Only imported data has a meaningful count — a hand-marked cell carries
       // a placeholder 1 that would be nonsense to show.
-      if (m.source !== 'manual' && m.source !== 'unknown') {
-        hits += m.hits || 0;
-        fixes += m.fixes || 0;
-      }
+      if (m.source !== 'manual' && m.source !== 'unknown') hits += m.hits || 0;
       addedAt = earlier(addedAt, m.addedAt);
       firstAt = earlier(firstAt, m.firstAt);
       lastAt = Math.max(lastAt, m.lastAt || 0);
     }
   }
+  // `fixes` is deliberately not rolled up. It is still stored, and the import
+  // and sync screens still report it as “how much was read out of this file”,
+  // but as a fact about a place it only ever said how often a recorder
+  // sampled — which is a fact about the recorder.
   return {
     cellCount: ids.length,
     hits,
-    fixes,
     addedAt,
     firstAt,
     lastAt,
@@ -2098,9 +2084,13 @@ function closeCellInfo() {
 
 /**
  * Which region or country is under a point, at the level that is on screen.
- * Resolved from the point itself rather than from the hex it falls in — the
- * fills are drawn from 9 km hexes and a click near a border deserves a better
- * answer than the hex's centre gives.
+ * Resolved from the point itself rather than from the hex it falls in, so a
+ * click near a border gets the shape it actually landed on.
+ *
+ * The same two questions in the same order as `areaOfCell` in src/stats.js —
+ * which country, then which of its regions — because the fill was built from
+ * that and the two have to agree about what was clicked. This one goes on to
+ * name the shape, which is the only reason it isn't a call to it.
  */
 function areaAt(lngLat) {
   if (!isVectorLevel(currentLevel)) return null;
@@ -2121,17 +2111,18 @@ function areaAt(lngLat) {
 }
 
 /**
- * Every stored cell inside one area, found through the same 9 km lookup the
- * fill was built from — so what the card counts is exactly what is painted.
+ * Every stored cell inside one area, found through the same per-cell lookup the
+ * fill was built from — so what the card counts is exactly what is painted, and
+ * every cell it counts is genuinely inside the shape it names.
  */
 function storedInArea(kind, id) {
   const memo = kind === 'region' ? cellRegionMemo : cellCountryMemo;
-  const lit = litSets[REGION_FROM_LEVEL];
   const out = [];
-  for (const [key, cid] of memo) {
-    if (cid !== id) continue;
-    const e = lit?.get(key);
-    if (e?.ids) out.push(...e.ids);
+  // `visited` decides, not the memo: a cell centre never moves, so an erased
+  // cell keeps its answer here rather than paying to be looked up again if it
+  // comes back. The card must not count it while it is gone.
+  for (const [cellId, cid] of memo) {
+    if (cid === id && visited.has(cellId)) out.push(cellId);
   }
   return out;
 }

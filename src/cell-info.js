@@ -116,10 +116,12 @@ export function mountCellInfo({ onClose } = {}) {
         `${Math.round(info.covered).toLocaleString()} km² of ${info.coveredOf}`,
       );
     }
-    // Visits are the number the heat map reads; the raw fix count only earns a
-    // line of its own when it says something different (a recorded track).
+    // Visits are the number the heat map reads, and the only count worth
+    // showing. The raw fix count used to get a line of its own whenever it
+    // disagreed, which was most of the time and never meant anything: it says
+    // how often a recorder happened to sample, not how often you were here, so
+    // an hour parked with a workout app running outranked a week somewhere.
     if (info.hits) row('Visits', info.hits.toLocaleString());
-    if (info.fixes > info.hits) row('Location fixes', info.fixes.toLocaleString());
 
     sourcesEl.replaceChildren();
     sourcesHead.hidden = !info.sources.length;
