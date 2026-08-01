@@ -52,6 +52,7 @@ import { mountBackup } from './backup-ui.js';
 import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
 import { busy } from './busy.js';
+import { trackKeyboard } from './keyboard.js';
 import { routesToFC, totalLength, formatDistance, canonicalSport, duplicateRoutes } from './routes.js';
 import { reconcilePrefs } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
@@ -3864,7 +3865,19 @@ const setHexData = (fc) => setVecData(vecLive, fc);
 const VEC_LAYERS = ['hex-fill', 'hex-bound-glow', 'hex-bound-line'];
 // The first layer that must stay *above* the visited wash. See
 // raiseVectorLayers().
-const VEC_ANCHOR = 'trip-glow';
+//
+// The selection ring, which installGrid adds at `firstSymbol` immediately after
+// the two vector trios — so it is the very next layer up, and moving a trio to
+// just under it lifts that trio over its twin and over nothing else.
+//
+// This used to be `trip-glow`, which is added with no `beforeId` at all and is
+// therefore on top of the entire style. Anchoring there meant the first region
+// ↔ country crossing lifted the wash over the basemap's buildings, roads,
+// railways and place names — the whole reason the wash is inserted low down —
+// and left it there. Nothing said so, because the crossing looks right: it is
+// the *next* zoom, on a map whose colour is now painted over its own labels,
+// that is wrong.
+const VEC_ANCHOR = 'sel-line';
 
 // Put one source's layers above the other's. crossPrev() derives the outgoing
 // opacity on the assumption that the incoming layer composites *over* the
@@ -4621,7 +4634,46 @@ function wireLayersControl() {
 // --- Layer setup (re-runs on every style load) -------------------------------
 // setStyle() replaces the whole style, dropping our sources/layers, so this
 // runs again after each basemap switch to rebuild them and restore state.
-const RAIL_BEFORE = () => (map.getLayer('tile-fill') ? 'tile-fill' : undefined);
+// Everything this app adds to somebody else's style. Namespaced where it can
+// be; the handful of older ids that aren't are listed out. Used to tell our
+// layers from the basemap's when asking where the basemap ends.
+const OUR_LAYER = /^(tile-|blob|hex-|hexplore-)|^(trip-|route-)|^(sel-line|place-pin|home-icon)$/;
+
+/**
+ * Where the *basemap's* own labels begin — above every road, water, boundary
+ * and building it draws, and under its place names.
+ *
+ * `labelStart()` answers a nearly identical question and cannot be used for
+ * this one: it scans from the very top of the stack, which is where this app
+ * puts the trip track and the routes, so it stops at those and points at the
+ * top of the map rather than at the basemap's labels.
+ */
+function basemapLabelStart() {
+  const layers = map.getStyle().layers;
+  for (let i = layers.length - 1; i >= 0; i--) {
+    if (OUR_LAYER.test(layers[i].id) || layers[i].type === 'symbol') continue;
+    // The last thing the basemap draws that isn't a label; its labels are
+    // whatever comes after it that is also the basemap's.
+    for (let j = i + 1; j < layers.length; j++) {
+      if (!OUR_LAYER.test(layers[j].id)) return layers[j].id;
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+// Where the OpenRailwayMap overlay goes: above the visited wash, above the
+// basemap's own railway lines, and under its place names.
+//
+// It used to go in under `tile-fill`, at the bottom of everything this app
+// draws — which put the tracks you asked to see beneath the colour *and*
+// beneath the basemap's own thin grey rails, so switching them on changed
+// almost nothing over a town you had visited. They are an overlay you turned
+// on: the point of them is the detail the basemap does not have, and detail
+// under a wash is not detail. Not over the labels, though, and not over the
+// routes — a line you actually rode should not be crossed out by every siding
+// in the country.
+const RAIL_BEFORE = () => basemapLabelStart();
 let firstInstall = true;
 
 function addRailLayer() {
@@ -5407,6 +5459,10 @@ function mountOfflineBanner() {
   window.addEventListener('online', () => connection.check());
 }
 mountOfflineBanner();
+
+// Before anything can be typed into, so the first field to take focus already
+// has room rather than being revealed by the phone scrolling the map away.
+trackKeyboard();
 
 // --- Auth gate ---------------------------------------------------------------
 // Resolve the session on load: if signed in, pull the user's cells; otherwise

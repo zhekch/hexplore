@@ -66,6 +66,21 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         webView.allowsBackForwardNavigationGestures = false
         // The page is a full-bleed dark map; bouncing past it shows white.
         webView.scrollView.bounces = false
+        // And it does not scroll at all. The page is exactly one screen tall —
+        // `body` is `overflow: hidden` and every panel over the map is fixed —
+        // so this scroll view has nothing to move even in principle. It gets
+        // something the moment the keyboard appears: WebKit insets the scroll
+        // view by the keyboard's height so a focused field can be scrolled into
+        // view, and from then on a finger anywhere on the glass drags the whole
+        // map, the search results and the status bar's worth of chrome up the
+        // screen, where they stay.
+        //
+        // Off, then. The page keeps itself clear of the keyboard on its own
+        // (src/keyboard.js publishes its height as `--kb`), so nothing here
+        // needs revealing by moving it. The panels' own scroll areas — the
+        // layers menu, the search results, the sync dialogs — are separate
+        // scroll views inside the content and are untouched by this.
+        webView.scrollView.isScrollEnabled = false
         // Said out loud, because edge to edge depends on it and the default does
         // not say what it does: `.automatic` insets the content by the safe area
         // whenever the view decides the content scrolls, which for a page that

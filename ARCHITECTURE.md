@@ -1579,6 +1579,44 @@ from a short one — a fortnight somewhere and an afternoon somewhere both count
 one — which is the question `fixes` would answer if `fixes` were trustworthy
 across sources that sample at wildly different rates, and it isn't.
 
+## What is drawn over what
+
+The map is one stack, and almost every argument about it is the same argument:
+is this thing *ground*, or is it something drawn on the ground? Ground goes
+under the visited wash; the rest goes over it. Bottom to top, on any basemap:
+
+1. the basemap's own ground — land, water, landcover;
+2. **the visited wash** — the edit-mode tiles, the blob canvas, the two vector
+   trios, and the selection ring immediately above them. All inserted before
+   the style's first symbol layer, which on every basemap here is a water
+   label, well below the roads;
+3. the basemap's buildings, roads, railways and boundaries;
+4. **the OpenRailwayMap overlay**, when it is switched on;
+5. the basemap's place names;
+6. this app's own answers — the trip track, the saved routes, the searched
+   place, home.
+
+Two of those are recent corrections, both in the same direction:
+
+**Buildings are not ground.** Terrain briefly moved `building` down into layer
+2, on the argument that a rooftop is part of the surface and an opaque dark
+polygon punches holes through a coloured town. What it actually produced was a
+city with nothing in it — a flat wash where the one basemap that exists for
+terrain detail had the least detail of the four. Buildings stay where
+OpenFreeMap puts them, which is layer 3.
+
+**The rail overlay is not a basemap layer either.** It used to be inserted under
+`tile-fill`, at the very bottom of everything this app draws, which put the
+tracks you had just asked for beneath the wash *and* beneath the basemap's own
+thin grey rails: switching them on over a visited town changed almost nothing.
+It is an overlay you turned on, so it goes over both — and under the place
+names, and under your own routes, because a line you actually rode should not be
+crossed out by every siding in the country. `basemapLabelStart()` finds that
+slot. It cannot use `labelStart()`, which answers a nearly identical question by
+scanning from the top of the stack: layer 6 is up there, so `labelStart()` aims
+at the top of the map rather than at the basemap's labels. That is the right
+answer for a route and the wrong one for this.
+
 ## Two vector levels
 
 Two of the levels are polygons rather than hexagons, and they have to hand over
@@ -1613,11 +1651,21 @@ fading out smoothly.
 derives the outgoing opacity on the assumption that the incoming layer
 composites *over* the outgoing one. Swap the sources without re-seating that and
 the composite sags in the middle of every crossing — the exact flash `crossPrev`
-exists to remove. It is anchored to `trip-fill`, not to the first symbol layer:
-everything inserted there after the two trios — the trip outline, the selection
-ring — has to stay above the visited wash, and anchoring to `firstSymbol` lifted
-the wash over both, so the trip you had just clicked disappeared under the
-countries. `moveLayer` only reorders; it never re-tiles.
+exists to remove. It is anchored to `sel-line`, not to `firstSymbol`: the
+selection ring is inserted at `firstSymbol` immediately after the two trios, so
+it is the very next layer up, and moving a trio to just under it lifts that trio
+over its twin and over nothing else. Anchoring to `firstSymbol` instead lifted
+the wash over the ring, so the cell you had just clicked lost its highlight
+under the countries.
+
+The anchor was briefly `trip-glow`, which looks like the same idea and is not:
+the trip track takes no `beforeId` at all and therefore sits on top of the
+entire style, so the first region ↔ country crossing lifted the wash over the
+basemap's buildings, roads, railways and place names — the whole reason the wash
+is inserted low down (see *What is drawn over what*) — and left it there.
+Nothing said so, because the crossing itself looks right; it is the next zoom,
+on a map whose colour is now painted over its own labels, that is wrong.
+`moveLayer` only reorders; it never re-tiles.
 
 **Warming generalised.** `warmVector` pre-tiles the first vector level on the
 live source while a blob level is showing (as before), and — new — pre-tiles the
@@ -1807,6 +1855,44 @@ the same modules, so the two cannot drift — but they are not yet the same
 computation, and until the web app consumes the endpoints there is a second place
 the inputs could differ. Moving it over would also make it faster: the trips list
 currently costs a 2 MB gazetteer download that the server has already paid for.
+
+## A page that must not scroll, and a keyboard that makes it
+
+Nothing in this page scrolls. `body` is `overflow: hidden`, the map fills the
+window, and every panel over it is `position: fixed` — the document is exactly
+one screen tall and always has been.
+
+iOS does not take that as an answer. When a text field takes focus, WebKit's way
+of keeping it visible is to make the whole page scrollable and move it, and on a
+full-bleed map that means a stray finger drags the map, the glass and the search
+results up past the status bar and leaves them there, with no scrollbar and
+nothing to say how to get back. Inside the iOS app it was worse than untidy: the
+search panel's results were laid out behind the keys, so dragging the page about
+was the only way to read your own answers.
+
+Two halves, and both are needed:
+
+- **Remove the reason to scroll.** `src/keyboard.js` measures the keyboard —
+  `window.innerHeight` is the layout viewport, which the keyboard does not
+  shrink, and `visualViewport.height` is what you can see of it, so the gap
+  between them is the keys — and publishes it as `--kb` on `:root`. Every panel
+  that holds a text field subtracts it: the modal and auth overlays take it off
+  their bottom padding so a card centres in what is left, the search card caps
+  its height at the overlay's remaining content box, and `.ha-scroll` (the
+  fields in the sync dialogs) takes it off its own. A field that is already
+  visible is one WebKit has no cause to go looking for. Pinch-zoom is measured
+  as nothing, because there the same gap is magnification.
+- **Take the scrolling away.** `webView.scrollView.isScrollEnabled = false` in
+  `WebPanel.swift`. Only a native switch stops a *deliberate* drag, and the
+  scroll view has nothing to move in the first place — the panels' own scroll
+  areas (the layers menu, the search results, the sync dialogs) are separate
+  scroll views inside the content and are untouched by it.
+
+The web half also works in mobile Safari, where there is no such switch. It is
+what makes the app half safe, too: with scrolling off, a page WebKit has nudged
+out of place can no longer be dragged back by hand, so it had better not be
+nudged — which is why `trackKeyboard()` also returns the page to the top
+whenever the keyboard's geometry changes.
 
 ## Run & host
 

@@ -14,6 +14,12 @@
      amount and they line up down the panel. */
   /* Vertical rhythm between the menu's rows, segmented controls and buttons. */
   --menu-row-gap: 10px;
+  /* How much of the bottom of the screen the on-screen keyboard is standing on.
+     Zero everywhere until something is being typed into; kept up to date by
+     src/keyboard.js, which is where the reasoning is. Every panel that holds a
+     text field subtracts it, so the field stays where you can see it instead of
+     the phone scrolling the whole page to find it. */
+  --kb: 0px;
 }
 
 html,
@@ -1027,7 +1033,9 @@ body {
   z-index: 90;
   display: grid;
   place-items: center;
-  padding: 24px;
+  /* The keyboard is part of the bottom edge while it is up, so the card centres
+     in what is left of the screen rather than behind the keys. */
+  padding: 24px 24px calc(24px + var(--kb));
   background: rgba(6, 8, 14, 0.5);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
@@ -1671,7 +1679,14 @@ body {
 /* The dialog can outgrow a phone once a long device list is in it, so the
    fields scroll and the title and buttons stay put. */
 .ha-scroll {
+  /* Everything the card stacks around this box: its own padding, the title and
+     subtitle, and the row of buttons underneath. Same idea as `--menu-chrome`. */
+  --modal-chrome: 240px;
   max-height: min(52vh, 420px);
+  /* …and once a field in here has the keyboard up, whatever the keyboard has
+     left. A token field you cannot see while pasting into it was the reason the
+     page got dragged around on a phone in the first place. */
+  max-height: min(52dvh, 420px, calc(100dvh - var(--kb) - var(--modal-chrome)));
   overflow-y: auto;
   margin: 4px -6px 0;
   padding: 0 6px;
@@ -2339,7 +2354,10 @@ body {
      actually wrong. */
 
   .modal-overlay {
-    padding: 12px;
+    /* The keyboard still has to come off the bottom here: this replaces the
+       base rule's padding wholesale, and a phone is the only place a keyboard
+       ever appears. */
+    padding: 12px 12px calc(12px + var(--kb));
   }
 
   .modal-card {
@@ -2354,7 +2372,9 @@ body {
   z-index: 100;
   display: grid;
   place-items: center;
-  padding: 24px;
+  /* As .modal-overlay: the login is two text fields, so it is the one panel
+     guaranteed to be looked at with the keyboard up. */
+  padding: 24px 24px calc(24px + var(--kb));
   background: rgba(6, 8, 14, 0.55);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
@@ -3913,7 +3933,7 @@ body {
      app this overlay covers the whole screen, status bar included, so a plain
      8vh put the search field *under* the clock and the signal bars. */
   padding: calc(8vh + var(--safe-t)) calc(16px + var(--safe-r))
-    calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+    calc(16px + var(--safe-b) + var(--kb)) calc(16px + var(--safe-l));
   /* A scrim and nothing else. This used to carry `backdrop-filter: blur(2px)`
      as well, which quietly cost the card its own blur: an element with a
      backdrop-filter becomes a *backdrop root*, so everything inside it can only
@@ -3930,7 +3950,11 @@ body {
 
 .search-card {
   width: min(520px, 100%);
-  max-height: 78vh;
+  /* `100%` is the overlay's content box — everything left once the safe areas
+     and the keyboard have taken theirs. Without it the results list keeps its
+     78vh of the *page* and lays half the answers out behind the keys, which is
+     a list you can only read by dragging the map about. */
+  max-height: min(78vh, 100%);
   display: flex;
   flex-direction: column;
   border-radius: 20px;
@@ -4576,15 +4600,17 @@ body {
        base padding wholesale, so dropping the safe area here dropped it
        entirely. */
     padding: calc(12px + var(--safe-t)) calc(10px + var(--safe-r))
-      calc(12px + var(--safe-b)) calc(10px + var(--safe-l));
+      calc(12px + var(--safe-b) + var(--kb)) calc(10px + var(--safe-l));
     align-items: flex-start;
   }
 
   .search-card {
     /* Whatever is left once the safe areas have taken theirs. 88vh of a screen
        whose top 59px belong to the status bar is taller than the space there
-       is, and the card overflowed the bottom of it. */
-    max-height: calc(88dvh - var(--safe-t) - var(--safe-b));
+       is, and the card overflowed the bottom of it. The `100%` is the same
+       backstop as the base rule: on a phone the keyboard is most of what is
+       missing, and it is not in `dvh`. */
+    max-height: min(calc(88dvh - var(--safe-t) - var(--safe-b)), 100%);
   }
 }
 

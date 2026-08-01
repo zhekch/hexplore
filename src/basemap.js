@@ -311,22 +311,17 @@ export async function terrainStyle() {
     }
   }
 
-  // Buildings belong *under* the visited wash, because a building is ground —
-  // not something drawn over the map the way a street or a label is.
+  // Buildings stay where OpenFreeMap put them, which is *above* the visited
+  // wash — the app inserts the wash immediately before the style's first symbol
+  // layer (see installGrid) and OFM publishes `water_name` at index 8 with
+  // `building` right after it.
   //
-  // The app inserts the wash immediately before the style's first symbol layer
-  // (see installGrid), and OpenFreeMap publishes `water_name` at index 8 with
-  // `building` right after it. So every building landed on top of the coloured
-  // cells as an opaque dark polygon, punching a swarm of holes through a town.
-  // Moving it in with the other ground fills makes a built-up area read as
-  // texture in the cell's own colour. Roads and rails deliberately stay above:
-  // they are how you recognise where you are, and a 2 px line doesn't blot out
-  // the colour underneath the way a rooftop does.
-  const buildingAt = style.layers.findIndex((l) => l.id === 'building');
-  const firstSymbol = style.layers.findIndex((l) => l.type === 'symbol');
-  if (buildingAt > firstSymbol && firstSymbol > -1) {
-    style.layers.splice(firstSymbol, 0, ...style.layers.splice(buildingAt, 1));
-  }
+  // This was briefly the other way round, on the argument that a building is
+  // ground rather than something drawn over the map, and that opaque rooftops
+  // punch holes through a coloured town. In use the holes are what a town looks
+  // like: with the buildings underneath, a city is a flat wash with nothing in
+  // it, and the one basemap of the four that is about terrain loses the detail
+  // it is for. Roads, rails and labels were always above for the same reason.
 
   // Labels and minor roads on the same zoom diet Light keeps — see
   // applyZoomDiet(). Done after the recolouring, which is keyed by layer id and
