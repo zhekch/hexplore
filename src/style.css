@@ -1035,7 +1035,7 @@ body {
   place-items: center;
   /* The keyboard is part of the bottom edge while it is up, so the card centres
      in what is left of the screen rather than behind the keys. */
-  padding: 24px 24px calc(24px + var(--kb));
+  padding: 24px 24px max(24px, var(--kb));
   background: rgba(6, 8, 14, 0.5);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
@@ -2357,7 +2357,7 @@ body {
     /* The keyboard still has to come off the bottom here: this replaces the
        base rule's padding wholesale, and a phone is the only place a keyboard
        ever appears. */
-    padding: 12px 12px calc(12px + var(--kb));
+    padding: 12px 12px max(12px, var(--kb));
   }
 
   .modal-card {
@@ -2374,7 +2374,7 @@ body {
   place-items: center;
   /* As .modal-overlay: the login is two text fields, so it is the one panel
      guaranteed to be looked at with the keyboard up. */
-  padding: 24px 24px calc(24px + var(--kb));
+  padding: 24px 24px max(24px, var(--kb));
   background: rgba(6, 8, 14, 0.55);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
@@ -3932,8 +3932,12 @@ body {
   /* The safe areas are part of the padding, not an afterthought: inside the iOS
      app this overlay covers the whole screen, status bar included, so a plain
      8vh put the search field *under* the clock and the signal bars. */
+  /* `max()`, not a sum: the home indicator lives *behind* the keyboard, so
+     adding both insets left a strip of dead glass under the card that nothing
+     was ever going to be drawn in. With the keys up the card ends exactly where
+     they begin. */
   padding: calc(8vh + var(--safe-t)) calc(16px + var(--safe-r))
-    calc(16px + var(--safe-b) + var(--kb)) calc(16px + var(--safe-l));
+    max(calc(16px + var(--safe-b)), var(--kb)) calc(16px + var(--safe-l));
   /* A scrim and nothing else. This used to carry `backdrop-filter: blur(2px)`
      as well, which quietly cost the card its own blur: an element with a
      backdrop-filter becomes a *backdrop root*, so everything inside it can only
@@ -4600,7 +4604,7 @@ body {
        base padding wholesale, so dropping the safe area here dropped it
        entirely. */
     padding: calc(12px + var(--safe-t)) calc(10px + var(--safe-r))
-      calc(12px + var(--safe-b) + var(--kb)) calc(10px + var(--safe-l));
+      max(calc(12px + var(--safe-b)), var(--kb)) calc(10px + var(--safe-l));
     align-items: flex-start;
   }
 

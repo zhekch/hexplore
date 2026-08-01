@@ -55,26 +55,35 @@ export function trackKeyboard() {
 
   const apply = () => {
     const kb = measure();
-    if (kb !== applied) {
-      applied = kb;
-      root.style.setProperty('--kb', `${kb}px`);
-    }
-    // Whatever WebKit scrolled to reveal the field, put back. The layout above
-    // has already made room for the keyboard, so the only scroll position this
-    // page has ever had a use for is the top. Not while the page is pinched:
-    // then moving it about is the point, and the layout viewport follows the
-    // magnified one to the edges.
-    if (vv.scale > 1.01) return;
+    if (kb === applied) return;
+    applied = kb;
+    root.style.setProperty('--kb', `${kb}px`);
+  };
+
+  // Put back whatever WebKit scrolled to reveal a field. The layout has already
+  // made room for the keyboard, so the top is the only scroll position this
+  // page has ever had a use for.
+  //
+  // ONLY ever called when nothing has the focus. An earlier version ran this
+  // from the visual viewport's `scroll` event as well, on the theory that a
+  // reveal shows up there too. It does — and so does dragging a list inside a
+  // panel, which on iOS moves the visual viewport while your finger is still
+  // down. Every frame of the drag was yanked back to the top, and scrolling the
+  // trips list turned into a violent jitter. There is no version of this that
+  // is safe to run mid-gesture: leave the page where it is until the gesture,
+  // and the field, are over.
+  const restore = () => {
+    if (vv.scale > 1.01) return; // pinched: moving the page about is the point
     if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
   };
 
-  // `resize` is the keyboard arriving and leaving; `scroll` is the visual
-  // viewport being moved within the page, which is the other half of the same
-  // reveal. Both end up in the same place.
+  // The keyboard arriving and leaving. Not `scroll` — see above.
   vv.addEventListener('resize', apply);
-  vv.addEventListener('scroll', apply);
-  // The keyboard goes away without a resize event of its own on some versions,
-  // and a field that has lost focus can never need the page moved.
-  window.addEventListener('focusout', apply);
+  // A field that has lost the focus can never need the page moved to show it,
+  // which makes this the one moment when putting the page back is unambiguous.
+  window.addEventListener('focusout', () => {
+    apply();
+    restore();
+  });
   apply();
 }

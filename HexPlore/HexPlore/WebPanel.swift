@@ -1,4 +1,5 @@
 import CoreLocation
+import ObjectiveC
 import SwiftUI
 import WebKit
 
@@ -98,6 +99,7 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         webView.backgroundColor = UIColor(red: 0.07, green: 0.078, blue: 0.102, alpha: 1)
         view.addSubview(webView)
         view.backgroundColor = webView.backgroundColor
+        webView.hideInputAccessoryBar()
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -157,6 +159,9 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         // Again on load, because a page that has just replaced itself has none
         // of the properties the last one was given.
         pushSafeArea()
+        // And again here: the view the accessory bar belongs to is created with
+        // the first document, so at viewDidLoad there was nothing to swap.
+        webView.hideInputAccessoryBar()
 
         #if DEBUG
         // What the page ends up with. The chrome's position depends entirely on
@@ -220,5 +225,70 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     func requestLocationIfNeeded() {
         guard locations.authorizationStatus == .notDetermined else { return }
         locations.requestWhenInUseAuthorization()
+    }
+}
+
+// MARK: - The bar above the keyboard
+
+/// Carries the one override, so its implementation can be copied onto a class
+/// that does not exist at compile time. Nothing is ever instantiated from it.
+private final class NoAccessoryBar: NSObject {
+    @objc var inputAccessoryView: UIView? { nil }
+}
+
+extension WKWebView {
+
+    /// Take away the grey bar iOS floats above the keyboard — ‹ ›, and a tick.
+    ///
+    /// It is a form-stepping control, and this page is not a form: the fields it
+    /// appears over are a search box, a token, a URL. There is nothing to step
+    /// to, so all three of its buttons do nothing you wanted, while it eats
+    /// ~45 pt at the one moment the screen is at its shortest.
+    ///
+    /// **How.** The bar belongs to `WKContentView`, which is internal to WebKit
+    /// and cannot be subclassed at compile time. So it is subclassed at run
+    /// time: allocate a subclass of whatever class the content view actually
+    /// is, graft `NoAccessoryBar`'s `inputAccessoryView` getter onto it, and
+    /// change the object's class to that. Only public Objective-C runtime calls
+    /// are involved — no private API is *called* — but it does depend on a
+    /// private class's name, so if WebKit ever renames it the `guard` below
+    /// simply finds nothing and the bar comes back. That is the failure mode we
+    /// want: cosmetic, not a crash.
+    ///
+    /// Idempotent, and it has to be said out loud: the target's class is read
+    /// back to build the new name, so a version without the `hasSuffix` check
+    /// below subclasses its own subclass on the second call and again on the
+    /// third — a fresh class per navigation, none of them ever freed.
+    func hideInputAccessoryBar() {
+        let suffix = "_NoAccessoryBar"
+        guard let target = scrollView.subviews.first(where: {
+            String(describing: type(of: $0)).hasPrefix("WKContent")
+        }) else { return }
+
+        let current = String(describing: type(of: target))
+        guard !current.hasSuffix(suffix) else { return } // already swapped
+
+        let name = current + suffix
+        if let existing = NSClassFromString(name) {
+            object_setClass(target, existing)
+            return
+        }
+
+        guard let base = object_getClass(target),
+              let getter = class_getInstanceMethod(
+                  NoAccessoryBar.self,
+                  #selector(getter: NoAccessoryBar.inputAccessoryView)
+              ),
+              let subclass = name.withCString({ objc_allocateClassPair(base, $0, 0) })
+        else { return }
+
+        class_addMethod(
+            subclass,
+            #selector(getter: NoAccessoryBar.inputAccessoryView),
+            method_getImplementation(getter),
+            method_getTypeEncoding(getter)
+        )
+        objc_registerClassPair(subclass)
+        object_setClass(target, subclass)
     }
 }

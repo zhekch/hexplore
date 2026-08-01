@@ -1891,8 +1891,32 @@ Two halves, and both are needed:
 The web half also works in mobile Safari, where there is no such switch. It is
 what makes the app half safe, too: with scrolling off, a page WebKit has nudged
 out of place can no longer be dragged back by hand, so it had better not be
-nudged — which is why `trackKeyboard()` also returns the page to the top
-whenever the keyboard's geometry changes.
+nudged — which is why `trackKeyboard()` also returns the page to the top.
+
+**It puts the page back only when nothing has the focus, and that restriction is
+the whole lesson.** The first version did it from the visual viewport's `scroll`
+event too, reasoning that a reveal shows up there. It does — and so does
+dragging a list inside a panel, because on iOS that moves the visual viewport
+while your finger is still down. Every frame of the drag was yanked back to the
+top, and scrolling the trips list became a violent jitter: the fix for scrolling
+had broken scrolling. There is no version of this that is safe to run
+mid-gesture. `focusout` is the one moment that is unambiguous — a field that has
+lost the focus cannot need the page moved to show it, and no gesture is in
+flight.
+
+**Panels end where the keys begin, not a home indicator above them.** The bottom
+inset is `max(padding + --safe-b, --kb)`, not a sum: the home indicator lives
+*behind* the keyboard, so adding both left a strip of dead glass under the card
+that nothing would ever be drawn in.
+
+**The accessory bar is gone** (`hideInputAccessoryBar()` in `WebPanel.swift`).
+The grey ‹ › + tick bar iOS floats over the keyboard steps between form fields,
+and this page is not a form — its fields are a search box, a token, a URL, with
+nothing to step to — so all it did was eat ~45 pt at the moment the screen is
+shortest. `WKContentView` is internal to WebKit, so it is subclassed at run time
+and given an `inputAccessoryView` that returns nil. Public runtime calls only,
+but it depends on a private class's *name*: if WebKit renames it the guard finds
+nothing and the bar comes back, which is the right way for this to fail.
 
 ## Run & host
 
