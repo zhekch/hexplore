@@ -329,7 +329,16 @@ extension WKWebView {
         let suffix = "_NoAccessoryBar"
         guard let target = scrollView.subviews.first(where: {
             String(describing: type(of: $0)).hasPrefix("WKContent")
-        }) else { return }
+        }) else {
+            // Said out loud for the same reason `pushSafeArea()` prints what the
+            // page ended up with: the whole failure mode here is silence. If
+            // WebKit ever renames the class, everything still works and the bar
+            // is simply back, with nothing anywhere to say why.
+            #if DEBUG
+            print("[HexPlore] accessory bar: no WKContentView — bar left in place")
+            #endif
+            return
+        }
 
         let current = String(describing: type(of: target))
         guard !current.hasSuffix(suffix) else { return } // already swapped
@@ -356,5 +365,8 @@ extension WKWebView {
         )
         objc_registerClassPair(subclass)
         object_setClass(target, subclass)
+        #if DEBUG
+        print("[HexPlore] accessory bar: \(current) → \(name)")
+        #endif
     }
 }

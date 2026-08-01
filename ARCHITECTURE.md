@@ -1932,7 +1932,10 @@ nothing to step to — so all it did was eat ~45 pt at the moment the screen is
 shortest. `WKContentView` is internal to WebKit, so it is subclassed at run time
 and given an `inputAccessoryView` that returns nil. Public runtime calls only,
 but it depends on a private class's *name*: if WebKit renames it the guard finds
-nothing and the bar comes back, which is the right way for this to fail.
+nothing and the bar comes back, which is the right way for this to fail — and
+the `#if DEBUG` line beside it is there because that failure is otherwise
+completely silent. On iOS 27 it prints
+`accessory bar: WKContentView → WKContentView_NoAccessoryBar`, once.
 
 ## Run & host
 
