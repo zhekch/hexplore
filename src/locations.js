@@ -628,13 +628,27 @@ export function parseLocationFile(name, text) {
 }
 
 // --- Fixes → cells ---------------------------------------------------------------
-// Two fixes in the same cell an hour apart are two visits; two fixes a second
-// apart are one. Without this a recorded workout — one point per second, all of
-// it inside a handful of cells — reads as thousands of visits and drowns out
-// every place you actually went back to. An hour also keeps a stay in one place
-// (a shift at work, a night at home) as the single visit it is, whether the
-// source sampled it once or six hundred times.
-export const VISIT_GAP_SEC = 3600;
+// A visit is a *stay*, not an arrival. Fixes in the same cell go on counting as
+// one visit until a whole day passes with none of them: two fixes a second apart
+// are one visit, a morning and an evening in the same place are one visit, and a
+// week living there is one visit. Going back next month is a second.
+//
+// This was an hour, which answered the narrower question of how many times you
+// *arrived* somewhere, and there is no reading of the word "visits" under which
+// that is what it means. The cost was borne by exactly the places you know best:
+// one cell of a real map recorded 1,837 arrivals against 103 stays, because a
+// coffee run out and back counted twice and a night at home counted again every
+// time the phone woke up on the far side of an hour's silence.
+//
+// A day is the shortest gap that swallows the silences *inside* a stay — a
+// night's sleep, a working day indoors, a phone left on the charger — while
+// still being shorter than any real absence. The worry it invites is a cell you
+// pass through daily, which never sees a day-long gap and would read as one
+// endless visit; measured across 6,953 cells of real history the longest single
+// stay is 30 days and the 99th percentile is 3, so it doesn't happen. If it ever
+// does, the fix is to break a stay on a calendar day with no fixes rather than
+// on a rolling 24 hours, which costs a timezone to be right about.
+export const VISIT_GAP_SEC = 86_400;
 
 // Fixes in one cell → how many separate times you were there. Timestamps decide
 // it when the file has them; otherwise all we know is the order the fixes came

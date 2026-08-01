@@ -1207,8 +1207,9 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 // litSets[L] = "col/row" → rolled-up stats for every cell lit at level L: each
 // stored cell plus all of its ancestors, so coloring a small hexagon colors the
 // big ones around it. The stats are what the heat maps read:
-//   hits — separate visits to the cell (see VISIT_GAP_SEC in locations.js;
-//          a thousand fixes from one run through it count as one)
+//   hits — separate stays in the cell (see VISIT_GAP_SEC in locations.js;
+//          everything up to a day's silence is one visit, however often it
+//          was sampled and however many times you came and went inside it)
 //   time — most recent evidence (falls back to when it was added)
 //   age  — earliest evidence
 //   ids  — the stored cell ids rolled up into this one, so clearing a cell can

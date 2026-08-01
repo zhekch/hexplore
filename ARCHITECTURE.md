@@ -230,13 +230,40 @@ Recognized formats (detected from the contents, not the extension):
 
 ### Visits, not fixes
 
-A cell's visit count is **not** how many location fixes landed in it. Fixes in
-the same cell less than an hour apart (`VISIT_GAP_SEC` in `src/locations.js`)
-are one visit, so an hour of 1 Hz workout recording counts once instead of
-thousands of times, and a night at home counts once however often the source
-sampled it. Coming back the next day counts again. Files with no timestamps
-fall back to run-length: each unbroken pass through a cell counts once, and
-re-entering it later in the file counts again.
+A cell's visit count is **not** how many location fixes landed in it, and it is
+not how many times you *arrived* either. **A visit is a stay.** Fixes in the same
+cell go on counting as one visit until a whole day passes with none of them
+(`VISIT_GAP_SEC` in `src/locations.js`), so an hour of 1 Hz workout recording
+counts once, a morning and an evening in the same place count once, and a week
+living there counts once. Going back next month counts again. Files with no
+timestamps fall back to run-length: each unbroken pass through a cell counts
+once, and re-entering it later in the file counts again.
+
+**The gap was an hour, and an hour measured arrivals.** That is a real question,
+but it is not the one the word "visits" asks, and the difference fell hardest on
+exactly the places you know best — one cell of a real map held **1,837 arrivals
+against 103 stays**, because a coffee run out and back counted twice and a night
+at home counted again every time the phone woke up after an hour's silence.
+Across a whole Google Timeline export the totals moved 112,492 → 28,738. A day
+is the shortest gap that swallows the silences *inside* a stay (a night's sleep,
+a working day indoors, a phone on the charger) while staying shorter than any
+real absence.
+
+The obvious worry is a cell you pass through daily, which never sees a day-long
+gap and would read as one endless visit. Measured across 6,953 cells of real
+history the longest single stay is 30 days and the 99th percentile is 3, so it
+does not happen. If it ever does, the fix is to break a stay on a calendar day
+with no fixes rather than on a rolling 24 hours — which costs a timezone to be
+right about, and is why it isn't done that way now.
+
+**Changing the rule does not change stored history.** `hits` is computed when a
+file is read, and the fixes behind an existing row were never kept — only their
+first date, their last date and their count. `scripts/recount-visits.mjs`
+(`npm run recount:visits`) re-reads the exports in `./import` and writes the
+recount over the rows those same files put there; it shows the difference and
+writes nothing without `--apply`. Sources the server fetches for itself are left
+alone and converge on their own, because `mergeRow` subtracts a shared visit
+using whatever the current gap is.
 
 The raw fix count is still kept (`fixes` in `cell_sources`) and the import and
 sync screens still report it, because "this file held 40,000 points" is a fact
@@ -1544,10 +1571,13 @@ share of the map above the first third of the ramp from 2% to 18% at the finest
 level. Everything above the pin is the hottest colour, which is the honest
 answer — past a point, "more" stops being a distinction worth a shade.
 
-**What it still does not measure is trips.** `hits` is arrivals, not visits: a
-weekend that recorded 1,700 fixes and five weekends that recorded 1,700 fixes
-look the same, because they are the same number of arrivals. Counting distinct
-days per cell would answer the other question, and nothing stores them.
+**It measures stays, and stays are what it should measure.** `hits` used to be
+arrivals, so a weekend that recorded 1,700 fixes and five weekends that recorded
+1,700 fixes looked the same. They no longer do: the five weekends are five
+stays and the one weekend is one. What it still cannot separate is a long stay
+from a short one — a fortnight somewhere and an afternoon somewhere both count
+one — which is the question `fixes` would answer if `fixes` were trustworthy
+across sources that sample at wildly different rates, and it isn't.
 
 ## Two vector levels
 
