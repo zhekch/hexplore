@@ -33,6 +33,7 @@ import { sourceLabel } from './locations.js';
 import { mountColorPicker, hexAlpha, hexOpaque } from './color-picker.js';
 import { terrainStyle, satelliteStyle } from './basemap.js';
 import { mountKomoot } from './komoot-ui.js';
+import { mountDevices, whenAgo } from './device-ui.js';
 import { mountStrava } from './strava-ui.js';
 import { mountSync } from './sync-ui.js';
 import { mountSettings } from './settings-ui.js';
@@ -2235,6 +2236,7 @@ let routeInfo = null; // set by mountRouteInfo() once the DOM is wired
 let homeAssistant = null; // set by mountHomeAssistant()
 let colorPicker = null; // set by mountColorPicker()
 let stravaUi = null; // set by mountStrava()
+let deviceUi = null; // set by mountDevices()
 let backupUi = null; // set by mountBackup()
 let selectedRoute = null;
 
@@ -5141,7 +5143,20 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onClose: () => settings?.open(),
     onStatus: () => settings?.setBackupStatus(backupUi.summary()),
   });
-  sync = mountSync({ homeAssistant, strava: stravaUi, files: importer });
+  // Nothing to configure and nothing to poll — the phone decides both. This is
+  // only here so "is it working?" has an answer on a laptop.
+  deviceUi = mountDevices({
+    onClose: () => sync?.open(),
+    onDevices: (devices) => {
+      let text;
+      if (!devices.length) text = 'No phone syncing';
+      else if (devices.length === 1) {
+        text = `${devices[0].name || 'A phone'} · ${whenAgo(devices[0].lastSeen)}`;
+      } else text = `${devices.length} phones syncing`;
+      sync?.setDeviceStatus(text);
+    },
+  });
+  sync = mountSync({ homeAssistant, strava: stravaUi, device: deviceUi, files: importer });
   personalUi = mountPersonal({
     onClose: () => settings?.open(),
     home: () => homePlace,
@@ -5422,6 +5437,9 @@ mountAuth({
     // Only for the menu's status line — the sync itself runs on the server
     // whether or not this page is open.
     homeAssistant?.refresh();
+    // Same, for the phones reporting in. Nothing here drives them — the app on
+    // the phone does — this only fills in the status line.
+    deviceUi?.refresh();
     // Coming back from Strava's OAuth redirect reopens the dialog on the result.
     if (!(await stravaUi?.handleReturn())) stravaUi?.refresh();
     // …and the backup schedule, for the row in Sync. Only the account that made
@@ -5461,6 +5479,7 @@ mountAuth({
     }
     homeAssistant?.clear();
     stravaUi?.clear();
+    deviceUi?.clear();
     visited.clear();
     cellMeta.clear();
     pendingAdd.clear();

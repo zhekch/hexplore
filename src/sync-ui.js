@@ -16,17 +16,19 @@
  * @param {object} opts
  * @param {{open:Function}} opts.homeAssistant the Home Assistant dialog
  * @param {{open:Function}} opts.strava        the Strava dialog
+ * @param {{open:Function}} opts.device        the phones-reporting-in dialog
  * @param {{open:Function}} opts.files         the file importer
  */
-export function mountSync({ homeAssistant, strava, files }) {
+export function mountSync({ homeAssistant, strava, device, files }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('sync-overlay');
   const haNote = $('sync-ha-note');
   const stravaNote = $('sync-strava-note');
+  const deviceNote = $('sync-device-note');
 
   // Komoot isn't a row of its own: it imports once from a pasted link rather
   // than staying connected, so it sits inside the file importer, one step in.
-  const targets = { files, ha: homeAssistant, strava };
+  const targets = { files, ha: homeAssistant, strava, device };
 
   const open = () => {
     overlay.hidden = false;
@@ -65,6 +67,9 @@ export function mountSync({ homeAssistant, strava, files }) {
     },
     setStravaStatus: (text) => {
       stravaNote.textContent = text;
+    },
+    setDeviceStatus: (text) => {
+      deviceNote.textContent = text;
     },
   };
 }

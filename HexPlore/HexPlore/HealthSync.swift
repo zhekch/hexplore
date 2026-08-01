@@ -1,0 +1,368 @@
+import CoreLocation
+import Foundation
+import HealthKit
+import UIKit
+
+/// Workouts out of Apple Health — the ones that went somewhere.
+///
+/// Health is where everything ends up. A ride recorded on a Watch, a walk from
+/// Fitness+, a run from a third-party app that also writes there: they are all
+/// already on this phone, already finished, already carrying their route. Going
+/// out to somebody's API for them would be a round trip to fetch what is in the
+/// next process along.
+///
+/// ## Only the ones with geography
+///
+/// Most workouts are not places. A gym session, a swim in a pool, twenty minutes
+/// of rowing on a machine — Health records them all and none of them is
+/// somewhere anyone went. The filter is not a heuristic about the activity type:
+/// it is whether the workout carries an `HKWorkoutRoute`, which is Health's own
+/// answer to the same question and is right about the cases a type list would
+/// get wrong. An indoor cycle has no route; an open-water swim does.
+///
+/// ## Sending the same one twice is expected, not exceptional
+///
+/// The query anchor is a fast path and nothing more. It is lost on reinstall,
+/// and Health hands back an *edited* old workout as readily as a new one, so
+/// "have I sent this?" cannot be answered by remembering how far we got. The
+/// server remembers the ids instead (`device_workouts`), which makes re-sending
+/// cheap and exact — and that in turn is what lets this give up halfway through
+/// a first sync of eight years of rides without losing its place.
+@MainActor
+final class HealthSync {
+
+    static let shared = HealthSync()
+
+    /// A first sync can be years of workouts and each one is a separate pass
+    /// through Health's route storage.
+    ///
+    /// Bounded per run **in the background only**, where the app is given
+    /// seconds rather than minutes and being killed mid-way is normal. In the
+    /// foreground there is no such limit and no reason to invent one: you have
+    /// pressed Sync now and are watching it, and eight years of rides arriving
+    /// forty at a time over the following fortnight is not a feature.
+    private static let maxPerBackgroundRun = 40
+
+    /// Opportunistic syncs, from a location wake. The observer below is the real
+    /// trigger; this is the safety net for a Watch that saves a ride hours later,
+    /// out of range of the phone.
+    private static let opportunisticGap: TimeInterval = 30 * 60
+
+    private let store = HKHealthStore()
+    private var observer: HKObserverQuery?
+    private var running = false
+    private var lastRun: Date?
+
+    private enum Keys {
+        static let anchor = "health.anchor"
+        static let sent = "health.sentIds"
+    }
+
+    /// Workouts already dealt with under the anchor we are still holding.
+    ///
+    /// This exists because the anchor is all or nothing. A background run takes
+    /// forty workouts and cannot save the anchor — there are more behind them —
+    /// so the next run's query offers the same list again, and without this it
+    /// would take the same forty for ever and never reach the forty-first.
+    ///
+    /// Emptied the moment the anchor moves, because at that point the anchor
+    /// says everything this was saying.
+    private var sentIds: Set<String> = []
+
+    private init() {
+        sentIds = Set(UserDefaults.standard.stringArray(forKey: Keys.sent) ?? [])
+    }
+
+    var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
+
+    /// Ask for permission and start (or stop) watching. Called when the switch
+    /// is thrown, and at every launch to re-arm the observer.
+    func apply() {
+        guard isAvailable else { return }
+        guard TrackingSettings.shared.syncWorkouts else {
+            if let observer {
+                store.stop(observer)
+                self.observer = nil
+            }
+            store.disableBackgroundDelivery(for: .workoutType()) { _, _ in }
+            return
+        }
+
+        let types: Set<HKObjectType> = [HKObjectType.workoutType(), HKSeriesType.workoutRoute()]
+        store.requestAuthorization(toShare: [], read: types) { [weak self] _, _ in
+            // Read permission never reports itself: for privacy, Health answers
+            // the same whether you said yes or no, and the only way to find out
+            // is to ask for data and see. So there is nothing to branch on here
+            // — a refusal shows up as a sync that finds no workouts, which is
+            // what the Settings tab says.
+            Task { @MainActor in
+                self?.watch()
+                await self?.sync()
+            }
+        }
+    }
+
+    /// Wake the app when a workout is saved.
+    ///
+    /// This is why the HealthKit capability needs Background Delivery ticked. A
+    /// ride finishes, the Watch syncs it over, and the app gets a moment of
+    /// runtime to send it — without which "sync my activities" would mean
+    /// "remember to open the app".
+    private func watch() {
+        guard observer == nil else { return }
+        store.enableBackgroundDelivery(for: .workoutType(), frequency: .hourly) { _, _ in }
+        let query = HKObserverQuery(sampleType: .workoutType(), predicate: nil) { [weak self] _, completion, _ in
+            Task { @MainActor in
+                await self?.sync()
+                // Not optional. iOS stops delivering to an app that does not
+                // acknowledge, and it does so silently.
+                completion()
+            }
+        }
+        observer = query
+        store.execute(query)
+    }
+
+    func syncIfDue() async {
+        guard TrackingSettings.shared.syncWorkouts else { return }
+        if let last = lastRun, Date().timeIntervalSince(last) < Self.opportunisticGap { return }
+        await sync()
+    }
+
+    /// One pass: what is new, what of it went somewhere, and send that.
+    func sync() async {
+        guard isAvailable, TrackingSettings.shared.syncWorkouts, !running else { return }
+        running = true
+        defer {
+            running = false
+            TrackingSettings.shared.status.lastWorkoutScan = Date()
+        }
+        lastRun = Date()
+
+        let found: (workouts: [HKWorkout], anchor: HKQueryAnchor?)
+        do {
+            found = try await newWorkouts()
+        } catch {
+            TrackingSettings.shared.status.lastError = error.localizedDescription
+            return
+        }
+
+        // Oldest first, so giving up halfway leaves a contiguous history rather
+        // than a scattering of whatever happened to fit.
+        let ordered = found.workouts
+            .sorted { $0.startDate < $1.startDate }
+            .filter { !sentIds.contains($0.uuid.uuidString) }
+        let limit = UIApplication.shared.applicationState == .active
+            ? Int.max
+            : Self.maxPerBackgroundRun
+        let batch = Array(ordered.prefix(limit))
+        let drained = batch.count == ordered.count
+
+        var payload: [[String: Any]] = []
+        for workout in batch {
+            guard let wire = await wireForm(of: workout) else { continue }
+            payload.append(wire)
+        }
+
+        do {
+            try await SyncClient.shared.send(workouts: payload)
+            TrackingSettings.shared.status.lastError = nil
+            // Everything in the batch, not only what produced a payload: a
+            // workout with no route has still been dealt with, and reading its
+            // routes to find that out again on every run is the expensive part.
+            markSent(batch.map(\.uuid.uuidString))
+            // The anchor moves only when the query has nothing left to offer.
+            // Saved early it is history skipped for ever, which is the one
+            // failure here that nobody would ever notice.
+            if drained, let anchor = found.anchor {
+                save(anchor)
+                markSent([], reset: true)
+            }
+        } catch SyncClient.SyncError.signedOut {
+            TrackingSettings.shared.status.signedOut = true
+        } catch {
+            TrackingSettings.shared.status.lastError = error.localizedDescription
+        }
+    }
+
+    // MARK: - Reading Health
+
+    private func newWorkouts() async throws -> (workouts: [HKWorkout], anchor: HKQueryAnchor?) {
+        let store = self.store
+        let anchor = savedAnchor()
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKAnchoredObjectQuery(
+                type: .workoutType(),
+                predicate: nil,
+                anchor: anchor,
+                limit: HKObjectQueryNoLimit,
+            ) { _, samples, _, newAnchor, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: (samples as? [HKWorkout] ?? [], newAnchor))
+            }
+            store.execute(query)
+        }
+    }
+
+    /// A workout as `/api/device/workouts` reads it, or nil if it went nowhere.
+    private func wireForm(of workout: HKWorkout) async -> [String: Any]? {
+        let routes = (try? await routeSamples(of: workout)) ?? []
+        guard !routes.isEmpty else { return nil }
+
+        var segments: [[[Double]]] = []
+        for route in routes {
+            guard let locations = try? await locations(in: route) else { continue }
+            let line = thinned(locations)
+            if line.count >= 2 { segments.append(line) }
+        }
+        guard !segments.isEmpty else { return nil }
+
+        var wire: [String: Any] = [
+            "id": workout.uuid.uuidString,
+            "sport": Self.sport(for: workout.workoutActivityType),
+            "start": Int(workout.startDate.timeIntervalSince1970),
+            "end": Int(workout.endDate.timeIntervalSince1970),
+            "segments": segments,
+        ]
+        // The barometer's answer, which is a better number than anything
+        // derivable from GPS altitude. When Health does not offer one the server
+        // works it out from the line, exactly as it does for an imported file.
+        if let ascent = workout.metadata?[HKMetadataKeyElevationAscended] as? HKQuantity {
+            wire["elevUp"] = ascent.doubleValue(for: .meter())
+        }
+        return wire
+    }
+
+    private func routeSamples(of workout: HKWorkout) async throws -> [HKWorkoutRoute] {
+        let store = self.store
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: HKSeriesType.workoutRoute(),
+                predicate: HKQuery.predicateForObjects(from: workout),
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: nil,
+            ) { _, samples, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: samples as? [HKWorkoutRoute] ?? [])
+            }
+            store.execute(query)
+        }
+    }
+
+    private func locations(in route: HKWorkoutRoute) async throws -> [CLLocation] {
+        let store = self.store
+        return try await withCheckedThrowingContinuation { continuation in
+            var collected: [CLLocation] = []
+            // A route query calls back many times and a continuation may be
+            // resumed exactly once, so the two have to be reconciled by hand.
+            var settled = false
+            let query = HKWorkoutRouteQuery(route: route) { query, locations, done, error in
+                guard !settled else { return }
+                if let error {
+                    settled = true
+                    store.stop(query)
+                    continuation.resume(throwing: error)
+                    return
+                }
+                collected.append(contentsOf: locations ?? [])
+                if done {
+                    settled = true
+                    continuation.resume(returning: collected)
+                }
+            }
+            store.execute(query)
+        }
+    }
+
+    // MARK: - Trimming
+
+    /// Five metres between kept points, and five decimal places on each.
+    ///
+    /// Both numbers come from the other end rather than from taste: the server
+    /// simplifies with a 6 m tolerance (`ROUTE_EPSILON_M`) and rounds
+    /// coordinates to 1e-5 (`cleanGeom`), so everything dropped here is
+    /// something it was going to drop anyway. What it saves is real — a 1 Hz
+    /// recording of a two-hour ride is 7,200 points, most of them the seconds
+    /// spent at traffic lights.
+    private func thinned(_ locations: [CLLocation]) -> [[Double]] {
+        var out: [[Double]] = []
+        var previous: CLLocation?
+        for location in locations {
+            guard location.horizontalAccuracy >= 0 else { continue }
+            if let previous, location.distance(from: previous) < 5 { continue }
+            previous = location
+            out.append([
+                (location.coordinate.longitude * 1e5).rounded() / 1e5,
+                (location.coordinate.latitude * 1e5).rounded() / 1e5,
+                Double(Int(location.timestamp.timeIntervalSince1970)),
+            ])
+        }
+        return out
+    }
+
+    // MARK: - What Health calls it, and what this app calls it
+
+    /// Health's activity types, in words `canonicalSport` in `src/routes.js`
+    /// already knows.
+    ///
+    /// Sent as the lower-case synonym rather than the finished label so there is
+    /// still exactly one place that decides how an activity is spelled — the
+    /// same place a Komoot "racebike" and a Strava "Ride" go through. Anything
+    /// not listed is sent blank and the server guesses from pace and distance,
+    /// which is the existing answer for a file that did not say.
+    private static func sport(for type: HKWorkoutActivityType) -> String {
+        switch type {
+        case .walking: return "walking"
+        case .running: return "running"
+        case .cycling: return "cycling"
+        case .hiking: return "hiking"
+        case .swimming: return "swimming"
+        case .downhillSkiing: return "downhill ski"
+        case .crossCountrySkiing: return "cross-country ski"
+        case .snowboarding: return "snowboarding"
+        case .rowing: return "rowing"
+        case .paddleSports, .waterSports: return "paddling"
+        case .sailing: return "sailing"
+        case .surfingSports: return "surfing"
+        case .climbing: return "climbing"
+        case .equestrianSports: return "riding"
+        case .skatingSports: return "skating"
+        case .golf: return "golf"
+        case .wheelchairWalkPace, .wheelchairRunPace: return "wheelchair"
+        default: return ""
+        }
+    }
+
+    // MARK: - The anchor
+
+    private func savedAnchor() -> HKQueryAnchor? {
+        guard let data = UserDefaults.standard.data(forKey: Keys.anchor) else { return nil }
+        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data)
+    }
+
+    private func save(_ anchor: HKQueryAnchor) {
+        guard let data = try? NSKeyedArchiver.archivedData(
+            withRootObject: anchor, requiringSecureCoding: true,
+        ) else { return }
+        UserDefaults.standard.set(data, forKey: Keys.anchor)
+    }
+
+    private func markSent(_ ids: [String], reset: Bool = false) {
+        sentIds = reset ? [] : sentIds.union(ids)
+        UserDefaults.standard.set(Array(sentIds), forKey: Keys.sent)
+    }
+
+    /// Signing out forgets where we got to, so signing in as somebody else does
+    /// not silently inherit this account's progress through Health.
+    static func forgetAnchor() {
+        UserDefaults.standard.removeObject(forKey: Keys.anchor)
+        UserDefaults.standard.removeObject(forKey: Keys.sent)
+        shared.sentIds = []
+    }
+}

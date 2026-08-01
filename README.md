@@ -25,6 +25,9 @@ number of approaches that were tried and abandoned.
   the files never leave your machine, only the cells they resolve to.
 - **Sync automatically.** Home Assistant (polled by the server on a schedule),
   Strava (after a one-time sign-in), Komoot (one tour at a time).
+- **Or let your phone do it.** The iOS app records where you have been with the
+  screen off — you pick how often, from every minute to only-when-you-go-
+  somewhere — and brings in the Apple Health workouts that carry a route.
 - **Saved routes.** Tracks from your imports are kept as lines, named after
   where they went and what sport they look like.
 - **Four basemaps** — dark, terrain, light, satellite. Colour the map with a
@@ -100,7 +103,7 @@ All optional — every one has a working default.
 
 ## Getting your data in
 
-Menu → **Import & sync**. Four ways in, and you can mix them:
+Menu → **Import & sync**. Five ways in, and you can mix them:
 
 | | |
 | --- | --- |
@@ -108,6 +111,7 @@ Menu → **Import & sync**. Four ways in, and you can mix them:
 | **Home Assistant** | Paste your address and a long-lived token, tick the devices to follow, and the server keeps the map current on its own. It reads history your recorder already wrote — it never wakes your phone |
 | **Strava** | One-time sign-in, then your activities come across on a schedule |
 | **Komoot** | Paste a tour link; your browser fetches it |
+| **Your phone** | [Hexplore for iOS](HexPlore/README.md) records where you have been in the background and sends it here, with no other app in the middle. It also brings across the Apple Health workouts that went somewhere — a ride, a walk, a run outdoors — as cells and as saved lines. Set up on the phone; this page shows you whether it is working |
 
 Before anything is saved you get a preview: what each file was recognised as,
 how many fixes it holds, how many cells that is, **how many are new**, the dates
@@ -118,9 +122,10 @@ same export again refreshes its dates and counts in place rather than
 duplicating anything, and importing a *newer* export adds only what's new. Drop
 your old files back in whenever you like.
 
-**A visit is not a fix.** Fixes in the same cell less than an hour apart count
-once, so an hour of 1 Hz workout recording doesn't drown out everywhere else
-you've been. Coming back the next day counts again.
+**A visit is a stay, not a fix and not an arrival.** Fixes in the same cell go
+on counting as one visit until a whole day passes with none, so an hour of 1 Hz
+workout recording counts once, a morning and an evening in the same place count
+once, and a week living there counts once. Going back next month counts again.
 
 **No files at all?** Turn on editing in the menu and paint cells by hand.
 Ctrl-drag sweeps.

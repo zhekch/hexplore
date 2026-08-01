@@ -36,7 +36,12 @@ export const SOURCE_LABELS = {
   'google-maps': 'Google Maps',
   snapchat: 'Snapchat',
   'apple-photos': 'Apple Photos',
+  'apple-health': 'Apple Health',
   'home-assistant': 'Home Assistant',
+  // The phone reporting its own position, from the iOS app. A kind of source
+  // rather than a particular handset — two phones both say "iPhone", and which
+  // one it was is in the device list on the sync screen.
+  iphone: 'iPhone',
   komoot: 'Komoot',
   strava: 'Strava',
   garmin: 'Garmin',

@@ -143,6 +143,13 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         // of the properties the last one was given.
         pushSafeArea()
 
+        // The app's own uploader has no login of its own and should not: a
+        // second session to keep in step with this one is the bug, not the
+        // feature. So it borrows this one. Here rather than at launch because
+        // this is the moment it changes — you have just signed in — and a copy
+        // taken any earlier is the copy from before you did.
+        Task { await SyncClient.adoptWebViewCookies() }
+
         #if DEBUG
         // What the page ends up with. The chrome's position depends entirely on
         // these reaching it, and a wrong guess about that is invisible from the

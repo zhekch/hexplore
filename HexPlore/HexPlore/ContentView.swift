@@ -1,4 +1,8 @@
+// `Combine` explicitly — this target turns on MemberImportVisibility, so a
+// transitive import does not lend its members, and `onReceive` wants a publisher.
+import Combine
 import SwiftUI
+import UIKit
 
 /// Two tabs.
 ///
@@ -7,13 +11,17 @@ import SwiftUI
 /// have their own login; the phone hosts them rather than replacing them.
 ///
 /// **Settings** is the little this app knows that the site does not: which
-/// server to open, and how to forget it.
+/// server to open, how this phone records where it has been, and how to forget
+/// both. The second of those is not a duplicate of anything on the Map tab — it
+/// is the one setting that *could not* live on the server, because a schedule
+/// stored there cannot wake a sleeping phone.
 ///
 /// The derived data behind all of it — trips, coverage, the calendar — is worked
 /// out once by the server (`server/derive.js`), so this phone and a laptop
 /// cannot disagree about what they show.
 struct ContentView: View {
-    @StateObject private var settings = AppSettings()
+    @StateObject private var settings = AppSettings.shared
+    @StateObject private var tracking = TrackingSettings.shared
 
     var body: some View {
         TabView {
@@ -24,6 +32,15 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
         .environmentObject(settings)
+        .environmentObject(tracking)
+        // Leaving is the best moment there is to push: the queue is as full as
+        // it is going to get, and the app is about to stop being handed any
+        // runtime it did not ask for. The notification rather than `scenePhase`
+        // because the one-argument `onChange` this deployment target still needs
+        // is deprecated, and the two-argument one wants iOS 17.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            Task { await SyncClient.shared.flush(force: true) }
+        }
         // The site is dark — its login card, its menu, and three of its four
         // basemaps. A tab bar following the system into light mode puts a white
         // strip under all of that, which reads as a bar belonging to some other
