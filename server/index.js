@@ -375,6 +375,12 @@ const q = {
   // the Strava poller) and a signature read from the rows cannot be forgotten
   // by any of them. SUM(hits) is here because a re-import changes visit counts
   // in place without touching the row count or any timestamp.
+  // Which sources are on the map and how many cells each accounts for. Part of
+  // what /api/cells *answers*, and invisible to every aggregate below — see
+  // cellsSignature.
+  sourceCounts: db.prepare(
+    'SELECT source, COUNT(*) AS n FROM cell_sources WHERE user_id = ? GROUP BY source ORDER BY source',
+  ),
   cellSignature: db.prepare(`
     SELECT COUNT(*) AS n, COALESCE(MAX(added_at), 0) AS added, COALESCE(MAX(last_at), 0) AS last,
            COALESCE(SUM(hits), 0) AS hits
@@ -1077,7 +1083,31 @@ function derivedSignature(user, home) {
  */
 function cellsSignature(user) {
   const c = q.cellSignature.get(user.id) ?? {};
-  return [c.n, c.added, c.last, c.hits].join(':');
+  return [c.n, c.added, c.last, c.hits, sourceStamp(user)].join(':');
+}
+
+/**
+ * Which sources the map holds, and how many cells each accounts for.
+ *
+ * This is in the signature because the *source* of a cell is part of the answer
+ * `/api/cells` gives — it is what the cell card names and what "Colour by type"
+ * paints — and not one of the four aggregates above can see it move. Renaming a
+ * source deletes a row and writes it back under another name: the count is the
+ * same, the dates are the same, the visit total is the same. So the tag matched,
+ * the server answered 304, and the map went on saying *Unknown* about cells that
+ * had been filed under *Marked by hand* minutes earlier.
+ *
+ * The routes signature learned the same lesson earlier and for the same reason —
+ * a route's title changes without a single cell moving — which is why this is a
+ * hash of a small `GROUP BY` rather than another counter to remember to bump.
+ * `derivedSignature` gets it for free by building on this one, which it needs:
+ * the statistics carry a "where the cells came from" breakdown.
+ */
+function sourceStamp(user) {
+  return createHash('sha1')
+    .update(JSON.stringify(q.sourceCounts.all(user.id)))
+    .digest('base64url')
+    .slice(0, 12);
 }
 
 /** Likewise the routes, which change without the cells moving at all. */
