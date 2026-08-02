@@ -336,6 +336,59 @@ try {
   eq(redo.body.taken, 1, 'so the same workout is taken again rather than recognised');
   eq(redo.body.known, 0, 'with nothing remembered against it');
 
+  // --- The photo library --------------------------------------------------------
+  // The one source that replaces rather than adds, because a library is not a
+  // period of time — it is the whole answer, and a photo deleted from it is a
+  // claim withdrawn.
+  const photoAt = (i, t) => [LAT + i * 0.02, LNG + i * 0.02, t];
+  const firstScan = await api('POST', '/api/device/photos', {
+    device: DEVICE,
+    photos: [photoAt(1, T0), photoAt(2, T0 + DAY), photoAt(3, T0 + 2 * DAY)],
+  });
+  eq(firstScan.status, 200, 'a photo scan is accepted');
+  eq(firstScan.body.photos, 3, 'with every geotagged photo counted');
+  eq(firstScan.body.cells, 3, 'and a cell for each');
+
+  const photoCell = pointsToCells([{ lat: LAT + 3 * 0.02, lng: LNG + 3 * 0.02, t: T0 }])[0].id;
+  check(!!(await rowsFor(photoCell))['apple-photos'], 'the third photo is on the map');
+
+  // Re-scanning the same library must not double anything — the whole reason
+  // this upserts where the logger merges.
+  const again2 = await api('POST', '/api/device/photos', {
+    device: DEVICE,
+    photos: [photoAt(1, T0), photoAt(2, T0 + DAY), photoAt(3, T0 + 2 * DAY)],
+  });
+  eq(again2.body.cells, 3, 'a second scan of the same library is still three cells');
+  eq(again2.body.removed, 0, 'and removes nothing');
+  eq(
+    (await rowsFor(photoCell))['apple-photos']?.fixes,
+    1,
+    'and the fix count is replaced rather than accumulated',
+  );
+
+  // Delete a photo, re-scan: the cell it vouched for goes with it.
+  const shorter = await api('POST', '/api/device/photos', {
+    device: DEVICE,
+    photos: [photoAt(1, T0), photoAt(2, T0 + DAY)],
+  });
+  eq(shorter.body.removed, 1, 'a photo deleted from the library takes its cell back off');
+  eq(
+    Object.keys(await rowsFor(photoCell)).length,
+    0,
+    'and the row is gone rather than merely stale',
+  );
+
+  // An empty library is refused. Permission granted for nothing, a scan that
+  // failed halfway, a phone still indexing — all look like this, and obeying it
+  // would wipe a decade of geotags.
+  const empty = await api('POST', '/api/device/photos', { device: DEVICE, photos: [] });
+  eq(empty.status, 400, 'an empty library is refused rather than obeyed');
+  eq(
+    (await api('GET', '/api/sources')).body.sources.find((s) => s.key === 'apple-photos')?.cells,
+    2,
+    'and the photos already on the map are untouched by it',
+  );
+
   // --- Forgetting it ----------------------------------------------------------
   const forgotten = await api('POST', '/api/device/forget', { id: DEVICE.id });
   eq(forgotten.body.devices.length, 0, 'forgetting a phone drops it from the list');
@@ -348,3 +401,45 @@ try {
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
+
+  // --- Taking a whole source off the map -----------------------------------------
+  const listed = (await api('GET', '/api/sources')).body.sources;
+  check(listed.some((s) => s.key === 'iphone'), 'the source list names the logger');
+  check(listed.some((s) => s.key === 'apple-photos'), 'and the photo library');
+  check(
+    (listed.find((s) => s.key === 'apple-health')?.routes ?? 0) > 0,
+    'and counts the routes a source brought, not only its cells',
+  );
+
+  eq(
+    (await api('POST', '/api/sources/delete', { source: 'nothing-ever-came-from-here' })).status,
+    404,
+    'a source nothing came from is named back rather than cheerfully deleted',
+  );
+
+  const beforeDrop = await rowsFor(CELL);
+  check(!!beforeDrop.iphone, 'the logger has rows before it is removed');
+  const dropped = await api('POST', '/api/sources/delete', { source: 'apple-photos' });
+  eq(dropped.status, 200, 'removing a source is accepted');
+  eq(dropped.body.cells, 2, 'and says how many rows went');
+  eq(
+    (await api('GET', '/api/sources')).body.sources.some((s) => s.key === 'apple-photos'),
+    false,
+    'the source is off the map',
+  );
+  eq(
+    (await rowsFor(CELL)).iphone?.hits,
+    beforeDrop.iphone?.hits,
+    'and every other source kept its own rows',
+  );
+
+  // Removing the logger also rewinds its cursor — otherwise the phone would go
+  // on refusing to re-send everything it still holds. A push first, because the
+  // device row was forgotten just above and the cursor lives on it.
+  await push([at(T0 + 40 * DAY)]);
+  await api('POST', '/api/sources/delete', { source: 'iphone' });
+  eq(
+    (await api('GET', '/api/device')).body.devices[0]?.cursor,
+    0,
+    'removing the logger rewinds the cursor that would have swallowed a re-send',
+  );

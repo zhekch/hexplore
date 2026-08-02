@@ -479,6 +479,21 @@
             </span>
           </button>
 
+          <button type="button" class="sync-option" data-settings="sources">
+            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 7h16" />
+              <path d="M4 12h16" />
+              <path d="M4 17h10" />
+            </svg>
+            <span class="sync-option-text">
+              <b>Sources</b>
+              <small id="settings-sources-note">What is on your map, and what put it there</small>
+            </span>
+            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m9 5 7 7-7 7" />
+            </svg>
+          </button>
+
           <button type="button" class="sync-option" data-settings="backup">
             <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <ellipse cx="12" cy="6" rx="7.5" ry="3" />
@@ -553,6 +568,37 @@
         <div class="modal-actions">
           <button type="button" class="modal-btn" id="personal-back">Back</button>
           <button type="button" class="modal-btn primary" id="personal-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="sources-overlay" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">Sources</div>
+            <div class="modal-sub">Everything that has put something on your map, and how to take one back off.</div>
+          </div>
+          <button class="cell-info-close" id="sources-close" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="ha-scroll">
+          <p class="ha-help">
+            Clearing a cell says <b>I was never here</b>, whoever put it on the map. This says
+            something different: <b>stop trusting this way of finding out</b>. A cell another
+            source also vouches for keeps that claim and stays.
+          </p>
+          <div class="ha-devices-list" id="sources-list"></div>
+          <div class="import-error" id="sources-error" hidden></div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="modal-btn" id="sources-back">Back</button>
+          <button type="button" class="modal-btn primary" id="sources-done">Done</button>
         </div>
       </div>
     </div>

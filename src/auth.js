@@ -157,6 +157,11 @@ export const auth = {
   // not wake one. Forgetting a phone drops its status row and leaves its cells,
   // which came from real fixes.
   getDevices: () => api('GET', '/api/device').then((d) => d.devices ?? []),
+  // Everything that has put something on the map, and taking one back off. The
+  // delete is per *source*, which is a different question from clearing a cell:
+  // a cell another source also vouches for keeps that claim and stays.
+  getSources: () => api('GET', '/api/sources').then((d) => d.sources ?? []),
+  deleteSource: (source) => api('POST', '/api/sources/delete', { source }),
   forgetDevice: (id) => api('POST', '/api/device/forget', { id }).then((d) => d.devices ?? []),
 
   // Timed copies of the whole database, taken by the server. These belong to

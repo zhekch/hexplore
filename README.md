@@ -111,7 +111,7 @@ Menu → **Import & sync**. Five ways in, and you can mix them:
 | **Home Assistant** | Paste your address and a long-lived token, tick the devices to follow, and the server keeps the map current on its own. It reads history your recorder already wrote — it never wakes your phone |
 | **Strava** | One-time sign-in, then your activities come across on a schedule |
 | **Komoot** | Paste a tour link; your browser fetches it |
-| **Your phone** | [Hexplore for iOS](HexPlore/README.md) records where you have been in the background and sends it here, with no other app in the middle. It also brings across the Apple Health workouts that went somewhere — a ride, a walk, a run outdoors — as cells and as saved lines. Set up on the phone; this page shows you whether it is working |
+| **Your phone** | [Hexplore for iOS](HexPlore/README.md) records where you have been in the background and sends it here, with no other app in the middle. It also brings across the Apple Health workouts that went somewhere — a ride, a walk, a run outdoors — as cells and as saved lines, and reads the locations your **photo library** already knows. Set up on the phone; this page shows you whether it is working |
 
 Before anything is saved you get a preview: what each file was recognised as,
 how many fixes it holds, how many cells that is, **how many are new**, the dates
@@ -129,6 +129,12 @@ once, and a week living there counts once. Going back next month counts again.
 
 **No files at all?** Turn on editing in the menu and paint cells by hand.
 Ctrl-drag sweeps.
+
+**Changed your mind about a whole source?** Menu → Export & settings →
+**Sources** lists everything that has put something on your map and takes one
+back off wholesale. That is a different question from clearing a cell: clearing
+says *I was never here*, whoever said otherwise, while this says *stop trusting
+this way of finding out* — so a cell another source also vouches for stays.
 
 ## What you get
 

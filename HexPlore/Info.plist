@@ -33,6 +33,11 @@
 	     Always without saying what it does with it is an app people say no to. -->
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Hexplore fills in your map with the places you go, and can keep doing it while it is in your pocket. Everything it records is sent to the server you run, and nowhere else.</string>
+	<!-- Read-only, and only the metadata: the coordinate a photo carries and the
+	     date it was taken. No image is ever opened, so nothing is downloaded
+	     from iCloud either. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Hexplore reads the location a photo was taken at, so the places you have photographed appear on your map. It never opens the photographs themselves, and no image leaves this phone.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Hexplore reads workouts that recorded a route — a ride, a walk, a run outdoors — and draws them on your map. Workouts with no route are ignored, and nothing is ever written back to Health.</string>
 </dict>

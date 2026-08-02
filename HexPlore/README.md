@@ -517,6 +517,25 @@ and it is the worse answer — a copy of the web app inside the app is a second
 copy that can disagree with the server's, which is the trade this whole project
 exists to refuse.
 
+## Photos
+
+Settings → **Photos** → *Sync photo locations*.
+
+A photo knows where it was taken, so the library is a record of everywhere you
+have been with a camera. **Only the coordinate and the date are read** —
+`PHAsset` carries both as metadata, so no photograph is opened, nothing is
+fetched from iCloud, and no image leaves the phone. Eighty thousand of them read
+in a second or two, because it is a database query rather than a file walk.
+
+Each read **replaces** the last rather than adding to it, which no other source
+here does: a library is the whole answer to "where have I taken a picture", so a
+photo deleted from it is a claim withdrawn. That is also what lets it take over
+cleanly from the old file-derived import, which is now deprecated.
+
+**"Limited" access is called out**, because a library you have picked twenty
+photos from is not a smaller map, it is a wrong one, and nothing else on the
+screen would tell you.
+
 ## What is not here yet
 
 1. **A home-screen presence beyond the icon** — widgets, Live Activities, share
