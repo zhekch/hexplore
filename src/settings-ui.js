@@ -13,8 +13,9 @@
  * @param {object} opts
  * @param {{open:Function, summary:() => string}} opts.personal the Personal dialog
  * @param {{open:Function}} opts.backup the Backups dialog
+ * @param {{open:Function}} opts.sources the Sources dialog
  */
-export function mountSettings({ personal, backup }) {
+export function mountSettings({ personal, backup, sources }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('settings-overlay');
   const backupNote = $('settings-backup-note');
@@ -23,7 +24,7 @@ export function mountSettings({ personal, backup }) {
   // Export is listed and disabled rather than left out. There is nothing behind
   // it yet, and saying so is more honest than a menu that quietly grows an
   // entry later — the row points at where the way out currently is.
-  const targets = { personal, backup };
+  const targets = { personal, backup, sources };
 
   const open = () => {
     // Where home is can be changed from the picker two dialogs down, so the row

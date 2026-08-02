@@ -270,6 +270,8 @@ db.exec(`
     cursor         INTEGER NOT NULL DEFAULT 0,
     last_workout   INTEGER NOT NULL DEFAULT 0,
     total_workouts INTEGER NOT NULL DEFAULT 0,
+    last_photo_scan INTEGER NOT NULL DEFAULT 0,
+    total_photos   INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, device_id)
   );
   -- Which Apple Health workouts have already been folded in.
@@ -307,6 +309,8 @@ for (const [table, column, decl] of [
   ['routes', 'sport_guessed', 'INTEGER NOT NULL DEFAULT 0'],
   ['routes', 'thumb', "TEXT NOT NULL DEFAULT ''"],
   ['routes', 'link', "TEXT NOT NULL DEFAULT ''"],
+  ['device_links', 'last_photo_scan', 'INTEGER NOT NULL DEFAULT 0'],
+  ['device_links', 'total_photos', 'INTEGER NOT NULL DEFAULT 0'],
 ]) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
   if (!cols.some((c) => c.name === column)) {
@@ -644,6 +648,21 @@ const q = {
     ON CONFLICT(user_id, workout_id) DO NOTHING
   `),
   countWorkouts: db.prepare('SELECT COUNT(*) AS n FROM device_workouts WHERE user_id = ?'),
+  rewindDevices: db.prepare('UPDATE device_links SET cursor = 0, total_fixes = 0 WHERE user_id = ?'),
+  sourceCells: db.prepare('SELECT cell_id FROM cell_sources WHERE user_id = ? AND source = ?'),
+  setPhotoScan: db.prepare(`
+    UPDATE device_links SET last_photo_scan = ?, total_photos = ? WHERE user_id = ? AND device_id = ?
+  `),
+  // What is on the map and who put it there. The same tally the statistics panel
+  // shows, asked for directly because removing a source needs the list to be
+  // current rather than as of whenever that panel last ran.
+  sourceTally: db.prepare(`
+    SELECT source, COUNT(*) AS cells, MIN(NULLIF(first_at, 0)) AS first, MAX(last_at) AS last
+    FROM cell_sources WHERE user_id = ? GROUP BY source ORDER BY cells DESC
+  `),
+  sourceRoutes: db.prepare(
+    'SELECT source, COUNT(*) AS n FROM routes WHERE user_id = ? GROUP BY source',
+  ),
   // Undoing a source wholesale. Only ever for Apple Health, and only when asked
   // — see /api/device/health/reset for why a re-read needs the old copy gone
   // rather than merged with.
@@ -1432,6 +1451,11 @@ const HEALTH_SOURCE = 'apple-health';
 // fortnight offline still fits in one push.
 const MAX_FIXES_PER_PUSH = 50000;
 const MAX_WORKOUTS_PER_PUSH = 200;
+const PHOTO_SOURCE = 'apple-photos';
+// A library arrives whole (see /api/device/photos), so this is a ceiling on a
+// decade of photography rather than on a batch: ~6 MB of JSON at three numbers
+// each, well inside BIG_BODY_LIMIT.
+const MAX_PHOTO_FIXES = 200000;
 // Clocks disagree. A fix stamped slightly ahead of ours is ordinary; one stamped
 // next year is a bug or a lie, and it would poison the cell's date range forever.
 const CLOCK_SLACK_SEC = 300;
@@ -1552,6 +1576,40 @@ function healthWorkout(w) {
   };
 }
 
+/**
+ * Take one source off the map entirely: its cells, its routes, and whatever
+ * bookkeeping was keeping track of what it had already sent.
+ *
+ * The last part is why this is a function rather than two DELETEs. A source is
+ * not only rows — some of them have a *memory* somewhere of how far they got,
+ * and leaving that behind turns "remove this and start again" into "remove this
+ * and watch nothing come back". Apple Health remembers workout ids; the phone's
+ * logger remembers a cursor past which it will not re-send; the photo library
+ * remembers nothing, because every sync is the whole library.
+ *
+ * Provenance is per source, so a cell another source also vouches for keeps that
+ * row and stays on the map. Only what this source claimed on its own disappears.
+ */
+function forgetSource(user, source) {
+  const out = tx(() => {
+    const cells = q.delSourceRows.run(user.id, source).changes;
+    const routes = q.delSourceRoutes.run(user.id, source).changes;
+    let workouts = 0;
+    if (source === HEALTH_SOURCE) workouts = q.delWorkouts.run(user.id).changes;
+    return { cells, routes, workouts };
+  });
+  if (source === HEALTH_SOURCE) q.clearWorkoutCount.run(user.id);
+  // The logger's cursor is the seam that stops a re-sent batch counting twice.
+  // Once its cells are gone there is nothing to count twice, and a cursor left
+  // in the future would silently swallow everything the phone still holds.
+  if (source === DEVICE_SOURCE) q.rewindDevices.run(user.id);
+  console.log(
+    `[visited-map] forgot ${source} for user ${user.id}: ${out.cells} cell rows, `
+    + `${out.routes} routes${out.workouts ? `, ${out.workouts} remembered workouts` : ''}`,
+  );
+  return out;
+}
+
 /** What the sync screen shows for one phone. */
 function deviceOut(row) {
   return {
@@ -1566,6 +1624,8 @@ function deviceOut(row) {
     cursor: row.cursor,
     lastWorkout: row.last_workout,
     totalWorkouts: row.total_workouts,
+    lastPhotoScan: row.last_photo_scan,
+    totalPhotos: row.total_photos,
   };
 }
 
@@ -2500,17 +2560,140 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
     if (req.method === 'POST' && pathname === '/api/device/health/reset') {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
-      const out = tx(() => ({
-        cells: q.delSourceRows.run(user.id, HEALTH_SOURCE).changes,
-        routes: q.delSourceRoutes.run(user.id, HEALTH_SOURCE).changes,
-        workouts: q.delWorkouts.run(user.id).changes,
-      }));
-      q.clearWorkoutCount.run(user.id);
-      console.log(
-        `[visited-map] apple-health reset for user ${user.id}: `
-        + `${out.cells} cell rows, ${out.routes} routes, ${out.workouts} remembered workouts`,
-      );
+      const out = forgetSource(user, HEALTH_SOURCE);
       return send(res, 200, { ok: true, ...out });
+    }
+
+    // --- What is on the map, and taking one of them off ----------------------
+    // Every other way of removing something works a cell or a route at a time,
+    // which is right when you disagree with a place and useless when you
+    // disagree with a *method*. Re-importing an export you no longer trust
+    // refreshes its rows and never removes the ones it has stopped claiming, so
+    // until now a source that had once put something on the map could never be
+    // taken back off it.
+    if (req.method === 'GET' && pathname === '/api/sources') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const routes = new Map(q.sourceRoutes.all(user.id).map((r) => [r.source, r.n]));
+      return send(res, 200, {
+        sources: q.sourceTally.all(user.id).map((s) => ({
+          key: s.source,
+          cells: s.cells,
+          routes: routes.get(s.source) ?? 0,
+          firstAt: s.first ?? 0,
+          lastAt: s.last ?? 0,
+        })),
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/api/sources/delete') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const body = await readBody(req);
+      const source = String(body?.source ?? '').trim().slice(0, 40);
+      if (!source) return send(res, 400, { error: 'which source?' });
+      // Named back rather than taken on trust. This deletes by a string the
+      // client chose, and a typo that matches nothing should say so instead of
+      // reporting a cheerful zero.
+      const known = q.sourceTally.all(user.id).some((s) => s.source === source);
+      if (!known) return send(res, 404, { error: 'nothing on the map came from there' });
+      const out = forgetSource(user, source);
+      return send(res, 200, { ok: true, source, ...out, total: cellCount(user) });
+    }
+
+    // Where the photo library says you have been.
+    //
+    // The one connector that **replaces** rather than adds, and the only one for
+    // which that is the honest thing to do. Every other source is a partial
+    // account of a period — a file covers the dates it covers, a poll covers
+    // since it last looked — so folding it in is right and dropping what it no
+    // longer mentions would be wrong. A photo library is not a period. It is the
+    // whole answer to "where have I taken a picture", it is on the phone in its
+    // entirety, and a photo deleted from it is a claim withdrawn.
+    //
+    // So this arrives in one request rather than in batches, which is not a
+    // shortcut: visits are counted across the whole set, so a library split into
+    // ten uploads would be ten independent counts merged into a wrong one, and
+    // there would be no moment at which "what it no longer mentions" was
+    // knowable. 200,000 coordinates is about 6 MB of JSON and roughly a decade
+    // of enthusiastic photography.
+    //
+    // **No photograph is read.** `PHAsset` carries the coordinate and the date
+    // as metadata; the app never opens the image, and nothing but those two
+    // numbers and a timestamp is sent.
+    if (req.method === 'POST' && pathname === '/api/device/photos') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      if (bigRequestsInFlight >= MAX_BIG_REQUESTS) {
+        return send(res, 503, { error: 'Busy importing something else — try again in a moment.' });
+      }
+      bigRequestsInFlight++;
+      try {
+        const body = await readBody(req, BIG_BODY_LIMIT);
+        const device = deviceOf(body);
+        if (!device) return send(res, 400, { error: 'device.id must be 8–64 characters of [A-Za-z0-9._-]' });
+        if (!Array.isArray(body.photos)) return send(res, 400, { error: 'photos must be an array' });
+        if (body.photos.length > MAX_PHOTO_FIXES) return send(res, 400, { error: 'too many photos' });
+
+        const now = nowSec();
+        // `after: 0` — a photo library has no cursor and wants none. The same
+        // sanity checks as a location fix otherwise: the null island, the
+        // impossible coordinate, the clock a year out.
+        const points = deviceFixes(body.photos, { after: 0, now });
+        const cells = points.length ? pointsToCells(points) : [];
+
+        // A library that reads as empty is refused rather than obeyed. Permission
+        // granted for zero photos, a scan that failed halfway, a phone still
+        // indexing after a restore — all arrive here as an empty list, and
+        // treating that as "you have been nowhere" would take a decade of
+        // geotags off the map on the strength of it.
+        if (!cells.length) {
+          return send(res, 400, {
+            error: 'No photos with a location came through, so nothing was changed.',
+          });
+        }
+
+        const keep = new Set(cells.map((c) => c.id));
+        let removed = 0;
+        const before = q.sourceTally.all(user.id).find((s) => s.source === PHOTO_SOURCE)?.cells ?? 0;
+        await chunked(cells, (slice) => {
+          for (const c of slice) {
+            // upsertRow, not mergeRow: this is a re-reading of the same library
+            // rather than a new slice of time, so the counts are replaced the
+            // way re-importing a file replaces them.
+            q.upsertRow.run(user.id, c.id, PHOTO_SOURCE, now, c.first, c.last, c.hits, c.fixes);
+            q.delSourceCell.run(user.id, 'unknown', c.id);
+          }
+        });
+        // And the withdrawal half of "replace": rows this library no longer
+        // accounts for. Scoped to this one source, so a cell some other source
+        // also vouches for stays on the map.
+        const stale = q.sourceCells.all(user.id, PHOTO_SOURCE).filter((r) => !keep.has(r.cell_id));
+        await chunked(stale, (slice) => {
+          for (const r of slice) {
+            q.delSourceCell.run(user.id, PHOTO_SOURCE, r.cell_id);
+            removed++;
+          }
+        });
+
+        q.touchDevice.run(user.id, device.id, device.name, device.platform, now, now);
+        q.setPhotoScan.run(now, points.length, user.id, device.id);
+        console.log(
+          `[visited-map] photos: ${points.length} geotagged → ${cells.length} cells `
+          + `(${removed} no longer claimed) for user ${user.id}`,
+        );
+        return send(res, 200, {
+          ok: true,
+          photos: points.length,
+          skipped: body.photos.length - points.length,
+          cells: cells.length,
+          removed,
+          before,
+          total: cellCount(user),
+        });
+      } finally {
+        bigRequestsInFlight--;
+      }
     }
 
     // Forget a phone. Only the status row goes: the cells it sent came from

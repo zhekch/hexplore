@@ -131,6 +131,15 @@ final class TrackingSettings: ObservableObject {
         }
     }
 
+    /// Whether to read the photo library for the places it has been.
+    @Published var syncPhotos: Bool {
+        didSet {
+            guard syncPhotos != oldValue else { return }
+            defaults.set(syncPhotos, forKey: Keys.syncPhotos)
+            PhotoSync.shared.apply()
+        }
+    }
+
     /// What this phone calls itself on the sync screen.
     ///
     /// Typed rather than read, because since iOS 16 `UIDevice.name` answers
@@ -164,6 +173,8 @@ final class TrackingSettings: ObservableObject {
         var signedOut = false
         var lastWorkoutScan: Date?
         var workoutsSent = 0
+        var lastPhotoScan: Date?
+        var photosSent = 0
     }
 
     private let defaults = UserDefaults.standard
@@ -172,6 +183,7 @@ final class TrackingSettings: ObservableObject {
         static let cadence = "tracking.cadence"
         static let precision = "tracking.precision"
         static let syncWorkouts = "tracking.syncWorkouts"
+        static let syncPhotos = "tracking.syncPhotos"
         static let deviceName = "tracking.deviceName"
         static let deviceId = "tracking.deviceId"
     }
@@ -184,6 +196,7 @@ final class TrackingSettings: ObservableObject {
         cadence = (d.object(forKey: Keys.cadence) as? Int).flatMap(Cadence.init) ?? .off
         precision = (d.object(forKey: Keys.precision) as? Int).flatMap(Precision.init) ?? .normal
         syncWorkouts = d.bool(forKey: Keys.syncWorkouts)
+        syncPhotos = d.bool(forKey: Keys.syncPhotos)
         deviceName = d.string(forKey: Keys.deviceName) ?? UIDevice.current.name
         if let existing = d.string(forKey: Keys.deviceId), !existing.isEmpty {
             deviceId = existing

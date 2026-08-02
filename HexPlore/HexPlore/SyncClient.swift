@@ -147,6 +147,29 @@ final class SyncClient {
         return taken
     }
 
+    /// Send the whole photo library, which is the only way it can be sent: the
+    /// server replaces what it held, and a library split across requests would
+    /// be several independent counts merged into a wrong one with no moment at
+    /// which "what it no longer mentions" was knowable.
+    ///
+    /// 200,000 coordinates is about 6 MB — a decade of enthusiastic photography,
+    /// and a single request.
+    @discardableResult
+    func send(photos: [[Double]]) async throws -> Int {
+        guard !photos.isEmpty else { return 0 }
+        let reply = try await post("/api/device/photos", body: [
+            "device": TrackingSettings.shared.deviceHeader,
+            "photos": photos,
+        ])
+        return (reply["photos"] as? Int) ?? 0
+    }
+
+    /// Take one source off the map entirely — its cells, its routes and whatever
+    /// was remembering how far it had got.
+    func forget(source: String) async throws {
+        _ = try await post("/api/sources/delete", body: ["source": source])
+    }
+
     /// Throw away everything Apple Health has put on the map, both ends of it,
     /// so the next sync reads the whole history again from a clean sheet.
     ///

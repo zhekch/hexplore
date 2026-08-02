@@ -22,6 +22,7 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var tracking: TrackingSettings
     @StateObject private var logger = LocationLogger.shared
+    @StateObject private var photos = PhotoSync.shared
 
     @State private var draft = ""
     @State private var confirmingSignOut = false
@@ -37,6 +38,7 @@ struct SettingsView: View {
                     locationSection
                     if tracking.isTracking { statusSection }
                     healthSection
+                    photosSection
 
                     Section {
                         Button("Reload") { settings.reload() }
@@ -228,6 +230,46 @@ struct SettingsView: View {
             return "Health is not available on this device."
         }
         return "Only workouts that went somewhere. A ride, a walk or a run recorded outdoors carries a route, and becomes cells and a saved line on the map; a gym session, a pool swim and twenty minutes on a rowing machine carry none and are left where they are. Health is only ever read from."
+    }
+
+    // MARK: - Photos
+
+    private var photosSection: some View {
+        Section {
+            Toggle("Sync photo locations", isOn: $tracking.syncPhotos)
+
+            if tracking.syncPhotos {
+                LabeledContent("Last read", value: Self.when(tracking.status.lastPhotoScan))
+                if tracking.status.photosSent > 0 {
+                    LabeledContent("Geotagged", value: "\(tracking.status.photosSent)")
+                }
+                Button(photos.scanning ? "Reading…" : "Read now") {
+                    Task { await PhotoSync.shared.scan() }
+                }
+                .disabled(photos.scanning)
+
+                if photos.isLimited {
+                    Text("Only the photos you picked are readable, so the map will only know about those. Allow access to all photos in Settings to use the whole library.")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                } else if photos.isDenied {
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        Label("Photos are turned off for Hexplore. Open Settings to allow them.",
+                              systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+        } header: {
+            Text("Photos")
+        } footer: {
+            Text("A photo knows where it was taken, so your library is a record of everywhere you have been with a camera. Only the coordinate and the date are read — no photograph is opened, nothing is downloaded from iCloud, and no image ever leaves this phone. Your library is the whole answer, so each read replaces the last rather than adding to it.")
+        }
     }
 
     // MARK: -

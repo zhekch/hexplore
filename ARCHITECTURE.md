@@ -641,6 +641,75 @@ relaunched into the background at 4 a.m. by a location event still has it. Had i
 been a session cookie, background syncing would have quietly never worked — which
 is the sort of thing that looks like a networking bug for a week.
 
+### Photographs
+
+A photo carries the coordinate it was taken at, so a library is a record of
+everywhere you have been with a camera in your hand — which for most people is a
+better account of the last decade than anything they deliberately kept. Getting
+at it used to mean running a command over an export and importing the file that
+produced; the iOS app now reads the library directly, because the library is on
+the phone and there was never a reason to go via a file.
+
+**Nothing but two numbers and a date is read.** `PHAsset` carries `location` and
+`creationDate` as metadata, so the app never opens an image, never asks for image
+data, and never touches iCloud. A library of eighty thousand photographs is read
+in a second or two because it is a database query rather than a file walk.
+
+**It replaces rather than adds, and it is the only source that does.** Every
+other one is a partial account of a period — a file covers the dates it covers, a
+poll covers since it last looked — so folding it in is right and dropping what it
+no longer mentions would be wrong. A library is not a period. It is the whole
+answer to "where have I taken a picture", and a photo deleted from it is a claim
+withdrawn. So `/api/device/photos` upserts every cell the library accounts for
+and deletes the `apple-photos` rows it no longer does, scoped to that one source
+so a cell another source vouches for stays.
+
+That is also why the library arrives in **one request** rather than in batches.
+Visits are counted across the whole set, so ten uploads would be ten independent
+counts merged into a wrong one — and there would be no moment at which "what it
+no longer mentions" was knowable. 200,000 coordinates is about 6 MB.
+
+**An empty library is refused, not obeyed.** Permission granted for no photos, a
+scan that failed halfway, a phone still indexing after a restore: all three
+arrive as an empty list, and taking one at its word would wipe a decade of
+geotags on the strength of it.
+
+**The file import is deprecated.** `apple-photos` is gone from `IMPORT_SOURCES`
+— the only source ever removed from it — because a file relabelled *Apple Photos*
+would be adopted and then silently wiped by the next scan from the phone.
+Detection is left alone, so an old export dropped in still lands under the right
+source for anyone who has not moved over.
+
+### Taking a source back off the map
+
+Clearing a cell says *I was never here*, whoever put it there, and drops every
+source's claim on it. That is the right question to answer when you disagree with
+a **place**, and no use at all when you disagree with a **method** — an export
+you have stopped trusting, a connector you have replaced. Re-importing refreshes
+rows and never removes the ones a source has quietly stopped claiming, so until
+now anything that had once put something on the map could not be taken back off
+it.
+
+Settings → **Sources** lists everything that has, with its cells and its routes,
+and removes one wholesale: `POST /api/sources/delete` → `forgetSource()`. A cell
+another source also vouches for keeps that row and stays on the map, because
+provenance is per source.
+
+`forgetSource` is a function rather than two DELETEs because some sources have a
+**memory** of how far they got, and leaving it behind turns "remove this and
+start again" into "remove this and watch nothing come back":
+
+| | |
+| --- | --- |
+| `apple-health` | the remembered workout ids, and the phone's query anchor |
+| `iphone` | the per-device cursor, which would otherwise swallow everything the phone still holds |
+| `apple-photos` | nothing — every scan is the whole library |
+
+The dialog arms the button before it fires it, rather than raising a
+confirmation: a modal on top of a modal reads as an error message. It also says
+which kind of loss it is — a source that can be read again says so, and one that
+cannot says that instead.
+
 ## Backups
 
 Everything behind the other door pulls data in. This writes it out: on a schedule,

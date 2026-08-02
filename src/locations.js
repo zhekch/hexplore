@@ -62,11 +62,22 @@ export const SOURCE_LABELS = {
 };
 
 // Sources offered in the importer's dropdown when you want to relabel a file.
+//
+// `apple-photos` is deliberately absent, and it is the only source ever removed
+// from this list. Getting a photo library in used to mean running a command over
+// an export and importing what it produced; the iOS app now reads the library
+// directly, and — because a library is the whole answer rather than a slice of
+// one — it *replaces* what that source holds on every scan. A file relabelled
+// "Apple Photos" would therefore be adopted, and then silently wiped by the next
+// scan from the phone. Better not to offer the choice.
+//
+// Detection is left alone below: an old export dropped in still lands under
+// apple-photos rather than as unrecognised JSON, which is the right answer for
+// anyone who has not moved over yet.
 export const IMPORT_SOURCES = [
   'google-timeline',
   'google-maps',
   'snapchat',
-  'apple-photos',
   'komoot',
   'strava',
   'garmin',
