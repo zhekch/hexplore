@@ -25,6 +25,7 @@ struct SettingsView: View {
 
     @State private var draft = ""
     @State private var confirmingSignOut = false
+    @State private var confirmingReread = false
     @State private var syncing = false
 
     var body: some View {
@@ -191,11 +192,34 @@ struct SettingsView: View {
                 if tracking.status.workoutsSent > 0 {
                     LabeledContent("Sent", value: "\(tracking.status.workoutsSent)")
                 }
+                Button("Re-read from the start", role: .destructive) { confirmingReread = true }
+                    .disabled(syncing)
             }
         } header: {
             Text("Apple Health")
         } footer: {
             Text(healthFooter)
+        }
+        .confirmationDialog(
+            "Read Apple Health again?",
+            isPresented: $confirmingReread,
+            titleVisibility: .visible
+        ) {
+            Button("Re-read everything", role: .destructive) {
+                syncing = true
+                Task {
+                    do {
+                        try await SyncClient.shared.resetHealth()
+                        await HealthSync.shared.sync()
+                    } catch {
+                        tracking.status.lastError = error.localizedDescription
+                    }
+                    syncing = false
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Removes the cells and lines Apple Health put on your map and reads every workout again. Anything from your files, Home Assistant, Strava or this phone's own logger is left alone.")
         }
     }
 

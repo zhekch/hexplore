@@ -452,6 +452,29 @@ Health is read from and never written to. The reasoning about ids, anchors and
 the barometer's ascent is in
 [Workouts out of Apple Health](../ARCHITECTURE.md#workouts-out-of-apple-health).
 
+### A route is not one line
+
+A workout's route is one undifferentiated stream of locations however many times
+the recording stopped, so `lines(from:)` cuts it into the parts actually
+recorded. Three constants at the top of `HealthSync.swift` decide where:
+`maxAccuracyM` (100 m — a watch with GPS lock does not produce a 1.5 km fix,
+so one is a glitch), `pauseSec` / `pauseM` (60 s **and** 150 m, because it takes
+both to tell a pause from standing still), and `maxSpeedMS` (30 m/s).
+
+Without them a pause is drawn as a straight line across the gap and counted as
+distance. Apple's Fitness app draws that stretch dotted; this app does not draw
+it at all, which is the same answer in the register the rest of the map uses —
+nothing is inferred, and the ground between two fixes stays a gap.
+
+### Re-reading it
+
+Settings → Apple Health → **Re-read from the start**. Drops the cells and lines
+Health put on the map, forgets which workouts have been seen, clears this
+phone's query anchor, and reads the lot again. It is the only way to correct a
+workout that was stored from a bad reading, because the remembered ids that stop
+a re-send double-counting also stop a correction landing. Files, Home Assistant,
+Strava and this phone's own logger are untouched.
+
 ### The capability, and free provisioning
 
 `HexPlore.entitlements` asks for three keys. Two are the HealthKit capability

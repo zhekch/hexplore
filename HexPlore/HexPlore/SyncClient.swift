@@ -147,6 +147,19 @@ final class SyncClient {
         return taken
     }
 
+    /// Throw away everything Apple Health has put on the map, both ends of it,
+    /// so the next sync reads the whole history again from a clean sheet.
+    ///
+    /// Both ends in one call is the point. Clearing only the server leaves this
+    /// phone's query anchor saying "all caught up" and nothing is ever re-sent;
+    /// clearing only the anchor re-sends workouts the server already knows and
+    /// it answers "known" to every one of them.
+    func resetHealth() async throws {
+        _ = try await post("/api/device/health/reset", body: [:])
+        HealthSync.forgetAnchor()
+        TrackingSettings.shared.status.workoutsSent = 0
+    }
+
     // MARK: - The request itself
 
     @discardableResult
