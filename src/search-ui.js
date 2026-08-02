@@ -13,8 +13,8 @@
 // coordinate anywhere.
 
 import { loadPlaces, searchPlaces } from './places.js';
-import { searchRegions } from './regions.js';
-import { searchCountries, countryIdAt } from './countries.js';
+import { loadRegions, searchRegions } from './regions.js';
+import { loadCountries, searchCountries, countryIdAt } from './countries.js';
 import { dayKey, dayDetail } from './trips.js';
 import { mountCalendar, MONTHS } from './calendar.js';
 import { formatDistance } from './routes.js';
@@ -565,9 +565,13 @@ export function mountSearch({
     if (!items.length) {
       resultsEl.append(
         note(
-          q.length < 2
-            ? 'Keep typing…'
-            : `Nothing matches “${q}”. Try a town, a canton or country, a route name, an activity, or a date like 2024-08-12.`,
+          q.length < 2 ? 'Keep typing…'
+          // Nothing found *yet* is not the same answer as nothing to find, and
+          // the place data is a megabyte that starts arriving on the first
+          // keystroke — long enough for "Nothing matches Bern" to appear and
+          // then be replaced by Bern.
+          : !ready ? 'Looking up places…'
+          : `Nothing matches “${q}”. Try a town, a canton or country, a route name, an activity, or a date like 2024-08-12.`,
         ),
       );
     }
@@ -648,6 +652,42 @@ export function mountSearch({
     }
   }
 
+  // --- The three datasets a typed search needs --------------------------------
+  //
+  // Towns, admin-1 regions and countries: 8.5 MB raw, about 1.7 MB gzipped,
+  // each its own lazy chunk. Started on the **first keystroke** rather than
+  // when the palette opens, because opening it with nothing typed is the trip
+  // list — and the trips are named by the server now, so that view needs none
+  // of them.
+  //
+  // Loading them on open used to be free in the sense that mattered: naming the
+  // trips happened here and had pulled all three in anyway, so the prefetch
+  // only moved the cost earlier. That is no longer true, and it left the panel
+  // spending a couple of megabytes every time it was opened to look at a
+  // holiday.
+  //
+  // All three, not just the places. Region and country search answer `[]` when
+  // their dataset is unloaded rather than loading it themselves, so they were
+  // quietly riding on the naming pass having happened first — searching for a
+  // canton worked, and only because of something else entirely.
+  let gazetteers = null;
+  let ready = false;
+
+  function warmGazetteers() {
+    gazetteers ??= Promise.all([loadPlaces(), loadCountries(), loadRegions()])
+      .then(() => {
+        ready = true;
+        // Whatever was typed while they were on their way has not been searched
+        // against anything yet.
+        if (!overlay.hidden && input.value.trim()) render(input.value);
+      })
+      .catch(() => {
+        // A palette that can still find your routes, your trips and a date is
+        // worth more than one that reports a failure and stops.
+      });
+    return gazetteers;
+  }
+
   function openCalendar(on) {
     calOpen = on;
     calEl.hidden = !on;
@@ -664,11 +704,6 @@ export function mountSearch({
     openCalendar(false);
     render('');
     input.focus();
-    // The place dataset is a lazy 2 MB chunk; kick it off now so the first
-    // keystroke doesn't wait for it.
-    loadPlaces().then(() => {
-      if (!overlay.hidden && input.value.trim()) render(input.value);
-    });
     onOpen?.();
   }
 
@@ -676,7 +711,10 @@ export function mountSearch({
     overlay.hidden = true;
   }
 
-  input.addEventListener('input', () => render(input.value));
+  input.addEventListener('input', () => {
+    warmGazetteers();
+    render(input.value);
+  });
   calBtn.addEventListener('click', () => {
     openCalendar(!calOpen);
     if (!calOpen) render(input.value);

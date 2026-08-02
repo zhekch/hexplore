@@ -258,9 +258,12 @@ It marks a viewport, not an account: nothing about the data differs. What it
 buys is the handful of rules at the end of `src/style.css` — the button cluster
 clearing the tab bar, and the attribution moving out from under the status bar.
 
-**Neither side derives anything.** Trips, coverage and the calendar are worked
-out once by the server (`server/derive.js`), so a phone and a laptop cannot
-disagree about them — see "Derived on the server, once" in ARCHITECTURE.md.
+**Neither side derives anything that needs a gazetteer.** Trips and coverage are
+worked out once by the server (`server/derive.js`) and both clients render what
+they are given, so a phone and a laptop cannot disagree about them — see "Derived
+on the server, once" in ARCHITECTURE.md. What stays client-side is the arithmetic
+that needs no dataset (which days have anything on them, what happened on one),
+over the same server-derived trips.
 
 ### Edge to edge, without losing the buttons
 
@@ -321,13 +324,37 @@ to keep in step with it. Sign out from the Settings tab: there is nothing native
 to end, so it throws away the cookies and stored data the web view keeps, which
 is the same thing.
 
+## Offline
+
+**There is nothing native here, and that is the finding.** The site registers a
+service worker (`public/sw.js`), WebKit has run service workers in a `WKWebView`
+since iOS 14, and `configuration.websiteDataStore = .default()` — set in
+`WebPanel.swift` so the *session* survives a relaunch — is also what persists the
+worker's registration and its Cache Storage. So the app opens with no server, on
+the map you last saw, having written no Swift for it.
+
+What is cached and what is not is decided in one place for every client; see
+**The offline shell** in [ARCHITECTURE.md](../ARCHITECTURE.md). The short version:
+the app shell and the 8.5 MB of town and boundary data are kept indefinitely
+(they are content-hashed, so a hit cannot be wrong), the last answer to each
+`/api/…` read is kept as a fallback, basemap tiles are deliberately not kept, and
+signing out drops the lot.
+
+Offline is **view-only**, and the site already knew how to say so: the "cannot
+reach the server" banner appears and edits queue rather than claiming to have
+saved.
+
+The alternative was to bundle the built site into the IPA. It would have worked
+and it is the worse answer — a copy of the web app inside the app is a second
+copy that can disagree with the server's, which is the trade this whole project
+exists to refuse.
+
 ## What is not here yet
 
 1. **Background location.** The one thing a web app categorically cannot do, and
    the reason for this app to exist beyond convenience. `HexploreCore` already
    holds the lattice and the id format a logger would need.
-2. **Offline.** The web view needs the server; there is no cached shell.
-3. **A home-screen presence beyond the icon** — widgets, Live Activities, share
+2. **A home-screen presence beyond the icon** — widgets, Live Activities, share
    sheet.
 
 ### Why there is a Metal blur in a repo with no native map

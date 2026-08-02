@@ -1796,17 +1796,152 @@ A cache hit never opens the database at all: the handlers pass a `supply`
 callback rather than the data, and a hit never calls it. That is pinned by a
 test which counts the calls.
 
+**Two things the aggregates could not see, and both were wrong.**
+
+*Renaming a route.* The count, the newest `added_at` and the total length are
+all exactly what they were, so nothing in the signature moved — and a day's
+detail went on reporting the old title. `routeEdits` therefore reads the small
+mutable columns (name, place, sport, source, ascent, link) and hashes them. Read
+and hashed rather than summed, because every sum collides on the case that
+matters: two routes swapping names, or a rename to a title of the same length.
+It is one short row per route on a map that has dozens, next to a cells read
+that walks tens of thousands.
+
+*Setting your home.* Home is an **input** to every trip and is not a row at all
+— it lives in the preferences blob. Moving it changes which days count as away
+and therefore which trips exist, while touching nothing any aggregate could
+notice, so the answer you got back was the trips of the home you had *before*,
+and it stayed that way until the next time you imported something. The
+coordinates are in the signature now (the name is not: renaming your home does
+not move it). `derivedFor` takes the signature and the input together, so a
+handler cannot read one with a home the other never saw.
+
 **Preferences stopped being entirely opaque.** The server stored the preferences
 blob and gave it back without reading it. It now reads one key — `home` — because
 a derived home that ignored the answer you gave when the guess was wrong would be
 worse than no derivation, and the alternative (every client sending its own home
 up with each request) is precisely the disagreement this exists to remove.
 
-**The web app has not been switched over.** It still derives in the browser, from
-the same modules, so the two cannot drift — but they are not yet the same
-computation, and until the web app consumes the endpoints there is a second place
-the inputs could differ. Moving it over would also make it faster: the trips list
-currently costs a 2 MB gazetteer download that the server has already paid for.
+### And the web app consumes them
+
+It used to derive its own, from the same modules, so the two could not drift in
+*code* — but they were still two computations over two sets of inputs, and that
+is enough to disagree. `src/derived.js` is now the one door: the Statistics tab
+and the trip list render what `/api/stats` and `/api/trips` return.
+
+What that cost the browser was the gazetteer. Naming a trip wants the towns, the
+regions and the countries; the coverage sweep wants two of the three. So opening
+the search palette — which opens on the trip list — pulled `places.json` down
+(3.0 MB, 1.24 MB gzipped) and swept 25,000 cells on the main thread, to arrive
+at an answer the server had already worked out for the phone. Opening it now
+costs one request.
+
+**`activeDays`, `dayDetail` and `findHome` deliberately stayed in the browser.**
+The rule is not "the server derives everything", it is *the gazetteer lives on
+the server*. Those three are arithmetic over rows the page already holds: which
+days have anything on them, what happened on one of them, and where the cells
+cluster. None of them opens a dataset. Moving them would have bought nothing and
+cost a round trip on every click of a calendar day — and `findHome` in
+particular has to answer before the house can be drawn, which is well before a
+request could come back. The trips they are given now come from the server, so
+their inputs are the server's inputs.
+
+**The palette's own datasets moved to the first keystroke.** Loading them when
+it opened used to be free in the only sense that mattered: naming the trips
+happened there and had pulled all three in anyway, so the prefetch merely moved
+the cost earlier. With the naming gone it was a couple of megabytes spent every
+time the panel was opened to look at a holiday. It also turned up an
+accident — `searchRegions` and `searchCountries` answer `[]` when their dataset
+is unloaded rather than loading it themselves, so searching for a canton had
+been working only because the naming pass happened first. `warmGazetteers()`
+asks for all three, on the first character typed, and the empty state says
+*Looking up places…* rather than *Nothing matches* while they are on their way.
+
+## Asking again, cheaply
+
+Every read that belongs to one account now carries an ETag, and the validator is
+the signature above (`conditional` in `server/index.js`). It is the same fact
+being used twice: two responses with the same signature are the same answer, and
+that is exactly what an ETag asserts.
+
+The one this was written for is `/api/cells`. A real map is 25,000 rows — 1.07 MB
+of JSON, 136 KB gzipped — and it went out in full on every load, every reload and
+every device, under `Cache-Control: no-store`, while changing only when you edit
+or import something. Measured on a 20,000-cell map through the browser's own
+resource timings, a repeat read went from **123,531 bytes to 300**, and 68 ms to
+5. `/api/trips` went from 226,988 to 300.
+
+- **`private, no-cache`, not `no-store`.** No shared cache may keep one account's
+  map, and nothing here may be *used* without asking first — but it must be
+  allowed to be **stored**, because a stored copy is the whole reason the next
+  ask can be answered with 304 instead of a megabyte. `no-store` says the
+  opposite, which is what the API was saying.
+- **The validator is weak (`W/"…"`).** `send` gzips a large body and leaves a
+  small one alone, so one signature can legitimately go out as two different byte
+  strings. `W/` means "the same resource, possibly a different representation",
+  which is precisely true, and `If-None-Match` compares weakly, so it still
+  matches.
+- **The tag holds no comma.** `If-None-Match` is a comma-separated list, so a tag
+  containing one is torn in half on the way back and matches nothing. The home
+  coordinates were written `lng,lat` and every derived read silently stopped
+  revalidating — 200 every time, no error anywhere, the feature simply absent.
+  They are joined with a slash, and `scripts/test/etag.mjs` asserts the absence
+  of a comma along with the behaviour, because the behaviour alone does not say
+  why.
+- **Three signatures, not one.** `/api/cells` is validated on the cell aggregates
+  alone, `/api/routes` on the route ones, and only the derived reads use the
+  whole thing. Sharing one tag would mean re-sending a megabyte of cells to say
+  that a route had been renamed.
+- **A day is part of its own tag.** `/api/day/2024-08-10` and `/api/day/2024-08-11`
+  are two answers about one map, and one validator must not stand for both.
+
+## The offline shell
+
+`public/sw.js`, registered by `src/offline.js` in production builds only.
+
+It is not a generated file and there is no precache manifest: a list of hashed
+filenames baked in at build time is a fourth thing that has to agree with the
+build, and the first one to go stale breaks the app rather than the cache.
+Instead each request is matched by what kind of thing it is, and each kind gets
+the strategy its own headers already claim — `/assets/*` is content-hashed and
+served `immutable`, so cache-first; `/api/*` GETs and navigations are revalidated
+by ETag, so network-first with the cache as the fallback.
+
+What it buys, in order:
+
+- **The geography is downloaded once, ever.** The three datasets are 8.5 MB raw
+  and content-hashed, and the browser's own cache is a best-effort store that a
+  phone evicts often. Held here they survive.
+- **The app opens with no server**, and
+- **it opens on your map**, because the last answer `/api/cells` gave is still
+  there. Verified by killing the server and reloading: 20,385 cell rows and both
+  trips came back, the account stayed signed in, the "cannot reach the server"
+  banner appeared, and a write threw. Reads from the cache, writes not pretended
+  — which is the whole of what view-only offline should mean, and the app already
+  knew how to say it.
+
+Three things it deliberately does not do. **Basemap tiles** are CARTO's,
+OpenFreeMap's and Esri's, and keeping someone else's tiles for offline use is
+their bandwidth and their terms rather than a technical question — so offline you
+get your own cells and routes over an empty background, which is honest about
+what is yours. **Anything but GET**: a cached POST is not a cache, it is a lie
+about a write. **Anything that is not a 200**: a 401 held in a cache is how a
+signed-out session becomes permanent.
+
+Signing out sends the worker a `forget-account` message and it drops the whole
+API cache. The URLs say nothing about whose account they describe, so without
+that the next person to sign in on the device would be shown the last one's map
+for as long as their own request took to arrive.
+
+**iOS gets all of it for nothing.** The Map tab is a `WKWebView` with
+`websiteDataStore = .default()`, and WebKit has supported service workers in a
+web view since iOS 14 — registration and Cache Storage included, persisted by
+that store across launches. So the shell, the gazetteer and the last view of the
+map are cached by the same code that does it in Safari, with nothing native
+written and nothing bundled into the IPA. Bundling the built site into the app
+was the obvious alternative and is the worse one: a copy of the web app inside
+the app is a second copy that can disagree with the server's, which is the trade
+this project keeps refusing.
 
 ## Run & host
 

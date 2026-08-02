@@ -3,14 +3,11 @@
 // list of saved tracks, and the only place to browse them without hunting for
 // their lines on the map. main.js owns both sets and passes them in.
 
-import { computeStats, EARTH_LAND_KM2 } from './stats.js';
+import { EARTH_LAND_KM2 } from './stats.js';
 import { sourceLabel, IMPORT_SOURCES } from './locations.js';
 import { formatDistance, formatDuration, totalLength, thumbSegments, recordedSeconds } from './routes.js';
 import { auth } from './auth.js';
-import { buildTrips, nameTrips } from './trips.js';
-import { loadPlaces, nearestTown, lakeAround } from './places.js';
-import { loadCountries, countryNear } from './countries.js';
-import { loadRegions, regionNear } from './regions.js';
+import { derived } from './derived.js';
 import { isKomootTourUrl } from './komoot.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -40,26 +37,22 @@ const pct = (v) =>
   : '0%';
 
 /**
- * @param {object} opts
- * @param {() => Set<string>} opts.cells    visited cell ids
- * @param {() => Map<string, Array>} opts.meta provenance by cell id
+ * The cells themselves are deliberately not a parameter any more. This dialog
+ * used to be handed the visited set and the provenance map so it could run the
+ * coverage sweep itself; it now reads the answer from the server (src/derived.js),
+ * and asking for inputs it no longer computes from would be an invitation to
+ * start computing again.
+ *
  * @param {() => Array<object>} opts.routes saved routes (newest first)
  * @param {(route:object) => void} opts.onShowRoute  take me to this one
- * @param {() => ({lng:number,lat:number,name:string}|null)} [opts.home] the
- *   home you confirmed, or null to use the one worked out from the cells
- * @param {(home:object|null) => Promise<void>} [opts.onSetHome] change it
  * @param {(route:object, before:object) => void} [opts.onRouteEdited] after a successful
  *   save, with the values it had before it — that's what Undo needs
  * @param {(route:object) => Promise<void>} [opts.onRouteDeleted] remove it everywhere
  * @param {() => string[]} [opts.knownSources] apps already used, for the picker
  */
 export function mountStats({
-  cells,
-  meta,
   routes = () => [],
   onShowRoute,
-  home = () => null,
-  onSetHome,
   onRouteEdited,
   onRouteDeleted,
   knownSources,
@@ -97,7 +90,6 @@ export function mountStats({
   // re-renders it — doesn't close everything you opened.
   const opened = new Set();
   const showingAll = new Set();
-  let lastTrips = null; // the last derivation, so the search palette can reuse it
 
   // "What did I do most recently" and "what was the big one" are both fair
   // questions to open the list with.
@@ -895,51 +887,16 @@ export function mountStats({
     }
   }
 
-  // --- Trips ------------------------------------------------------------------
-  // Derived, not stored (see src/trips.js): the list is worked out from the
-  // dates the cells and routes already carry, every time the tab is opened. It
-  // costs a sweep of the map and buys a view of it organised the way anyone
-  // actually remembers going places.
-  // Town, then region, then country — the three datasets that already ship, each
-  // a lazy chunk. Loaded together because a trip name wants all three: the
-  // region decides which part of the trip the name comes from, and the town and
-  // its population decide what that part is called.
-  async function nameThem(list) {
-    await Promise.all([loadPlaces(), loadCountries(), loadRegions()]);
-    // Naming now asks about every cell of every trip rather than one point per
-    // trip, and neighbouring cells are hundreds of metres apart — so the answers
-    // are kept, keyed to ~1 km. Being a kilometre out cannot change which
-    // country or town a cell belongs to often enough to matter, and where it
-    // could (a cell straddling a border) the region snapping is already
-    // approximate in the same direction.
-    const memo = new Map();
-    const at = (lng, lat) => {
-      const key = `${Math.round(lng * 100)}/${Math.round(lat * 100)}`;
-      let hit = memo.get(key);
-      if (hit) return hit;
-      // countryNear, not countryAt: the outlines are simplified to ~1 km, and a
-      // cell in a lagoon or a fjord that falls outside every polygon has no
-      // region either, so it gets no vote at all — see countryNear.
-      const country = countryNear(lng, lat);
-      const town = nearestTown(lng, lat);
-      const region = country ? regionNear(lng, lat, country.iso) : null;
-      memo.set(key, (hit = {
-        town: town?.name,
-        pop: town?.pop ?? 0,
-        region: region?.name,
-        regionId: region?.id,
-        country: country?.id ?? undefined,
-      }));
-      return hit;
-    };
-    // A trip with no settlement anywhere in it is named after the water it sat
-    // on, when it sat on any — "Lake Baikal" is a place, "Irkutsk Oblast" is a
-    // form to fill in.
-    nameTrips(list, at, (t) => lakeAround(t.bbox));
-  }
+  // --- Trips and coverage ------------------------------------------------------
+  // Both are readings of the rows rather than rows themselves, and both are
+  // read from the server — see src/derived.js. This dialog used to work them
+  // out itself, which meant downloading the towns, the regions and the
+  // countries (about 1.7 MB gzipped) to find out how much of Switzerland you
+  // have walked across.
 
   async function showCells() {
-    // Already worked out for this opening: re-render straight from the numbers.
+    // Already read for this opening: re-render straight from the numbers, which
+    // is what re-sorting the coverage list does.
     if (last) {
       render(last);
       return;
@@ -950,10 +907,7 @@ export function mountStats({
     loading.textContent = 'Crunching your cells…';
     body.append(loading);
     try {
-      // Country boundaries are a lazy chunk and the sweep is ~20k
-      // point-in-country tests; yield first so the dialog paints.
-      await new Promise((r) => setTimeout(r, 30));
-      const s = await computeStats(cells(), meta());
+      const s = await derived.loadStats();
       if (tab === 'cells') render(s);
       else last = s;
     } catch (e) {
@@ -1004,25 +958,22 @@ export function mountStats({
     open,
     close,
     /**
-     * The trips as last derived, or null if the tab has never been opened.
-     * The search palette asks for these rather than deriving its own — one
-     * reading of the data, so a trip has the same name in both places.
+     * The trips as last read, or null if they never have been. The search
+     * palette asks for these rather than deriving its own — one reading of the
+     * data, so a trip has the same name in both places.
      */
-    trips: () => lastTrips,
-    /** Derive them now (for the search palette on a cold start). */
-    async ensureTrips() {
-      if (!lastTrips) {
-        const set = home();
-        const list = buildTrips(meta(), routes(), set ? { home: set } : {});
-        try {
-          await nameThem(list);
-        } catch {
-          for (const t of list) t.name = t.name || 'Somewhere';
-        }
-        lastTrips = list;
-      }
-      return lastTrips;
-    },
+    trips: () => derived.trips(),
+    /**
+     * Read them now (for the search palette on a cold start, and for this
+     * dialog's own Trips tab).
+     *
+     * Asked every time rather than only when nothing is held: a repeat that
+     * nothing has changed under is a 304, so keeping the list current costs
+     * less than the bookkeeping to know when it isn't. It used to be derived
+     * once per page and then kept for good, which meant importing a file left
+     * the trip list showing the map from before it.
+     */
+    ensureTrips: () => derived.loadTrips(),
     // Straight to one route, from the card on the map: open the dialog on the
     // Routes tab with that route already showing.
     openRoute(route) {
