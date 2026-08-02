@@ -3,9 +3,9 @@
 // numbers (it owns the grid state) and hands over a plain object.
 
 import { sourceLabel } from './locations.js';
+import { formatTime } from './clock.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 const monthFmt = new Intl.DateTimeFormat(undefined, { month: 'short' });
 
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
@@ -95,7 +95,7 @@ export function mountCellInfo({ onClose } = {}) {
       row(info.firstAt && info.lastAt && day(info.firstAt) !== day(info.lastAt) ? 'Seen' : 'Seen on', seen);
       // A single fix is worth a clock reading; a multi-year span isn't.
       if (info.firstAt && info.firstAt === info.lastAt) {
-        row('Time', timeFmt.format(new Date(info.firstAt * 1000)));
+        row('Time', formatTime(info.firstAt * 1000));
       }
     }
     // "Added to map" is a fact about the import, not about the place — it says

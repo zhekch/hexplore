@@ -455,16 +455,21 @@ the barometer's ascent is in
 ### A route is not one line
 
 A workout's route is one undifferentiated stream of locations however many times
-the recording stopped, so `lines(from:)` cuts it into the parts actually
-recorded. Three constants at the top of `HealthSync.swift` decide where:
-`maxAccuracyM` (100 m — a watch with GPS lock does not produce a 1.5 km fix,
-so one is a glitch), `pauseSec` / `pauseM` (60 s **and** 150 m, because it takes
-both to tell a pause from standing still), and `maxSpeedMS` (30 m/s).
+the recording stopped, so it has to be cut into the parts actually recorded —
+otherwise a pause is drawn as a straight line across the gap and counted as
+distance. Apple's Fitness app draws that stretch dotted; this map does not draw
+it at all, which is the same answer in the register the rest of it uses.
 
-Without them a pause is drawn as a straight line across the gap and counted as
-distance. Apple's Fitness app draws that stretch dotted; this app does not draw
-it at all, which is the same answer in the register the rest of the map uses —
-nothing is inferred, and the ground between two fixes stays a gap.
+**The cut is not done here.** It needs only latitude, longitude and a clock,
+which every source has, so it lives in `splitOnGaps` in `src/routes.js` and
+applies to a Strava ride and a Komoot tour exactly as much — both had the same
+bug. Doing it on the phone as well would be two definitions of a pause, quietly
+disagreeing.
+
+What `HealthSync` does keep is `maxAccuracyM` (100 m), because accuracy is the
+one thing that cannot travel: it is a property of the fix as CoreLocation hands
+it over, and it is gone by the time the point is a pair of numbers on the wire.
+A watch with GPS lock does not produce a 1.5 km fix, so one is a glitch.
 
 ### Re-reading it
 

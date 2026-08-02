@@ -36,6 +36,7 @@ import { mountColorPicker, hexAlpha, hexOpaque } from './color-picker.js';
 import { terrainStyle, satelliteStyle } from './basemap.js';
 import { mountKomoot } from './komoot-ui.js';
 import { mountDevices, whenAgo } from './device-ui.js';
+import { setClock, clockMode } from './clock.js';
 import { mountStrava } from './strava-ui.js';
 import { mountSync } from './sync-ui.js';
 import { mountSettings } from './settings-ui.js';
@@ -601,6 +602,38 @@ function keepGeolocateOn() {
 // Its own corner, so the attribution can have the top-right one to itself.
 map.addControl(geolocate, 'bottom-right');
 keepGeolocateOn();
+
+// Show the dot without being asked.
+//
+// Pressing the button was the only way to find out where you were, on a map
+// whose entire subject is where you have been — and the answer was one tap away
+// every single time. So the control is triggered once the map is up.
+//
+// It costs nothing this page was not already spending: the startup camera falls
+// back to an *IP-based* guess (see "Startup view"), which is a worse answer to
+// the same question, arrives over the network, and is replaced by this the
+// moment a real fix lands. There is no saved camera to argue with, because
+// REMEMBER_VIEW is off.
+//
+// Two things it deliberately does not do. It does not ask for permission a
+// second time if the browser has already refused — `trigger()` on a denied
+// permission fires `error`, the control puts itself back in its off state, and
+// that is the end of it. And it does not fight you: the first fix moves the
+// camera, but `userInteracted` is set by any pan or zoom before then, and the
+// tracking control drops to background the moment you move the map yourself.
+map.on('load', () => {
+  // A permission already granted resolves without a prompt; one still
+  // undetermined shows the browser's own, which is the same dialog the button
+  // would have raised. On iOS the app has usually settled this at launch
+  // already — see WebViewController.requestLocationIfNeeded.
+  if (!navigator.geolocation) return;
+  try {
+    geolocate.trigger();
+  } catch {
+    // Triggering before the control has finished setting itself up throws
+    // rather than warning. Nothing here is worth an unhandled error at boot.
+  }
+});
 
 // On a phone that corner is where the layers button lives too, and two glass
 // pills stacked a gap apart read as clutter. Below the same breakpoint the
@@ -2239,6 +2272,7 @@ let homeAssistant = null; // set by mountHomeAssistant()
 let colorPicker = null; // set by mountColorPicker()
 let stravaUi = null; // set by mountStrava()
 let deviceUi = null; // set by mountDevices()
+let statsUi = null; // set by mountStats()
 let backupUi = null; // set by mountBackup()
 let selectedRoute = null;
 
@@ -2342,6 +2376,11 @@ const prefsPayload = () => ({
   routeView: routeViewJson(),
   home: homePlace,
   hiddenTrips: [...hiddenTripIds],
+  // Whether a time reads 14:20 or 02:20 PM. In the account rather than in this
+  // browser because it is a fact about you, not about the machine you happen to
+  // be sitting at — picking 24-hour on the laptop should mean the phone agrees
+  // without being told twice.
+  clock: clockMode(),
 });
 
 // Called here rather than beside its own definition: it fills in `hiddenTripIds`
@@ -2356,6 +2395,19 @@ async function setTripHidden(id, hide) {
   else hiddenTripIds.delete(id);
   touchPrefs();
   await pushPrefs();
+}
+
+/**
+ * Rebuild what is on screen after the clock convention changes.
+ *
+ * Nearly every surface that shows a time — the cell card, a route, the sync
+ * dialogs — is built the moment it is opened, so it picks the new setting up on
+ * its own and needs nothing here. The statistics panel is the exception: it can
+ * be standing open with a list of routes in it while you change this, so it is
+ * asked to draw itself again.
+ */
+function redrawClocks() {
+  statsUi?.redraw();
 }
 
 /** Note a local change: stamp it, mirror it locally, and schedule the push. */
@@ -2425,6 +2477,9 @@ function adoptPrefs(prefs) {
   homePlace = h && Number.isFinite(+h.lng) && Number.isFinite(+h.lat)
     ? { lng: +h.lng, lat: +h.lat, name: String(h.name ?? '').slice(0, 80) }
     : null;
+  // Repaint only if the formatters actually changed, since every list that
+  // shows a time has to be rebuilt to pick it up.
+  if (setClock(prefs.clock)) redrawClocks();
   if (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(prefs.accent ?? ''))) {
     accent = String(prefs.accent).toLowerCase();
     colorPicker?.set(accent); // the swatch, and the panel behind it
@@ -5165,6 +5220,13 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onSetHome: () => homeUi.open(homePlace),
     homeShown: () => homeShown,
     onShowHome: (on) => setHomeShown(on),
+    clock: () => clockMode(),
+    onClock: (mode) => {
+      if (!setClock(mode)) return;
+      redrawClocks();
+      touchPrefs();
+      pushPrefs();
+    },
   });
   settings = mountSettings({ personal: personalUi, backup: backupUi });
   document.getElementById('sync-open').addEventListener('click', () => {
@@ -5239,7 +5301,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onClose: () => search.open(),
   });
 
-  const stats = mountStats({
+  const stats = statsUi = mountStats({
     routes: () => listedRoutes(),
     foldedRoutes: () => foldedCount(),
     showFolded: () => showDupes,

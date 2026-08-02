@@ -542,25 +542,74 @@ things that never happened, and both were reported on the same afternoon:
   apart. Apple's own Fitness app draws that stretch **dotted**, which is the
   whole argument in one design decision: it knows it did not record that part.
 
-So `HealthSync.lines(from:)` cuts the stream into the lines actually recorded,
-by three rules that live on the phone because they need what only the phone has:
+**And it was never only Health.** Strava hands back one flat stream of points
+however many times you stopped, and Komoot the same; both were drawn straight
+across too, and nobody had noticed because nobody had looked. The formats that
+arrive as *files* were fine all along, because the file says where the breaks
+are — a GPX puts each in its own `<trkseg>`, TCX has laps, KML has separate
+coordinate blocks.
+
+So the cut lives in **`splitOnGaps` in `src/routes.js`**, called by `buildRoute`
+on every track from every source on the way in, rather than three times in three
+parsers with three sets of numbers:
 
 | | |
 | --- | --- |
-| **Accuracy** | Worse than 100 m and the fix is dropped. The logger has a *setting* for this and this has a constant, and the difference is real — a phone in a pocket genuinely does spend the day on cell-tower fixes, but a watch recording a walk has GPS lock, so a 1,500 m reading in the middle of one is a glitch rather than a coarse answer |
-| **Pause** | A gap of more than 60 s **and** more than 150 m starts a new line. It takes both: thinning already drops the fixes you make standing still, so five minutes outside a café is one long gap between two points six metres apart — and a descent covers 150 m in under ten seconds |
-| **Teleport** | Over 30 m/s between two fixes, whatever the clock says |
+| **Pause** | A gap of more than `TRACK_GAP_SEC` (60 s) **and** more than `TRACK_GAP_M` (150 m) starts a new line |
+| **Teleport** | Over `TRACK_MAX_SPEED_MS` (30 m/s ≈ 108 km/h) between two fixes, whatever the clock says |
 
-A line of fewer than two points is dropped, and that is also what keeps a lone
-bad fix out of the **cells**: `healthWorkout()` takes a workout's points from the
-segments that survive, not from everything that arrived in the request. One
-stale fix is otherwise enough to put a place you have never been on the map.
+**It takes two measurements to call something a pause**, and that is the whole
+subtlety. Time alone would cut a track every time somebody stood still — which
+after thinning is most tracks, since five minutes outside a café is one long gap
+between two points six metres apart. Distance alone would cut one on every
+descent, which covers 150 m in under ten seconds. Only both together mean the
+recorder was not watching for the part in between.
 
-This is the same rule the rest of the map already follows — nothing is inferred,
-and the ground between two fixes is not filled in, guessed at or drawn. It is
-just that for GPX and TCX the file says where the breaks are (`trkseg`s, laps),
-and for Health nothing does, so the parser has to work it out. For Health, the
-parser is the app.
+A run of a single point is dropped, which is what removes the stale fix: it has
+nothing either side of it. That also keeps it out of the **cells**, because
+`healthWorkout()` takes a workout's points from the runs that survive rather than
+from everything that arrived — one bad fix is otherwise enough to put a place you
+have never been on the map.
+
+Cut before simplify, not after: Douglas–Peucker keeps the points furthest from
+everything else, so the two either side of a gap survive while the run they
+belong to may not, and it would in any case be thinning a line that had already
+been joined up. Ascent is measured on the runs too — a pause that ends 300 m up
+a hillside is not 300 m you climbed.
+
+**What stays on the phone is accuracy**, and only that, because it is the one
+thing that cannot travel: `horizontalAccuracy` is a property of the fix as
+CoreLocation hands it over and is gone by the time the point is a pair of numbers
+on the wire. `HealthSync` drops anything worse than 100 m. The logger has a
+*setting* for the same idea and this has a constant, deliberately — a phone in a
+pocket genuinely does spend the day on cell-tower fixes, but a watch recording a
+walk has GPS lock, so a 1,500 m reading in the middle of one is a glitch rather
+than a coarse answer.
+
+All of which is the rule the rest of the map already follows, applied where it
+had not been: nothing is inferred, and the ground between two fixes is not filled
+in, guessed at or drawn.
+
+#### Named after the time of day
+
+A file names its tracks and Komoot and Strava name their activities. Apple Health
+does not — you do not title a run — so the date was the only thing left to call
+one, and a Routes list built from Health read as a column of ISO dates: accurate,
+and no help at all in finding the ride you were looking for.
+
+`trackName` in `src/routes.js` gives "Morning walk", "Evening ride" — what Strava
+and Health itself put at the top of the same screen, and better for the reason it
+is unremarkable: the two things anyone remembers about an outing are roughly when
+in the day it was and what they were doing. The date is still in the row beside
+it and the place name the browser works out later replaces neither. It sits next
+to `SPORT_SYNONYMS` because it needs the same one vocabulary — `sportNoun` turns
+the label back into the noun, since "Cycling" is how the app spells the activity
+and "ride" is what you call the thing you did.
+
+The hour is read in the server's own timezone, which for a self-hosted map is the
+machine in the next room. That is right often enough to be worth having and wrong
+only for a workout recorded abroad, where the cost is a ride at 7 p.m. filed as
+an afternoon one.
 
 #### Reading it again
 
@@ -1959,6 +2008,16 @@ and it stayed that way until the next time you imported something. The
 coordinates are in the signature now (the name is not: renaming your home does
 not move it). `derivedFor` takes the signature and the input together, so a
 handler cannot read one with a home the other never saw.
+
+**One preference is about reading rather than about the map.** Every time on the
+site used to be formatted with `new Intl.DateTimeFormat(undefined, …)`, and
+`undefined` means "whatever locale this browser is set to" — a good default and a
+bad only-option, since a phone set to US English shows a 09:09 walk as "09:09 AM"
+whichever country it is standing in. `src/clock.js` is now the one place that
+decides, the locale is still the default (that is the `auto` setting), and the
+override is stored in the account's preferences rather than in `localStorage`. A
+clock is a fact about *you*, not about the machine you are sitting at, so
+choosing 24-hour on the laptop means the phone agrees without being told twice.
 
 **Preferences stopped being entirely opaque.** The server stored the preferences
 blob and gave it back without reading it. It now reads one key — `home` — because

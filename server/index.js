@@ -88,7 +88,7 @@ import * as strava from './strava.js';
 // so a Strava ride and an imported GPX are keyed and simplified identically.
 // Their *names* are left blank: the place-name dataset is a 2 MB browser chunk,
 // and POST /api/routes/places already exists to fill them in from the page.
-import { buildRoutes, guessSport, canonicalSport, routeThumb } from '../src/routes.js';
+import { buildRoutes, guessSport, canonicalSport, routeThumb, splitOnGaps, trackName } from '../src/routes.js';
 import { isKomootTourUrl } from '../src/komoot.js';
 // Everything above is about getting data *in*. This is the one thing that
 // copies it back out again, on a schedule, without being asked.
@@ -1493,8 +1493,7 @@ function deviceFixes(list, { after, now }) {
 function healthWorkout(w) {
   const id = String(w?.id ?? '').trim().slice(0, 64);
   if (!id) return null;
-  const segments = [];
-  const points = [];
+  const clean = [];
   let budget = MAX_ROUTE_POINTS;
   for (const seg of Array.isArray(w.segments) ? w.segments : []) {
     const line = [];
@@ -1508,29 +1507,39 @@ function healthWorkout(w) {
       line.push({ lng, lat, t });
       if (line.length >= budget) break;
     }
-    // Cells come from the lines that survive, not from everything that arrived.
-    //
-    // They used to be collected as the points were read, which meant a segment
-    // thrown away for being a single point — the app's word for "this fix stood
-    // alone and I do not trust it" — still marked the cell it landed in. One
-    // stale fix from before the watch had a GPS lock is enough to put a place
-    // you have never been on the map, and it is the same bad fix that used to
-    // draw a line across two cantons to reach it.
-    if (line.length < 2) continue;
-    segments.push(line);
-    for (const p of line) points.push({ lat: p.lat, lng: p.lng, t: p.t });
+    if (!line.length) continue;
+    clean.push(line);
     budget -= line.length;
     if (budget <= 0) break;
+  }
+
+  // Cut where the recording stopped, then take the cells from what is left.
+  //
+  // Both halves matter. A Health route is one series across every pause in the
+  // workout, so without the cut a paused ride is drawn — and measured — straight
+  // across the gap. And the cells have to come from the runs that survive rather
+  // than from everything that arrived, because a run of one point is a fix with
+  // nothing either side of it: a stale position from before the watch had a GPS
+  // lock, which is enough on its own to put a place you have never been on the
+  // map. `splitOnGaps` drops those, and this is what makes that count for cells
+  // and not only for the line.
+  const segments = splitOnGaps(clean);
+  const points = [];
+  for (const line of segments) {
+    for (const p of line) points.push({ lat: p.lat, lng: p.lng, t: p.t });
   }
   if (!points.length) return null;
   return {
     id,
     points,
     track: {
-      // Health workouts have no names — you do not title a run — so this is
-      // left blank on purpose and buildRoute falls back to the date, exactly as
-      // it does for an unnamed GPX.
-      name: '',
+      // Health workouts carry no name — you do not title a run — and the date
+      // buildRoute falls back to made a Routes list read as a column of ISO
+      // dates. "Morning walk" is what Health puts at the top of its own screen,
+      // and `trackName` is the one place that decides it. Still blank when the
+      // activity type says nothing, because inventing "Morning other" is worse
+      // than the date.
+      name: trackName(canonicalSport(w.sport), Math.max(0, Math.trunc(+w.start) || 0)),
       segments,
       sport: canonicalSport(w.sport),
       firstAt: Math.max(0, Math.trunc(+w.start) || 0),

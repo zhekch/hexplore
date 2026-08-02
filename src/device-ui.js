@@ -12,8 +12,8 @@
 // indistinguishable from one that stopped a fortnight ago.
 
 import { auth } from './auth.js';
+import { formatTime } from './clock.js';
 
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 const n = (v) => v.toLocaleString();
 // "1 fix" / "90 fixes" / "1 workout". A status line that says "1 workouts" is a
@@ -29,7 +29,7 @@ export function whenAgo(sec) {
   const ms = sec * 1000;
   const ago = Date.now() - ms;
   if (ago < 90 * 1000) return 'just now';
-  if (ago < 22 * 3600 * 1000) return timeFmt.format(new Date(ms));
+  if (ago < 22 * 3600 * 1000) return formatTime(ms);
   return dayFmt.format(new Date(ms));
 }
 

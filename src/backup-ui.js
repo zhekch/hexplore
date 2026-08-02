@@ -13,10 +13,9 @@
 
 import { auth } from './auth.js';
 import { describeCron, isValidCron, nextRun } from './cron.js';
+import { formatTime, formatDayTime } from './clock.js';
 
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
-const dayTimeFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 // Same shape as the Home Assistant dialog's clock, for the same reason: what
 // you want to know is whether it is actually running, not the exact second.
@@ -25,7 +24,7 @@ function when(sec) {
   const ms = sec * 1000;
   const ago = Date.now() - ms;
   if (ago < 90 * 1000) return 'just now';
-  if (ago < 22 * 3600 * 1000) return timeFmt.format(new Date(ms));
+  if (ago < 22 * 3600 * 1000) return formatTime(ms);
   return dayFmt.format(new Date(ms));
 }
 
@@ -39,12 +38,12 @@ function soon(sec) {
   if (inMs < 60 * 1000) return 'in a moment';
   const midnight = new Date();
   midnight.setHours(24, 0, 0, 0);
-  const time = timeFmt.format(at);
+  const time = formatTime(at);
   if (at < midnight) return `today at ${time}`;
   const dayAfter = new Date(midnight);
   dayAfter.setDate(dayAfter.getDate() + 1);
   if (at < dayAfter) return `tomorrow at ${time}`;
-  return dayTimeFmt.format(at);
+  return formatDayTime(at);
 }
 
 // Sizes are in the megabytes-to-gigabytes range and only ever glanced at.
@@ -230,7 +229,7 @@ export function mountBackup({ onClose, onStatus } = {}) {
       row.className = 'backup-file';
       const name = document.createElement('span');
       name.className = 'backup-file-name';
-      name.textContent = dayTimeFmt.format(new Date(f.at * 1000));
+      name.textContent = formatDayTime(f.at * 1000);
       const meta = document.createElement('span');
       meta.className = 'backup-file-size';
       meta.textContent = size(f.size);
