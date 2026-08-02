@@ -527,6 +527,58 @@ browser importer uses.
   activity is spelled — the same door a Komoot "racebike" and a Strava "Ride" go
   through.
 
+#### A route is not one line
+
+A workout's route arrives as a single undifferentiated stream of locations,
+however many times the recording stopped. Taking it at face value drew two
+things that never happened, and both were reported on the same afternoon:
+
+- **A 16.7 km line from Thun across a 1.17 km walk in Gümligen.** One fix from
+  before the watch had a GPS lock — the last place it knew about — with an
+  accuracy in the kilometres. It also dragged the route's start time back with
+  it, because `buildRoute` takes `firstAt` from the earliest point it is given,
+  so a fourteen-minute walk reported thirty-seven.
+- **A straight line across a pause**, joining two ends of a ride ten kilometres
+  apart. Apple's own Fitness app draws that stretch **dotted**, which is the
+  whole argument in one design decision: it knows it did not record that part.
+
+So `HealthSync.lines(from:)` cuts the stream into the lines actually recorded,
+by three rules that live on the phone because they need what only the phone has:
+
+| | |
+| --- | --- |
+| **Accuracy** | Worse than 100 m and the fix is dropped. The logger has a *setting* for this and this has a constant, and the difference is real — a phone in a pocket genuinely does spend the day on cell-tower fixes, but a watch recording a walk has GPS lock, so a 1,500 m reading in the middle of one is a glitch rather than a coarse answer |
+| **Pause** | A gap of more than 60 s **and** more than 150 m starts a new line. It takes both: thinning already drops the fixes you make standing still, so five minutes outside a café is one long gap between two points six metres apart — and a descent covers 150 m in under ten seconds |
+| **Teleport** | Over 30 m/s between two fixes, whatever the clock says |
+
+A line of fewer than two points is dropped, and that is also what keeps a lone
+bad fix out of the **cells**: `healthWorkout()` takes a workout's points from the
+segments that survive, not from everything that arrived in the request. One
+stale fix is otherwise enough to put a place you have never been on the map.
+
+This is the same rule the rest of the map already follows — nothing is inferred,
+and the ground between two fixes is not filled in, guessed at or drawn. It is
+just that for GPX and TCX the file says where the breaks are (`trkseg`s, laps),
+and for Health nothing does, so the parser has to work it out. For Health, the
+parser is the app.
+
+#### Reading it again
+
+`POST /api/device/health/reset` is the one destructive call in the connector, and
+the guards above are what make it necessary. Workout ids are remembered so a
+re-send cannot double-count — which also means a workout stored from a bad
+reading can never be corrected, because the phone offers it and the server
+answers "known". And cells are merged rather than replaced, so re-taking the same
+workouts on top of the old ones would count every visit twice.
+
+It drops the `apple-health` cell rows, the `apple-health` routes and the
+remembered ids. Nothing else: a cell another source also vouches for keeps that
+source's row and stays on the map, because provenance is per source. The phone
+drives it from Settings → Apple Health → *Re-read from the start*, and clears its
+own query anchor in the same breath — clearing only one side leaves either a
+phone that thinks it is caught up or a server that recognises everything it is
+offered.
+
 ### The session it uploads with
 
 There is no native login and there should not be one: a second session to keep in

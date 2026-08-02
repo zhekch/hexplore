@@ -644,6 +644,15 @@ const q = {
     ON CONFLICT(user_id, workout_id) DO NOTHING
   `),
   countWorkouts: db.prepare('SELECT COUNT(*) AS n FROM device_workouts WHERE user_id = ?'),
+  // Undoing a source wholesale. Only ever for Apple Health, and only when asked
+  // — see /api/device/health/reset for why a re-read needs the old copy gone
+  // rather than merged with.
+  delSourceRows: db.prepare('DELETE FROM cell_sources WHERE user_id = ? AND source = ?'),
+  delSourceRoutes: db.prepare('DELETE FROM routes WHERE user_id = ? AND source = ?'),
+  delWorkouts: db.prepare('DELETE FROM device_workouts WHERE user_id = ?'),
+  clearWorkoutCount: db.prepare(
+    'UPDATE device_links SET last_workout = 0, total_workouts = 0 WHERE user_id = ?',
+  ),
 };
 
 // Run `fn` inside one transaction — the bulk import writes thousands of rows
@@ -1486,6 +1495,7 @@ function healthWorkout(w) {
   if (!id) return null;
   const segments = [];
   const points = [];
+  let budget = MAX_ROUTE_POINTS;
   for (const seg of Array.isArray(w.segments) ? w.segments : []) {
     const line = [];
     for (const p of Array.isArray(seg) ? seg : []) {
@@ -1496,11 +1506,21 @@ function healthWorkout(w) {
       if (Math.abs(lng) > 180 || Math.abs(lat) > 90) continue;
       if (lng === 0 && lat === 0) continue;
       line.push({ lng, lat, t });
-      points.push({ lat, lng, t });
-      if (points.length > MAX_ROUTE_POINTS) break;
+      if (line.length >= budget) break;
     }
-    if (line.length >= 2) segments.push(line);
-    if (points.length > MAX_ROUTE_POINTS) break;
+    // Cells come from the lines that survive, not from everything that arrived.
+    //
+    // They used to be collected as the points were read, which meant a segment
+    // thrown away for being a single point — the app's word for "this fix stood
+    // alone and I do not trust it" — still marked the cell it landed in. One
+    // stale fix from before the watch had a GPS lock is enough to put a place
+    // you have never been on the map, and it is the same bad fix that used to
+    // draw a line across two cantons to reach it.
+    if (line.length < 2) continue;
+    segments.push(line);
+    for (const p of line) points.push({ lat: p.lat, lng: p.lng, t: p.t });
+    budget -= line.length;
+    if (budget <= 0) break;
   }
   if (!points.length) return null;
   return {
@@ -2446,6 +2466,42 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       } finally {
         bigRequestsInFlight--;
       }
+    }
+
+    // Throw away everything Apple Health has put here, so it can be read again
+    // from the beginning.
+    //
+    // This is the one destructive call in the connector, and it exists because
+    // of what the other guards make impossible. Workout ids are remembered so a
+    // re-send cannot double-count, which also means a workout stored from a bad
+    // reading can never be corrected — the phone offers it, the server says
+    // "known", and the wrong line stays for ever. And cells are merged rather
+    // than replaced, so re-taking the same workouts on top of the old ones would
+    // count every visit twice.
+    //
+    // So a re-read needs the old copy gone rather than merged with, and that is
+    // exactly what this does: the `apple-health` cells, the `apple-health`
+    // routes, and the memory of which workouts have been seen. Nothing else is
+    // touched — a cell that another source also vouches for keeps that source's
+    // row and stays on the map, because provenance is per source.
+    //
+    // The phone drives it, not the browser: this clears the server's half, and
+    // the phone has to clear its query anchor in the same breath or it would
+    // have nothing to send back.
+    if (req.method === 'POST' && pathname === '/api/device/health/reset') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const out = tx(() => ({
+        cells: q.delSourceRows.run(user.id, HEALTH_SOURCE).changes,
+        routes: q.delSourceRoutes.run(user.id, HEALTH_SOURCE).changes,
+        workouts: q.delWorkouts.run(user.id).changes,
+      }));
+      q.clearWorkoutCount.run(user.id);
+      console.log(
+        `[visited-map] apple-health reset for user ${user.id}: `
+        + `${out.cells} cell rows, ${out.routes} routes, ${out.workouts} remembered workouts`,
+      );
+      return send(res, 200, { ok: true, ...out });
     }
 
     // Forget a phone. Only the status row goes: the cells it sent came from

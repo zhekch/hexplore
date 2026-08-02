@@ -215,6 +215,75 @@ try {
     'so the row count is unchanged',
   );
 
+  // --- A pause is not a straight line -----------------------------------------
+  // The app splits a route wherever the watch stopped recording, so a paused
+  // workout arrives as two segments rather than one. What must not happen is
+  // the gap being measured, drawn or joined up: Apple's own Fitness app draws
+  // that stretch dotted, because it knows it did not record it.
+  const pStart = T0 + 20 * DAY;
+  const leg = (lng0, lat0, t0) =>
+    Array.from({ length: 40 }, (_, i) => [lng0 + i * 0.0003, lat0 + i * 0.0002, t0 + i * 20]);
+  const paused = {
+    id: '11112222-3333-4444-5555-666677778888',
+    sport: 'walking',
+    start: pStart,
+    end: pStart + 5400,
+    // Two legs about 15 km apart, with an hour of nothing in between.
+    segments: [leg(LNG, LAT, pStart), leg(LNG + 0.2, LAT + 0.05, pStart + 4200)],
+  };
+  const wp = await api('POST', '/api/device/workouts', { device: DEVICE, workouts: [paused] });
+  eq(wp.body.taken, 1, 'a paused workout is taken');
+  const pausedRoute = (await api('GET', '/api/routes?geom=1')).body.routes.find(
+    (r) => r.firstAt === pStart,
+  );
+  eq(pausedRoute?.geom?.length, 2, 'and stays two lines rather than becoming one');
+  // Each leg is roughly 1.5 km. Joined, the jump alone would be ~15 km.
+  check(
+    (pausedRoute?.lengthM ?? 0) < 6000,
+    'the gap is not counted as distance walked',
+    `got ${pausedRoute?.lengthM} m`,
+  );
+
+  // --- A fix that stood alone --------------------------------------------------
+  // The app sends a one-point segment when a fix survived the accuracy check but
+  // nothing near it did — a stale position from before the watch got a lock.
+  // There is no line to draw, and there must be no cell either: one bad fix is
+  // enough to put a place you have never been on the map.
+  const strayLat = 46.7580; //   Thun, about 25 km away
+  const strayLng = 7.6280;
+  const strayCell = pointsToCells([{ lat: strayLat, lng: strayLng, t: T0 }])[0].id;
+  const runStart = T0 + 25 * DAY;
+  const ws = await api('POST', '/api/device/workouts', {
+    device: DEVICE,
+    workouts: [{
+      id: '99998888-7777-6666-5555-444433332222',
+      sport: 'running',
+      start: runStart,
+      end: runStart + 800,
+      segments: [
+        // Stamped 23 minutes before the workout began, which is what a fix left
+        // over from wherever the watch last had a lock looks like.
+        [[strayLng, strayLat, runStart - 1400]],
+        leg(LNG, LAT, runStart),
+      ],
+    }],
+  });
+  eq(ws.body.taken, 1, 'a workout with one stray fix in it is still taken');
+  // The only Running among the test's routes; the others are Cycling and Walking.
+  const strayRoute = (await api('GET', '/api/routes?geom=1')).body.routes.find(
+    (r) => r.sport === 'Running',
+  );
+  eq(strayRoute?.geom?.length, 1, 'the lone fix is no part of the line');
+  // The bug this pins: buildRoute takes firstAt as the earliest point it is
+  // given, so a stray fix stamped before the workout began used to drag the
+  // start back with it — a 14-minute walk that reported 37.
+  eq(strayRoute?.firstAt, runStart, 'and does not drag the start time back to when it was taken');
+  eq(
+    Object.keys(await rowsFor(strayCell)).length,
+    0,
+    'and marks no cell — a fix nothing corroborates is not a place anyone went',
+  );
+
   // A workout with nothing to draw. The app filters these out — this is the
   // same rule on the other side of the wire.
   const w3 = await api('POST', '/api/device/workouts', {
@@ -233,12 +302,39 @@ try {
   eq(status.body.devices.length, 1, 'one phone is listed');
   eq(dev?.name, "Zhenya's iPhone", 'under the name it gave');
   eq(dev?.totalFixes, 7, 'with every fix it has ever sent');
-  eq(dev?.totalWorkouts, 1, 'and the workouts it brought');
+  eq(dev?.totalWorkouts, 3, 'and the workouts it brought');
   eq(dev?.cursor, T0 + 3 * DAY + 60, 'and how far it has got');
   check(dev?.firstSeen > 0 && dev?.lastSeen >= dev?.firstSeen, 'and when it started and last spoke');
 
   // A Health-only push must not blank what the logger last reported.
   eq(dev?.lastFixes, 2, 'a workout sync leaves the last location push on the board');
+
+  // --- Reading Health again ----------------------------------------------------
+  // The one destructive call, and the reason it has to exist: remembered ids
+  // mean a workout stored from a bad reading can never be corrected, and merged
+  // cells mean re-taking it on top would count every visit twice. So a re-read
+  // needs the old copy gone. What it must not touch is anybody else's rows.
+  const beforeReset = await rowsFor(CELL);
+  check(!!beforeReset.iphone, 'the logger has rows on this cell before the reset');
+
+  const reset = await api('POST', '/api/device/health/reset');
+  eq(reset.status, 200, 'the reset is accepted');
+  check(reset.body.routes >= 3, 'it drops the Apple Health routes', `got ${reset.body.routes}`);
+  check(reset.body.cells > 0, 'and their cells', `got ${reset.body.cells}`);
+  check(reset.body.workouts >= 3, 'and forgets the workout ids', `got ${reset.body.workouts}`);
+
+  const afterReset = await rowsFor(CELL);
+  eq(afterReset.iphone?.hits, beforeReset.iphone?.hits, 'the logger’s own rows are untouched');
+  eq(
+    (await api('GET', '/api/routes')).body.routes.filter((r) => r.source === 'apple-health').length,
+    0,
+    'and no Apple Health route is left',
+  );
+
+  // Which is the whole point: the same workout can now be taken again.
+  const redo = await api('POST', '/api/device/workouts', { device: DEVICE, workouts: [workout] });
+  eq(redo.body.taken, 1, 'so the same workout is taken again rather than recognised');
+  eq(redo.body.known, 0, 'with nothing remembered against it');
 
   // --- Forgetting it ----------------------------------------------------------
   const forgotten = await api('POST', '/api/device/forget', { id: DEVICE.id });
