@@ -68,7 +68,7 @@
 
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { scrypt as scryptCb, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, scrypt as scryptCb, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { readFile, stat } from 'node:fs/promises';
 import { createReadStream, existsSync, readFileSync } from 'node:fs';
@@ -369,6 +369,23 @@ const q = {
   routeSignature: db.prepare(`
     SELECT COUNT(*) AS n, COALESCE(MAX(added_at), 0) AS added, COALESCE(SUM(length_m), 0) AS len
     FROM routes WHERE user_id = ?
+  `),
+  // The rest of a route — everything you can change without changing any of the
+  // three numbers above. Renaming one, filing it under a different app, setting
+  // its activity or backfilling its place leaves the count, the newest date and
+  // the total length exactly where they were, so an aggregate signature cannot
+  // see the edit at all: the routes list would answer 304 with the old name on
+  // it, and a day's detail would keep reporting one.
+  //
+  // Read and hashed rather than summed, because the sum of anything here
+  // collides on the case that matters — two routes swapping names, a rename to
+  // a title of the same length. It is one small row per route on a map that has
+  // dozens, next to a cells read that walks tens of thousands, so the honest
+  // answer costs less than the shortcut would save. `geom` is deliberately not
+  // in it: it cannot change without changing `key`, which changes the count.
+  routeEdits: db.prepare(`
+    SELECT id, name, place, sport, sport_guessed, source, elev_up, link, LENGTH(thumb) AS thumb
+    FROM routes WHERE user_id = ? ORDER BY id
   `),
   hasCell: db.prepare('SELECT 1 FROM cell_sources WHERE user_id = ? AND cell_id = ? LIMIT 1'),
   // Adding an existing (cell, source) keeps its original added_at — the row is
@@ -920,7 +937,7 @@ const cellCount = (user) => q.countCells.get(user.id)?.n ?? 0;
  * on a cache hit — which is the common case, since the inputs change only when
  * you import something or edit the map.
  */
-function derivedInput(user) {
+function derivedInput(user, home) {
   let held = null;
   return () => {
     if (held) return held;
@@ -947,33 +964,98 @@ function derivedInput(user) {
       }
     }
 
-    // Preferences are otherwise opaque to this server, and one key is now not:
-    // where you told it you live. A derived home that ignored the answer you
-    // gave when the guess was wrong would be worse than no derivation at all,
-    // and the alternative — every client passing its own home up with each
-    // request — is exactly the disagreement this endpoint exists to remove.
-    let home = null;
-    try {
-      const stored = JSON.parse(q.prefs.get(user.id)?.prefs ?? '{}')?.home;
-      if (stored && Number.isFinite(+stored.lng) && Number.isFinite(+stored.lat)) {
-        home = { lng: +stored.lng, lat: +stored.lat, name: String(stored.name ?? '') };
-      }
-    } catch {
-      /* unreadable preferences are the same as unset ones */
-    }
-
     return (held = { cellMeta, cellIds, routes: q.routes.all(user.id).map(routeOut), home });
   };
 }
 
 /**
- * What a cached derivation is keyed on. Two cheap aggregates rather than a
- * counter this file has to remember to bump on all six write paths.
+ * Where this account says it lives, or null for "work it out from the cells".
+ *
+ * Preferences are otherwise opaque to this server, and this one key is not: a
+ * derived home that ignored the answer you gave when the guess was wrong would
+ * be worse than no derivation at all, and the alternative — every client
+ * passing its own home up with each request — is exactly the disagreement these
+ * endpoints exist to remove.
  */
-function derivedSignature(user) {
-  const cells = q.cellSignature.get(user.id) ?? {};
+function storedHome(user) {
+  try {
+    const stored = JSON.parse(q.prefs.get(user.id)?.prefs ?? '{}')?.home;
+    if (stored && Number.isFinite(+stored.lng) && Number.isFinite(+stored.lat)) {
+      return { lng: +stored.lng, lat: +stored.lat, name: String(stored.name ?? '') };
+    }
+  } catch {
+    /* unreadable preferences are the same as unset ones */
+  }
+  return null;
+}
+
+/**
+ * What a cached derivation is keyed on — and, since the answer is the same
+ * whenever the signature is, what its ETag is built from too.
+ *
+ * Aggregates read from the rows rather than a counter this file has to remember
+ * to bump on all six write paths. A counter can be forgotten; `COUNT(*)` cannot.
+ *
+ * Home is in it because home is an *input*, not a row: moving it changes which
+ * days count as away and therefore which trips exist at all, while touching
+ * nothing the aggregates can see. Leaving it out meant setting your home and
+ * being handed back the trips of the old one until the next time you imported
+ * something — quietly, and for as long as that took.
+ *
+ * Only the coordinates, not the name: renaming your home does not move it, and
+ * every trip is measured from where it is.
+ */
+function derivedSignature(user, home) {
   const routes = q.routeSignature.get(user.id) ?? {};
-  return [cells.n, cells.added, cells.last, cells.hits, routes.n, routes.added, routes.len].join(':');
+  const edits = createHash('sha1')
+    .update(JSON.stringify(q.routeEdits.all(user.id)))
+    .digest('base64url')
+    .slice(0, 12);
+  return [
+    cellsSignature(user),
+    routes.n, routes.added, routes.len, edits,
+    // Slash, not comma. This string becomes an ETag, and `If-None-Match` is a
+    // comma-separated list — a coordinate pair written the natural way splits
+    // itself in half on the way back and matches nothing, so every read is a
+    // full one and the caching quietly does nothing at all.
+    home ? `${home.lng}/${home.lat}` : '-',
+  ].join(':');
+}
+
+/**
+ * The cell rows and nothing else — what `/api/cells` is an answer about.
+ *
+ * Split out rather than reusing the whole signature, because the whole
+ * signature moves when a route is renamed and the cells are a megabyte. Sending
+ * that again to say something about a route's title is exactly the waste this
+ * is meant to remove.
+ */
+function cellsSignature(user) {
+  const c = q.cellSignature.get(user.id) ?? {};
+  return [c.n, c.added, c.last, c.hits].join(':');
+}
+
+/** Likewise the routes, which change without the cells moving at all. */
+function routesSignature(user, withGeom) {
+  const r = q.routeSignature.get(user.id) ?? {};
+  const edits = createHash('sha1')
+    .update(JSON.stringify(q.routeEdits.all(user.id)))
+    .digest('base64url')
+    .slice(0, 12);
+  // The list and the list-with-lines are two different bodies at two URLs that
+  // differ only by a query string. Caches key on the whole URL so they cannot
+  // be confused — but a tag that says which one it is costs a character and
+  // removes the question.
+  return [withGeom ? 'g' : 'm', r.n, r.added, r.len, edits].join(':');
+}
+
+/**
+ * The signature and the input side by side, so a handler cannot take one with
+ * a home the other never saw.
+ */
+function derivedFor(user) {
+  const home = storedHome(user);
+  return { signature: derivedSignature(user, home), supply: derivedInput(user, home) };
 }
 
 // --- Routes ------------------------------------------------------------------
@@ -1521,6 +1603,54 @@ function send(res, status, body, headers = {}) {
   res.writeHead(status, head);
   res.end(buf);
 }
+
+/**
+ * A conditional GET for the reads that belong to one account.
+ *
+ * These are the expensive answers. A real map is 25,000 cell rows — 1.1 MB of
+ * JSON, 136 KB gzipped — and it was sent in full on every load, every reload
+ * and every device, while changing only when you edit or import something.
+ * `derivedSignature` already says exactly when that happened, in aggregates no
+ * write path can forget to bump, so it is also the right validator: two
+ * responses with the same signature are the same answer.
+ *
+ * Call it before doing the work. It answers 304 and returns null when the
+ * caller already has this version, and otherwise hands back the headers to pass
+ * to `send`.
+ *
+ *   const head = conditional(req, res, tag);
+ *   if (!head) return;                       // 304, already sent
+ *   return send(res, 200, body, head);
+ *
+ * **The validator is weak**, and that is not a compromise. `send` gzips a large
+ * body and leaves a small one alone, so one signature can legitimately go out
+ * as two different byte strings; `W/` says "the same resource, possibly a
+ * different representation", which is precisely true. `If-None-Match` compares
+ * weakly, so it still matches.
+ *
+ * **`private, no-cache`, not `no-store`.** No shared cache may keep one
+ * account's map, and nothing here may be *used* without asking first — but it
+ * must be allowed to be *stored*, because a stored copy is the entire reason
+ * the next ask can be answered with 304 instead of a megabyte. `no-store` says
+ * the opposite, and that is what the API was sending.
+ */
+function conditional(req, res, tag) {
+  const etag = `W/"${tag}"`;
+  const head = { ETag: etag, 'Cache-Control': 'private, no-cache' };
+  const known = req.headers['if-none-match']?.trim();
+  // A browser sends back exactly what it was given, so try that whole first —
+  // splitting on commas only makes sense for the list a proxy may send, and a
+  // tag that contained one would be torn in half by it. (Ours never do; see
+  // `derivedSignature`. This order means it would not matter if one did.)
+  // `*` means "any version you have", which for a validated read is a match.
+  if (known && (known === etag || known.split(',').some((v) => v.trim() === etag || v.trim() === '*'))) {
+    res.writeHead(304, { ...BASE_SECURITY_HEADERS, ...head });
+    res.end();
+    return null;
+  }
+  return head;
+}
+
 function readBody(req, limit = 8 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -1658,7 +1788,13 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
     if (req.method === 'GET' && pathname === '/api/cells') {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
-      return send(res, 200, userCellRows(user));
+      // Before the signature, not after: the baked-in import writes rows, and a
+      // tag taken ahead of it would describe a map this answer doesn't hold.
+      // It short-circuits on every load but the first, so this costs nothing.
+      mergeBakedImport(user);
+      const head = conditional(req, res, cellsSignature(user));
+      if (!head) return;
+      return send(res, 200, userCellRows(user), head);
     }
 
     // Incremental edits from the map: marking cells adds a 'manual' row,
@@ -1779,8 +1915,10 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
       const withGeom = query.get('geom') === '1';
+      const head = conditional(req, res, routesSignature(user, withGeom));
+      if (!head) return;
       const rows = withGeom ? q.routesGeom.all(user.id) : q.routes.all(user.id);
-      return send(res, 200, { routes: rows.map(routeOut) });
+      return send(res, 200, { routes: rows.map(routeOut) }, head);
     }
 
     // --- Derived, read-only -----------------------------------------------------
@@ -1797,21 +1935,28 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
     if (req.method === 'GET' && pathname === '/api/trips') {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
-      const out = await derive.trips(user.id, derivedSignature(user), derivedInput(user));
-      return send(res, 200, out);
+      const { signature, supply } = derivedFor(user);
+      const head = conditional(req, res, signature);
+      if (!head) return;
+      return send(res, 200, await derive.trips(user.id, signature, supply), head);
     }
 
     if (req.method === 'GET' && pathname === '/api/stats') {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
-      const out = await derive.stats(user.id, derivedSignature(user), derivedInput(user));
-      return send(res, 200, out);
+      const { signature, supply } = derivedFor(user);
+      const head = conditional(req, res, signature);
+      if (!head) return;
+      return send(res, 200, await derive.stats(user.id, signature, supply), head);
     }
 
     if (req.method === 'GET' && pathname === '/api/days') {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
-      return send(res, 200, { days: derive.days(user.id, derivedSignature(user), derivedInput(user)) });
+      const { signature, supply } = derivedFor(user);
+      const head = conditional(req, res, signature);
+      if (!head) return;
+      return send(res, 200, { days: derive.days(user.id, signature, supply) }, head);
     }
 
     if (req.method === 'GET' && pathname.startsWith('/api/day/')) {
@@ -1821,8 +1966,13 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       // The key is a calendar day and nothing else. Checked rather than trusted
       // because it reaches dayBounds, which will happily parse a surprise.
       if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return send(res, 400, { error: 'expected a YYYY-MM-DD day' });
-      const out = await derive.day(user.id, derivedSignature(user), derivedInput(user), key);
-      return send(res, 200, out);
+      const { signature, supply } = derivedFor(user);
+      // The day is part of what this answer is about, so it is part of the tag:
+      // one URL per day, and the same map answering for two of them must not
+      // hand back one validator.
+      const head = conditional(req, res, `${signature}:${key}`);
+      if (!head) return;
+      return send(res, 200, await derive.day(user.id, signature, supply, key), head);
     }
 
     if (req.method === 'POST' && pathname === '/api/routes') {

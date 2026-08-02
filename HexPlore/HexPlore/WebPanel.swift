@@ -48,6 +48,15 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         let configuration = WKWebViewConfiguration()
         // The persistent store, so the session survives the app being closed.
         // Signing in every launch would be its own reason not to use this.
+        //
+        // It buys a second thing that is not obvious from the name. The site
+        // registers a service worker, WebKit has run those in a web view since
+        // iOS 14, and this store is what persists its registration and its
+        // Cache Storage across launches — so the app opens with no server, on
+        // the map you last saw, with nothing native written for it and nothing
+        // bundled into the IPA. Swapping this for `.nonPersistent()` would take
+        // offline away along with the session. See "The offline shell" in
+        // ARCHITECTURE.md.
         configuration.websiteDataStore = .default()
         configuration.allowsInlineMediaPlayback = true
         // How the server tells this app apart from a browser: it lands at the

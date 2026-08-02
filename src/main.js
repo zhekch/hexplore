@@ -24,6 +24,8 @@ import {
   countryGeometry,
 } from './countries.js';
 import { auth, connection, mountAuth } from './auth.js';
+import { derived } from './derived.js';
+import { installOffline, forgetAccountOffline } from './offline.js';
 import { mountCellInfo } from './cell-info.js';
 import { mountRouteInfo } from './route-info.js';
 import { mountImport } from './import.js';
@@ -5238,8 +5240,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   });
 
   const stats = mountStats({
-    cells: () => visited,
-    meta: () => cellMeta,
     routes: () => listedRoutes(),
     foldedRoutes: () => foldedCount(),
     showFolded: () => showDupes,
@@ -5249,7 +5249,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       syncRoutes();
       updateRoutesUi();
     },
-    home: () => homePlace,
     // Picking a route in the list opens it in the dialog; "Show on map" is the
     // one that closes the panel, switches the layer on and flies there.
     onShowRoute: async (route) => {
@@ -5455,6 +5454,11 @@ mountAuth({
     // Undo history belongs to the account that just left too, and every entry
     // in it is an instruction to change *their* map.
     history.clear();
+    // The server's readings of their map — their trips, their coverage.
+    derived.clear();
+    // …and the copies the service worker keeps of the same answers, which are
+    // filed under URLs that say nothing about whose account they describe.
+    forgetAccountOffline();
     // These belong to the account that just left, not to this browser.
     hiddenSports = new Set();
     sportColors = new Map();
@@ -5496,3 +5500,7 @@ mountAuth({
     updateHud(currentLevel);
   },
 });
+
+// The offline shell. Last, and after the page has finished loading, because
+// everything above is what someone is waiting to look at — see src/offline.js.
+installOffline();

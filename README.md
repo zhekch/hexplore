@@ -228,6 +228,18 @@ line underneath always says what it means in English. Every copy can be
 downloaded, because a backup that never leaves the machine isn't one. They
 belong to the account that made the map.
 
+**Works with the server off.** A production build installs a small service
+worker, so after you have opened the map once it keeps the app itself, the town
+and boundary data, and the last answer the server gave about your map. Open it
+on a plane and you get your cells, your routes and your trips, with a banner
+saying the server can't be reached — reads come back, edits don't pretend to
+save. Basemap tiles aren't kept (they're someone else's to serve), so offline
+your map sits on an empty background. Signing out throws the whole cached copy
+away.
+
+The iOS app gets this for free: its Map tab is the same site in a web view, and
+web views have run service workers since iOS 14.
+
 **Zooming out** goes from hexagons to shapes you recognise: at about z5 the grid
 gives way to **regions** — cantons, states, départements — and one step further
 out to whole countries. *Detail* pins any of those: the finest grid, Region, or
@@ -282,7 +294,9 @@ npm test
 Covers the parts where being wrong is quiet: the hex maths, visit counting,
 activity guessing, the route API, preference syncing, the backup scheduler and
 its skip logic, undo's restore path, trip derivation and naming, search, colour
-parsing, and the coverage arithmetic.
+parsing, the coverage arithmetic, and the request caching — including the two
+ways a cache can lie, by answering "nothing changed" when something did and by
+never saying it when nothing has.
 
 ## Keeping it yours
 
