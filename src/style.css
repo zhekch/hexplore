@@ -1808,11 +1808,29 @@ body {
   cursor: pointer;
 }
 
+/* `flex: 1` so anything *after* the text is pushed to the far edge rather than
+   sitting against it. It made no difference for the two dialogs this row was
+   written for — a Home Assistant device is a checkbox and a label, and the label
+   is the last thing in the row — and it is the whole layout for the ones that
+   end in a button: without it a column of Remove buttons follows the ragged
+   right edge of the names beside them. `min-width: 0` is what lets the ellipsis
+   below actually happen, since a flex item will not shrink past its content
+   otherwise. */
 .ha-device span {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+}
+
+/* An action at the end of the row. Never shrinks — a "Remove" clipped to
+   "Remov" is worse than a name that ellipsises, and the name is the part with
+   somewhere to go. */
+.ha-device .modal-btn {
+  flex: none;
+  padding: 6px 13px;
+  font-size: 12px;
 }
 
 .ha-device b {
@@ -1838,6 +1856,22 @@ body {
   font-size: 11px;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.45);
+}
+
+/* The relabel control, which opens under the row it belongs to rather than
+   inside it: a select and a button squeezed in beside two other buttons is a
+   row nobody can hit on a phone. */
+.source-relabel {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 0 2px;
+}
+
+.source-relabel select {
+  flex: 1;
+  min-width: 0;
 }
 
 .ha-status {

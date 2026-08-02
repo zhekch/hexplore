@@ -114,15 +114,25 @@ const SERVE_STATIC = existsSync(DIST);
 const SESSION_MAX_AGE = 60 * 60 * 24 * 90;
 const MIN_PASSWORD_LEN = Number(process.env.MIN_PASSWORD_LEN) || 10;
 
-// Registration used to be open to anyone who found the address, which on a
-// public host is how a stranger gets an account — and with it the importer, the
-// Home Assistant connector and everything else behind the session check.
+// Registration is open, and closing it is a choice you make rather than the
+// default.
 //
-// The default is now "open until somebody has signed up, then closed": a fresh
-// install still lets you make your account without any configuration, and the
-// moment it exists the door shuts. ALLOW_REGISTRATION=1 reopens it, or set
-// REGISTRATION_CODE to keep it open behind an invite code.
-const ALLOW_REGISTRATION = process.env.ALLOW_REGISTRATION === '1' || process.env.ALLOW_REGISTRATION === 'true';
+// It was the other way round — open until somebody signed up, then shut — on the
+// argument that a session is what stands between a stranger and the importer,
+// the saved routes and the Home Assistant connector. That argument is still
+// true, and it is worth reading before leaving this alone on a host anyone can
+// reach: an account is not access to *your* map, since every row is per account,
+// but it is a share of your disk and your server's outbound reach.
+//
+// What it weighs against is that a map like this is worth having more than one
+// person on, and "make an account" failing with a 403 for everybody but the
+// first is a bad first impression that has to be debugged from the server side.
+// Registration stays rate limited either way — five an hour per address.
+//
+// ALLOW_REGISTRATION=0 restores the old behaviour: the first account can always
+// be made, and the door shuts behind it. REGISTRATION_CODE=… is the middle
+// ground, open to anyone holding an invite code.
+const ALLOW_REGISTRATION = !/^(0|false|no|off)$/i.test(String(process.env.ALLOW_REGISTRATION ?? ''));
 const REGISTRATION_CODE = process.env.REGISTRATION_CODE || '';
 
 function registrationRefusal() {
@@ -650,6 +660,13 @@ const q = {
   countWorkouts: db.prepare('SELECT COUNT(*) AS n FROM device_workouts WHERE user_id = ?'),
   rewindDevices: db.prepare('UPDATE device_links SET cursor = 0, total_fixes = 0 WHERE user_id = ?'),
   sourceCells: db.prepare('SELECT cell_id FROM cell_sources WHERE user_id = ? AND source = ?'),
+  hasSourceCell: db.prepare(
+    'SELECT 1 FROM cell_sources WHERE user_id = ? AND source = ? AND cell_id = ? LIMIT 1',
+  ),
+  sourceRowsFull: db.prepare(
+    'SELECT cell_id, added_at, first_at, last_at, hits, fixes FROM cell_sources WHERE user_id = ? AND source = ?',
+  ),
+  renameRoutes: db.prepare('UPDATE routes SET source = ? WHERE user_id = ? AND source = ?'),
   setPhotoScan: db.prepare(`
     UPDATE device_links SET last_photo_scan = ?, total_photos = ? WHERE user_id = ? AND device_id = ?
   `),
@@ -2584,6 +2601,57 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
           lastAt: s.last ?? 0,
         })),
       });
+    }
+
+    // Filing what is already on the map under a different name.
+    //
+    // The case it exists for is `unknown`, which is not really a source at all:
+    // it is the placeholder the pre-provenance migration left on every cell that
+    // predates the map knowing where anything came from. The intended way out is
+    // for a real import to cover those cells and take their place — every import
+    // path deletes the `unknown` row for a cell it claims — but that only ever
+    // reaches the cells some export still remembers. Whatever is left was
+    // genuinely put there by hand, and had no way of ever saying so.
+    //
+    // A rename is not an UPDATE, because (user, cell, source) is a primary key
+    // and a cell may already hold both names. So each row is merged into the
+    // target with the same arithmetic a poll uses — the span widens, the counts
+    // add up — rather than colliding with it or quietly overwriting it.
+    if (req.method === 'POST' && pathname === '/api/sources/rename') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const body = await readBody(req);
+      const from = String(body?.from ?? '').trim().slice(0, 40);
+      const to = String(body?.to ?? '').trim().slice(0, 40);
+      if (!from || !to) return send(res, 400, { error: 'from and to are both needed' });
+      if (from === to) return send(res, 400, { error: 'that is already what it is called' });
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(to)) return send(res, 400, { error: 'that is not a source name' });
+      const rows = q.sourceRowsFull.all(user.id, from);
+      if (!rows.length) return send(res, 404, { error: 'nothing on the map came from there' });
+
+      let merged = 0;
+      await chunked(rows, (slice) => {
+        for (const r of slice) {
+          // Delete first: the merge below would otherwise be inserting a row
+          // that already exists under the old name, and the old one has to go
+          // whether or not the target was already there.
+          q.delSourceCell.run(user.id, from, r.cell_id);
+          if (q.hasSourceCell.get(user.id, to, r.cell_id)) merged++;
+          q.mergeRow.run(
+            user.id, r.cell_id, to, r.added_at,
+            r.first_at, r.last_at, r.hits, r.fixes, VISIT_GAP_SEC,
+          );
+        }
+      });
+      // Routes carry a source too, and a rename that left them behind would
+      // split one name across two. No collision to worry about: a route's key is
+      // a hash of its geometry, which has nothing to do with what filed it.
+      const routes = q.renameRoutes.run(to, user.id, from).changes;
+      console.log(
+        `[visited-map] renamed ${from} → ${to} for user ${user.id}: `
+        + `${rows.length} cell rows (${merged} merged into existing), ${routes} routes`,
+      );
+      return send(res, 200, { ok: true, from, to, cells: rows.length, merged, routes });
     }
 
     if (req.method === 'POST' && pathname === '/api/sources/delete') {

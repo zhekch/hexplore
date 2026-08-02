@@ -162,6 +162,9 @@ export const auth = {
   // a cell another source also vouches for keeps that claim and stays.
   getSources: () => api('GET', '/api/sources').then((d) => d.sources ?? []),
   deleteSource: (source) => api('POST', '/api/sources/delete', { source }),
+  // File what is already on the map under a different name. Written for
+  // `unknown`, the placeholder every pre-provenance cell carries.
+  renameSource: (from, to) => api('POST', '/api/sources/rename', { from, to }),
   forgetDevice: (id) => api('POST', '/api/device/forget', { id }).then((d) => d.devices ?? []),
 
   // Timed copies of the whole database, taken by the server. These belong to
