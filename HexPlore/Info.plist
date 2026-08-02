@@ -2,9 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Everything else in Info.plist is generated from build settings
-	     (GENERATE_INFOPLIST_FILE). This file exists for the one key that cannot
-	     be expressed as a build setting, because it is a nested dictionary. -->
+	<!-- The rest of Info.plist is generated from build settings
+	     (GENERATE_INFOPLIST_FILE). What lives here is the structured keys, which
+	     cannot be build settings at all, and the prose ones, which can but are
+	     unreadable when they are: an INFOPLIST_KEY_… line in the project file is
+	     a sentence nobody will ever find again. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Not NSAllowsArbitraryLoads. This permits plain http only to local
@@ -15,9 +17,23 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Recording while the app is not on screen. Without `location` here,
+	     `allowsBackgroundLocationUpdates = true` does not fail politely — it
+	     raises, at the moment tracking is switched on. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Hexplore connects to the server you run on your own network.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Hexplore uses your location to show where you are on the map.</string>
+	<!-- Both keys, and both needed: iOS shows the When In Use text for the first
+	     prompt and this one for the escalation to Always. An app that asks for
+	     Always without saying what it does with it is an app people say no to. -->
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Hexplore fills in your map with the places you go, and can keep doing it while it is in your pocket. Everything it records is sent to the server you run, and nowhere else.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Hexplore reads workouts that recorded a route — a ride, a walk, a run outdoors — and draws them on your map. Workouts with no route are ignored, and nothing is ever written back to Health.</string>
 </dict>
 </plist>

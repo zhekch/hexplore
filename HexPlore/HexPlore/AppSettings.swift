@@ -10,8 +10,19 @@ import WebKit
 /// reload it. Everything else — who you are, what your map looks like, what you
 /// have imported — belongs to the site and is stored on the server, where both
 /// this and a laptop can see it.
+///
+/// The one exception is how this phone records its own position, which is next
+/// door in ``TrackingSettings`` and is there for a reason a server cannot fix:
+/// a schedule stored remotely could not wake a sleeping phone.
+///
+/// A singleton because the uploader needs the server address at moments when
+/// there is no view hierarchy to read it from — iOS relaunches this app into the
+/// background for a location event, and `ContentView` has not been built and
+/// will not be.
 @MainActor
 final class AppSettings: ObservableObject {
+
+    static let shared = AppSettings()
 
     /// The address you open Hexplore at.
     ///
@@ -35,7 +46,7 @@ final class AppSettings: ObservableObject {
         static let serverURL = "serverURL"
     }
 
-    init() {
+    private init() {
         serverURL = UserDefaults.standard.string(forKey: Keys.serverURL) ?? ""
     }
 
@@ -61,11 +72,23 @@ final class AppSettings: ObservableObject {
     /// away the cookies and storage the web view keeps, which is the same thing
     /// as signing out and is the only account action this app is in a position
     /// to offer.
+    ///
+    /// It throws away three more things than it used to, and all three exist
+    /// because the app now talks to the server itself. A borrowed copy of the
+    /// session cookie left in `HTTPCookieStorage` would mean a signed-out phone
+    /// that went on uploading; queued fixes would land in whichever account
+    /// signed in next; and Health's query anchor would hand that account this
+    /// one's place in the workout history. Signing out has to mean all of that
+    /// or it means nothing.
     func signOut() async {
         let store = WKWebsiteDataStore.default()
         let types = WKWebsiteDataStore.allWebsiteDataTypes()
         let records = await store.dataRecords(ofTypes: types)
         await store.removeData(ofTypes: types, for: records)
+        SyncClient.forgetSession()
+        FixQueue.shared.clear()
+        HealthSync.forgetAnchor()
+        TrackingSettings.shared.status = TrackingSettings.SyncStatus()
         reloadToken += 1
     }
 }

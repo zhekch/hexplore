@@ -302,6 +302,7 @@ opposed to files you export by hand:
 | **Home Assistant** | Followed on a schedule by the server, so the map keeps filling in on its own |
 | **Komoot** | One tour at a time, from a share link, fetched by your browser |
 | **Strava** | Your activities, brought across on a schedule after a one-time sign-in |
+| **Your phone** | The iOS app recording where it has been, and the workouts in Apple Health that went somewhere |
 
 ### Strava
 
@@ -447,6 +448,97 @@ the dialog shows an empty field for a connection that already has one.
 Disconnecting throws the token away and leaves the cells it brought in, since
 those came from real fixes. Setting `COOKIE_SECURE=1` and putting the whole
 thing behind HTTPS/Tailscale is the sane way to host this.
+
+### The phone itself
+
+Home Assistant is an address the server can go and read. A phone is not one: it
+moves, it sleeps, and it is behind whatever network it happens to be on. So this
+is the one connector that **pushes** — the iOS app records where it has been and
+posts batches when iOS grants it a moment of runtime.
+
+It is also the only source that needs no other app in the middle. Home Assistant
+exists in that story as a place your phone already reports to; here the phone
+reports to the map directly, and the answer to "how do I get my location history
+in" stops being "first, install a home automation platform".
+
+Everything past the front door is deliberately identical to a Home Assistant
+poll: plain `{lat, lng, t}` fixes, folded by the same `pointsToCells()`, merged
+with the same `mergeRow` seam arithmetic. A cell does not care which of them put
+it there and a visit means the same thing either way — see
+[Visits, not fixes](#visits-not-fixes). What differs is only who moves first.
+
+- **Two settings live on the phone, and both for the same reason: it is the only
+  side that knows the answer.** *How often to record* could not be a server
+  setting, because a schedule stored here cannot wake a sleeping phone — the
+  timer runs there or it does not run. *Which fixes are too vague to trust* is a
+  property of the fix as CoreLocation hands it over and is gone by the time it is
+  a pair of numbers; Home Assistant needs a server-side threshold only because
+  the server is the thing doing the reading.
+- **Sending the same batch twice is the normal case, not the pathological one.**
+  A push has a failure the pollers cannot have: the app does not know whether it
+  landed. A 200 lost on the way back is indistinguishable from a timeout, and the
+  queue is retried. So `device_links.cursor` records the newest fix each phone has
+  sent and anything at or before it is dropped — which makes a retry a no-op
+  without the app having to reason about it. It is safe because the queue is
+  FIFO: fixes leave the phone oldest first, so "already seen" and "older than the
+  cursor" are the same set.
+- **Nothing is inferred, exactly as for Home Assistant.** Two fixes an hour apart
+  leave a gap and the gap stays. A sparse day looks sparse.
+- **The status row is the point of the web dialog.** There is nothing to
+  configure from a browser, and Sync → *Your phone* exists anyway, because a
+  logger whose output you cannot see is indistinguishable from one that stopped a
+  fortnight ago. Forgetting a phone drops that row and leaves its cells, which
+  came from real fixes.
+
+Cells arrive under the source **`iphone`**, which is a *kind* of source rather
+than a particular handset — two phones both say "iPhone", and which one it was is
+in the device list. That matches how every other source works and is the reason
+`device_links` is a separate table from `cell_sources` rather than a column on it.
+
+### Workouts out of Apple Health
+
+Health is where everything ends up. A ride recorded on a Watch, a walk from
+Fitness+, a run from a third-party app that also writes there — they are all
+already on the phone, already finished, already carrying their route. Fetching
+them through somebody's API would be a round trip to collect what is in the next
+process along.
+
+They land as source **`apple-health`**, and like a Strava activity each one is
+both a set of cells and a saved route, built with the same `buildRoutes()` the
+browser importer uses.
+
+- **Only the ones with geography.** Most workouts are not places: a gym session,
+  a pool swim, twenty minutes on a rowing machine. The filter is not a heuristic
+  about the activity type — it is whether the workout carries an
+  `HKWorkoutRoute`, which is Health's own answer to the same question and is
+  right about the cases a type list gets wrong. An indoor cycle has no route; an
+  open-water swim does.
+- **The ids are remembered, not a cursor.** A workout's cells are *added* to
+  what is already there, so taking one twice is a place visited twice. Strava can
+  lean on a monotonic cursor for this and Health cannot: it hands back an edited
+  old workout as readily as a new one, and the app's query anchor is lost on
+  reinstall. `device_workouts` holds the `HKWorkout.uuid`s instead, which is what
+  makes a first sync of eight years of rides safe to give up halfway through.
+- **The barometer's ascent is kept.** `HKMetadataKeyElevationAscended` is a
+  better number than anything derivable from GPS altitude. When Health does not
+  offer one, `buildRoute` works it out from the line like every other source.
+- **The activity name is sent as a lower-case synonym**, not a finished label, so
+  `canonicalSport` in `src/routes.js` stays the single place that decides how an
+  activity is spelled — the same door a Komoot "racebike" and a Strava "Ride" go
+  through.
+
+### The session it uploads with
+
+There is no native login and there should not be one: a second session to keep in
+step with the first is the bug, not the feature. The app borrows the web view's —
+after every page load it copies the site's cookies into `HTTPCookieStorage`,
+which is the jar `URLSession` reaches for unasked.
+
+That this survives a relaunch is a property of the *server*: `sessionCookie()`
+sets `Max-Age`, so `sid` is a dated cookie rather than a session one, and a phone
+relaunched into the background at 4 a.m. by a location event still has it. Had it
+been a session cookie, background syncing would have quietly never worked — which
+is the sort of thing that looks like a networking bug for a week.
 
 ## Backups
 

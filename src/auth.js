@@ -152,6 +152,13 @@ export const auth = {
   syncStrava: () => api('POST', '/api/strava/sync'),
   deleteStravaLink: () => api('POST', '/api/strava/delete'),
 
+  // Phones reporting their own position. There is nothing to save from here:
+  // the settings are on the phone, because a schedule kept on the server could
+  // not wake one. Forgetting a phone drops its status row and leaves its cells,
+  // which came from real fixes.
+  getDevices: () => api('GET', '/api/device').then((d) => d.devices ?? []),
+  forgetDevice: (id) => api('POST', '/api/device/forget', { id }).then((d) => d.devices ?? []),
+
   // Timed copies of the whole database, taken by the server. These belong to
   // the account that made the map — every other account gets 403 — because a
   // backup file holds everyone's cells and the Home Assistant token with them.

@@ -248,6 +248,43 @@ db.exec(`
     fails         INTEGER NOT NULL DEFAULT 0,
     state         TEXT NOT NULL DEFAULT ''    -- one-shot CSRF token for a pending sign-in
   );
+  -- One row per phone that reports its own position, from the iOS app.
+  --
+  -- Nothing here is a connection: Home Assistant and Strava are addresses the
+  -- server can go and read, and a phone is not. It pushes when it has something
+  -- and is asleep the rest of the time, so this row holds no credentials and no
+  -- schedule — only what the last push said, which is what makes "is my phone
+  -- actually logging?" answerable from a laptop.
+  CREATE TABLE IF NOT EXISTS device_links (
+    user_id        INTEGER NOT NULL,
+    device_id      TEXT NOT NULL,       -- a UUID the app makes once and keeps
+    name           TEXT NOT NULL DEFAULT '',
+    platform       TEXT NOT NULL DEFAULT '',
+    first_seen     INTEGER NOT NULL DEFAULT 0,
+    last_seen      INTEGER NOT NULL DEFAULT 0,
+    last_fixes     INTEGER NOT NULL DEFAULT 0,
+    last_cells     INTEGER NOT NULL DEFAULT 0,
+    total_fixes    INTEGER NOT NULL DEFAULT 0,
+    -- The newest fix this device has sent. Fixes at or before it are dropped,
+    -- which is what makes re-sending a batch harmless — see /api/device/fixes.
+    cursor         INTEGER NOT NULL DEFAULT 0,
+    last_workout   INTEGER NOT NULL DEFAULT 0,
+    total_workouts INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, device_id)
+  );
+  -- Which Apple Health workouts have already been folded in.
+  --
+  -- The cells a workout lights up are *added* to whatever is there, so taking
+  -- the same one twice counts it twice. Strava leans on a cursor for this;
+  -- Health cannot, because it hands back an edited old workout as readily as a
+  -- new one, and because the phone's query anchor is lost whenever the app is
+  -- reinstalled. Remembering the ids is the only exact answer.
+  CREATE TABLE IF NOT EXISTS device_workouts (
+    user_id    INTEGER NOT NULL,
+    workout_id TEXT NOT NULL,           -- HKWorkout.uuid
+    taken_at   INTEGER NOT NULL,
+    PRIMARY KEY (user_id, workout_id)
+  );
   -- How this account likes to *look* at its map — which activities are shown and
   -- what colour each is. Not data about where anyone went, which is why it's a
   -- single JSON blob rather than a schema: it changes shape as the UI does, and
@@ -564,6 +601,49 @@ const q = {
     WHERE enabled = 1 AND refresh_token <> ''
       AND last_run + interval_min * 60 * (1 << MIN(fails, 3)) <= ?
   `),
+
+  // Phones that report their own position. There is no poller here — these rows
+  // are written by the pushes themselves.
+  devices: db.prepare('SELECT * FROM device_links WHERE user_id = ? ORDER BY last_seen DESC'),
+  device: db.prepare('SELECT * FROM device_links WHERE user_id = ? AND device_id = ?'),
+  // A push arriving. The name is refreshed every time because a phone gets
+  // renamed and the old one would sit in the list forever; first_seen is only
+  // ever taken from the insert, so "syncing since June" stays true.
+  seenDevice: db.prepare(`
+    INSERT INTO device_links(user_id, device_id, name, platform, first_seen, last_seen,
+                             last_fixes, last_cells, total_fixes, cursor)
+    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, device_id) DO UPDATE SET
+      name        = excluded.name,
+      platform    = excluded.platform,
+      last_seen   = excluded.last_seen,
+      last_fixes  = excluded.last_fixes,
+      last_cells  = excluded.last_cells,
+      total_fixes = total_fixes + excluded.total_fixes,
+      cursor      = MAX(cursor, excluded.cursor)
+  `),
+  // A push that carried no fixes — a Health sync, or a logger with nothing new
+  // to say. It still means the phone is awake and talking, which is what the
+  // status line is asked for; what it must not do is overwrite what the last
+  // *location* push reported, so those columns are left alone.
+  touchDevice: db.prepare(`
+    INSERT INTO device_links(user_id, device_id, name, platform, first_seen, last_seen)
+    VALUES(?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, device_id) DO UPDATE SET
+      name = excluded.name, platform = excluded.platform, last_seen = excluded.last_seen
+  `),
+  tookWorkouts: db.prepare(`
+    UPDATE device_links SET last_workout = MAX(last_workout, ?),
+                            total_workouts = total_workouts + ?
+    WHERE user_id = ? AND device_id = ?
+  `),
+  delDevice: db.prepare('DELETE FROM device_links WHERE user_id = ? AND device_id = ?'),
+  hasWorkout: db.prepare('SELECT 1 FROM device_workouts WHERE user_id = ? AND workout_id = ? LIMIT 1'),
+  tookWorkout: db.prepare(`
+    INSERT INTO device_workouts(user_id, workout_id, taken_at) VALUES(?, ?, ?)
+    ON CONFLICT(user_id, workout_id) DO NOTHING
+  `),
+  countWorkouts: db.prepare('SELECT COUNT(*) AS n FROM device_workouts WHERE user_id = ?'),
 };
 
 // Run `fn` inside one transaction — the bulk import writes thousands of rows
@@ -1316,6 +1396,150 @@ async function stravaPollTick() {
   for (const row of due) await stravaRunLink(row);
 }
 
+// --- The phone itself --------------------------------------------------------
+// Home Assistant and Strava are addresses this server can go and read. A phone
+// is not one: it moves, it sleeps, and it is behind whatever network it happens
+// to be on. So this connector is the only one that *pushes* — the iOS app
+// records where it has been and posts batches when it gets a moment of runtime.
+//
+// Everything past the front door is deliberately identical to a Home Assistant
+// poll: plain {lat, lng, t} fixes, folded by the same pointsToCells, merged with
+// the same seam arithmetic. A cell does not care which of them put it there, and
+// a visit means the same thing either way. What differs is only who moves first.
+//
+// Two things live on the phone rather than here, and both for the same reason —
+// it is the only side that knows the answer:
+//
+//   • **How often to record.** A schedule stored here could not make a sleeping
+//     phone wake up; the app's own settings are what the timer runs from.
+//   • **Which fixes are too vague to trust.** Horizontal accuracy is a property
+//     of the fix as iOS hands it over and is gone by the time it is a pair of
+//     numbers. Home Assistant needs a server-side threshold because the server
+//     is the thing doing the reading; here that would be a second, weaker copy
+//     of a rule the app can simply apply.
+const DEVICE_SOURCE = 'iphone';
+const HEALTH_SOURCE = 'apple-health';
+// A day of one-a-minute logging is 1,440 fixes, so a phone catching up after a
+// fortnight offline still fits in one push.
+const MAX_FIXES_PER_PUSH = 50000;
+const MAX_WORKOUTS_PER_PUSH = 200;
+// Clocks disagree. A fix stamped slightly ahead of ours is ordinary; one stamped
+// next year is a bug or a lie, and it would poison the cell's date range forever.
+const CLOCK_SLACK_SEC = 300;
+const MIN_FIX_SEC = Date.UTC(1990, 0, 1) / 1000;
+
+/** What the app tells us about itself, trimmed to something storable. */
+function deviceOf(body) {
+  const d = body?.device ?? {};
+  const id = String(d.id ?? '').trim().slice(0, 64);
+  // A device id is the key rows are written under, so it has to be something
+  // the app generated rather than anything a URL could smuggle in.
+  if (!/^[A-Za-z0-9._-]{8,64}$/.test(id)) return null;
+  return {
+    id,
+    name: String(d.name ?? '').trim().slice(0, 60),
+    platform: String(d.platform ?? '').trim().slice(0, 40),
+  };
+}
+
+/**
+ * [lat, lng, t] triples → the {lat, lng, t} fixes pointsToCells expects.
+ *
+ * `after` is the device's cursor and is exclusive: a batch the app sent, whose
+ * 200 never made it back, is re-sent from the front of its queue and has to be
+ * a no-op rather than a second helping of visits. That makes the push idempotent
+ * without the app having to reason about it, and it is safe because the queue is
+ * FIFO — fixes leave the phone oldest first, so "already seen" and "older than
+ * the cursor" are the same set.
+ */
+function deviceFixes(list, { after, now }) {
+  const out = [];
+  const ceiling = now + CLOCK_SLACK_SEC;
+  for (const f of Array.isArray(list) ? list : []) {
+    const [lat, lng, t] = Array.isArray(f) ? f : [f?.lat, f?.lng, f?.t];
+    const y = +lat;
+    const x = +lng;
+    const at = Math.trunc(+t);
+    if (!Number.isFinite(y) || !Number.isFinite(x) || !Number.isFinite(at)) continue;
+    if (Math.abs(y) > 90 || Math.abs(x) > 180) continue;
+    // The null island: what a broken fix looks like, and nowhere anyone stands.
+    if (y === 0 && x === 0) continue;
+    if (at <= after || at < MIN_FIX_SEC || at > ceiling) continue;
+    out.push({ lat: y, lng: x, t: at });
+  }
+  // pointsToCells reads its input as one timeline — a stay is a run of fixes in
+  // the same cell — so order is not cosmetic here.
+  out.sort((a, b) => a.t - b.t);
+  return out;
+}
+
+/**
+ * One Apple Health workout → the track shape buildRoutes takes.
+ *
+ * Returns null for anything with no usable line in it, which is most of the
+ * point: the app only offers workouts that carry an HKWorkoutRoute, and this is
+ * the second half of the same rule. A workout with no geography is not a place
+ * anyone went, it is a number of press-ups.
+ */
+function healthWorkout(w) {
+  const id = String(w?.id ?? '').trim().slice(0, 64);
+  if (!id) return null;
+  const segments = [];
+  const points = [];
+  for (const seg of Array.isArray(w.segments) ? w.segments : []) {
+    const line = [];
+    for (const p of Array.isArray(seg) ? seg : []) {
+      const lng = +p?.[0];
+      const lat = +p?.[1];
+      const t = Math.trunc(+p?.[2]) || 0;
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+      if (Math.abs(lng) > 180 || Math.abs(lat) > 90) continue;
+      if (lng === 0 && lat === 0) continue;
+      line.push({ lng, lat, t });
+      points.push({ lat, lng, t });
+      if (points.length > MAX_ROUTE_POINTS) break;
+    }
+    if (line.length >= 2) segments.push(line);
+    if (points.length > MAX_ROUTE_POINTS) break;
+  }
+  if (!points.length) return null;
+  return {
+    id,
+    points,
+    track: {
+      // Health workouts have no names — you do not title a run — so this is
+      // left blank on purpose and buildRoute falls back to the date, exactly as
+      // it does for an unnamed GPX.
+      name: '',
+      segments,
+      sport: canonicalSport(w.sport),
+      firstAt: Math.max(0, Math.trunc(+w.start) || 0),
+      lastAt: Math.max(0, Math.trunc(+w.end) || 0),
+      // Health knows the ascent from the barometer, which is a better number
+      // than one derived from GPS altitude; when it says nothing, buildRoute
+      // works it out from the line like every other source.
+      elevUp: Number.isFinite(+w.elevUp) ? Math.max(0, +w.elevUp) : undefined,
+    },
+  };
+}
+
+/** What the sync screen shows for one phone. */
+function deviceOut(row) {
+  return {
+    id: row.device_id,
+    name: row.name,
+    platform: row.platform,
+    firstSeen: row.first_seen,
+    lastSeen: row.last_seen,
+    lastFixes: row.last_fixes,
+    lastCells: row.last_cells,
+    totalFixes: row.total_fixes,
+    cursor: row.cursor,
+    lastWorkout: row.last_workout,
+    totalWorkouts: row.total_workouts,
+  };
+}
+
 // Where Strava sends the browser back to. Built from the request rather than
 // configured, so it matches whatever host this is actually being used on — and
 // it's always our own origin, so it can't be turned into an open redirect.
@@ -2061,6 +2285,179 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       if (!user) return send(res, 401, { error: 'not authenticated' });
       q.delStravaLink.run(user.id);
       return send(res, 200, { ok: true, link: null });
+    }
+
+    // --- The phone itself ----------------------------------------------------
+    if (req.method === 'GET' && pathname === '/api/device') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      return send(res, 200, {
+        devices: q.devices.all(user.id).map(deviceOut),
+        // What the app needs to know before it starts: which of its workouts
+        // this account has already taken in. Its own query anchor is the fast
+        // path; this is what makes a reinstall — or a second phone — not re-send
+        // a year of rides.
+        workouts: q.countWorkouts.get(user.id)?.n ?? 0,
+      });
+    }
+
+    // A batch of positions from the app's own logger. See "The phone itself"
+    // above for why this pushes where everything else pulls.
+    if (req.method === 'POST' && pathname === '/api/device/fixes') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      // The default 8 MB rather than BIG_BODY_LIMIT, and so no place in the
+      // heavyweight queue: MAX_FIXES_PER_PUSH of `[lat, lng, t]` is about 2 MB,
+      // and a fix is three numbers however many of them there are. The workout
+      // endpoint below is the one that carries geometry and takes the queue.
+      const body = await readBody(req);
+      const device = deviceOf(body);
+      if (!device) return send(res, 400, { error: 'device.id must be 8–64 characters of [A-Za-z0-9._-]' });
+      if (!Array.isArray(body.fixes)) return send(res, 400, { error: 'fixes must be an array' });
+      if (body.fixes.length > MAX_FIXES_PER_PUSH) return send(res, 400, { error: 'too many fixes' });
+
+      const now = nowSec();
+      const known = q.device.get(user.id, device.id);
+      const points = deviceFixes(body.fixes, { after: known?.cursor ?? 0, now });
+      const cells = points.length ? pointsToCells(points) : [];
+      const cursor = points.length ? points[points.length - 1].t : (known?.cursor ?? 0);
+
+      await chunked(cells, (slice) => {
+        for (const c of slice) {
+          q.mergeRow.run(user.id, c.id, DEVICE_SOURCE, now, c.first, c.last, c.hits, c.fixes, VISIT_GAP_SEC);
+          // As for an imported file: a real reading beats the placeholder left
+          // by the pre-provenance migration.
+          q.delSourceCell.run(user.id, 'unknown', c.id);
+        }
+      });
+      // Outside the cell loop, and unconditional: a push that landed entirely
+      // behind the cursor still says the phone is alive and syncing, which is
+      // most of what the status line is for.
+      q.seenDevice.run(
+        user.id, device.id, device.name, device.platform,
+        now, now, points.length, cells.length, points.length, cursor,
+      );
+      return send(res, 200, {
+        ok: true,
+        fixes: points.length,
+        // How many were dropped for being behind the cursor, so a phone that is
+        // somehow re-sending everything shows up as that rather than as silence.
+        skipped: body.fixes.length - points.length,
+        cells: cells.length,
+        cursor,
+        total: cellCount(user),
+      });
+    }
+
+    // Workouts out of Apple Health — the ones that went somewhere.
+    //
+    // Same shape as a Strava activity on the way in, and for the same reason:
+    // an activity is a line as well as a set of cells, so it lands as a saved
+    // route too. What it is not is a second copy of Strava — Health is where a
+    // Watch ride, a Fitness+ walk and a third-party app all end up, and a phone
+    // that already has them does not need the round trip through anyone's API.
+    if (req.method === 'POST' && pathname === '/api/device/workouts') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      if (bigRequestsInFlight >= MAX_BIG_REQUESTS) {
+        return send(res, 503, { error: 'Busy importing something else — try again in a moment.' });
+      }
+      bigRequestsInFlight++;
+      try {
+        const body = await readBody(req, BIG_BODY_LIMIT);
+        const device = deviceOf(body);
+        if (!device) return send(res, 400, { error: 'device.id must be 8–64 characters of [A-Za-z0-9._-]' });
+        if (!Array.isArray(body.workouts)) return send(res, 400, { error: 'workouts must be an array' });
+        if (body.workouts.length > MAX_WORKOUTS_PER_PUSH) return send(res, 400, { error: 'too many workouts' });
+
+        const now = nowSec();
+        let taken = 0;
+        let known = 0;
+        let skipped = 0;
+        let cells = 0;
+        let routes = 0;
+        let newest = 0;
+
+        for (const raw of body.workouts) {
+          const w = healthWorkout(raw);
+          if (!w) {
+            skipped++;
+            continue;
+          }
+          // Cells are *added* to what is already there, so a workout taken
+          // twice is a place visited twice. This is the only guard against it
+          // and it has to come before any write.
+          if (q.hasWorkout.get(user.id, w.id)) {
+            known++;
+            continue;
+          }
+          const folded = pointsToCells(w.points);
+          const built = buildRoutes([w.track], { source: HEALTH_SOURCE });
+          tx(() => {
+            for (const c of folded) {
+              q.mergeRow.run(user.id, c.id, HEALTH_SOURCE, now, c.first, c.last, c.hits, c.fixes, VISIT_GAP_SEC);
+              q.delSourceCell.run(user.id, 'unknown', c.id);
+            }
+            for (const r of built) {
+              const geom = cleanGeom(r.geom);
+              // A workout shorter than a route's minimum still counted as
+              // cells above; there is simply no line worth drawing.
+              if (!geom) continue;
+              const [minLng, minLat, maxLng, maxLat] = routeBounds(geom);
+              q.insRoute.run(
+                user.id,
+                String(r.key).slice(0, 64),
+                String(r.name || 'Workout').slice(0, 120),
+                '', // named from geography by the browser, later
+                String(r.sport ?? '').slice(0, 40),
+                r.sportGuessed ? 1 : 0,
+                Math.max(0, Math.round(+r.elevUp || 0)),
+                HEALTH_SOURCE,
+                now,
+                Math.max(0, Math.trunc(r.firstAt || 0)),
+                Math.max(0, Math.trunc(r.lastAt || 0)),
+                Math.max(0, +r.lengthM || 0),
+                geom.reduce((n, s) => n + s.length, 0),
+                minLng,
+                minLat,
+                maxLng,
+                maxLat,
+                routeThumb(geom),
+                '',
+                JSON.stringify(geom),
+              );
+              routes++;
+            }
+            q.tookWorkout.run(user.id, w.id, now);
+          });
+          cells += folded.length;
+          newest = Math.max(newest, w.track.lastAt || w.track.firstAt || 0);
+          taken++;
+          // node:sqlite is synchronous and a workout is thousands of points, so
+          // a fortnight of them in one push would pin the only thread there is.
+          await yieldToLoop();
+        }
+
+        q.touchDevice.run(user.id, device.id, device.name, device.platform, now, now);
+        q.tookWorkouts.run(newest, taken, user.id, device.id);
+        return send(res, 200, {
+          ok: true, taken, known, skipped, cells, routes, total: routeCount(user),
+        });
+      } finally {
+        bigRequestsInFlight--;
+      }
+    }
+
+    // Forget a phone. Only the status row goes: the cells it sent came from
+    // real fixes and stay, exactly as disconnecting Home Assistant leaves its.
+    if (req.method === 'POST' && pathname === '/api/device/forget') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const body = await readBody(req);
+      const id = String(body?.id ?? '').slice(0, 64);
+      if (!id) return send(res, 400, { error: 'which device?' });
+      q.delDevice.run(user.id, id);
+      return send(res, 200, { ok: true, devices: q.devices.all(user.id).map(deviceOut) });
     }
 
     // Editing a saved route: rename it, refile it under a different app, or set

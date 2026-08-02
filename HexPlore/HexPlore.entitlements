@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Reading workouts out of Apple Health. `healthkit.access` is empty
+	     deliberately: it names the *extra* data types (clinical records) an app
+	     wants, and this one wants none of them — workouts and their routes are
+	     covered by the capability itself. -->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	<key>com.apple.developer.healthkit.access</key>
+	<array/>
+	<!-- Being woken when a workout is saved, rather than finding out next time
+	     the app is opened. This is the "Background Delivery" tick box under the
+	     HealthKit capability in Xcode.
+
+	     If signing with a free Apple ID ever refuses this key, deleting it costs
+	     only the wake-up: workouts are still picked up whenever the app is
+	     opened, and whenever a location update wakes it. -->
+	<key>com.apple.developer.healthkit.background-delivery</key>
+	<true/>
+</dict>
+</plist>
