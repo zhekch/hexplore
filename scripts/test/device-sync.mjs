@@ -85,6 +85,12 @@ const at = (t, i = 0) => [LAT + i * 0.0002, LNG + i * 0.0002, t];
 // is being checked here is the plumbing between them.
 const CELL = pointsToCells([{ lat: LAT, lng: LNG, t: T0 }])[0].id;
 
+/** The validator the server would hand a browser for a given read. */
+async function etagOf(url) {
+  const res = await fetch(`${BASE}${url}`, { headers: { Cookie: cookie } });
+  return res.headers.get('etag');
+}
+
 /** Every stored row for one cell, keyed by source. */
 async function rowsFor(cellId) {
   const { body } = await api('GET', '/api/cells');
@@ -454,8 +460,25 @@ try {
     'and a source nothing came from is named back',
   );
 
+  // The bug this pins, and the reason it survived every assertion above.
+  //
+  // /api/cells is answered with an ETag built from COUNT, MAX(added_at),
+  // MAX(last_at) and SUM(hits). A rename moves a row from one source to another
+  // and changes not one of them — so the tag matched, the server said 304, and
+  // the browser kept a copy that still said Unknown. Every test here fetches
+  // without an If-None-Match, which is exactly why none of them noticed.
+  const tagBefore = await etagOf('/api/cells');
+  check(!!tagBefore, 'the cell list is served with an ETag');
+
   const renamed = await api('POST', '/api/sources/rename', { from: 'unknown', to: 'manual' });
   eq(renamed.status, 200, 'renaming a source is accepted');
+  const tagAfter = await etagOf('/api/cells');
+  check(tagBefore !== tagAfter, 'and moves the ETag, so a cached copy is not handed back');
+  eq(
+    (await fetch(`${BASE}/api/cells`, { headers: { Cookie: cookie, 'If-None-Match': tagBefore } })).status,
+    200,
+    'a browser holding the old copy is given the new one rather than a 304',
+  );
   eq(renamed.body.cells, 2, 'and says how many rows it moved');
   eq(renamed.body.merged, 1, 'reporting the one that already had a row under the new name');
   eq(
