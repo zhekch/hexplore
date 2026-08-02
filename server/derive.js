@@ -151,8 +151,31 @@ export async function trips(userId, signature, supply) {
     for (const t of list) t.name = t.name || 'Somewhere';
   }
 
-  held.trips = { trips: list, home: home ?? namedHome(findHome(cellMeta)) };
+  held.trips = { trips: list.map(forWire), home: home ?? namedHome(findHome(cellMeta)) };
   return held.trips;
+}
+
+/**
+ * Six decimal places on every coordinate that leaves here.
+ *
+ * A cell centre is computed, not measured, so it arrives as a full double —
+ * `8.279681550709597` — and a trip carries one per cell it touched. Those
+ * eleven noise digits are a tenth of a millimetre on a grid whose finest cell
+ * is nine hundred metres across, and on a real map they are 80 KB of the
+ * answer. Rounding is a wire-format decision and belongs here rather than in
+ * `src/trips.js`: the derivation should go on working in full precision, and
+ * every consumer of this is drawing dots on a map.
+ */
+const DP = 1e6;
+const round = (n) => (Number.isFinite(n) ? Math.round(n * DP) / DP : n);
+
+function forWire(trip) {
+  return {
+    ...trip,
+    bbox: trip.bbox?.map(round),
+    center: trip.center?.map(round),
+    spots: trip.spots?.map((s) => ({ ...s, lng: round(s.lng), lat: round(s.lat) })),
+  };
 }
 
 /**

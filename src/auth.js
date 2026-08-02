@@ -114,6 +114,15 @@ export const auth = {
   // Bulk import: cells are [id, firstAt, lastAt, hits, fixes] tuples.
   importCells: (source, cells) => api('POST', '/api/cells/import', { source, cells }),
 
+  // The server's readings of the rows — see src/derived.js for why they are not
+  // worked out here. Each carries an ETag, so asking again after nothing has
+  // changed costs a 304 rather than the answer.
+  //
+  // { trips: [...], home: { lng, lat, name } | null }
+  getTrips: () => api('GET', '/api/trips'),
+  // Ground covered, by country and by region, plus days, streak and sources.
+  getStats: () => api('GET', '/api/stats'),
+
   // Saved routes. Without `geom` this is just the list (name, dates, length,
   // bounds) — the lines themselves are only worth fetching once they're shown.
   getRoutes: (geom = false) => api('GET', `/api/routes${geom ? '?geom=1' : ''}`).then((d) => d.routes ?? []),
