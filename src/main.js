@@ -36,6 +36,7 @@ import { mountColorPicker, hexAlpha, hexOpaque } from './color-picker.js';
 import { terrainStyle, satelliteStyle } from './basemap.js';
 import { mountKomoot } from './komoot-ui.js';
 import { mountDevices, whenAgo } from './device-ui.js';
+import { mountSources } from './sources-ui.js';
 import { setClock, clockMode } from './clock.js';
 import { mountStrava } from './strava-ui.js';
 import { mountSync } from './sync-ui.js';
@@ -5228,7 +5229,17 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       pushPrefs();
     },
   });
-  settings = mountSettings({ personal: personalUi, backup: backupUi });
+  // Removing a source is the only action in here that changes the map, so it is
+  // the only one that has to say so afterwards.
+  const sourcesUi = mountSources({
+    onClose: () => settings?.open(),
+    onChanged: async () => {
+      await hydrateVisited();
+      await loadRoutes(routesOn);
+      updateLayersUi();
+    },
+  });
+  settings = mountSettings({ personal: personalUi, backup: backupUi, sources: sourcesUi });
   document.getElementById('sync-open').addEventListener('click', () => {
     setMenuOpen(false);
     sync.open();
