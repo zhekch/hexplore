@@ -50,15 +50,20 @@ final class HealthSync {
 
     // --- What a route point has to be, to be believed ---------------------------
     // A workout's route arrives as one undifferentiated stream of locations, and
-    // taking it at face value draws two things that never happened: a straight
+    // taking it at face value drew two things that never happened: a straight
     // line across a pause, and a straight line out to wherever the watch thought
     // it was before it got a GPS lock.
     //
-    // Apple's own Fitness app draws the first of those as a *dotted* line, which
-    // is the whole argument in one design decision — it knows it did not record
-    // that part. This app has a stronger version of the same rule already
-    // written down: nothing is inferred, and the ground between two fixes is not
-    // filled in, guessed at or drawn. A pause is exactly that ground.
+    // **Only the second of those is dealt with here**, and the split is not
+    // arbitrary. Cutting a track where the recording stopped needs nothing but
+    // latitude, longitude and a clock, which every source has — so it lives in
+    // `splitOnGaps` in `src/routes.js` and applies to a Strava ride and a
+    // Komoot tour as much as to this. Doing it twice would be two definitions of
+    // a pause, quietly disagreeing.
+    //
+    // Accuracy is the part that genuinely cannot move: it is a property of the
+    // fix as CoreLocation hands it over, and it is gone by the time the point is
+    // a pair of numbers on the wire.
 
     /// Worse than this and the fix is a glitch, not a coarse reading.
     ///
@@ -70,22 +75,6 @@ final class HealthSync {
     /// knew about before it locked on. Keeping one drew a 16.7 km line from Thun
     /// across a 1.17 km walk in Gümligen.
     private static let maxAccuracyM: CLLocationDistance = 100
-
-    /// A pause is a gap in time *and* in space, and it takes both to be one.
-    ///
-    /// Time alone is wrong: the thinning below already drops the fixes you make
-    /// while standing still, so five minutes outside a café is legitimately one
-    /// long gap between two points six metres apart. Distance alone is wrong: a
-    /// descent covers 150 m in under ten seconds. Together they mean the
-    /// recorder was not watching for the part in between — which is precisely
-    /// when a line between them would be an invention.
-    private static let pauseSec: TimeInterval = 60
-    private static let pauseM: CLLocationDistance = 150
-
-    /// And the jump nobody made, whatever the clock claims. 30 m/s is 108 km/h,
-    /// comfortably past a fast descent and well short of anything a person does
-    /// under their own power.
-    private static let maxSpeedMS: Double = 30
 
     /// Five metres between kept points, and five decimal places on each.
     ///
@@ -264,9 +253,8 @@ final class HealthSync {
         var segments: [[[Double]]] = []
         for route in routes {
             guard let locations = try? await locations(in: route) else { continue }
-            // One route sample can yield several lines: a workout paused three
-            // times is four of them.
-            segments.append(contentsOf: lines(from: locations))
+            let line = thinned(locations)
+            if line.count >= 2 { segments.append(line) }
         }
         guard !segments.isEmpty else { return nil }
 
@@ -332,58 +320,30 @@ final class HealthSync {
 
     // MARK: - Trimming
 
-    /// One route's locations → the lines actually worth drawing.
+    /// One route's locations → the points worth sending.
     ///
-    /// Plural, and that is the point. A route is one stream of locations however
-    /// many times the workout was paused, so this is where a pause becomes two
-    /// lines rather than one line with a lie in the middle of it. See the
-    /// constants above for what counts as a pause and why it takes two
-    /// measurements to say so.
-    private func lines(from locations: [CLLocation]) -> [[[Double]]] {
-        var out: [[[Double]]] = []
-        var current: [[Double]] = []
+    /// Accuracy and thinning only. Where the line breaks is decided at the other
+    /// end, by the same `splitOnGaps` that reads a Strava ride — see the note
+    /// above for why that one is not duplicated here.
+    private func thinned(_ locations: [CLLocation]) -> [[Double]] {
+        var out: [[Double]] = []
         var previous: CLLocation?
-
-        func flush() {
-            // Two points is the least that can be a line. A lone survivor is a
-            // glitch that happened to pass the accuracy test, and dropping it
-            // here keeps it out of the *cells* as well — the server takes a
-            // workout's points from the segments it is given, not from
-            // everything that arrived in the request.
-            if current.count >= 2 { out.append(current) }
-            current = []
-        }
-
         for location in locations {
             let accuracy = location.horizontalAccuracy
             // A negative accuracy is CoreLocation handing over a coordinate it
             // does not believe in.
             guard accuracy >= 0, accuracy <= Self.maxAccuracyM else { continue }
-
-            if let previous {
-                let metres = location.distance(from: previous)
-                let seconds = location.timestamp.timeIntervalSince(previous.timestamp)
-                let paused = seconds > Self.pauseSec && metres > Self.pauseM
-                let teleported = seconds > 0 && metres / seconds > Self.maxSpeedMS
-                if paused || teleported {
-                    flush()
-                } else if metres < Self.thinM {
-                    // Too close to the last *kept* point to be worth carrying.
-                    // Measuring from the kept one rather than the last one seen
-                    // is also what stops a long stand-still reading as a pause:
-                    // the clock runs on, but the distance never opens up.
-                    continue
-                }
-            }
-
+            // Distance from the last *kept* point, not the last one seen. That
+            // is also what keeps a long stand-still from later reading as a
+            // pause: the clock runs on, but the distance never opens up.
+            if let previous, location.distance(from: previous) < Self.thinM { continue }
             previous = location
-            current.append([
+            out.append([
                 (location.coordinate.longitude * 1e5).rounded() / 1e5,
                 (location.coordinate.latitude * 1e5).rounded() / 1e5,
                 Double(Int(location.timestamp.timeIntervalSince1970)),
             ])
         }
-        flush()
         return out
     }
 

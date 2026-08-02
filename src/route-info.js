@@ -11,12 +11,12 @@
 
 import { sourceLabel } from './locations.js';
 import { formatDistance, formatDuration, recordedSeconds } from './routes.js';
+import { formatTime } from './clock.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
-const clock = (sec) => (sec ? timeFmt.format(new Date(sec * 1000)) : null);
+const clock = (sec) => (sec ? formatTime(sec * 1000) : null);
 
 /**
  * Wires the card (markup lives in index.html).

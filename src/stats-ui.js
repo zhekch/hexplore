@@ -9,11 +9,11 @@ import { formatDistance, formatDuration, totalLength, thumbSegments, recordedSec
 import { auth } from './auth.js';
 import { derived } from './derived.js';
 import { isKomootTourUrl } from './komoot.js';
+import { formatTime } from './clock.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
-const clock = (sec) => (sec ? timeFmt.format(new Date(sec * 1000)) : null);
+const clock = (sec) => (sec ? formatTime(sec * 1000) : null);
 // A "YYYY-MM-DD" day key, read as a local day. Midday, not midnight: a date
 // parsed at midnight and then formatted lands on the day before in any timezone
 // west of UTC.
@@ -957,6 +957,16 @@ export function mountStats({
   return {
     open,
     close,
+    /**
+     * Redraw whatever is on screen, for a change that alters how things read
+     * rather than what they say — currently only the 12/24-hour clock. A no-op
+     * when the panel is shut, because every tab rebuilds itself on the way in.
+     */
+    redraw: () => {
+      if (overlay.hidden) return;
+      last = null; // the cached reading is fine; the *rendering* of it is not
+      showTab(tab);
+    },
     /**
      * The trips as last read, or null if they never have been. The search
      * palette asks for these rather than deriving its own — one reading of the

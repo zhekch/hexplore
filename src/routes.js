@@ -69,6 +69,74 @@ const PRECISION = 1e5;
 // sits ten times below anything real and seven times above the glitches.
 export const ROUTE_MIN_SPEED_KMH = 0.5;
 
+// --- Where the recorder stopped watching ----------------------------------------
+// A track is only a line where something was actually recorded. Between two
+// fixes far apart in both time and space, nothing was — and joining them draws a
+// journey nobody made, measures it as distance covered, and names the route
+// after two towns at either end of it.
+//
+// Some formats say where those breaks are: a GPX puts each in its own `<trkseg>`,
+// TCX has laps, KML has separate coordinate blocks. The ones that arrive over an
+// API do not. Strava hands back one flat stream of points however many times you
+// stopped, Komoot the same, and an Apple Health route is a single series across
+// every pause in the workout. Those three used to be drawn straight across.
+//
+// So the rule lives here, applied to every track from every source on its way in,
+// rather than three times in three parsers with three sets of numbers.
+//
+// **It takes two measurements to call something a pause**, and that is the whole
+// subtlety. Time alone is wrong: standing still legitimately produces one long
+// gap between two points a few metres apart, and thinning widens it further.
+// Distance alone is wrong: a descent covers 150 m in under ten seconds. Only
+// both together mean the recorder was not watching for the part in between.
+export const TRACK_GAP_SEC = 60;
+export const TRACK_GAP_M = 150;
+// And the jump nobody made, whatever the clock claims: 30 m/s is 108 km/h,
+// comfortably past a fast descent. This is what catches a single stale fix from
+// before a watch got its GPS lock, which arrives with a plausible timestamp and
+// an implausible position.
+export const TRACK_MAX_SPEED_MS = 30;
+
+/**
+ * Cut every segment where the recording stopped.
+ *
+ * Idempotent, and cheap on a track that has no gaps in it — the common case is
+ * one comparison per point and the same array back. Runs of a single point are
+ * dropped: a fix with nothing either side of it is not a line, and for a source
+ * that derives its cells from these segments it is not a place either.
+ */
+export function splitOnGaps(segments, {
+  gapSec = TRACK_GAP_SEC,
+  gapM = TRACK_GAP_M,
+  maxSpeedMS = TRACK_MAX_SPEED_MS,
+} = {}) {
+  const out = [];
+  for (const seg of Array.isArray(segments) ? segments : []) {
+    if (!Array.isArray(seg)) continue;
+    let run = [];
+    let previous = null;
+    for (const p of seg) {
+      if (previous) {
+        const metres = haversine(previous, p);
+        // Points with no timestamp can only be judged on distance, and a file
+        // with no clock in it has no pauses to find — so only the teleport half
+        // of the rule can fire.
+        const seconds = previous.t && p.t ? p.t - previous.t : 0;
+        const paused = seconds > gapSec && metres > gapM;
+        const teleported = seconds > 0 && metres / seconds > maxSpeedMS;
+        if (paused || teleported) {
+          if (run.length >= 2) out.push(run);
+          run = [];
+        }
+      }
+      run.push(p);
+      previous = p;
+    }
+    if (run.length >= 2) out.push(run);
+  }
+  return out;
+}
+
 const DUP_START_SEC = 120; // how far apart two recordings of one start can be
 const DUP_LENGTH_TOL = 0.05; // 5% — observed worst case is 0.4%
 const DUP_BBOX_IOU = 0.6; // and they have to have happened in the same place
@@ -190,7 +258,12 @@ const dateName = (sec) =>
  * @returns {object|null} null when the line is too short to be a route
  */
 export function buildRoute(track, { source, fileName = '', index = 0 } = {}) {
-  const segments = simplifySegments(track.segments);
+  // Cut first, simplify second. The other order lets Douglas–Peucker thin away
+  // the very points either side of a gap — they are the ones furthest from
+  // everything, so they survive, but the run they belong to may not — and it
+  // would in any case be measuring a line that had already been joined up.
+  const recorded = splitOnGaps(track.segments);
+  const segments = simplifySegments(recorded);
   if (!segments.length) return null;
 
   let lengthM = 0;
@@ -230,7 +303,10 @@ export function buildRoute(track, { source, fileName = '', index = 0 } = {}) {
   if (!name) name = dateName(firstAt) || 'Route';
   name = name.slice(0, 120);
 
-  const elevUp = Math.max(0, Math.round(track.elevUp ?? climb(track.segments)));
+  // On the recorded runs, not the raw ones: a pause that ends 300 m up a
+  // hillside is not 300 m you climbed, and the gap the line no longer draws
+  // should not be ascent the summary still counts.
+  const elevUp = Math.max(0, Math.round(track.elevUp ?? climb(recorded)));
   const guessed = track.sport
     ? ''
     : guessSport({ name, lengthM, seconds: lastAt > firstAt ? lastAt - firstAt : 0, elevUp });
@@ -373,6 +449,58 @@ export function canonicalSport(label) {
   // Unknown, so keep it — just give it a consistent shape rather than letting
   // "MOUNTAINEERING" and "mountaineering" become two categories.
   return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+// --- Naming a workout nobody named -------------------------------------------
+// A file names its tracks and Komoot and Strava name their activities. Apple
+// Health does not: you do not title a run, you just go for one. That left the
+// date as the only thing to call it, so a Routes list built from Health read as
+// a column of ISO dates — accurate, and no help at all in finding the ride you
+// were looking for.
+//
+// "Morning walk" is what Strava and Health itself put at the top of the same
+// screen, and it is better for the reason it is unremarkable: the two things you
+// actually remember about an outing are roughly when in the day it was and what
+// you were doing. The date is still right there in the row beside it, and the
+// place name the browser works out later replaces neither.
+
+/** The noun for an activity, where the label is the verb. '' if unknown. */
+export function sportNoun(sport) {
+  const key = String(sport ?? '').trim().toLowerCase();
+  if (!key) return '';
+  return {
+    walking: 'walk',
+    running: 'run',
+    hiking: 'hike',
+    cycling: 'ride',
+    'mountain cycling': 'ride',
+    swimming: 'swim',
+    paddling: 'paddle',
+    rowing: 'row',
+    sailing: 'sail',
+    skiing: 'ski',
+    'ski touring': 'ski tour',
+    'cross-country skiing': 'ski',
+    snowboarding: 'snowboard',
+    driving: 'drive',
+    flying: 'flight',
+  }[key] ?? key;
+}
+
+/**
+ * "Morning walk", "Evening ride" — or '' when there is nothing to go on.
+ *
+ * The hour is read in whatever timezone the caller is in, which for the server
+ * is the machine the map is self-hosted on. That is right often enough to be
+ * worth having and wrong only for a workout recorded in another timezone, where
+ * the cost is a ride at 7 p.m. filed as an afternoon one.
+ */
+export function trackName(sport, sec) {
+  const noun = sportNoun(sport);
+  if (!noun || !sec) return '';
+  const hour = new Date(sec * 1000).getHours();
+  const part = hour < 5 ? 'Night' : hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : hour < 21 ? 'Evening' : 'Night';
+  return `${part} ${noun}`;
 }
 
 // --- Working out the activity ------------------------------------------------
