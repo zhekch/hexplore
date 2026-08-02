@@ -394,13 +394,6 @@ try {
   eq(forgotten.body.devices.length, 0, 'forgetting a phone drops it from the list');
   rows = await rowsFor(CELL);
   eq(rows.iphone?.hits, 2, 'and leaves the cells it brought, which came from real fixes');
-} finally {
-  server.kill();
-  await rm(dir, { recursive: true, force: true });
-}
-
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
 
   // --- Taking a whole source off the map -----------------------------------------
   const listed = (await api('GET', '/api/sources')).body.sources;
@@ -427,6 +420,55 @@ process.exit(fail ? 1 : 0);
     false,
     'the source is off the map',
   );
+
+  // --- Filing it under a different name ------------------------------------------
+  // The case this exists for is `unknown`: the placeholder every pre-provenance
+  // cell carries, which a real import is meant to take the place of and which
+  // nothing else can ever reach.
+  const orphan = pointsToCells([{ lat: 47.3769, lng: 8.5417, t: T0 }])[0].id; // Zürich
+  await api('POST', '/api/cells/import', {
+    source: 'unknown',
+    cells: [[orphan, 0, 0, 1, 0], [CELL, 0, 0, 1, 0]],
+  });
+  // …and a hand mark on the same cell, so the rename below has a real collision
+  // to resolve rather than a clear run. (user, cell, source) is a primary key,
+  // so this is the case a plain UPDATE would fail on.
+  await api('POST', '/api/cells/mutate', { add: [CELL], source: 'manual' });
+  const beforeRename = await rowsFor(CELL);
+  check(!!beforeRename.unknown, 'a cell can hold an unknown row beside a real one');
+  check(!!beforeRename.manual, 'and a row under the name it is about to be renamed to');
+
+  eq(
+    (await api('POST', '/api/sources/rename', { from: 'unknown', to: 'unknown' })).status,
+    400,
+    'renaming a source to itself is refused',
+  );
+  eq(
+    (await api('POST', '/api/sources/rename', { from: 'unknown', to: 'Marked By Hand!' })).status,
+    400,
+    'and so is a name that is not a source key',
+  );
+  eq(
+    (await api('POST', '/api/sources/rename', { from: 'never-existed', to: 'manual' })).status,
+    404,
+    'and a source nothing came from is named back',
+  );
+
+  const renamed = await api('POST', '/api/sources/rename', { from: 'unknown', to: 'manual' });
+  eq(renamed.status, 200, 'renaming a source is accepted');
+  eq(renamed.body.cells, 2, 'and says how many rows it moved');
+  eq(renamed.body.merged, 1, 'reporting the one that already had a row under the new name');
+  eq(
+    (await api('GET', '/api/sources')).body.sources.some((s) => s.key === 'unknown'),
+    false,
+    'nothing is left under the old name',
+  );
+  // The collision case: a cell that held both names must end up with one row,
+  // not lose the older claim and not gain a duplicate.
+  const afterRename = await rowsFor(CELL);
+  eq(afterRename.unknown, undefined, 'the old row is gone from a cell that held both');
+  check(!!afterRename.manual, 'and the surviving row is under the new name');
+  check(!!(await rowsFor(orphan)).manual, 'a cell that held only the old name moved with it');
   eq(
     (await rowsFor(CELL)).iphone?.hits,
     beforeDrop.iphone?.hits,
@@ -443,3 +485,10 @@ process.exit(fail ? 1 : 0);
     0,
     'removing the logger rewinds the cursor that would have swallowed a re-send',
   );
+} finally {
+  server.kill();
+  await rm(dir, { recursive: true, force: true });
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

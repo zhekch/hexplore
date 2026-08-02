@@ -641,6 +641,22 @@ relaunched into the background at 4 a.m. by a location event still has it. Had i
 been a session cookie, background syncing would have quietly never worked — which
 is the sort of thing that looks like a networking bug for a week.
 
+### Filing one under a different name
+
+`unknown` is not really a source: it is the placeholder the pre-provenance
+migration left on every cell from before the map knew where anything came from.
+The intended way out is for a real import to cover those cells and take their
+place — every import path deletes the `unknown` row for a cell it claims — but
+that only ever reaches the cells some export still remembers. Whatever is left
+was genuinely put there by hand and had no way of ever saying so.
+
+`POST /api/sources/rename` says it. It is not an `UPDATE`, because
+`(user, cell, source)` is a primary key and a cell may already hold both names,
+so each row is merged into the target with the same arithmetic a poll uses —
+the span widens, the counts add up — rather than colliding with it or quietly
+overwriting it. Routes carry a source too and are renamed with it; there is no
+collision to worry about there, since a route's key is a hash of its geometry.
+
 ### Photographs
 
 A photo carries the coordinate it was taken at, so a library is a record of
@@ -2251,12 +2267,20 @@ harmless: the poller's first tick backfills whatever it missed.
 
 ### Who can get in
 
-**Registration closes itself.** The first account on an empty database can
-always be made — that's how you get started — and once one exists the endpoint
-answers 403. `ALLOW_REGISTRATION=1` reopens it, or `REGISTRATION_CODE=…` keeps
-it open behind an invite code. This matters more than it looks: a session is
+**Registration is open, and closing it is a choice.** It was the other way round
+— open until somebody signed up, then shut — on the argument that a session is
 what stands between a stranger and the importer, the saved routes and the Home
-Assistant connector, and the instance is on the public internet.
+Assistant connector, and that the instance is on the public internet. That
+argument has not stopped being true, and it is the one to read before leaving
+this alone: an account is not access to anyone else's map, since every row is
+stored per account, but it is a share of the disk and of the server's outbound
+reach.
+
+What it weighs against is that a map is worth putting more than one person on,
+and that "make an account" answering 403 for everyone but the first is a bad
+first impression which can only be debugged from the server side.
+`ALLOW_REGISTRATION=0` restores the old behaviour, `REGISTRATION_CODE=…` is the
+middle ground, and either way it stays rate limited to five an hour per address.
 
 Sign-in is rate limited (20 attempts per IP and 10 per account in 15 minutes,
 answering 429 with `Retry-After`), passwords are at least 10 characters

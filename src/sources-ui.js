@@ -15,7 +15,7 @@
 // and stays exactly where it is.
 
 import { auth } from './auth.js';
-import { sourceLabel } from './locations.js';
+import { sourceLabel, IMPORT_SOURCES } from './locations.js';
 import { whenAgo } from './device-ui.js';
 
 const n = (v) => v.toLocaleString();
@@ -39,6 +39,9 @@ export function mountSources({ onClose, onChanged } = {}) {
 
   let sources = [];
   let busy = false;
+  // Which row is showing its relabel control. Only one at a time: two open
+  // dropdowns in a list of eight is a form, not a row.
+  let naming = null;
   // Which row is one press from being removed. Two presses rather than a
   // confirmation dialog, for the same reason the Home Assistant one does it that
   // way: a modal on top of a modal reads as an error message.
@@ -73,6 +76,17 @@ export function mountSources({ onClose, onChanged } = {}) {
       detail.textContent = bits.join(' · ');
       text.append(name, detail);
 
+      const relabel = document.createElement('button');
+      relabel.type = 'button';
+      relabel.className = 'modal-btn';
+      relabel.textContent = 'Relabel';
+      relabel.disabled = busy;
+      relabel.addEventListener('click', () => {
+        naming = naming === s.key ? null : s.key;
+        arming = null;
+        render();
+      });
+
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'modal-btn danger';
@@ -87,8 +101,38 @@ export function mountSources({ onClose, onChanged } = {}) {
         drop(s);
       });
 
-      row.append(text, remove);
+      row.append(text, relabel, remove);
       listEl.append(row);
+
+      if (naming === s.key) {
+        const pick = document.createElement('div');
+        pick.className = 'source-relabel';
+        const select = document.createElement('select');
+        // `unknown` is offered as a target nowhere: it is what the map says when
+        // it does not know, and choosing it on purpose is not a thing anyone
+        // means. Everything the importer will file a file under is fair.
+        for (const key of IMPORT_SOURCES) {
+          if (key === s.key) continue;
+          const opt = document.createElement('option');
+          opt.value = key;
+          opt.textContent = sourceLabel(key);
+          select.append(opt);
+        }
+        select.value = s.key === 'unknown' ? 'manual' : select.options[0]?.value ?? 'manual';
+        const apply = document.createElement('button');
+        apply.type = 'button';
+        apply.className = 'modal-btn primary';
+        apply.textContent = 'Apply';
+        apply.disabled = busy;
+        apply.addEventListener('click', () => rename(s, select.value));
+        const note = document.createElement('div');
+        note.className = 'ha-devices-note';
+        note.textContent = s.key === 'unknown'
+          ? 'Unknown is what the map says about cells that predate it knowing where anything came from. A later import would take their place; whatever is left was put there by hand.'
+          : `Files ${plural(s.cells, 'cell')} under the new name. Nothing is added or removed — a cell that already has a row under it keeps one row, not two.`;
+        pick.append(select, apply);
+        listEl.append(pick, note);
+      }
 
       if (arming === s.key) {
         const warn = document.createElement('div');
@@ -108,11 +152,36 @@ export function mountSources({ onClose, onChanged } = {}) {
     try {
       sources = await auth.getSources();
       arming = null;
+      naming = null;
+    } catch (e) {
+      showErr(e.message ?? String(e));
+    } finally {
+      // After `busy` is cleared, and not before. Every control in a row is
+      // built with `disabled = busy`, so drawing the list while the fetch that
+      // produced it is still notionally in flight makes every button in the
+      // dialog inert — and nothing renders again to undo it. That shipped once:
+      // the rows looked right and the buttons did nothing at all.
+      busy = false;
       render();
+    }
+  }
+
+  async function rename(source, to) {
+    busy = true;
+    render();
+    try {
+      await auth.renameSource(source.key, to);
+      naming = null;
+      sources = await auth.getSources();
+      render();
+      // Nothing moved on or off the map, but every cell's *colour* may have —
+      // "Colour by type" paints each one by the source it mostly came from.
+      await onChanged?.();
     } catch (e) {
       showErr(e.message ?? String(e));
     } finally {
       busy = false;
+      render();
     }
   }
 
@@ -138,6 +207,7 @@ export function mountSources({ onClose, onChanged } = {}) {
   const close = () => {
     overlay.hidden = true;
     arming = null;
+    naming = null;
   };
 
   const open = () => {

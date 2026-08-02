@@ -94,7 +94,7 @@ All optional — every one has a working default.
 | `BACKUP_DIR` | `./backups` | Where scheduled backups are written |
 | `REGION_CACHE_DIR` | `./cache/regions` | Where detailed region boundaries are cached |
 | `COOKIE_SECURE` | auto | Forces the `Secure` cookie flag; already automatic over HTTPS |
-| `ALLOW_REGISTRATION` | off | Reopens registration after the first account |
+| `ALLOW_REGISTRATION` | on | `0` closes registration once the first account exists |
 | `REGISTRATION_CODE` | — | Keeps registration open, behind an invite code |
 | `MIN_PASSWORD_LEN` | `10` | Minimum password length |
 | `IMPORT_OWNER` | — | Account the offline importer's cells belong to |
@@ -306,9 +306,13 @@ never saying it when nothing has.
 
 ## Keeping it yours
 
-- **Registration closes itself.** The first account on an empty database can
-  always be made; after that the endpoint answers 403. `ALLOW_REGISTRATION=1`
-  reopens it, `REGISTRATION_CODE=…` keeps it open behind an invite code.
+- **Registration is open**, so a map is worth putting more than one person on.
+  An account is not access to anyone else's map — every row is stored per
+  account — but on a host anyone can reach it is a share of your disk and your
+  server's outbound reach, so if that matters: `ALLOW_REGISTRATION=0` shuts the
+  door behind the first account, and `REGISTRATION_CODE=…` keeps it open only to
+  people holding an invite code. Either way it is rate limited to five an hour
+  per address.
 - **Sign-in is rate limited**, passwords are at least 10 characters, and
   sessions expire after 90 days.
 - **Put it behind HTTPS.** `tailscale serve` in front of `npm start` gives you
