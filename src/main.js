@@ -34,6 +34,12 @@ import { mountHomeAssistant } from './home-assistant-ui.js';
 import { sourceLabel } from './locations.js';
 import { mountColorPicker, hexAlpha, hexOpaque } from './color-picker.js';
 import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
+// The theme is not handed over separately: it only ever changes by switching
+// basemap, which replaces the style and rebuilds the overlay from scratch.
+import {
+  describeRailFeature, installRail, loadRailStyle, railDetail, railDetailChanged,
+  railGroups, railLayerIds, railRoutes, removeRail, setRailGroup, splitRouteLabel,
+} from './rail.js';
 import { mountKomoot } from './komoot-ui.js';
 import { mountDevices, whenAgo } from './device-ui.js';
 import { mountSources } from './sources-ui.js';
@@ -494,20 +500,19 @@ async function resolveStyle(key) {
 }
 const STYLE_KEY = 'visited-map:style:v1';
 
-// OpenRailwayMap raster overlay (train tracks). Attribution is required.
-// Namespaced, because a basemap is somebody else's style and its layer ids are
-// theirs to choose: CARTO's already uses `rail`. Anything we add to the map
-// carries this prefix so a future basemap cannot quietly take one of our names.
-const RAIL_SRC = 'hexplore-rail';
-const RAIL_LAYER = 'hexplore-rail';
-
-const RAIL_SOURCE = {
-  type: 'raster',
-  tiles: ['https://a.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png'],
-  tileSize: 256,
-  maxzoom: 19,
-  attribution: '© <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>',
-};
+// Which parts of the train-tracks overlay are switched on. The overlay itself
+// is session-only (see `railOn` below) but these are a shape of the thing rather
+// than a state of this visit: someone who never wants the kilometre posts never
+// wants them, and having to switch them off again each morning would be its own
+// small annoyance. Anything not named here defaults to on.
+const RAIL_GROUPS_KEY = 'visited-map:rail-groups:v1';
+let railGroupsOn = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(RAIL_GROUPS_KEY)) ?? {};
+  } catch {
+    return {};
+  }
+})();
 
 let styleKey = localStorage.getItem(STYLE_KEY) ?? 'dark';
 if (!STYLES[styleKey]) styleKey = 'dark';
@@ -4761,16 +4766,209 @@ function setRail(on) {
   syncRailLayer();
 }
 
+// Whether the group list is unfolded. Session-only, like every other disclosure
+// in this menu: it is where you are in the menu, not a fact about the map.
+let railOptionsOpen = false;
+
+/**
+ * The per-group checkboxes, once there is a loaded style to name the groups.
+ *
+ * Rebuilt from scratch each time rather than patched: it is five rows, and the
+ * list only changes when the overlay is switched on for the first time in a
+ * session or a rebuilt style changes what the groups are.
+ */
+function renderRailOptions() {
+  const toggle = document.getElementById('rail-options-toggle');
+  const box = document.getElementById('rail-options');
+  if (!toggle || !box) return;
+
+  const groups = railOn ? railGroups() : [];
+  toggle.hidden = !groups.length;
+  if (!groups.length) {
+    box.replaceChildren();
+    box.hidden = true;
+    railOptionsOpen = false;
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.classList.remove('open');
+    return;
+  }
+  toggle.setAttribute('aria-expanded', railOptionsOpen ? 'true' : 'false');
+  toggle.classList.toggle('open', railOptionsOpen);
+  box.hidden = !railOptionsOpen;
+  if (!railOptionsOpen) return;
+
+  box.replaceChildren(...groups.map((group) => {
+    const row = document.createElement('label');
+    row.className = 'menu-row rail-option';
+    const name = document.createElement('span');
+    name.textContent = group.label;
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = railGroupsOn[group.key] !== false;
+    input.addEventListener('change', () => setRailGroupOn(group.key, input.checked));
+    row.append(name, input);
+    return row;
+  }));
+}
+
+/** One group of the overlay — the kilometre posts, the platforms — on or off. */
+function setRailGroupOn(key, on) {
+  railGroupsOn = { ...railGroupsOn, [key]: on };
+  try {
+    localStorage.setItem(RAIL_GROUPS_KEY, JSON.stringify(railGroupsOn));
+  } catch {
+    /* fine */
+  }
+  // Deliberately not updateLayersUi(): re-rendering the list would replace the
+  // checkbox whose own change event we are inside, which works but throws away
+  // the focus a keyboard user was holding. The box already shows the new state.
+  if (styleReady && railOn) setRailGroup(map, key, on);
+}
+
 function syncRailLayer() {
   // A click during initial load or a basemap switch is intentionally deferred;
   // installGrid() calls this again for the newly loaded style.
   if (!styleReady) return;
-  if (railOn) {
-    addRailLayer();
-  } else {
-    if (map.getLayer(RAIL_LAYER)) map.removeLayer(RAIL_LAYER);
-    if (map.getSource(RAIL_SRC)) map.removeSource(RAIL_SRC);
+  if (!railOn) {
+    removeRail(map);
+    railPopup?.remove();
+    stopRailDetailPolling();
+    showRailTrouble(null);
+    return;
   }
+  // The style is 315 KB and a session that never asks for the overlay never
+  // fetches it, so the first switch-on is asynchronous. By the time it resolves
+  // the basemap may have changed underneath, or the toggle may have been
+  // switched off again — `styleReady && railOn` is asked once more on the far
+  // side rather than trusted from before the await.
+  // The detail ceiling is asked for *alongside* the style, not after the layers
+  // are up. The server remembers what it learned before this page was reloaded,
+  // so on a reload during an outage it already knows which zooms are answerable
+  // — installing uncapped first would spend a round of requests on tiles known
+  // to fail and show nothing until the rebuild caught up.
+  Promise.all([loadRailStyle(), railDetail()]).then(([, { detail, degraded }]) => {
+    if (!styleReady || !railOn) return;
+    railDetailCeilings = detail;
+    addRailLayer();
+    updateLayersUi();
+    showRailTrouble(degraded);
+    startRailDetailPolling();
+  }).catch((e) => {
+    console.warn('Train tracks could not be loaded.', e);
+  });
+}
+
+// --- What a railway says about itself ------------------------------------------
+// The reason the overlay is vector rather than pixels. Everything shown here is
+// already in the tile that drew the line: OpenRailwayMap's own app answers this
+// with a request to a feature API and a formatting catalogue per click, which is
+// a lot to ask of a server this map is otherwise trying to ask less of.
+let railPopup = null;
+
+/**
+ * Open a card about whatever railway was clicked, and say whether there was one.
+ *
+ * Scoped to our own layer ids: the basemap draws railways too, and reporting
+ * CARTO's idea of a line when the overlay is showing OpenRailwayMap's is the
+ * same mistake the layer ordering was fixed for.
+ */
+function showRailInfo(e) {
+  const ids = railLayerIds().filter((id) => map.getLayer(id));
+  if (!ids.length) return false;
+  const hit = map.queryRenderedFeatures(e.point, { layers: ids })[0];
+  const info = hit && describeRailFeature(hit);
+  if (!info) return false;
+
+  const card = document.createElement('div');
+  card.className = 'rail-popup';
+  const h = document.createElement('h4');
+  h.textContent = info.title;
+  card.append(h);
+  if (info.subtitle) {
+    const sub = document.createElement('p');
+    sub.className = 'rail-popup-kind';
+    sub.textContent = info.subtitle;
+    card.append(sub);
+  }
+  if (info.rows.length) {
+    const dl = document.createElement('dl');
+    for (const [label, value] of info.rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = label;
+      const dd = document.createElement('dd');
+      dd.textContent = value;
+      dl.append(dt, dd);
+    }
+    card.append(dl);
+  }
+  // The services that run over it. Not in the tile, so the card opens without
+  // them and fills the list in when the answer arrives — a click should not wait
+  // on a network round trip to show what it already knows. Guarded by the popup
+  // it was opened for, so a fast second click cannot land its routes in the
+  // first one's card.
+  if (info.routeCount) {
+    const routes = document.createElement('div');
+    routes.className = 'rail-popup-routes';
+    const heading = document.createElement('h5');
+    const plural = (n) => (n === 1 ? '1 route' : `${n} routes`);
+    // The tile's own count until the names arrive, then the count of what is
+    // actually listed — the two differ because a there-and-back pair is two
+    // relations and one line.
+    heading.textContent = plural(info.routeCount);
+    routes.append(heading);
+    card.append(routes);
+    const mine = card;
+    railRoutes(info).then((list) => {
+      if (railPopup?.getElement()?.contains(mine) !== true) return;
+      if (list.length) heading.textContent = plural(list.length);
+      for (const route of list) {
+        const line = document.createElement('div');
+        line.className = 'rail-popup-route';
+        // The dot is always there, coloured or not. Plenty of OSM route
+        // relations carry no `colour` tag — their API hands those back as an
+        // empty string — and only drawing it for the ones that do left the
+        // labels on a ragged edge, which reads as a rendering fault rather than
+        // as missing data. A hollow dot says "no colour recorded" and keeps the
+        // column straight.
+        const dot = document.createElement('span');
+        dot.className = 'rail-popup-route-dot';
+        if (route.color) dot.style.background = route.color;
+        else dot.classList.add('unknown');
+        line.append(dot);
+        // Two spans so the break lands after the service name rather than
+        // wherever the edge of the card happens to fall — see splitRouteLabel.
+        // textContent throughout: these are OSM relation names, which is to say
+        // strings anyone on the internet can edit.
+        const { name, ends } = splitRouteLabel(route.label);
+        const text = document.createElement('span');
+        text.className = 'rail-popup-route-text';
+        if (name) text.append(`${name} `);
+        const label = document.createElement('span');
+        label.className = 'rail-popup-route-ends';
+        label.textContent = ends;
+        text.append(label);
+        line.append(text);
+        routes.append(line);
+      }
+    });
+  }
+  if (info.osm) {
+    // Built with textContent and an href, never innerHTML: these are OSM tag
+    // values, which is to say strings anyone on the internet can edit.
+    const a = document.createElement('a');
+    a.href = info.osm.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = `View this ${info.osm.type} on OpenStreetMap`;
+    card.append(a);
+  }
+
+  railPopup?.remove();
+  railPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+    .setLngLat(hit.geometry?.type === 'Point' ? hit.geometry.coordinates.slice() : e.lngLat)
+    .setDOMContent(card)
+    .addTo(map);
+  return true;
 }
 
 const dateShort = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
@@ -4790,6 +4988,7 @@ function updateLayersUi() {
   }
   updateDetailNow();
   railToggle.checked = railOn;
+  renderRailOptions();
   updateRoutesUi();
 
   // The picker only means anything in single-color mode, and nothing at all
@@ -4963,6 +5162,14 @@ function wireLayersControl() {
     routeOptionsOpen = !routeOptionsOpen;
     renderRouteOptions();
   });
+  document.getElementById('rail-options-toggle').addEventListener('click', () => {
+    railOptionsOpen = !railOptionsOpen;
+    renderRailOptions();
+  });
+  document.getElementById('rail-bar-dismiss').addEventListener('click', () => {
+    railTroubleDismissed = true;
+    showRailTrouble(null);
+  });
   document.getElementById('edit-toggle').addEventListener('change', (e) => setEditUi(e.target.checked));
 
   // The menu used to carry an "i" beside almost every row, each opening a
@@ -5001,21 +5208,134 @@ function wireLayersControl() {
 const RAIL_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStart());
 let firstInstall = true;
 
+// How deep the server says each of OpenRailwayMap's sources can currently be
+// asked for. Empty means "whatever the style says", which is the answer
+// whenever they are healthy.
+let railDetailCeilings = {};
+// While the overlay is on, ask again on this cadence: a ceiling that dropped
+// during an outage has to be able to climb back on its own, and the only way to
+// notice is to look. Slow enough to be free, quick enough that the detail
+// returns within a few minutes of their server doing so.
+const RAIL_DETAIL_POLL_MS = 3 * 60 * 1000;
+let railDetailTimer = null;
+
+// **And ask straight away when tiles start failing.** The poll above is for
+// noticing that things got *better*, which nothing on this side can predict. It
+// is far too slow for the other direction: their cache coverage is geographic,
+// so panning into a valley whose tiles nobody has warmed turns the railways off
+// instantly, and waiting three minutes for the ceiling to catch up is
+// indistinguishable from it not working. MapLibre reports every failed tile, so
+// a failure on one of our sources schedules a check — debounced, because a
+// viewport fails a dozen tiles at once, and rate-limited so a sustained outage
+// cannot turn this into its own poll.
+// The ceiling can only ever step down one zoom per check, because it is only
+// ever as good as the evidence, and the evidence for "z12 is bad too" does not
+// exist until z12 has been asked for. Somewhere like Frutigen — where their
+// cache has nothing below z11 — that is three steps, so the gap between checks
+// is what decides whether the railways come back in four seconds or a minute.
+// `railLastFailureCheck` is reset whenever a check actually moved the ceiling,
+// so a descent runs at the short interval and only settles to the long one once
+// it has found a zoom that works.
+const RAIL_FAILURE_CHECK_MS = 1200;
+const RAIL_FAILURE_MIN_GAP_MS = 15000;
+let railFailureTimer = null;
+let railLastFailureCheck = 0;
+
+function noteRailTileFailure() {
+  if (!railOn || railFailureTimer) return;
+  const wait = Math.max(RAIL_FAILURE_CHECK_MS, RAIL_FAILURE_MIN_GAP_MS - (Date.now() - railLastFailureCheck));
+  railFailureTimer = setTimeout(() => {
+    railFailureTimer = null;
+    railLastFailureCheck = Date.now();
+    syncRailDetail().catch(() => {});
+  }, wait);
+}
+
 function addRailLayer() {
-  // Our own layer, asked for by our own id — not "does a source called rail
+  // Our own ids, asked for by our own names — not "does a source called rail
   // exist". CARTO's styles ship a layer *called* `rail` (their own railway
   // lines, drawn from the basemap's transportation source), so on any basemap
   // built from them `getLayer('rail')` answered yes about somebody else's
   // layer and this returned having added nothing. The overlay simply stopped
   // existing when you switched to Light or Dark, while every check said it was
   // fine. Namespacing ours puts the question beyond doubt.
-  if (map.getLayer(RAIL_LAYER)) return;
-  if (!map.getSource(RAIL_SRC)) map.addSource(RAIL_SRC, RAIL_SOURCE);
-  map.addLayer(
-    { id: RAIL_LAYER, type: 'raster', source: RAIL_SRC, paint: { 'raster-opacity': 0.85 } },
-    RAIL_BEFORE(),
-  );
+  installRail(map, {
+    // Whatever upright stack the basemap's own glyph server serves. Their style
+    // asks for fonts only their glyph server has, and a style has one glyphs
+    // URL — see the note in src/rail.js.
+    font: styleFont(),
+    theme: STYLES[styleKey].theme,
+    before: RAIL_BEFORE(),
+    groups: railGroupsOn,
+    detail: railDetailCeilings,
+  });
 }
+
+/**
+ * Keep the overlay's detail in step with what their server can actually serve.
+ *
+ * A ceiling only ever arrives from evidence — tiles that were asked for and
+ * failed — so the first pass after switching on is uncapped, and a cap appears a
+ * moment later if the deeper zooms turn out to be unavailable. When it changes
+ * in either direction the overlay is rebuilt, because a source's `maxzoom` is
+ * fixed once MapLibre has it.
+ */
+async function syncRailDetail() {
+  if (!railOn) return;
+  const { detail, degraded } = await railDetail();
+  if (!railOn) return;
+  showRailTrouble(degraded);
+  if (!railDetailChanged(railDetailCeilings, detail)) return;
+  railDetailCeilings = detail;
+  if (!styleReady) return;
+  // Rebuilt rather than adjusted: `maxzoom` is not settable on a live source.
+  // The sprites stay — see removeRail for why taking them out here blanks the
+  // entire map for as long as the atlases take to come back.
+  removeRail(map, { keepSprites: true });
+  addRailLayer();
+  // Still descending. The layers just re-added will ask at the new ceiling, and
+  // if that fails too the next check should follow immediately rather than
+  // waiting out the rate limit meant for a steady state.
+  railLastFailureCheck = 0;
+}
+
+// --- "OpenRailwayMap is having trouble" ----------------------------------------
+// The same shape as the offline banner and deliberately not the same colour:
+// that one is red because your edits are not being saved, and this one is not,
+// because nothing of yours is at risk. A third-party layer you switched on is
+// incomplete, and the only thing worth saying is that the gap is theirs and not
+// a bug in your map. Dismissible, and it stays dismissed for the session — being
+// told twice about somebody else's outage is worse than not being told.
+let railTroubleDismissed = false;
+
+function showRailTrouble(degraded) {
+  const bar = document.getElementById('rail-bar');
+  if (!bar) return;
+  if (!degraded || railTroubleDismissed || !railOn) {
+    bar.hidden = true;
+    return;
+  }
+  document.getElementById('rail-bar-detail').textContent =
+    `OpenRailwayMap is not answering for ${degraded.share}% of the map right now.`;
+  bar.hidden = false;
+}
+
+function startRailDetailPolling() {
+  if (railDetailTimer) return;
+  railDetailTimer = setInterval(() => { syncRailDetail().catch(() => {}); }, RAIL_DETAIL_POLL_MS);
+}
+
+function stopRailDetailPolling() {
+  clearInterval(railDetailTimer);
+  railDetailTimer = null;
+  clearTimeout(railFailureTimer);
+  railFailureTimer = null;
+}
+
+// Every tile MapLibre could not load says which source it belonged to.
+map.on('error', (e) => {
+  if (String(e?.sourceId ?? '').startsWith('hexplore-orm-')) noteRailTileFailure();
+});
 
 // Where the basemap's labels begin — the layer to sit *under* if you want to be
 // above every road, water and boundary but still let the place names win.
@@ -5410,6 +5730,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // under it; otherwise view mode inspects the cell.
       const route = routeAt(e.point);
       if (route) showRouteInfo(route);
+      // Then the train tracks, in the same order they are drawn in: a line you
+      // travelled beats reference geometry about where a line exists, and both
+      // beat the ground underneath. Only when the overlay is actually on — a
+      // hit test across 288 layers is not worth running otherwise.
+      else if (railOn && showRailInfo(e)) { /* the card is the whole of the tap */ }
       // At the three vector levels there are no hexes on screen, so a tap is
       // about the shape it landed on — whether or not you have been to it — and
       // where there is no shape, about nothing. See showInfoAt.

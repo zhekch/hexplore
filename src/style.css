@@ -867,7 +867,13 @@ body {
     0 16px 44px rgba(0, 0, 0, 0.38),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
   color: rgba(255, 255, 255, 0.92);
-  user-select: none;
+  /* Selectable, unlike the rest of the map chrome. The header carries the cell's
+     coordinates and they are worth copying — and the alternative, a copy button
+     beside every value someone might want, is how a card that reads at a glance
+     turns into a form. The close button opts back out below: a control whose
+     label you can accidentally highlight while reaching for it is a control that
+     feels broken. */
+  user-select: text;
   animation: card-rise 0.22s ease;
 }
 
@@ -924,6 +930,9 @@ body {
   background: rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
+  /* The card itself is selectable so its coordinates can be copied; a control is
+     not text and should not highlight under a dragged cursor aimed at it. */
+  user-select: none;
   transition: background 0.15s ease;
 }
 
@@ -3219,6 +3228,17 @@ body {
   display: none;
 }
 
+/* Somebody else's outage, in the same place and not the same red. The offline
+   banner is an alarm about your data; this is a note that a layer you switched
+   on is incomplete through no fault of this map, so it is amber and it can be
+   dismissed. Two of these can never be up at once in practice — if the server
+   has gone, nothing is asking OpenRailwayMap anything. */
+.rail-bar {
+  background: rgba(58, 43, 12, 0.86);
+  border-color: rgba(240, 190, 90, 0.45);
+  color: #ffeccc;
+}
+
 @keyframes offline-drop {
   from {
     opacity: 0;
@@ -3490,6 +3510,232 @@ body {
 
 .routes-options[hidden] {
   display: none;
+}
+
+/* The train-tracks groups. Same disclosure as the activity rows above, and
+   deliberately the same shape: both answer "which parts of this layer do I want
+   drawn". Indented, because they are parts of the row above them rather than
+   siblings of it. */
+.rail-options {
+  margin-top: 2px;
+  padding: 2px 0 2px 10px;
+}
+
+.rail-options[hidden] {
+  display: none;
+}
+
+/* No top border: inside the disclosure these are a list, and the rule that
+   separates one menu row from the next reads as five separate settings. */
+.rail-option {
+  border-top: 0;
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+[data-theme='light'] .rail-option {
+  color: rgba(15, 23, 42, 0.72);
+}
+
+/* --- The card a clicked railway opens ---------------------------------------
+   MapLibre's own popup is a white box with a white tip, which on the dark
+   basemaps is the only opaque white thing on screen. This is the same glass as
+   `.cell-info` — the card that opens when you tap a hexagon — down to the radius
+   and the shadow, because they are the same kind of object: something the map
+   is telling you about the thing you just tapped. Anything else here would be a
+   second visual language for one idea. */
+.maplibregl-popup-content {
+  padding: 14px 16px 12px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  backdrop-filter: blur(26px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 16px 44px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* No tip. It is a solid triangle and this card is translucent glass, so the two
+   can never agree — the tip reads as a stuck-on tab of the wrong colour. The
+   other card in this app does not have one either, and the popup opens where
+   you clicked, so nothing is lost by saying it with position instead. */
+.maplibregl-popup-tip {
+  display: none;
+}
+
+/* Inset, and sized, so the hover disc stays inside the card. MapLibre pins this
+   at `top: 0; right: 0` with no dimensions, so a padded hover background sits in
+   the corner the 24px radius has already curved away — the highlight spilled
+   past the edge of the card. */
+.maplibregl-popup-close-button {
+  display: grid;
+  place-items: center;
+  top: 9px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 9px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 15px;
+  line-height: 1;
+  transition: background 0.15s ease;
+}
+
+.maplibregl-popup-close-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.rail-popup h4 {
+  margin: 0 16px 0 0;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.rail-popup-kind {
+  margin: 2px 0 0;
+  font-size: 11px;
+  text-transform: capitalize;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Label and value in two columns, so a run of them lines up as a table rather
+   than as sentences. The value wraps; the label never does. */
+.rail-popup dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 9px 0 0;
+  font-size: 12px;
+}
+
+.rail-popup dt {
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+}
+
+.rail-popup dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The services running over the line. A list rather than a `dl` row: these are
+   sentences ("IC 8: Brig => Romanshorn"), not label-and-value, and they arrive
+   after the card has already opened. */
+.rail-popup-routes {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.rail-popup-routes h5 {
+  margin: 0 0 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.rail-popup-route {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* The dot is a flex child; everything else lives inside one text box so that it
+   wraps as ordinary inline content. `min-width: 0` is what lets that box be
+   narrower than its longest word inside a flex row. */
+.rail-popup-route-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The service name and the journey wrap as two units, so a label too wide for
+   the card breaks after "GoldenPass Express:" rather than somewhere inside
+   "Interlaken Ost <=> Zweisimmen". `inline-block` is what does it: the box is
+   placed whole when it fits on the line and moved down entire when it does not,
+   and only breaks inside itself when it is too wide for a line of its own. */
+.rail-popup-route-ends {
+  display: inline-block;
+  overflow-wrap: anywhere;
+}
+
+/* The route's own colour, which is the one thing about it a rider recognises
+   before reading the words. */
+.rail-popup-route-dot {
+  flex: none;
+  box-sizing: border-box;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateY(-1px);
+}
+
+/* No `colour` on the OSM relation. Hollow rather than absent, so the labels
+   keep one left edge and the gap reads as unknown rather than as a bug. */
+.rail-popup-route-dot.unknown {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+[data-theme='light'] .rail-popup-route-dot.unknown {
+  border-color: rgba(15, 23, 42, 0.3);
+}
+
+.rail-popup a {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.rail-popup a:hover {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* The same values `.cell-info` uses in light, for the same reason. */
+[data-theme='light'] .maplibregl-popup-content {
+  background: rgba(248, 250, 252, 0.92);
+  border-color: rgba(15, 23, 42, 0.16);
+  box-shadow:
+    0 16px 44px rgba(15, 23, 42, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  color: rgba(15, 23, 42, 0.94);
+}
+
+[data-theme='light'] .maplibregl-popup-close-button {
+  color: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme='light'] .maplibregl-popup-close-button:hover {
+  background: rgba(15, 23, 42, 0.08);
+  color: rgba(15, 23, 42, 0.9);
+}
+
+/* The routes heading was missed here and came out white on a light card —
+   invisible, and the only thing in the popup that was. */
+[data-theme='light'] .rail-popup-kind,
+[data-theme='light'] .rail-popup dt,
+[data-theme='light'] .rail-popup a,
+[data-theme='light'] .rail-popup-routes h5 {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+[data-theme='light'] .rail-popup-routes {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .rail-popup a:hover {
+  color: rgba(15, 23, 42, 0.9);
 }
 
 .route-option {

@@ -65,7 +65,9 @@
 // baked-in imported history into that one account (default: unset — every new
 // account starts empty and nobody gets it auto-filled), BACKUP_DIR (default
 // ./backups) for where the timed copies of data.db are written,
-// REGION_CACHE_DIR (default ./cache/regions) for the detailed boundary cache.
+// REGION_CACHE_DIR (default ./cache/regions) for the detailed boundary cache,
+// RAIL_CACHE_DIR (default ./cache/rail) and RAIL_CACHE_BYTES (default 512 MB)
+// for the OpenRailwayMap tile cache.
 
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
@@ -73,7 +75,7 @@ import { createHash, scrypt as scryptCb, randomBytes, timingSafeEqual } from 'no
 import { promisify } from 'node:util';
 import { readFile, stat } from 'node:fs/promises';
 import { createReadStream, existsSync, readFileSync } from 'node:fs';
-import { gzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeLimiter, clientIp } from './rate-limit.js';
@@ -96,7 +98,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.2.0';
+export const SERVER_VERSION = '0.3.0';
 
 const scrypt = promisify(scryptCb);
 // The same folding the browser importer uses, so a fix from Home Assistant and
@@ -116,6 +118,10 @@ import { createBackups, isBackupName } from './backup.js';
 // Detailed region boundaries, fetched once per country and cached on disk. The
 // browser can't fetch these itself — see the module for why.
 import { createFineRegions } from './regions-fine.js';
+// The train-tracks overlay's vector tiles, cached here rather than fetched by
+// every browser separately. Read the policy note at the top of that module
+// before touching how often it asks upstream.
+import { createRailTiles } from './rail-tiles.js';
 import { loadRegions } from '../src/regions.js';
 import { describeCron } from '../src/cron.js';
 
@@ -126,6 +132,7 @@ const COOKIE_SECURE = process.env.COOKIE_SECURE === '1' || process.env.COOKIE_SE
 const IMPORT_OWNER = process.env.IMPORT_OWNER || null;
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(ROOT, 'backups');
 const REGION_CACHE_DIR = process.env.REGION_CACHE_DIR || path.join(ROOT, 'cache', 'regions');
+const RAIL_CACHE_DIR = process.env.RAIL_CACHE_DIR || path.join(ROOT, 'cache', 'rail');
 const DIST = path.join(ROOT, 'dist');
 const SERVE_STATIC = existsSync(DIST);
 // Sessions are checked against this server-side now, not just handed to the
@@ -376,6 +383,47 @@ try {
 } catch (e) {
   console.warn(`[visited-map] no region dataset (${e.message}) — detailed boundaries are off`);
 }
+
+// The train-tracks tile cache. Its allowlist of upstream source lists is read
+// out of the built overlay rather than written twice: the style is the only
+// thing that decides which of OpenRailwayMap's sources this map ever asks for,
+// and a second copy of that list here is a second thing to keep in step. No
+// overlay file, no proxy — the route answers 404 and the toggle stays off.
+const railSources = (() => {
+  try {
+    const style = JSON.parse(readFileSync(path.join(ROOT, 'src', 'rail-style.json'), 'utf8'));
+    return new Set(
+      Object.values(style.sources)
+        .map((s) => /^\/api\/rail\/tile\/(.+)\/\{z\}\/\{x\}\/\{y\}\.pbf$/.exec(s.tiles?.[0] ?? '')?.[1])
+        .filter(Boolean),
+    );
+  } catch (e) {
+    console.warn(`[visited-map] no rail overlay (${e.message}) — train tracks are off`);
+    return new Set();
+  }
+})();
+// `source/sourceLayer` for every layer the overlay draws — the allowlist for
+// their feature API, which the click popup asks for a line's route relations.
+// Their source ids as MapLibre sees them are ours with the namespace stripped,
+// which is the form their API expects.
+const railFeatureViews = (() => {
+  try {
+    const style = JSON.parse(readFileSync(path.join(ROOT, 'src', 'rail-style.json'), 'utf8'));
+    return new Set(
+      style.layers
+        .filter((l) => l['source-layer'])
+        .map((l) => `${l.source.replace(/^hexplore-orm-/, '')}/${l['source-layer']}`),
+    );
+  } catch {
+    return new Set();
+  }
+})();
+const railTiles = createRailTiles({
+  dir: RAIL_CACHE_DIR,
+  sources: railSources,
+  featureViews: railFeatureViews,
+  log: (msg) => console.log(`[visited-map] rail: ${msg}`),
+});
 
 const q = {
   insUser: db.prepare('INSERT INTO users(username, pass, created_at) VALUES(?, ?, ?)'),
@@ -1850,6 +1898,46 @@ function send(res, status, body, headers = {}) {
 }
 
 /**
+ * Send bytes we are holding on somebody else's behalf: a tile, a sprite sheet.
+ *
+ * Not `send`, which speaks JSON and gzips on the way out. These arrive already
+ * compressed from the cache — see the storage note in server/rail-tiles.js — so
+ * the encoding is passed straight through to the ~every client that accepts it
+ * and undone for the one that does not.
+ *
+ * **`private`, and cached hard.** The route is session-gated, so no shared cache
+ * may keep a copy; the browser's own is exactly where these belong, and it is
+ * the layer that stops a pan back over the same ground from reaching this
+ * process at all. The ETag is over the bytes, so a revalidation after the
+ * max-age is a 304 rather than a tile.
+ */
+function sendRailBytes(req, res, out) {
+  const head = { ...BASE_SECURITY_HEADERS };
+  if (out.status === 204 || !out.body?.length) {
+    res.writeHead(204, { ...head, 'Cache-Control': 'private, max-age=86400' });
+    return res.end();
+  }
+  const etag = `W/"${createHash('sha1').update(out.body).digest('base64url')}"`;
+  const maxAge = Math.floor((out.ttl ?? 86400000) / 1000);
+  head['Cache-Control'] = `private, max-age=${maxAge}`;
+  head.ETag = etag;
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, head);
+    return res.end();
+  }
+  head['Content-Type'] = out.type || 'application/octet-stream';
+  const wantsGz = out.gzip && acceptsGzip(req);
+  const body = out.gzip && !wantsGz ? gunzipSync(out.body) : out.body;
+  if (wantsGz) {
+    head['Content-Encoding'] = 'gzip';
+    head.Vary = 'Accept-Encoding';
+  }
+  head['Content-Length'] = String(body.length);
+  res.writeHead(200, head);
+  res.end(req.method === 'HEAD' ? undefined : body);
+}
+
+/**
  * A conditional GET for the reads that belong to one account.
  *
  * These are the expensive answers. A real map is 25,000 cell rows — 1.1 MB of
@@ -3015,6 +3103,60 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       // every rebuild, restart and reload, because `immutable` means the browser
       // will not even ask.
       return send(res, 200, out, { 'Cache-Control': 'public, max-age=31536000, immutable' });
+    }
+
+    // --- Train tracks -----------------------------------------------------------
+    // A caching proxy onto OpenRailwayMap's vector tiles. Session-gated for the
+    // same reason the boundaries above are: it spends somebody else's bandwidth,
+    // and an open one would let anyone spend it. See server/rail-tiles.js for
+    // what their usage policy asks of this and how far this departs from it.
+    if (req.method === 'GET' && pathname.startsWith('/api/rail/')) {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const rest = pathname.slice('/api/rail/'.length);
+      // Doubles as the Referer sent upstream — this map's own origin, which is
+      // the true answer to what the header asks and the one their server
+      // insists on. See server/rail-tiles.js.
+      const origin = selfOrigin(req);
+      if (!origin) return send(res, 400, { error: 'no host' });
+
+      // How deep it is currently worth asking each source for. The client caps
+      // its `maxzoom` at this so MapLibre overzooms a parent tile rather than
+      // drawing nothing where their CDN has no cached copy — see the note on
+      // HEALTH_WINDOW_MS in server/rail-tiles.js. Never cached: the whole value
+      // of it is being current.
+      if (rest === 'detail') {
+        return send(
+          res,
+          200,
+          { detail: railTiles.detail(), degraded: railTiles.degraded() },
+          { 'Cache-Control': 'no-store' },
+        );
+      }
+
+      let out = null;
+      if (rest.startsWith('tile/')) {
+        // `<source list>/<z>/<x>/<y>.pbf`. The source list is matched against the
+        // style's own allowlist inside the module, so nothing here can be talked
+        // into proxying an arbitrary path on their origin.
+        const m = /^tile\/(.+)\/(\d+)\/(\d+)\/(\d+)\.pbf$/.exec(rest);
+        if (m) out = await railTiles.tile(decodeURIComponent(m[1]), m[2], m[3], m[4], origin);
+      } else if (rest.startsWith('sprite/') || rest.startsWith('sdf-sprite/')) {
+        out = await railTiles.sprite(rest, origin);
+      } else if (rest.startsWith('feature/')) {
+        // `<source>/<sourceLayer>/<id>` — what runs over a line the person just
+        // clicked. Both path parts are matched against the style's own layers
+        // inside the module.
+        const m = /^feature\/([^/]+)\/([^/]+)\/(.+)$/.exec(rest);
+        if (m) {
+          out = await railTiles.feature(
+            ...m.slice(1, 4).map(decodeURIComponent), origin,
+          );
+        }
+      }
+
+      if (!out) return send(res, 404, { error: 'no such tile' });
+      return sendRailBytes(req, res, out);
     }
 
     // --- Backups --------------------------------------------------------------

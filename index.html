@@ -96,9 +96,21 @@
             </div>
 
             <label class="menu-row">
-              <span>Train tracks</span>
+              <span>Train tracks<small>OpenRailwayMap</small></span>
               <input type="checkbox" id="rail-toggle" />
             </label>
+            <!-- Only offered once the overlay is on: the groups are parts of a
+                 thing that isn't on the map yet, and the style they come from is
+                 a lazy chunk that hasn't been fetched to name them. -->
+            <button type="button" class="menu-expand" id="rail-options-toggle"
+              aria-expanded="false" aria-controls="rail-options" hidden>
+              <span>Choose what to show</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+            <div class="rail-options" id="rail-options" hidden></div>
           </section>
 
           <section class="menu-section">
@@ -1075,6 +1087,22 @@
         <small id="offline-detail">Anything you change now won't be saved.</small>
       </span>
       <button type="button" class="offline-retry" id="offline-retry">Retry</button>
+    </div>
+
+    <!-- Somebody else's outage. Shaped like the banner above and coloured
+         differently on purpose: that one is red because your edits are not being
+         saved, this one is not, because nothing of yours is at risk. -->
+    <div class="offline-bar rail-bar" id="rail-bar" hidden role="status" aria-live="polite">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v4" />
+        <path d="M12 16h.01" />
+      </svg>
+      <span class="offline-text">
+        <b>Train tracks are patchy</b>
+        <small id="rail-bar-detail"></small>
+      </span>
+      <button type="button" class="offline-retry" id="rail-bar-dismiss">Dismiss</button>
     </div>
 
     <!-- Shown while something is being fetched that the map is waiting on — the

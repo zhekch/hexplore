@@ -1870,9 +1870,10 @@ their cards' own filters are merely redundant.
 The train tracks failed differently and more quietly. `addRailLayer` asked
 "does a source called `rail` exist" and returned having added nothing — but
 CARTO's styles ship a layer of their own called `rail`, so on Light and Dark the
-question was being answered about somebody else's layer. Ours is `hexplore-rail`
-now, and the guard asks for our own layer by our own id. The general rule: a
-basemap is somebody else's style and its ids are theirs to choose.
+question was being answered about somebody else's layer. Ours was namespaced
+(`hexplore-rail` then, `hexplore-orm-…` since the vector rebuild below), and the
+guard asks for our own layer by our own id. The general rule: a basemap is
+somebody else's style and its ids are theirs to choose.
 
 **Where the overlay sits** was the second half of that. It anchored to
 `tile-fill`, which put it under the visited wash *and* under the basemap's own
@@ -1885,18 +1886,381 @@ beneath them, since a line you actually travelled beats reference geometry about
 where a line exists. Both draw over the basemap's own labels, which on CARTO all
 fall below that point.
 
-The tiles are **raster** (`standard/{z}/{x}/{y}.png`), which is why the overlay
-is all-or-nothing: the level crossings, the kilometre posts and the switch
-numbers are pixels by the time they arrive, and nothing on this side can filter
-them out. OpenRailwayMap has published vector tiles since 2024
-(`openrailwaymap.app`, MapLibre style spec, third-party use allowed with
-attribution), where the same content arrives as separate source layers —
-`transport_lines` and `railway_line_high` for the geometry, `railway_text_km`
-for the kilometre positions, `standard_railway_switch_ref` for the switch
-numbers, `standard_railway_symbols` for the crossings and other point features,
-keyed on a `feature` property. Moving to those would make the overlay
-configurable; it would also mean carrying our own style for it rather than one
-URL.
+## The train tracks, in vector
+
+The tiles used to be **raster** (`standard/{z}/{x}/{y}.png`), which is why the
+overlay was all-or-nothing: the level crossings, the kilometre posts and the
+switch numbers were pixels by the time they arrived, and nothing on this side
+could filter them, recolour them, or say what one of them was. Since 2024
+OpenRailwayMap has published the same content as vector tiles at
+`openrailwaymap.app`, and the overlay is built from those now. Three things
+follow that a raster layer could not have: the parts can be switched off
+separately, the railways recolour with the basemap, and a tap on a siding can
+say what it is.
+
+What it costs is **carrying our own style rather than one URL**, and that turns
+out to be the whole of the work. Their published style is 464 layers describing
+a complete map — background, hillshade, OpenHistoricalMap geometry and all — and
+288 of them are the railways. `scripts/build-rail-style.mjs` takes those out and
+emits `src/rail-style.json`, because four of the style's assumptions stop being
+true the moment its layers live in somebody else's:
+
+**Its fonts.** The style asks for `OpenRailwayMap-Regular`, `-Bold`, `-Italic`
+and `FiraCode-Bold` from its own glyph server. A MapLibre style has exactly one
+`glyphs` URL and the basemap owns it, so those stacks would 404 and every label
+would silently not draw — the same failure `styleFont()` already existed to
+avoid. Every fontstack collapses to a token the client swaps for whatever
+upright stack the basemap serves; bold and italic are lost with nowhere to get
+them from. The half of this that is easy to miss is inside `text-field`: a
+`format` expression takes per-section options, and three of their station-label
+layers set `{"text-font": …}` on a section to give the second line its own face.
+A section override survives a layer-level rewrite untouched, so it is deleted
+rather than rewritten — a section without one inherits the layer's.
+
+**Its sprites.** Images resolve as `spriteId:name`, *except* for the sprite whose
+id is `default`, whose names are bare (`"default"===t?o:`${t}:${o}`` in
+MapLibre's own image manager) — and a basemap's string-form sprite is already
+that one. ORM's cannot be added under the same id, so both get a namespace and
+every image reference is rewritten to match. Nine distinct shapes carry those
+references, eight of them prefixed `sdf:` and one bare
+(`["image",["get","feature"]]`), which cannot be spotted from a literal because
+it has none. It is handled by its shape instead: an `image` operator whose
+argument contributes no prefix is reading the default sprite.
+
+**Its ids.** A basemap is somebody else's style and its layer ids are theirs to
+choose. Sources and layers alike carry `hexplore-orm-`, for the same reason
+`hexplore-rail` did.
+
+**Its tile URLs.** Rewritten to the caching proxy below.
+
+**The build is reproducible**: no timestamp, a hash of the upstream style
+instead, so rebuilding an unchanged upstream reproduces the file byte for byte.
+It is a lazily-imported chunk — 315 KB, 12 KB gzipped — so a session that never
+switches the overlay on never pays for it.
+
+### Both the sprites and the tiles must be absolute URLs
+
+The built style stores paths — `/api/rail/sprite/symbols`, `/api/rail/tile/…` —
+because the origin is not a thing a build can know. `railUrl()` turns them into
+URLs at install, and skipping that fails in two different ways, neither of which
+looks like what it is.
+
+**A relative sprite URL blanks the whole map.** MapLibre refuses it ("must be
+absolute") and refuses it by *firing an error rather than throwing*, so the
+overlay installs completely: every source added, all 288 layers added, every
+check green. But a sprite that never resolves leaves the image manager
+permanently unready, and the renderer will not draw a frame until it is — so the
+basemap goes too. The symptom is an empty dark rectangle with a working
+attribution bar, and nothing in the code path admits to a failure.
+
+**A relative tile template fails somewhere much quieter.** MapLibre builds the
+tile `Request` inside a *web worker*, and a worker has no document to resolve a
+relative URL against, so each one dies with "Failed to construct 'Request':
+Failed to parse URL" — off the main thread, where the page's own error handling
+never sees it. Meanwhile `transformRequest` still fires on the main thread and
+the source still reports itself loaded, so every signal short of the console
+says the overlay is working while not one tile is fetched.
+
+**And the obvious fix has a trap of its own.** `new URL(path, origin)`
+normalises, and normalising a tile template percent-encodes the placeholders
+into `%7Bz%7D/%7Bx%7D/%7By%7D` — which MapLibre can no longer substitute, so
+every tile is requested with the braces still in the path and every one of them
+404s. `railUrl()` is deliberately string concatenation, and the test asserts both
+that the result is absolute and that `{z}/{x}/{y}` survives it.
+
+### Zoom ranges are worked out, not asked for
+
+This was the single worst thing the first version did, and it is worth spelling
+out because the mistake is an easy one to make again.
+
+Their sources are declared in the style as TileJSON URLs, so the obvious thing
+is to let MapLibre fetch them and learn each source's zoom range from the
+authority. That endpoint is one of the flakiest things they serve, and the
+fallback for when it fails — assume z0–20 — turned every one of their bad
+afternoons into a flood of our own making: a source with data at z4–7 was then
+requested at z14, where it can only answer with an error, for all six sources at
+every zoom, on every pan. The overlay was generating far more failed requests
+than it had any business generating, and every one of them was blamed on them.
+
+**The style already knows.** Every layer carries the zooms it draws at, so the
+union over a source's layers *is* that source's range, and a source with any
+layer that has no `maxzoom` is open-ended. Against the three TileJSON documents
+of theirs that were reachable this reproduces them exactly —
+`…text_stations_low` z4–7, `…_med` z7–8, the standard composite from z8 — and it
+costs no request, cannot go stale differently from the layers it is derived
+from, and works while they are down. `rail-style.json` now carries a `tiles`
+template and a zoom range per source, there is no TileJSON fetch at runtime at
+all, and at a typical z12 view two sources are in range rather than six.
+
+The upper bound for an open-ended source is `SOURCE_MAX_ZOOM`, which is
+OpenRailwayMap's own `globalMaxZoom` of 20 rather than this map's 17.5. MapLibre
+never asks above the zoom being displayed, so the larger number costs nothing
+and stays correct if the map's own cap is ever raised.
+
+### What survives is the part worth having
+
+Their zoom ramps, their colour ramps, their filters, and — the useful surprise —
+their **`global-state` switches**, which the style consults 1,529 times for its
+own configuration. `theme` alone accounts for 748 of those, so handing it the
+basemap's light or dark makes the railways recolour with the map under them
+rather than sitting on it. `showConstructionInfrastructure`,
+`showProposedInfrastructure`, `showAbandonedInfrastructure` and
+`showRazedInfrastructure` are theirs too, and are configuration we get for free
+rather than visibility hacks of our own.
+
+A grafted layer has no stylesheet `state` block to read defaults from and an
+unset key evaluates to null, so all fourteen defaults are set on the map at
+install. For the 748 that consult `theme`, forgetting that is the difference
+between railways and nothing at all.
+
+The five **groups** in the layers menu — tracks, stations, signals and crossings,
+platforms, kilometre posts — are ours, assigned per source layer in `GROUPS` at
+the top of the build script. The build fails rather than ships if upstream grows
+a source layer that none of them claims: content with no way to switch it off is
+exactly what this overlay was rebuilt to avoid. Switching a group off sets
+`visibility` rather than removing layers, so switching it back on costs nothing
+and cannot reorder the stack.
+
+### Asking their server as little as possible
+
+`server/rail-tiles.js` is a caching proxy, and its module comment is the part to
+read before changing how often it asks upstream. Their usage policy says tiles
+may be used by third-party applications "available publicly and without
+registration", that they "may not be downloaded using automated processes or in
+bulk", and that requests must carry a header that is not faked. This map is
+behind an account and a server-side cache is by definition an automated process
+fetching tiles; both are a deliberate, informed departure, made because the
+alternative — every browser on every device asking them directly, forever — is
+worse for them. What it obliges the proxy to do is spelled out there: nothing is
+ever fetched that a person did not just look at, there is no seeding or
+prefetch, `MAX_UPSTREAM` caps concurrent upstream requests at six, entries
+outlive their TTL and are revalidated with `If-None-Match` so a repeat costs a
+304, and their outage serves a stale entry rather than a retry loop.
+
+### Remembering that they said no
+
+The cache originally stored only successes, which meant a tile their server
+could not answer was fetched again on every single pan across it — forever, at
+full price, for as long as it stayed broken. That is the opposite of what a
+cache is for, and it is the failure mode you actually meet, because upstream
+failures are not rare.
+
+A refusal is now stored like any other answer. `FAIL_TTL_MS` starts at thirty
+seconds and doubles up to `FAIL_TTL_MAX_MS` for as long as the failures keep
+coming, so a recovery is noticed almost immediately while a persistent outage
+settles to a trickle. Panning back over ground that failed costs nothing;
+ground nobody has looked at yet is still fetched at once.
+
+**There is deliberately no circuit breaker**, and the story of the one that used
+to be here is worth keeping. The idea — after twelve consecutive failures stop
+calling a source for a minute — reads as obvious politeness. It went wrong twice.
+
+Shared across sources it was actively harmful, because they do not fail as a
+unit: `railway_line_high,railway_text_km` (the track geometry) answers requests
+over Switzerland while the ten-source `standard` composite carrying stations and
+signals answers 502 to all of them. One counter meant the dead source tripped
+within a viewport and silenced the healthy one, so the tracks drew and vanished
+a second later — sooner the further you zoomed in, because a denser viewport
+reaches twelve failures faster. That read convincingly as a zoom threshold in the
+style and was nothing of the kind; layer visibility is unbroken from z7 to z17.
+
+Made per-source it still blanked the railways for a minute at a time during an
+outage the per-tile backoff was already handling, and announced itself in the log
+while doing it. A pause that makes the map worse without meaningfully sparing
+their server is not politeness, it is just a pause. The backoff is the better
+shape of the same idea and it is the only one left. A test still interleaves
+thirty requests to a permanently-broken source with thirty to a healthy one and
+asserts all thirty healthy ones draw, so that nothing global comes back.
+
+**Only a 204 means "no railway here".** A 404 used to be filed as an empty tile
+and kept for a day, which is wrong in the case that matters: Martin answers 404
+for a source it does not recognise, so a redeploy that renamed one would have
+read as empty ground for a day after it was fixed. A 404 is a failure with the
+short backoff like any other.
+
+The log needed the same restraint. One line per failing tile is not a log, it is
+the reason nobody reads the log; failures are summarised at most once a minute
+with a count of what was suppressed. Recovery is announced only if an outage was
+announced first — otherwise the ordinary state of one source answering while
+another does not alternates the counter and reports a recovery every other tile.
+
+**What none of this fixes** is which tiles they can serve — and the reason is
+worth writing down, because the symptom is very good at suggesting the wrong
+cause.
+
+Their failures look per-tile and deterministic: at z12 x=2145, y=1431–1435
+return tiles while y=1430 and y=1436–1440 return 502 in a tenth of a second, the
+same way every time. That reads like a data bug in particular tiles. It is not.
+The response headers give it away — **every success is `cf-cache-status: STALE`
+with an `age` of one to three days, and every failure is `cf-cache-status:
+BYPASS`**. Their origin is down. Everything anyone is being served, on
+openrailwaymap.app as much as here, is Cloudflare replaying copies it cached
+before the outage; a tile works if and only if it is still in the edge cache.
+The determinism is the CDN's, not their database's.
+
+This also answers the obvious objection — "their own site works at the same
+spot". It works because their users keep the popular tiles warm in the very same
+shared cache, and we get those hits too. Ask for a tile nobody has requested
+lately and both sites get the same 502.
+
+So the overlay can be complete over one valley and missing its symbols over the
+next, it will vary by how well-trodden the ground is rather than by anything
+about the railways, and it will come right on its own when their origin does.
+If waiting stops being acceptable, the fix is `RAIL_ORIGIN` and their SETUP.md,
+not more cache.
+
+### Asking for less detail rather than drawing nothing
+
+One thing *can* be done about it, and it falls out of the same observation. Edge
+cache coverage is not uniform across zooms: there are sixteen times as many
+distinct tiles at z14 as at z12, so a deep tile is much less likely to have been
+requested by anyone recently. Measured over Bern during the outage, the track
+source answered 5 of 10 at z14, 6 of 10 at z13, 7 of 10 at z12 and 9 of 10 at
+z11 — the same tiles, the same server, purely a function of how many distinct
+tiles that zoom has.
+
+A zoom that is failing is therefore worth *stepping down from* rather than
+retrying. MapLibre will overzoom a parent tile quite happily — coarser, but
+railways on the screen instead of a blank — and it does the rescaling itself and
+correctly, because it knows the tile is a parent. It only has to be told, via
+the source's `maxzoom`, not to ask for the deeper ones. This is also why the
+fallback cannot live on the server: a vector tile's coordinates are relative to
+its own bounds, so serving a z12 body in answer to a z14 request would render
+the whole parent crammed into a quarter of it. Only the client knows it is
+overzooming.
+
+`detailCeiling` keeps a hit rate per source per zoom over `HEALTH_WINDOW_MS` and
+names the deepest zoom still worth asking for: one below the shallowest zoom
+that is failing more than `HEALTH_MIN_RATIO` of the time, floored at
+`DETAIL_FLOOR`. `HEALTH_MIN_SAMPLES` stops a handful of misses over empty
+countryside from costing anyone detail, and cached hits count as evidence too —
+without that, a source served entirely from disk would look like it had no
+evidence at all and could never climb back out of a cap.
+
+The client reads it from `/api/rail/detail`, caps each source at it, and asks
+again every `RAIL_DETAIL_POLL_MS`. **Both directions matter.** The cap descends
+as deeper zooms prove unavailable, and it lifts on its own when the evidence
+ages out of the window — so when their origin recovers, the detail returns
+within a few minutes with nothing to restart and no cache to clear. A change in
+either direction rebuilds the overlay, because `maxzoom` is not settable on a
+source MapLibre already holds.
+
+**The poll is only for the good news.** Their cache coverage is geographic, so
+panning into a valley nobody has warmed turns the railways off *now*, and three
+minutes is indistinguishable from broken. MapLibre reports every failed tile
+with its `sourceId`, so a failure schedules a check on `RAIL_FAILURE_CHECK_MS` —
+debounced, because a viewport fails a dozen tiles at once.
+
+**A descent is several steps and they have to be quick.** The ceiling can only
+move one zoom at a time, because the evidence for "z12 is bad too" does not
+exist until z12 has been asked for. Simulated against their live server at
+Frutigen, where their cache holds nothing below z12: z14 fails ten of ten and
+caps to 13, z13 fails ten of ten and caps to 12, z12 answers five of ten and it
+settles — railways on screen, overzoomed 4× at z14. That is three round trips,
+so `railLastFailureCheck` is reset whenever a check actually moved the ceiling;
+a descent runs at the short interval and only settles to `RAIL_FAILURE_MIN_GAP_MS`
+once it has found a zoom that works.
+
+**The rebuild keeps the sprites.** `removeRail` takes them out by default and
+must not here: an image manager with a sprite in flight is not ready, MapLibre
+draws no frame until it is, and 2.25 MB of atlas takes long enough that the whole
+map — basemap included — blinks out. Since zooming in is exactly what moves the
+ceiling, that read as "the railways disappear when I zoom in". A zoom range does
+not change a sprite; leaving them alone makes the rebuild invisible.
+
+**Their server requires a `Referer`,** which the policy does not say. Every
+combination of `User-Agent` was tried — including none — and all of them answer
+403; anything with a Referer gets through. So the policy's "or `User-agent`
+header (automated processes)" is not what the server implements, and a
+server-side proxy has no referring page to offer. What it sends is *this map's
+own public origin*, resolved per request from the host the browser reached us
+on, which is the honest answer to what the header asks. Claiming to be
+openrailwaymap.app would clear the same gate and is precisely the faked header
+the policy forbids.
+
+Storage is one file per entry, a single-line JSON header followed by the body,
+written through a temp name and renamed — the metadata travels with the bytes,
+so there is no index to fall out of step with the directory. Bodies are stored
+gzipped and passed through in that encoding. `RAIL_CACHE_BYTES` (512 MB) bounds
+it, with a least-recently-used sweep down to 80%; recency is recorded by
+touching mtime at most hourly, because a write per tile per pan is not worth
+knowing the order precisely. An empty tile — ocean, desert, anywhere without a
+railway — is 204 and is remembered too, since "still nothing" is the cheapest
+request there is to eliminate.
+
+Point `RAIL_ORIGIN` at a Martin running their stack per their SETUP.md and every
+one of these concerns evaporates with no code change. That, not a bigger cache,
+is the fix if the traffic ever stops being personal-scale.
+
+### Switching it on should not take six seconds
+
+It did, and almost all of it was one thing: **MapLibre validating 288 generated
+layers against the style spec**, 995 ms of the 1 730 ms `addLayer` took, measured
+on the real overlay. That check earns its keep for a layer somebody typed; these
+come out of a transform `npm test` exercises on every run, so re-proving it in
+the browser on every switch-on and every basemap change buys nothing and costs a
+visible wait. `addLayers` passes `validate: false` — the one place in the client
+that reaches past `Map` to `Style`, feature-detected, with the supported path
+still underneath — and the install drops to about 80 ms of layer work.
+`_update(true)` afterwards is not optional: without it `_styleDirty` stays false,
+`Style.update()` never runs, and the sources sit paused with tiles unrequested.
+
+The rest is first-load weight, which is why it only bit after a reload: 315 KB of
+style (12 KB gzipped) and **2.25 MB of sprite atlas**. The atlases are now fetched
+only if a switched-on group actually draws from them, worked out at build time
+from the rewritten image references — and the full-colour one, 1.5 MB at 2x, is
+read by a single expression in "Signals & crossings", so turning that group off
+saves two thirds of it.
+
+### A tap on a siding
+
+The reason for all of it. `describeRailFeature` builds a card from the properties
+**already in the tile that drew the line**, and says them the way a person reads
+them rather than the way a database stores them: `15000` becomes 15 kV, a float32
+`16.700000762939453` becomes 16.7 Hz, `0` frequency becomes DC rather than 0 Hz,
+speeds and gauges carry their units, and `{BLS}` — a PostgreSQL array literal,
+which is what put braces on screen — becomes BLS. Their feature API returns the
+same fields as real JSON arrays, so `asList` answers both doors.
+
+**The routes are the one exception.** Which services run over a line is a
+relation, and a vector tile carries `route_count` but not the relations, so that
+is a request — one per click, on a line somebody just asked about, which is a
+very different thing from one per tile. It is answered by their `api` container
+rather than their tile server, which is why it kept working right through the
+outage that took the tiles down. The card opens without it and fills the list in
+when it arrives.
+
+OSM models each direction as its own relation, so six of them are three services;
+`mergeRouteDirections` folds a route and its return working into one line, keyed
+on the service name plus the stop list taken whichever way round sorts first. Two
+different services between the same towns keep their own lines. The label is
+split on **every** `=>` rather than the first, because relations name their
+via-points: "Grandson => Lausanne => Bex" is a journey, and treating it as a pair
+would both read wrong and stop it matching its return working, whose stops are
+the same list backwards. It is set with real arrows — `→` one way, `↔` when both
+directions were found — since `=>` is how the tag is written, not how it should
+be read.
+
+Plenty of relations carry no `colour` tag — their API returns an empty string —
+so the dot is drawn hollow rather than omitted, because a missing dot puts the
+labels on a ragged edge and reads as a rendering fault instead of as missing
+data. And a label wider than the card is broken after the service name rather
+than wherever the edge happens to fall: the journey is an `inline-block`, so it
+moves down whole instead of stranding "Zweisimmen" on a line of its own.
+
+**Platform numbers need z15 and are not always reachable.** `ref` means the route
+number on a line and the platform number on a platform, so it is shown only for
+the latter, keyed off the source layer. Their platform geometry only exists from
+z15, which during the outage was the one range with nothing in the CDN at all —
+so the row is correct and simply has no data to show until their origin is back.
+
+The hit test is scoped to our own layer ids: the basemap draws railways too, and
+reporting CARTO's idea of a line while the overlay is showing OpenRailwayMap's
+would be the same mistake the layer ordering was fixed for. In the click handler
+a railway comes after a saved route and before the ground — the same order the
+three are drawn in, and for the same reason. There is deliberately no hover
+cursor: a `queryRenderedFeatures` across 288 layers on every mousemove is not
+worth an affordance.
 
 ## How sharp a region is
 

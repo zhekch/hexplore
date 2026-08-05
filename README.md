@@ -35,6 +35,10 @@ number of approaches that were tried and abandoned.
   **type** (a colour per app the data came from).
 - **Ask any area what it knows.** Tap a blob for when you were there, how many
   visits, and which app it came from.
+- **Train tracks.** Every line, siding and yard OpenRailwayMap knows about, laid
+  over the map in the basemap's own light or dark. Choose which parts you want —
+  tracks, stations, signals and crossings, platforms, kilometre posts — and tap
+  any of them for its name, reference, operator and a link to OpenStreetMap.
 - **Undo and redo**, with a line naming what it just took back — worth having
   when the thing that changed is off-screen.
 - **Backups.** The server copies the database on a schedule — nightly at 04:00
@@ -245,9 +249,9 @@ worker, so after you have opened the map once it keeps the app itself, the town
 and boundary data, and the last answer the server gave about your map. Open it
 on a plane and you get your cells, your routes and your trips, with a banner
 saying the server can't be reached — reads come back, edits don't pretend to
-save. Basemap tiles aren't kept (they're someone else's to serve), so offline
-your map sits on an empty background. Signing out throws the whole cached copy
-away.
+save. Basemap and railway tiles aren't kept there (they're someone else's to
+serve), so offline your map sits on an empty background. Signing out throws the
+whole cached copy away.
 
 The iOS app gets this for free: its Map tab is the same site in a web view, and
 web views have run service workers since iOS 14.
@@ -343,6 +347,8 @@ allowed to connect to, and why each limit is where it is — is in
 - [MapLibre GL JS](https://maplibre.org/) — vector map rendering
 - [Vite](https://vite.dev/) — dev server / bundler
 - Basemaps: [CARTO](https://carto.com/basemaps/), [OpenFreeMap](https://openfreemap.org/), Esri World Imagery
+- Railways: [OpenRailwayMap](https://www.openrailwaymap.org/) vector tiles
+  ([openrailwaymap.app](https://openrailwaymap.app/), ODbL via OpenStreetMap)
 - Boundaries and lakes: [Natural Earth](https://www.naturalearthdata.com/) (public domain)
 - Detailed region boundaries, fetched per country on demand:
   [geoBoundaries](https://www.geoboundaries.org/) (CC BY 4.0, compositing national survey data)

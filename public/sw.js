@@ -144,6 +144,16 @@ self.addEventListener('fetch', (event) => {
     // The downloads are the exception: a backup is the whole database and has
     // no business sitting in a cache a page can read.
     if (url.pathname.startsWith('/api/backup/download')) return;
+    // So are the train tracks. They are under /api/ because they are
+    // session-gated, but they are not one account's data and none of the
+    // reasoning above fits them: `networkFirst` is exactly backwards for a tile
+    // (which does not change while you look at it), the volume is thousands of
+    // entries rather than a handful, and `forget-account` would throw the lot
+    // away on sign-out for no reason. They already have two caches that suit
+    // them — the browser's own, driven by the `private, max-age` and ETag the
+    // server sends, and the disk cache behind it in server/rail-tiles.js. A
+    // third one here would be unbounded and redundant.
+    if (url.pathname.startsWith('/api/rail/')) return;
     event.respondWith(networkFirst(DATA, request));
   }
 });
