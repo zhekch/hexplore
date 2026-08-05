@@ -17,9 +17,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  CAPTION_FIELDS, SHAPES,
-  blobLevelFor, captionLines, circularSpan, coverageOf, exportFilename, fitCamera, frameFor,
-  paletteOf, scopeAreaKm2, scopeGeometry, scopeName, sizeOf, unwrapRing, visitedAreas,
+  CAPTION_FIELDS, MAX_PIXELS, SCALES, SHAPES,
+  blobLevelFor, cameraFor, captionLines, circularSpan, coverageOf, exportFilename, fitCamera,
+  frameFor, lngLatAt, paletteOf, pickAt, presetOf, scopeAreaKm2, scopeGeometry, scopeName, sizeOf,
+  unwrapRing, visitedAreas,
 } from '../../src/export-image.js';
 import { loadCountries, countryAreaKm2 } from '../../src/countries.js';
 import { loadRegions } from '../../src/regions.js';
@@ -129,20 +130,59 @@ console.log('\nAnd so does a set of cells, when nothing is picked');
 console.log('\nFitting a frame into a shape');
 {
   const bb = { xMin: mercX(6), xMax: mercX(10), yMin: mercY(46), yMax: mercY(48) };
+  // Every proportion of every family, because letterboxing is exactly the thing
+  // that is right for the ratio it was written against and wrong for 21:9.
   for (const [key, shape] of Object.entries(SHAPES)) {
-    const cam = fitCamera(bb, shape);
-    const wPx = (bb.xMax - bb.xMin) * cam.k;
-    const hPx = (bb.yMax - bb.yMin) * cam.k;
-    check(wPx <= shape.w * 0.851 && hPx <= shape.h * 0.851, `${key}: the subject stays inside its margins`,
-      `${wPx.toFixed(0)}×${hPx.toFixed(0)} in ${shape.w}×${shape.h}`);
-    // Letterboxed: one axis touches the margin exactly, the other has slack.
-    const tight = near(wPx, shape.w * 0.85, 1) || near(hPx, shape.h * 0.85, 1);
-    check(tight, `${key}: and is as large as those margins allow`);
-    // Centred: the middle of the frame lands in the middle of the canvas.
-    const midX = ((bb.xMin + bb.xMax) / 2 - cam.x0) * cam.k;
-    const midY = (cam.y0 - (bb.yMin + bb.yMax) / 2) * cam.k;
-    check(near(midX, shape.w / 2, 0.5) && near(midY, shape.h / 2, 0.5), `${key}: and centred in it`);
+    for (const preset of shape.presets) {
+      const cam = fitCamera(bb, preset);
+      const wPx = (bb.xMax - bb.xMin) * cam.k;
+      const hPx = (bb.yMax - bb.yMin) * cam.k;
+      const label = `${key} ${preset.key}`;
+      check(wPx <= preset.w * 0.851 && hPx <= preset.h * 0.851, `${label}: the subject stays inside its margins`,
+        `${wPx.toFixed(0)}×${hPx.toFixed(0)} in ${preset.w}×${preset.h}`);
+      // Letterboxed: one axis touches the margin exactly, the other has slack.
+      check(near(wPx, preset.w * 0.85, 1) || near(hPx, preset.h * 0.85, 1),
+        `${label}: and is as large as those margins allow`);
+      // Centred: the middle of the frame lands in the middle of the canvas.
+      const midX = ((bb.xMin + bb.xMax) / 2 - cam.x0) * cam.k;
+      const midY = (cam.y0 - (bb.yMin + bb.yMax) / 2) * cam.k;
+      check(near(midX, preset.w / 2, 0.5) && near(midY, preset.h / 2, 0.5), `${label}: and centred in it`);
+    }
   }
+}
+
+console.log('\nDragging the picture off its own frame');
+{
+  const bb = { xMin: mercX(6), xMax: mercX(10), yMin: mercY(46), yMax: mercY(48) };
+  const size = { w: 1080, h: 1350 };
+  const fitted = fitCamera(bb, size);
+  check(cameraFor({}, bb, size).k === fitted.k, 'no override leaves the fitted camera alone');
+
+  // A framing is stored as a multiple of the fitted scale, so it has to survive
+  // being applied at a different canvas size — which is what the preview is.
+  const view = { cx: mercX(8), cy: mercY(47), zoom: 2 };
+  const big = cameraFor({ view }, bb, size);
+  const small = cameraFor({ view }, bb, { w: 540, h: 675 });
+  check(near(big.k, fitted.k * 2, 1e-9), 'a 2× framing is twice the fitted scale');
+  const centreOf = (cam) => lngLatAt(cam, cam.w / 2, cam.h / 2);
+  const [lngA, latA] = centreOf(big);
+  const [lngB, latB] = centreOf(small);
+  check(near(lngA, 8, 1e-6) && near(latA, 47, 1e-6), 'and is centred where it was dragged to',
+    `${lngA.toFixed(4)}, ${latA.toFixed(4)}`);
+  check(near(lngA, lngB, 1e-6) && near(latA, latB, 1e-6),
+    'and the preview shows the same middle as the file, at half the size');
+}
+
+console.log('\nClicking the picture picks a place');
+{
+  check(pickAt('country', 8.2, 46.8) === 'Switzerland', 'a point in a country is that country');
+  check(pickAt('continent', 8.2, 46.8) === 'Europe', 'and the continent it is on');
+  check(pickAt('region', 7.44, 46.94)?.includes('Bern'), 'and the region it is in',
+    String(pickAt('region', 7.44, 46.94)));
+  check(pickAt('country', -30, 35) === null, 'and the middle of the Atlantic is nowhere');
+  // The click and the cells must agree, or the picture and its caption are
+  // describing different places.
+  check(pickAt('country', 2.35, 48.85) === 'France', 'Paris is in France');
 }
 
 console.log('\nA frame past the seam is still a frame beside the geometry');
@@ -160,8 +200,9 @@ console.log('\nA frame past the seam is still a frame beside the geometry');
 console.log('\nHow fine the blobs are drawn');
 {
   // A country-sized picture, and a street-sized one.
-  const wide = fitCamera(frameFor([scopeGeometry('country', 'Russia')], []), SHAPES.square).k;
-  const tight = fitCamera({ xMin: mercX(7.4), xMax: mercX(7.5), yMin: mercY(46.9), yMax: mercY(47) }, SHAPES.square).k;
+  const square = SHAPES.square.presets[0];
+  const wide = fitCamera(frameFor([scopeGeometry('country', 'Russia')], []), square).k;
+  const tight = fitCamera({ xMin: mercX(7.4), xMax: mercX(7.5), yMin: mercY(46.9), yMax: mercY(47) }, square).k;
   check(blobLevelFor(tight) === 0, 'zoomed right in, the grid is drawn exactly as stored');
   check(blobLevelFor(wide) > blobLevelFor(tight), 'and coarsens as the picture takes in more ground',
     `${blobLevelFor(wide)} vs ${blobLevelFor(tight)}`);
@@ -258,8 +299,25 @@ console.log('\nThe caption measures what the picture shows');
 console.log('\nThe spec resolves to a picture');
 {
   check(sizeOf({ shape: 'vertical', scale: 1 }).h === 1350, 'a shape has a size');
-  check(sizeOf({ shape: 'vertical', scale: 2 }).h === 2700, 'and Large doubles it');
+  check(sizeOf({ shape: 'vertical', scale: 2 }).h === 2700, 'and a quality multiplier multiplies it');
+  check(sizeOf({ shape: 'vertical', preset: '9x16' }).h === 1920, 'a proportion within it picks another');
+  check(presetOf({ shape: 'horizontal', preset: 'nonsense' }).key === '16x9',
+    'and a proportion this build has never heard of falls back to the family default');
   check(sizeOf({ shape: 'nonsense', scale: 9 }).w === 1080, 'a spec from an older build falls back rather than failing');
+  check(SCALES.length === 4 && SCALES[3] === 4, 'quality goes up to 4×');
+
+  // Typed pixels are taken at their word, multiplier and all.
+  const custom = sizeOf({ shape: 'vertical', scale: 4, custom: true, customW: 800, customH: 600 });
+  check(custom.w === 800 && custom.h === 600, 'an exact size is exactly that, whatever the quality says');
+  const silly = sizeOf({ custom: true, customW: 0, customH: 0 });
+  check(silly.w === 1080 && silly.h === 1350, 'and an empty one falls back rather than drawing nothing');
+
+  // A canvas has a hard area limit and hands back a blank bitmap past it.
+  const huge = sizeOf({ shape: 'horizontal', preset: '21x9', scale: 4 });
+  check(huge.clamped === true, 'a size no canvas will produce is capped');
+  check(huge.w * huge.h <= MAX_PIXELS + 1000, 'to something one will', `${huge.w}×${huge.h}`);
+  check(near(huge.w / huge.h, 2520 / 1080, 0.01), 'keeping the proportions it was asked for',
+    (huge.w / huge.h).toFixed(3));
 
   const overridden = paletteOf({ palette: 'paper', colors: { land: '#123456' } });
   check(overridden.background === '#f4f1ea' && overridden.land === '#123456',

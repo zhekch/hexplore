@@ -38,15 +38,20 @@
 // `coverageOf`, which the dialog holds on to while you drag a colour around.
 
 import {
-  MAX_LEVEL, MAX_MERC_Y, WORLD, cellCenter, mercX, mercY, radiusOf,
+  MAX_LEVEL, MAX_MERC_Y, WORLD, cellCenter, latOf, lngOf, mercX, mercY, radiusOf,
 } from './hexgrid.js';
 import {
   allCountries, countryAreaKm2, countryCount, countryGeometry, loadCountries,
 } from './countries.js';
-import { loadRegions, regionAreaKm2, regionById, regionGeometry } from './regions.js';
+import {
+  fineRegionsLoaded, loadFineRegions, loadRegions, mergeRegions, regionAreaKm2, regionById,
+  regionGeometry, regionsOf,
+} from './regions.js';
 import { continentAreaKm2, continentGeometry, countriesInContinent } from './continents.js';
 import { asMulti } from './polygon.js';
-import { EARTH_LAND_KM2, WHOLE_COUNTRY, computeStats, formatKm2, formatPct } from './stats.js';
+import {
+  EARTH_LAND_KM2, WHOLE_COUNTRY, areaAtPoint, computeStats, formatKm2, formatPct,
+} from './stats.js';
 import { areaColorOf, cellColorOf, isHeatMode } from './coloring.js';
 import { createBlobBuffers, paintBlobSheet } from './blob-canvas.js';
 import { hexOpaque } from './color-picker.js';
@@ -54,21 +59,61 @@ import { hexOpaque } from './color-picker.js';
 // --- Tuning -------------------------------------------------------------------
 
 /**
- * The three shapes, and the pixels each is. Chosen to be what the places these
- * end up wanting: 4:5 is the tallest a feed will show without cropping, 16:9 is
- * a slide or a wallpaper, and a square is a square.
+ * The three shapes, and the proportions each comes in.
+ *
+ * Two levels rather than one, because "vertical" is the decision and "4:5 or
+ * 9:16" is a detail of it — and a flat list of eleven ratios is a list nobody
+ * reads. The first preset of each family is what that word means if you do not
+ * go looking: a feed post, a slide, a square.
+ *
+ * The pixel counts are the 1× ones, and are deliberately modest. Quality is a
+ * separate multiplier below, so the same ratio can be a post or something you
+ * put through a printer without either being the default.
  */
 export const SHAPES = {
-  vertical: { label: 'Vertical', w: 1080, h: 1350 },
-  horizontal: { label: 'Horizontal', w: 1920, h: 1080 },
-  square: { label: 'Square', w: 1280, h: 1280 },
+  vertical: {
+    label: 'Vertical',
+    presets: [
+      { key: '4x5', label: '4 : 5 · post', w: 1080, h: 1350 },
+      { key: '2x3', label: '2 : 3 · print', w: 1080, h: 1620 },
+      { key: '9x16', label: '9 : 16 · story', w: 1080, h: 1920 },
+      { key: 'a4', label: 'A4 · 210×297', w: 1240, h: 1754 },
+    ],
+  },
+  horizontal: {
+    label: 'Horizontal',
+    presets: [
+      { key: '16x9', label: '16 : 9 · screen', w: 1920, h: 1080 },
+      { key: '3x2', label: '3 : 2 · print', w: 1620, h: 1080 },
+      { key: '21x9', label: '21 : 9 · wide', w: 2520, h: 1080 },
+      { key: 'a4l', label: 'A4 · 297×210', w: 1754, h: 1240 },
+    ],
+  },
+  square: {
+    label: 'Square',
+    presets: [
+      { key: '1x1', label: '1 : 1 · post', w: 1080, h: 1080 },
+      { key: '1x1p', label: '1 : 1 · print', w: 1748, h: 1748 },
+    ],
+  },
 };
 
-/** Multipliers on the above. 2× is a print-sized file; 1× is a post. */
-export const SCALES = [
-  { key: 1, label: 'Standard' },
-  { key: 2, label: 'Large' },
-];
+/** Multipliers on a preset. Nothing here is resampled — it is drawn again. */
+export const SCALES = [1, 2, 3, 4];
+
+/**
+ * The most pixels an export may be.
+ *
+ * Not a taste judgement: a canvas has a hard area limit and it is not the same
+ * one everywhere — Safari has historically refused anything over about 16 MP
+ * and simply hands back a blank bitmap rather than an error. 4× of the widest
+ * preset is 43 MP, which is a real thing to ask for and a real way to get an
+ * empty file. So the size is clamped, and the dialog says what it clamped to
+ * rather than quietly producing something smaller than the number on screen.
+ */
+export const MAX_PIXELS = 36_000_000;
+/** And no side longer than any browser's per-dimension cap. */
+export const MAX_SIDE_PX = 12_000;
 
 // How much of the frame is margin, per side. The subject wants room to be a
 // shape rather than a thing wedged into a rectangle, and the caption sits in
@@ -86,6 +131,11 @@ const MIN_BLOB_PX = 1.35;
 // against a reference height instead: a poster twice as tall gets twice the
 // feather and the softness reads the same at any resolution.
 const FEATHER_REF_PX = 900;
+
+// How many countries an export will fetch detailed boundaries for. Past a
+// handful the picture is too small a scale for the detail to show and the fetch
+// is megabytes — see ensureSharpBoundaries.
+const FINE_COUNTRY_LIMIT = 6;
 
 // Rings smaller than this on the finished canvas are skipped. At world scale a
 // country dataset is mostly islets nobody can see, and each one is still a
@@ -223,8 +273,17 @@ export const CAPTION_FIELDS = [
 /** The defaults a fresh dialog opens on. */
 export const DEFAULT_SPEC = {
   shape: 'vertical',
+  preset: '4x5',
   scale: 1,
+  // A size typed rather than picked. Bypasses the multiplier — if you named the
+  // pixels, there is nothing left for a quality setting to say.
+  custom: false,
+  customW: 1080,
+  customH: 1350,
   scope: { kind: 'world', ids: [] },
+  // Set once the preview has been dragged or zoomed: { cx, cy, zoom }. Not
+  // remembered between sessions, because it is a framing of one selection.
+  view: null,
   detail: 'blob',
   cellSize: 0,
   colorBy: 'flat',
@@ -232,7 +291,8 @@ export const DEFAULT_SPEC = {
   strength: 1,
   palette: 'night',
   colors: {}, // overrides on top of the palette
-  surroundings: false,
+  // How strongly the countries around the subject are drawn, 0 = not at all.
+  surroundings: 0,
   outline: true,
   caption: {
     on: true,
@@ -257,15 +317,65 @@ export const SCOPE_KINDS = {
   region: { label: 'Region' },
 };
 
-/** One selected area's outline, whichever dataset it came from. */
+// --- Boundaries good enough to print -------------------------------------------
+//
+// The map ships Natural Earth simplified to about a kilometre, which is right
+// for a level that normally lives at z4–5 and is not right for a poster. At
+// 1080 px across one country that is four pixels per vertex: coastlines come out
+// as visible straight runs, and — worse — every admin-1 unit is simplified
+// against *itself* rather than against its neighbours, so adjacent cantons
+// overlap by slivers all along their shared borders.
+//
+// The app already has the answer for the map's own sharpest zoom: geoBoundaries,
+// fetched per country through our own server (`loadFineRegions`, and see
+// **How sharp a region is** in ARCHITECTURE.md). An export fetches the same
+// thing for the countries in its picture — a handful, once, and then it is in
+// memory for the map too.
+//
+// The country silhouette is then the *union of its own fine regions* rather than
+// the coarse outline. It has to be: a sharp canton drawn inside a blunt national
+// border shows the disagreement between the two datasets as a rim of land the
+// cantons do not reach, and the outline stroke traces the wrong shape.
+
+const fineCountryMemo = new Map(); // country name → geometry | null
+
+/** The ISO3 code the region dataset files a country under, or null. */
+export function isoOf(country) {
+  return allCountries().find((c) => c.id === country)?.iso ?? null;
+}
+
+/**
+ * A country's outline built from its detailed regions, or null when none have
+ * been fetched. Dissolving 26 cantons of a few thousand points each is not
+ * free, so the answer is held — an export redraws on every drag of a slider.
+ */
+function fineCountryGeometry(name) {
+  if (fineCountryMemo.has(name)) return fineCountryMemo.get(name);
+  let geometry = null;
+  const iso = isoOf(name);
+  if (iso && fineRegionsLoaded()) {
+    const ids = new Set(regionsOf(iso).map((r) => r.id));
+    if (ids.size) {
+      const { fill } = mergeRegions(ids, true);
+      if (fill.length) geometry = { type: 'MultiPolygon', coordinates: fill };
+    }
+  }
+  fineCountryMemo.set(name, geometry);
+  return geometry;
+}
+
+/** One selected area's outline, at the best resolution in memory. */
 export function scopeGeometry(kind, id) {
   if (kind === 'continent') return continentGeometry(id);
-  if (kind === 'country') return countryGeometry(id);
+  if (kind === 'country') return fineCountryGeometry(id) ?? countryGeometry(id);
   // The region level stands a country in for itself where the admin-1 dataset
   // does not subdivide it (see WHOLE_COUNTRY in src/stats.js), and those ids
   // reach this far.
-  if (String(id).startsWith(WHOLE_COUNTRY)) return countryGeometry(String(id).slice(WHOLE_COUNTRY.length));
-  return regionGeometry(id);
+  if (String(id).startsWith(WHOLE_COUNTRY)) {
+    const country = String(id).slice(WHOLE_COUNTRY.length);
+    return fineCountryGeometry(country) ?? countryGeometry(country);
+  }
+  return regionGeometry(id, true);
 }
 
 /** Its land area in km², for the denominator of "how much of it". */
@@ -283,6 +393,10 @@ export function scopeName(kind, id) {
   if (String(id).startsWith(WHOLE_COUNTRY)) return String(id).slice(WHOLE_COUNTRY.length);
   return regionById(id)?.name ?? String(id).split('/').pop();
 }
+
+/** The country a region belongs to, for the list — nothing else has one. */
+export const scopeCountryOf = (kind, id) =>
+  (kind === 'region' ? regionById(id)?.country ?? null : null);
 
 /**
  * Everywhere of this kind you have actually been, biggest first.
@@ -308,7 +422,7 @@ export function visitedAreas(kind, cellIds, areaOf) {
       id,
       cells,
       name: scopeName(kind, id),
-      country: kind === 'region' ? regionById(id)?.country ?? null : null,
+      country: scopeCountryOf(kind, id),
     }))
     .sort((a, b) => b.cells - a.cells || a.name.localeCompare(b.name));
 }
@@ -476,6 +590,57 @@ export function fitCamera(bb, size, inset = INSET) {
     h: size.h,
   };
 }
+
+/**
+ * The camera the picture is actually drawn with: the fitted one, unless the
+ * preview has been dragged or zoomed.
+ *
+ * The override is stored as a Mercator centre and a *multiple* of the fitted
+ * scale rather than as an absolute one, so the framing you chose survives
+ * switching from a 4:5 post to a 16:9 slide — and survives the preview being
+ * drawn at a third of the size of the file, which is the same problem in
+ * miniature.
+ */
+export function cameraFor(spec, frame, size) {
+  const fitted = fitCamera(frame, size);
+  const v = spec?.view;
+  if (!v || !Number.isFinite(v.cx) || !Number.isFinite(v.cy) || !(v.zoom > 0)) return fitted;
+  const k = fitted.k * v.zoom;
+  return { k, x0: v.cx - size.w / 2 / k, y0: v.cy + size.h / 2 / k, w: size.w, h: size.h };
+}
+
+/**
+ * The frame a spec would be fitted to, before any dragging. The dialog needs it
+ * to work out what a drag means and to put the view back.
+ */
+export function frameOf(spec, data) {
+  const scope = settleScope(spec.scope);
+  const geoms = scope.kind === 'world'
+    ? []
+    : scope.ids.map((id) => scopeGeometry(scope.kind, id)).filter(Boolean);
+  return frameFor(geoms, data.cells());
+}
+
+/** Which land the picture is a picture of. */
+const landGeoms = (scope, geoms) =>
+  (scope.kind === 'world' ? allCountries().map((c) => c.geometry) : geoms);
+
+/** Where a point on the canvas is, in the world. */
+export function lngLatAt(cam, px, py) {
+  const x = cam.x0 + px / cam.k;
+  const y = cam.y0 - py / cam.k;
+  return [((lngOf(x) + 180) % 360 + 360) % 360 - 180, latOf(Math.max(-MAX_MERC_Y, Math.min(MAX_MERC_Y, y)))];
+}
+
+/**
+ * The area of `kind` under a point — what a click on the preview picks.
+ *
+ * Straight through to the same lookup the coverage sweep uses, rather than a
+ * second set of point-in-polygon rules: clicking a canton and having a cell in
+ * that canton must resolve to the same canton, or the picture and its caption
+ * are talking about different places.
+ */
+export const pickAt = (kind, lng, lat) => areaAtPoint(kind, lng, lat);
 
 /** The Mercator rectangle a camera actually shows. */
 const cameraRect = (cam) => ({
@@ -726,9 +891,15 @@ function drawCaption(ctx, lines, caption, size, color) {
   if (caption.shadow) {
     // A caption sits over whatever the map put underneath it, which on a
     // transparent export is nothing at all and on a busy one is a heat map.
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-    ctx.shadowBlur = Math.round(m.body * 0.5);
-    ctx.shadowOffsetY = Math.round(m.body * 0.08);
+    //
+    // It follows the text rather than always being black: dark type on a pale
+    // palette with a black shadow under it does not separate from anything, it
+    // just looks smudged. Light type wants a dark halo and dark type wants a
+    // pale one, which is the same rule either way — a shadow the opposite
+    // lightness to the thing it is holding up.
+    ctx.shadowColor = isLight(color) ? 'rgba(0, 0, 0, 0.42)' : 'rgba(255, 255, 255, 0.5)';
+    ctx.shadowBlur = Math.round(m.body * 0.55);
+    ctx.shadowOffsetY = Math.round(m.body * 0.06);
   }
 
   for (const line of measured) {
@@ -756,6 +927,14 @@ function drawCaption(ctx, lines, caption, size, color) {
   ctx.restore();
 }
 
+/** Is this colour nearer white than black? Rec. 601 luma, which is plenty. */
+function isLight(color) {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(color).trim());
+  if (!m) return true;
+  const [r, g, b] = m.slice(1).map((h) => parseInt(h, 16));
+  return (r * 299 + g * 587 + b * 114) / 1000 > 140;
+}
+
 /** A hex colour at a given opacity, as something canvas will take. */
 function withAlpha(color, alpha) {
   const s = String(color).trim();
@@ -775,11 +954,43 @@ export function paletteOf(spec) {
 }
 
 /** The pixel size a spec asks for. */
-export const sizeOf = (spec) => {
-  const shape = SHAPES[spec.shape] ?? SHAPES.vertical;
-  const scale = spec.scale === 2 ? 2 : 1;
-  return { w: shape.w * scale, h: shape.h * scale };
-};
+/** The preset a spec names, or the first of its family. */
+export function presetOf(spec) {
+  const shape = SHAPES[spec?.shape] ?? SHAPES.vertical;
+  return shape.presets.find((p) => p.key === spec?.preset) ?? shape.presets[0];
+}
+
+/**
+ * The pixel size a spec asks for, clamped to what a canvas will actually hand
+ * back. `clamped` says whether it had to be — the dialog shows the number it
+ * will really produce, because a size control that lies is worse than one that
+ * offers less.
+ *
+ * A custom size is taken literally: if you typed the pixels you wanted, the
+ * quality multiplier has nothing left to say.
+ */
+export function sizeOf(spec) {
+  let w;
+  let h;
+  if (spec?.custom) {
+    w = Math.round(Number(spec.customW) || 0);
+    h = Math.round(Number(spec.customH) || 0);
+    if (!(w > 0) || !(h > 0)) ({ w, h } = presetOf(spec));
+  } else {
+    const preset = presetOf(spec);
+    const scale = SCALES.includes(spec?.scale) ? spec.scale : 1;
+    w = preset.w * scale;
+    h = preset.h * scale;
+  }
+  w = Math.max(120, Math.min(MAX_SIDE_PX, w));
+  h = Math.max(120, Math.min(MAX_SIDE_PX, h));
+  const over = (w * h) / MAX_PIXELS;
+  if (over <= 1) return { w, h, clamped: false };
+  // Shrink both sides by the same factor, so a clamp changes the file's size
+  // and never its proportions.
+  const k = Math.sqrt(1 / over);
+  return { w: Math.max(120, Math.round(w * k)), h: Math.max(120, Math.round(h * k)), clamped: true };
+}
 
 /**
  * Draw the whole thing.
@@ -820,24 +1031,30 @@ export function renderExport(canvas, spec, data, numbers, size = sizeOf(spec)) {
     drawCaption(ctx, captionLines(caption, numbers), caption, size, caption.color || palette.text);
     return canvas;
   }
-  const cam = fitCamera(frame, size);
+  const cam = cameraFor(spec, frame, size);
 
   // The rest of the world, if it was asked for: everything the frame reaches,
   // dimmer than the subject. It is off by default because the point of the cut
   // is the cut — but a canton floating in a void is hard to place, and one grey
   // outline of the country around it is the difference between a shape and a
   // map.
-  if (spec.surroundings) {
+  //
+  // How much dimmer is a control rather than a constant, because the right
+  // answer depends entirely on how much of the frame the subject occupies. A
+  // continent leaves a thin rim of neighbours and wants them faint; one canton
+  // leaves the whole frame, and at the same setting reads as a shape floating
+  // in nothing.
+  const restAlpha = Math.max(0, Math.min(1, spec.surroundings ?? 0));
+  if (restAlpha > 0.001) {
     const rest = new Path2D();
     for (const c of allCountries()) addGeometry(rest, c.geometry, cam);
-    ctx.fillStyle = withAlpha(palette.land, 0.34);
+    ctx.fillStyle = withAlpha(palette.land, restAlpha);
     ctx.fill(rest, 'evenodd');
   }
 
   // The subject: the selection's own silhouette, or every country when the
   // subject is everywhere.
-  const landGeoms = scoped ? geoms : allCountries().map((c) => c.geometry);
-  const land = pathOf(landGeoms, cam);
+  const land = pathOf(landGeoms(scope, geoms), cam);
   ctx.fillStyle = palette.land;
   ctx.fill(land, 'evenodd');
 
@@ -860,13 +1077,46 @@ export function renderExport(canvas, spec, data, numbers, size = sizeOf(spec)) {
   return canvas;
 }
 
-/** The visited ground, at whichever generalisation was asked for. */
+// The layer the area fills are composed on before they reach the picture. See
+// drawVisited.
+let overlay = null;
+
+/**
+ * The visited ground, at whichever generalisation was asked for.
+ *
+ * **Drawn opaque onto a layer of its own and composited once.** Setting
+ * `globalAlpha` and then filling region after region looks identical right up
+ * until two of them overlap — and the boundary datasets overlap constantly,
+ * because each unit is simplified against itself rather than against its
+ * neighbours. Every sliver where two cantons disagree got painted twice and
+ * came out darker, which reads as a drop shadow along one edge of every region
+ * on the map. It is not a shadow; it is the same colour applied twice. One
+ * composite at the end makes an overlap indistinguishable from the ground it
+ * overlaps, which is what it is.
+ */
 function drawVisited(ctx, spec, data, cam, size) {
   const strength = Math.max(0, Math.min(1, spec.strength ?? 1));
   if (strength <= 0) return;
+
+  if (spec.detail === 'blob') {
+    // The blob sheet is already one image — its own pipeline resolved every
+    // overlap before it got here — so it can go straight on.
+    ctx.globalAlpha = strength;
+    drawBlobs(ctx, spec, data, cam, size);
+    ctx.globalAlpha = 1;
+    return;
+  }
+
+  if (strength >= 0.999) {
+    drawAreas(ctx, spec, data, cam);
+    return;
+  }
+  if (!overlay) overlay = document.createElement('canvas');
+  overlay.width = size.w;
+  overlay.height = size.h;
+  drawAreas(overlay.getContext('2d'), spec, data, cam);
   ctx.globalAlpha = strength;
-  if (spec.detail === 'blob') drawBlobs(ctx, spec, data, cam, size);
-  else drawAreas(ctx, spec, data, cam);
+  ctx.drawImage(overlay, 0, 0);
   ctx.globalAlpha = 1;
 }
 
@@ -916,12 +1166,23 @@ function drawAreas(ctx, spec, data, cam) {
   const fc = data.areaFC(spec.detail, spec.colorBy);
   const colorOf = areaColorOf(spec.colorBy, spec.accent);
   const flat = !isHeatMode(spec.colorBy);
+  // Two neighbouring fills that share an edge do not meet on it: each is
+  // antialiased against nothing, so half a pixel of background survives between
+  // them and every border comes out as a pale hairline. Stroking each shape in
+  // its own colour closes the shape over its own edge. Half a pixel wide,
+  // because the point is to cover the seam and not to grow the region.
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 0.7;
   for (const f of fc.features ?? []) {
     // k=1 is a fill; k=2 is the outline ring set and k=3 a continent's label,
     // and neither is what a poster wants under its own outline.
     if (f.properties?.k !== 1 || !f.geometry) continue;
-    ctx.fillStyle = flat ? hexOpaque(spec.accent) : colorOf(Number(f.properties.v ?? 0));
-    ctx.fill(pathOf([f.geometry], cam), 'evenodd');
+    const color = flat ? hexOpaque(spec.accent) : colorOf(Number(f.properties.v ?? 0));
+    const path = pathOf([f.geometry], cam);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.fill(path, 'evenodd');
+    ctx.stroke(path);
   }
 }
 
@@ -949,4 +1210,43 @@ export async function ensureGeography({ scope, detail } = {}) {
   const wants = [loadCountries()];
   if (scope === 'region' || detail === 'region') wants.push(loadRegions());
   await Promise.all(wants);
+}
+
+/**
+ * Fetch the detailed boundaries for the countries this picture is of.
+ *
+ * Bounded on purpose. One country, or a handful of cantons in two, is a couple
+ * of requests and the thing that makes the picture worth printing. A continent
+ * is fifty-odd countries of national-survey geometry, which is several megabytes
+ * to fetch and a polygon union per country to dissolve — and at continent scale
+ * none of it is visible anyway, because the extra vertices are a fraction of a
+ * pixel apart. So detail is fetched only where it can be seen.
+ *
+ * Never rejects: a country nobody has boundaries for keeps the overview
+ * geometry, which is what the map has always drawn.
+ *
+ * @returns {Promise<boolean>} whether anything new arrived, so the caller knows
+ *   to redraw
+ */
+export async function ensureSharpBoundaries(scope) {
+  const { kind, ids } = settleScope(scope);
+  if (kind === 'world' || kind === 'continent') return false;
+  const isos = new Set();
+  for (const id of ids) {
+    if (kind === 'country') {
+      const iso = isoOf(id);
+      if (iso) isos.add(iso);
+    } else {
+      const iso = regionById(id)?.iso ?? isoOf(String(id).replace(WHOLE_COUNTRY, ''));
+      if (iso) isos.add(iso);
+    }
+  }
+  if (!isos.size || isos.size > FINE_COUNTRY_LIMIT) return false;
+  await loadRegions();
+  const added = await Promise.all([...isos].map((iso) => loadFineRegions(iso)));
+  if (!added.some(Boolean)) return false;
+  // The dissolved outlines were built from whatever geometry was in memory a
+  // moment ago, which was the blunt one.
+  fineCountryMemo.clear();
+  return true;
 }

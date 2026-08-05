@@ -1837,7 +1837,12 @@ function exportRollUp(mode) {
 // Uncached on purpose. `ensureAreaFC` holds one answer per kind for the mode the
 // map is in, and an export asking for a different mode must not evict it — the
 // next pan would rebuild and re-tile the level under the user's hand.
-const exportAreaFC = (kind, mode) => buildAreaFC(kind, { mode, record: false });
+//
+// Always `fine`, which the map only asks for past z6: a poster is looked at far
+// closer than a map ever is, and the overview boundaries' ~1 km simplification
+// is what puts a straight line across a lake. Where the detailed set has not
+// been fetched, `regionGeometry` falls back to the overview one on its own.
+const exportAreaFC = (kind, mode) => buildAreaFC(kind, { mode, fine: true, record: false });
 
 // Initial (empty) light-up so litSets/countryDirty exist before the map draws;
 // hydrateVisited() re-runs this once the user's cells arrive from the server.

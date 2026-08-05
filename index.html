@@ -700,7 +700,10 @@
             <div class="export-frame" id="export-frame">
               <canvas id="export-canvas"></canvas>
             </div>
-            <div class="export-caption-note" id="export-note"></div>
+            <div class="export-stage-foot">
+              <span class="export-caption-note" id="export-note"></span>
+              <button type="button" class="export-refit" id="export-refit" hidden>Fit again</button>
+            </div>
           </div>
 
           <div class="export-controls" id="export-controls">
@@ -708,14 +711,28 @@
               <h4 class="export-heading">Shape</h4>
               <div class="seg seg-mini" id="export-shape"></div>
               <label class="import-row">
-                <span>Size<small id="export-size-note">1080 × 1350</small></span>
+                <span>Proportions</span>
+                <select id="export-preset"></select>
+              </label>
+              <label class="import-row" id="export-quality-row">
+                <span>Quality</span>
                 <select id="export-scale"></select>
               </label>
+              <label class="import-row">
+                <span>Exact pixels<small>Type the size you want instead</small></span>
+                <input type="checkbox" id="export-custom" />
+              </label>
+              <div class="export-custom" id="export-custom-row" hidden>
+                <input class="auth-input" id="export-custom-w" type="number" min="120" max="12000" step="10" />
+                <span>×</span>
+                <input class="auth-input" id="export-custom-h" type="number" min="120" max="12000" step="10" />
+              </div>
+              <div class="export-size-note" id="export-size-note">1080 × 1350</div>
             </div>
 
             <div class="export-section">
               <h4 class="export-heading">What is in it</h4>
-              <div class="seg seg-mini seg-wrap" id="export-scope"></div>
+              <div class="seg seg-mini seg-grid" id="export-scope"></div>
               <div class="export-picker" id="export-picker" hidden>
                 <input class="auth-input export-filter" id="export-filter" type="text"
                        placeholder="Filter" autocomplete="off" spellcheck="false" />
@@ -728,7 +745,7 @@
 
             <div class="export-section">
               <h4 class="export-heading">Detail</h4>
-              <div class="seg seg-mini seg-wrap" id="export-detail"></div>
+              <div class="seg seg-mini seg-grid" id="export-detail"></div>
               <label class="import-row" id="export-cellsize-row">
                 <span>Cell size<small>How fine the blobs are drawn</small></span>
                 <select id="export-cellsize">
@@ -741,7 +758,7 @@
 
             <div class="export-section">
               <h4 class="export-heading">Color by</h4>
-              <div class="seg seg-mini seg-wrap" id="export-colorby"></div>
+              <div class="seg seg-mini seg-grid" id="export-colorby"></div>
               <label class="menu-row" id="export-accent-row">
                 <span>Visited color</span>
                 <input type="color" id="export-accent" />
@@ -754,7 +771,7 @@
 
             <div class="export-section">
               <h4 class="export-heading">Look</h4>
-              <div class="seg seg-mini seg-wrap" id="export-palette"></div>
+              <div class="seg seg-mini seg-grid" id="export-palette"></div>
               <div class="export-swatches">
                 <label class="export-swatch"><span>Background</span><input type="color" data-color="background" /></label>
                 <label class="export-swatch"><span>Land</span><input type="color" data-color="land" /></label>
@@ -765,8 +782,8 @@
                 <input type="checkbox" id="export-outline" />
               </label>
               <label class="import-row">
-                <span>The rest of the world<small>Faintly, behind the cut</small></span>
-                <input type="checkbox" id="export-surroundings" />
+                <span>The rest of the world<small id="export-surroundings-note">Off</small></span>
+                <input class="export-range" id="export-surroundings" type="range" min="0" max="100" step="5" />
               </label>
             </div>
 
@@ -778,11 +795,15 @@
                 </label>
               </h4>
               <div id="export-caption-body">
-                <div class="export-anchor" id="export-anchor" role="group" aria-label="Where the caption sits"></div>
-                <label class="import-row">
-                  <span>Text alignment</span>
-                  <div class="seg seg-mini export-align" id="export-align"></div>
-                </label>
+                <div class="export-place-row">
+                  <div class="export-anchor" id="export-anchor" role="group" aria-label="Where the caption sits"></div>
+                  <div class="export-place-side">
+                    <span class="export-sub">Where it sits</span>
+                    <span class="export-sub export-sub-dim">Tap a corner of the frame</span>
+                    <span class="export-sub export-align-label">Text alignment</span>
+                    <div class="seg seg-mini export-align" id="export-align"></div>
+                  </div>
+                </div>
                 <div class="export-fields" id="export-fields"></div>
                 <label class="import-row">
                   <span>Title<small>Blank uses the names of the places</small></span>

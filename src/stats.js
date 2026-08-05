@@ -71,10 +71,13 @@ export function areaOfCell(kind, id) {
 }
 
 /**
- * The same lookup from a point. Not exported: the map answers a *click* with
- * the region's name and its country as well as its id, which it has the
- * datasets to do and this does not, so `areaAt` in src/main.js asks the same
- * two questions in the same order rather than wrapping this.
+ * The same lookup from a point.
+ *
+ * The map answers a *click* with the region's name and its country as well as
+ * its id, which it has the datasets to do and this does not, so `areaAt` in
+ * src/main.js asks the same two questions in the same order rather than
+ * wrapping this. The image export only needs the id — clicking its preview
+ * picks a place out of the selection — and takes this.
  *
  * A handful of countries have no admin-1 entry in the dataset at all
  * (microstates, some dependencies). Falling through to null would make them
@@ -86,7 +89,7 @@ export function areaOfCell(kind, id) {
  * the whole country in on any miss, and one stray cell in a 1 km sliver off the
  * Ligurian coast coloured in the entire of Italy underneath its cantons.
  */
-function areaAtPoint(kind, lng, lat) {
+export function areaAtPoint(kind, lng, lat) {
   const at = countryNear(lng, lat);
   if (!at) return null;
   // A continent is reached through its country rather than from its own

@@ -41,8 +41,9 @@ number of approaches that were tried and abandoned.
   any of them for its name, reference, operator and a link to OpenStreetMap.
 - **Export a picture.** A place cut out of the world — one canton, three
   countries, a whole continent — with your ground inside it and a caption saying
-  how much of it you have covered. Vertical, horizontal or square, in the colours
-  you pick.
+  how much of it you have covered. Drag the preview to frame it, click it to pick
+  places, and save it vertical, horizontal or square at up to 4×, in the colours
+  you choose.
 - **Undo and redo**, with a line naming what it just took back — worth having
   when the thing that changed is off-screen.
 - **Backups.** The server copies the database on a schedule — nightly at 04:00
@@ -163,14 +164,18 @@ hike" is one question you can ask.
 
 **An image of a place.** *Export & settings → Export an image* makes a picture
 rather than a screenshot: pick any number of regions, countries or continents and
-everything outside them is cut away along their real boundaries. Choose the shape
-(vertical, horizontal, square), how the visited ground is drawn (the blobs
-themselves, or filled regions, countries or continents), what it is coloured by,
-and the palette — including a transparent background, if you want to drop it onto
-something else. Then add a caption: pick a corner for it, pick which numbers it
-carries — land covered, regions visited, first seen, longest streak — and set the
-type, the size and the colour. It is drawn from the map already in your browser
-and saved straight to your machine; nothing is uploaded.
+everything outside them is cut away along their real boundaries — fetched at
+national-survey detail for the countries in the picture, so a canton has the
+coastline it actually has. **Drag the preview to frame it and click it to pick
+places**, which beats finding "Valais" in a list of twenty-six. Choose the shape
+(vertical, horizontal or square, each with its own proportions, up to 4× or an
+exact pixel size), how the visited ground is drawn (the blobs themselves, or
+filled regions, countries or continents), what it is coloured by, and the palette
+— including a transparent background, if you want to drop it onto something else.
+Then add a caption: pick a corner for it, pick which numbers it carries — land
+covered, regions visited, first seen, longest streak — and set the type, the size
+and the colour. It is drawn from the map already in your browser and saved
+straight to your machine; nothing is uploaded.
 
 **Trips.** The search panel groups your history into the runs of
 days you didn't come home: `Zermatt, Switzerland · Aug 10 – Aug 16, 2024 ·

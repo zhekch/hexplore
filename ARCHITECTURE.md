@@ -816,10 +816,25 @@ Four choices, and the order matters:
 
 | | |
 | --- | --- |
-| **Shape** | Vertical (4:5), Horizontal (16:9) or Square, at 1× or 2×. Sets the canvas, and through it the camera, the type scale and the blob level |
+| **Shape** | Vertical, Horizontal or Square, each with its own proportions (4:5, 9:16, A4…), at 1× to 4× — or an exact pixel size typed in. Sets the canvas, and through it the camera, the type scale and the blob level |
 | **What is in it** | Any number of regions, countries or continents — or everywhere. This is the *cut*: the selection's outline is the clip, and nothing outside it is painted |
 | **Detail** | How the visited ground is generalised: blobs, or filled regions, countries or continents |
 | **Color by** | The same four modes the map has |
+
+**Shape is two levels, not one.** "Vertical" is the decision; "4:5 or 9:16" is a
+detail of it, and a flat list of eleven ratios is a list nobody reads. The first
+preset of each family is what that word means if you do not go looking. Quality
+is a separate multiplier so the same ratio can be a post or something you put
+through a printer without either being the default — and an exact size typed in
+pixels bypasses it, because if you named the pixels there is nothing left for a
+quality setting to say.
+
+Sizes are **clamped, and the dialog says so**. A canvas has a hard area limit and
+it is not the same one everywhere — Safari has historically refused anything over
+about 16 MP and hands back a blank bitmap rather than an error. 4× of the widest
+preset is 43 MP, which is a real thing to ask for and a real way to get an empty
+file. `MAX_PIXELS` shrinks both sides by the same factor, so a clamp changes the
+file's size and never its proportions.
 
 **"What is in it" and "Detail" are two controls because they are two questions.**
 "Show me Switzerland" and "colour it by canton" have nothing to do with each
@@ -833,6 +848,33 @@ a search box would mostly be places the export would draw as an empty shape. The
 picker sweeps the visited cells through the same memoised
 `areaOfCell` the map's own region level uses (`areaOfCellMemo` in `src/main.js`,
 handed over as an accessor) and lists what comes back, biggest first.
+
+### The preview is the camera
+
+Fitting the frame to the selection is the right answer often enough to be the
+default and never the right answer for a *composition*: half the reason to export
+a country is to put it off-centre with the caption in the space beside it. So the
+preview can be dragged and wheeled, and the framing is stored as a Mercator
+centre and a **multiple of the fitted scale** rather than an absolute one — which
+is what lets it survive switching from a 4:5 post to a 16:9 slide, and survive
+the preview being drawn at a third of the size of the file.
+
+**And it can be clicked.** Pointing at Valais is a far better way of picking it
+than finding "Valais" in a list of twenty-six, and it is the reason this is the
+preview rather than a separate map. A click resolves through `areaAtPoint` — the
+same lookup the coverage sweep uses — so clicking a canton and having a cell in
+that canton can never disagree about which canton it is.
+
+Two rules that are not symmetrical, on purpose:
+
+- Ticking a place **in the list** re-frames on it. Clicking one **on the picture**
+  does not: you are already looking at it, and moving the camera out from under
+  the cursor is the one thing that would make picking a second one hard.
+- A click can land on somewhere you have never been, and that is allowed — a
+  poster of your valley and the one next door is a composition, not a mistake.
+  But it then appears in the list marked *not been*, because a selection holding
+  something the list cannot show is a selection you can only undo by finding the
+  same pixel again.
 
 **Nothing picked means everywhere, in the numbers as well as in the picture.**
 The picture already worked that way — an empty selection has no outline to cut
@@ -860,6 +902,47 @@ a frame over France legitimately comes back as 358°…375°, and every path her
 would render it correctly. `frameFor` slides the centre back into [−180, 180)
 anyway, without touching the width: a rectangle a world east of the geometry it
 frames is a trap for whoever next reads a number out of it. (It was, for an hour.)
+
+### Boundaries good enough to print
+
+The map ships Natural Earth simplified to about a kilometre, which is right for a
+level that normally lives at z4–5 and is not right for a poster. At 1080 px
+across one country that is four pixels per vertex, and it shows twice over:
+coastlines come out as visible straight runs, and — worse — every admin-1 unit is
+simplified against *itself* rather than against its neighbours, so adjacent
+cantons overlap by slivers all along their shared borders.
+
+The app already has the answer for its own sharpest zoom: geoBoundaries, fetched
+per country through our own server (see [How sharp a region is](#how-sharp-a-region-is)).
+`ensureSharpBoundaries` asks for the same thing for the countries in the picture
+— which took the canton of Bern from 49 points to 977. It is bounded to a handful
+of countries: a continent is fifty-odd national surveys to fetch and a polygon
+union each to dissolve, and at continent scale none of it is visible because the
+extra vertices are a fraction of a pixel apart.
+
+It is **started, not waited for**. The overview outlines are already a picture,
+and a preview that goes blank for a second while a coastline is fetched reads as
+a bug rather than as an improvement arriving. It lands, and the picture sharpens.
+
+The country silhouette is then the **union of its own fine regions** rather than
+the coarse national outline. It has to be: a sharp canton drawn inside a blunt
+border shows the disagreement between the two datasets as a rim of land the
+cantons do not reach, and the outline stroke traces the wrong shape.
+
+Two rendering bugs live next door to this, and both of them looked like data
+problems:
+
+- **The drop shadow that was not a shadow.** Setting `globalAlpha` and then
+  filling region after region looks identical to compositing once, right up until
+  two of them overlap — and with per-unit simplification they overlap constantly.
+  Every sliver got painted twice and came out darker, which reads as a bevel along
+  one edge of every region on the map. The fills now go onto a layer of their own
+  at full opacity and that layer is composited once, so an overlap is
+  indistinguishable from the ground it overlaps, which is what it is.
+- **The hairlines between them.** Two fills sharing an edge do not meet on it:
+  each is antialiased against nothing, so half a pixel of background survives
+  between them and every border reads as a pale line. Each shape is stroked in
+  its own colour at 0.7 px, which closes it over its own edge without growing it.
 
 ### Blobs, off the map
 
@@ -936,8 +1019,12 @@ offline and cannot render half-drawn while a font arrives.
 
 - **No basemap.** The picture is a silhouette of the selection with your ground
   inside it, not a photograph with a hole cut in it. *The rest of the world* draws
-  the surrounding countries faintly behind the cut, which is enough to place a
-  canton without turning the export into a tile-licence question.
+  the surrounding countries behind the cut, which is enough to place a canton
+  without turning the export into a tile-licence question. It is a **strength**
+  rather than a switch, because the right answer depends entirely on how much of
+  the frame the subject occupies: a continent leaves a thin rim of neighbours and
+  wants them faint, one canton leaves the whole frame and at the same setting
+  reads as a shape floating in nothing.
 - **Nothing leaves the tab.** The dialog reads the cells already in memory and
   writes a PNG the browser saves. There is no server call and no upload; the
   accessors it is handed (`cells()`, `meta()`, `rollUp()`, `areaFC()`) are read-only
