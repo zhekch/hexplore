@@ -1400,6 +1400,11 @@ body {
 .cp-preview,
 .cp-alpha {
   background-color: rgba(255, 255, 255, 0.1);
+  /* Stops at the border rather than under it. The rim is translucent, and a
+     checkerboard showing *through* it turns a solid 1px line into a dashed one
+     — which is what a swatch's border looked like at any size big enough to
+     see: eight-pixel squares alternating along the edge. */
+  background-clip: padding-box;
   background-image:
     linear-gradient(45deg, rgba(255, 255, 255, 0.22) 25%, transparent 25%),
     linear-gradient(-45deg, rgba(255, 255, 255, 0.22) 25%, transparent 25%),
@@ -5767,6 +5772,10 @@ html[data-client='ios'] .hud {
 
 .export-frame {
   cursor: grab;
+  /* Same reason as the swatches: the board is what a transparent export is
+     transparent against, and painting it under a translucent border breaks the
+     border into dashes and leaves a seam at the rounded corners. */
+  background-clip: padding-box;
   touch-action: none;
   border-radius: 16px;
   overflow: hidden;
@@ -5786,6 +5795,10 @@ html[data-client='ios'] .hud {
   display: block;
   width: 100%;
   height: 100%;
+  /* The frame clips to its padding box, but a square-cornered canvas inside a
+     rounded one still leaves a hairline of itself outside the curve on some
+     devices. Rounding the canvas to the inside of the border removes it. */
+  border-radius: 15px;
 }
 
 /* The picture is the camera — see the note in src/export-ui.js. */

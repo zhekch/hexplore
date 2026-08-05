@@ -497,7 +497,14 @@ export function mountExport({ onClose, data }) {
   colorPicker('shadow', $('export-shadow-color'), SWATCH_PRESETS.ink, (hex) => {
     spec.caption.shadowColor = hex;
   });
-  for (const button of overlay.querySelectorAll('[data-color]')) {
+  // `.export-swatch >`, not `[data-color]` on its own. The picker's own preset
+  // buttons carry `data-color` too, and by the time this ran three panels full
+  // of them were already children of the overlay — so a bare attribute selector
+  // matched thirty-three elements instead of three and mounted a colour picker
+  // on every preset swatch. Clicking a preset then opened *its* picker, which
+  // closed the one you were using and placed a new panel against a 14 px button
+  // near the edge of the screen: the picker appeared to jump to the corner.
+  for (const button of overlay.querySelectorAll('.export-swatch > [data-color]')) {
     const slot = button.dataset.color;
     colorPicker(slot, button, SWATCH_PRESETS.surface, (hex) => {
       spec.colors[slot] = hex;

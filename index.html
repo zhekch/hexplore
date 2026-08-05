@@ -761,10 +761,15 @@
             <div class="export-section">
               <h4 class="export-heading">Color by</h4>
               <div class="seg seg-mini seg-grid" id="export-colorby"></div>
-              <label class="menu-row" id="export-accent-row">
+              <!-- A div, not a label. A <button> is a labelable element, so a
+                   <label> around one treats it as its control and dispatches a
+                   *second* synthetic click at it — which opened the picker and
+                   shut it again in the same gesture. The map's own swatch
+                   (#color-row above) is a div for exactly this reason. -->
+              <div class="menu-row" id="export-accent-row">
                 <span>Visited color</span>
                 <button type="button" class="color-swatch" id="export-accent" aria-label="Visited color"></button>
-              </label>
+              </div>
               <label class="import-row">
                 <span>Strength<small>How solid the visited areas sit</small></span>
                 <input class="export-range" id="export-strength" type="range" min="10" max="100" step="5" />
@@ -826,19 +831,19 @@
                   <span>Text size</span>
                   <input class="export-range" id="export-textsize" type="range" min="60" max="180" step="5" />
                 </label>
-                <label class="menu-row">
+                <div class="menu-row">
                   <span>Text color</span>
                   <button type="button" class="color-swatch" id="export-textcolor" aria-label="Text color"></button>
-                </label>
+                </div>
                 <label class="import-row">
                   <span>Soft shadow<small>Keeps it readable over anything</small></span>
                   <input type="checkbox" id="export-shadow" />
                 </label>
                 <div id="export-shadow-body">
-                  <label class="menu-row">
+                  <div class="menu-row">
                     <span>Shadow color<small id="export-shadow-auto">Follows the text</small></span>
                     <button type="button" class="color-swatch" id="export-shadow-color" aria-label="Shadow color"></button>
-                  </label>
+                  </div>
                   <label class="import-row">
                     <span>Shadow strength</span>
                     <input class="export-range" id="export-shadow-strength" type="range" min="0" max="100" step="5" />

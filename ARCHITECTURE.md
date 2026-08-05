@@ -1064,6 +1064,20 @@ its halo — near-blacks that are not black, papers that are not white) and
 rather than to the card, because the card scrolls and clips and a fixed panel
 inside a scrolling column drifts away from the swatch that opened it.
 
+Which is also what made the pickers, briefly, mount themselves on each other.
+The three palette swatches were found with `[data-color]` — and a picker's own
+preset buttons carry `data-color` too, so by the time that selector ran, three
+panels' worth of them were already children of the overlay. Thirty-six pickers
+instead of six, one on every preset: clicking a preset opened *its* picker,
+which closed the one you were using and placed a new panel against a 14 px
+button near the edge of the screen. It read as the panel jumping to the corner.
+The selector is scoped to `.export-swatch >` now.
+
+A swatch is also a `<div class="menu-row">` rather than a `<label>`, matching the
+map's own. `<button>` is a labelable element, so a `<label>` around one treats it
+as its control and sends it a second, synthetic click — which opens the picker
+and shuts it again in one gesture.
+
 Two controls, because they are two questions again: the **anchor** is where the
 block sits on the picture (nine cells laid out the way they sit, so picking a
 corner is pointing at it), and the **alignment** is how the lines sit within the
