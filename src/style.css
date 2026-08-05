@@ -6103,29 +6103,24 @@ html[data-client='ios'] .hud {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  min-width: 0;
   font-size: 10.5px;
   color: rgba(255, 255, 255, 0.5);
-  cursor: pointer;
 }
 
-.export-swatch input[type='color'] {
-  appearance: none;
+/* The palette swatches are full-width bars rather than the map's little pill:
+   three of them side by side is already a colour scheme, and reading it needs
+   more than 38px of each. */
+.export-swatch .color-swatch {
   width: 100%;
   height: 26px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 9px;
-  background: transparent;
-  cursor: pointer;
 }
 
-.export-swatch input[type='color']::-webkit-color-swatch-wrapper {
-  padding: 2px;
-}
-
-.export-swatch input[type='color']::-webkit-color-swatch {
-  border: 0;
-  border-radius: 7px;
+/* Above the modal's own 90 — a picker that opens behind the dialog that opened
+   it is worse than no picker. */
+.export-color-panel {
+  z-index: 120;
 }
 
 .export-range {

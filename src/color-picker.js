@@ -92,7 +92,12 @@ const hsvToHex = (hsv, a = 1) =>
 
 // Handpicked rather than a generated ramp: these are the colors that actually
 // look right as a translucent wash over both basemaps.
-const PRESETS = [
+//
+// A row of ten, because the picker's job is nearly always "something like that
+// but bluer" and a hue wheel is a slow way to say it. Callers with a different
+// job pass their own — the image export's text colour wants a column of greys
+// and near-blacks, and none of the ten below is one.
+export const PRESETS = [
   '#60acff', '#7c8cff', '#b98cff', '#ff7ab8', '#ff7a6b',
   '#ff9f43', '#ffd25c', '#8fd14f', '#3ecf8e', '#2fd4c8',
 ];
@@ -106,6 +111,8 @@ const PRESETS = [
  * @param {string} opts.value         initial color, "#rrggbb"
  * @param {(hex:string) => void} opts.onInput   fires continuously while dragging
  * @param {() => {left:number, top:number}} [opts.place] where to put the panel
+ * @param {string[]} [opts.presets] the swatch row, for callers whose colour is
+ *   doing a different job from the visited wash
  * @returns {{ set(hex:string):void, get():string, close():void, isOpen():boolean }}
  */
 // Only one picker is ever open. Each instance stops the click on its own button
@@ -116,7 +123,7 @@ const PRESETS = [
 // whichever was open, whoever owns it.
 let openPicker = null;
 
-export function mountColorPicker({ button, panel, value, onInput, place }) {
+export function mountColorPicker({ button, panel, value, onInput, place, presets = PRESETS }) {
   let hsv = rgbToHsv(hexToRgb(value) ?? [96, 172, 255]);
   let alpha = hexAlpha(value);
   let open = false;
@@ -140,7 +147,7 @@ export function mountColorPicker({ button, panel, value, onInput, place }) {
       <input class="cp-hex" type="text" spellcheck="false" autocomplete="off"
         autocapitalize="none" autocorrect="off" maxlength="9" aria-label="Hex color" />
     </div>
-    <div class="cp-presets">${PRESETS.map(
+    <div class="cp-presets">${presets.map(
       (c) => `<button type="button" class="cp-preset" data-color="${c}" style="background:${c}" aria-label="${c}"></button>`,
     ).join('')}</div>
   `;

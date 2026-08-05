@@ -763,7 +763,7 @@
               <div class="seg seg-mini seg-grid" id="export-colorby"></div>
               <label class="menu-row" id="export-accent-row">
                 <span>Visited color</span>
-                <input type="color" id="export-accent" />
+                <button type="button" class="color-swatch" id="export-accent" aria-label="Visited color"></button>
               </label>
               <label class="import-row">
                 <span>Strength<small>How solid the visited areas sit</small></span>
@@ -775,9 +775,12 @@
               <h4 class="export-heading">Look</h4>
               <div class="seg seg-mini seg-grid" id="export-palette"></div>
               <div class="export-swatches">
-                <label class="export-swatch"><span>Background</span><input type="color" data-color="background" /></label>
-                <label class="export-swatch"><span>Land</span><input type="color" data-color="land" /></label>
-                <label class="export-swatch"><span>Outline</span><input type="color" data-color="edge" /></label>
+                <div class="export-swatch"><span>Background</span>
+                  <button type="button" class="color-swatch" data-color="background" aria-label="Background color"></button></div>
+                <div class="export-swatch"><span>Land</span>
+                  <button type="button" class="color-swatch" data-color="land" aria-label="Land color"></button></div>
+                <div class="export-swatch"><span>Outline</span>
+                  <button type="button" class="color-swatch" data-color="edge" aria-label="Outline color"></button></div>
               </div>
               <label class="import-row">
                 <span>Draw the outline</span>
@@ -786,6 +789,10 @@
               <label class="import-row">
                 <span>The rest of the world<small id="export-surroundings-note">Off</small></span>
                 <input class="export-range" id="export-surroundings" type="range" min="0" max="100" step="5" />
+              </label>
+              <label class="import-row">
+                <span>Their borders<small id="export-borders-note">Off</small></span>
+                <input class="export-range" id="export-borders" type="range" min="0" max="100" step="5" />
               </label>
             </div>
 
@@ -821,7 +828,7 @@
                 </label>
                 <label class="menu-row">
                   <span>Text color</span>
-                  <input type="color" id="export-textcolor" />
+                  <button type="button" class="color-swatch" id="export-textcolor" aria-label="Text color"></button>
                 </label>
                 <label class="import-row">
                   <span>Soft shadow<small>Keeps it readable over anything</small></span>
@@ -830,7 +837,7 @@
                 <div id="export-shadow-body">
                   <label class="menu-row">
                     <span>Shadow color<small id="export-shadow-auto">Follows the text</small></span>
-                    <input type="color" id="export-shadow-color" />
+                    <button type="button" class="color-swatch" id="export-shadow-color" aria-label="Shadow color"></button>
                   </label>
                   <label class="import-row">
                     <span>Shadow strength</span>

@@ -1046,6 +1046,24 @@ looks smudged, so the default is a halo of the opposite lightness. Colour and
 strength are both there for when the default is not what a particular picture
 wants.
 
+### Six colours, one picker
+
+Every colour here opens the app's **own** picker (`src/color-picker.js`) rather
+than the OS one, for the reason the map uses it: a colour is chosen *against* the
+thing it will sit on, so it has to repaint the picture as you drag rather than
+hand back an answer when you dismiss a modal. It also means transparency is a
+value you can pick, which for the background is a real answer.
+
+What is new is that the swatch row is a parameter. The map has one colour and one
+row of ten bright hues, which is right for a wash you read a map through and no
+help at all when you are picking type — nothing in that row is a text colour, and
+a hue wheel is how a poster ends up as #000000 on #FFFFFF. `SWATCH_PRESETS` has
+three rows by what the colour is *for*: `accent` (the map's own), `ink` (type and
+its halo — near-blacks that are not black, papers that are not white) and
+`surface` (the tones a map is printed on). The panels are appended to the overlay
+rather than to the card, because the card scrolls and clips and a fixed panel
+inside a scrolling column drifts away from the swatch that opened it.
+
 Two controls, because they are two questions again: the **anchor** is where the
 block sits on the picture (nine cells laid out the way they sit, so picking a
 corner is pointing at it), and the **alignment** is how the lines sit within the
@@ -1073,7 +1091,13 @@ offline and cannot render half-drawn while a font arrives.
   reads as a shape floating in nothing. Each neighbour is drawn as its own path
   so it can carry its border: without them they dissolve into a single grey
   continent, which places the subject on a landmass but not in a country — and
-  "which one is Germany" is most of what the context is for.
+  "which one is Germany" is most of what the context is for. **The land and the
+  borders are two sliders**, because they are two things: borders alone over the
+  background is a good-looking map, and so is undifferentiated land with no lines
+  on it, and one control meant you could have neither. Both are drawn from the
+  sharp outline wherever it has been fetched — a blunt national border cuts
+  visibly across the detailed regions on the other side of it, which is the same
+  mismatch as the fringe above wearing a different hat.
 - **Nothing leaves the tab.** The dialog reads the cells already in memory and
   writes a PNG the browser saves. There is no server call and no upload; the
   accessors it is handed (`cells()`, `meta()`, `rollUp()`, `areaFC()`) are read-only

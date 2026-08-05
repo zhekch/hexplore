@@ -20,11 +20,12 @@
 
 import {
   CAPTION_ANCHORS, CAPTION_FIELDS, CAPTION_FONTS, DEFAULT_SPEC, MAX_SIDE_PX, PALETTES, SCALES,
-  SHAPES, cameraFor, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitCamera,
+  SHAPES, SWATCH_PRESETS, cameraFor, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitCamera,
   frameOf, isLightColor, lngLatAt, paletteOf, pickAt, presetOf, renderExport, scopeCountryOf,
   scopeName, sizeOf, visitedAreas,
 } from './export-image.js';
 import { mercX, mercY } from './hexgrid.js';
+import { mountColorPicker } from './color-picker.js';
 import { HEAT_MODES } from './coloring.js';
 import { showToast } from './toast.js';
 
@@ -113,6 +114,10 @@ function loadSpec() {
   // and what "on" was is the old constant.
   if (typeof raw.surroundings === 'boolean') spec.surroundings = raw.surroundings ? 0.34 : 0;
   else if (Number.isFinite(raw.surroundings)) spec.surroundings = Math.min(1, Math.max(0, raw.surroundings));
+  if (Number.isFinite(raw.borders)) spec.borders = Math.min(1, Math.max(0, raw.borders));
+  // Before they were separate, the borders came along with the land at 85% of
+  // it. A spec from that build keeps the picture it described.
+  else if (spec.surroundings > 0) spec.borders = spec.surroundings * 0.85;
   if (raw.colors && typeof raw.colors === 'object') {
     for (const key of ['background', 'land', 'edge']) {
       if (typeof raw.colors[key] === 'string') spec.colors[key] = raw.colors[key];
@@ -431,21 +436,78 @@ export function mountExport({ onClose, data }) {
     spec.cellSize = Number(cellSize.value) || 0;
   });
 
-  const accent = $('export-accent');
-  bind(accent, 'input', () => {
-    spec.accent = accent.value;
+  // --- Colours ---------------------------------------------------------------------
+  //
+  // The app's own picker rather than the OS one, for the reason the map uses it:
+  // a colour here is chosen *against* the thing it will sit on, so it has to
+  // repaint the picture as you drag rather than hand back an answer when you let
+  // go of a modal. The swatch rows differ by what the colour is for — see
+  // SWATCH_PRESETS — because a row of ten bright hues is no help at all when you
+  // are picking type.
+  const pickers = new Map();
+
+  /**
+   * Turn a swatch button into a picker.
+   *
+   * @param {string} key      where the value lives, for `sync` to read back
+   * @param {HTMLElement} button
+   * @param {string[]} presets
+   * @param {(hex:string) => void} onPick
+   */
+  function colorPicker(key, button, presets, onPick) {
+    if (!button) return;
+    const panel = document.createElement('div');
+    panel.className = 'menu-popover color-panel export-color-panel';
+    panel.hidden = true;
+    // On the overlay, not the card: the card scrolls and clips, and a fixed
+    // panel inside a scrolling column drifts away from the swatch that opened
+    // it. The overlay is also above the card, which is where this has to be.
+    overlay.append(panel);
+    pickers.set(
+      key,
+      mountColorPicker({
+        button,
+        panel,
+        presets,
+        value: '#60acff',
+        place: () => {
+          const b = button.getBoundingClientRect();
+          // Left of the swatch and level with it: the swatches live in the
+          // right-hand column, so there is nothing to the right of them, and a
+          // panel that drops *below* one near the foot of a scrolling column
+          // ends up over the buttons. The picker clamps this to the viewport.
+          return { left: b.left - 278, top: b.top + b.height / 2 - 138 };
+        },
+        onInput: (hex) => {
+          onPick(hex);
+          save();
+          sync();
+          schedule();
+        },
+      }),
+    );
+  }
+
+  colorPicker('accent', $('export-accent'), SWATCH_PRESETS.accent, (hex) => {
+    spec.accent = hex;
   });
+  colorPicker('text', $('export-textcolor'), SWATCH_PRESETS.ink, (hex) => {
+    spec.caption.color = hex;
+  });
+  colorPicker('shadow', $('export-shadow-color'), SWATCH_PRESETS.ink, (hex) => {
+    spec.caption.shadowColor = hex;
+  });
+  for (const button of overlay.querySelectorAll('[data-color]')) {
+    const slot = button.dataset.color;
+    colorPicker(slot, button, SWATCH_PRESETS.surface, (hex) => {
+      spec.colors[slot] = hex;
+    });
+  }
 
   const strength = $('export-strength');
   bind(strength, 'input', () => {
     spec.strength = Number(strength.value) / 100;
   });
-
-  for (const input of overlay.querySelectorAll('[data-color]')) {
-    bind(input, 'input', () => {
-      spec.colors[input.dataset.color] = input.value;
-    });
-  }
 
   const outline = $('export-outline');
   bind(outline, 'change', () => {
@@ -455,6 +517,11 @@ export function mountExport({ onClose, data }) {
   const surroundings = $('export-surroundings');
   bind(surroundings, 'input', () => {
     spec.surroundings = Number(surroundings.value) / 100;
+  });
+
+  const borders = $('export-borders');
+  bind(borders, 'input', () => {
+    spec.borders = Number(borders.value) / 100;
   });
 
   const captionOn = $('export-caption-on');
@@ -494,19 +561,9 @@ export function mountExport({ onClose, data }) {
     spec.caption.size = Number(textSize.value) / 100;
   });
 
-  const textColor = $('export-textcolor');
-  bind(textColor, 'input', () => {
-    spec.caption.color = textColor.value;
-  });
-
   const shadow = $('export-shadow');
   bind(shadow, 'change', () => {
     spec.caption.shadow = shadow.checked;
-  });
-
-  const shadowColor = $('export-shadow-color');
-  bind(shadowColor, 'input', () => {
-    spec.caption.shadowColor = shadowColor.value;
   });
 
   const shadowStrength = $('export-shadow-strength');
@@ -634,33 +691,37 @@ export function mountExport({ onClose, data }) {
     $('export-cellsize-row').hidden = spec.detail !== 'blob';
     cellSize.value = String(spec.cellSize);
     $('export-accent-row').hidden = spec.colorBy !== 'flat';
-    accent.value = (spec.accent || '#60acff').slice(0, 7);
     strength.value = String(Math.round(spec.strength * 100));
 
     const palette = paletteOf(spec);
-    for (const input of overlay.querySelectorAll('[data-color]')) {
-      const value = palette[input.dataset.color];
-      // A transparent background has no swatch to show, so the control falls
-      // back to the colour it would become if you touched it.
-      input.value = /^#[0-9a-f]{6}/i.test(String(value)) ? String(value).slice(0, 7) : '#0b0d14';
+    pickers.get('accent')?.set(spec.accent || '#60acff');
+    for (const slot of ['background', 'land', 'edge']) {
+      // A transparent background is a real value and the swatch shows it as
+      // one — the picker draws over a checkerboard, which is the only honest
+      // way for a control to say "nothing".
+      const value = palette[slot];
+      pickers.get(slot)?.set(/^#[0-9a-f]{3,8}$/i.test(String(value)) ? value : '#00000000');
     }
     outline.checked = spec.outline;
     surroundings.value = String(Math.round(spec.surroundings * 100));
     $('export-surroundings-note').textContent =
       spec.surroundings <= 0.001 ? 'Off' : `${Math.round(spec.surroundings * 100)}% behind the cut`;
+    borders.value = String(Math.round(spec.borders * 100));
+    $('export-borders-note').textContent =
+      spec.borders <= 0.001 ? 'Off' : `${Math.round(spec.borders * 100)}%`;
 
     captionOn.checked = spec.caption.on;
     $('export-caption-body').hidden = !spec.caption.on;
     title.value = spec.caption.title;
     fontSel.value = spec.caption.font;
     textSize.value = String(Math.round(spec.caption.size * 100));
-    textColor.value = (spec.caption.color || palette.text || '#ffffff').slice(0, 7);
+    pickers.get('text')?.set(spec.caption.color || palette.text || '#ffffff');
     shadow.checked = spec.caption.shadow;
     $('export-shadow-body').hidden = !spec.caption.shadow;
     // Blank means "work it out from the text", which is the sensible answer and
     // the one most people want; the swatch shows what that came to so pressing
     // it is an edit rather than a jump.
-    shadowColor.value = (spec.caption.shadowColor || autoShadowColor()).slice(0, 7);
+    pickers.get('shadow')?.set(spec.caption.shadowColor || autoShadowColor());
     $('export-shadow-auto').textContent = spec.caption.shadowColor ? 'Chosen' : 'Follows the text';
     shadowStrength.value = String(Math.round((spec.caption.shadowStrength ?? 0.45) * 100));
 

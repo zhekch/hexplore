@@ -190,6 +190,35 @@ export const PALETTES = {
 };
 
 /**
+ * The swatch rows the export's colour pickers offer, by what the colour is for.
+ *
+ * The map has one colour and one row of ten bright ones, which is right for a
+ * wash you read a map through and useless here: nothing in that row is a text
+ * colour, and picking type out of a hue wheel is how a poster ends up with
+ * #000000 type on #FFFFFF paper. These are the values that actually look
+ * composed together — near-blacks that are not black, papers that are not
+ * white, and a set of inks with some warmth in them.
+ */
+export const SWATCH_PRESETS = {
+  // The visited wash. The map's own row, because it is the same decision.
+  accent: [
+    '#60acff', '#7c8cff', '#b98cff', '#ff7ab8', '#ff7a6b',
+    '#ff9f43', '#ffd25c', '#8fd14f', '#3ecf8e', '#2fd4c8',
+  ],
+  // Type, and the halo behind it. Never pure black — #1a1a1a is the one that
+  // reads as ink rather than as a hole in the page.
+  ink: [
+    '#1a1a1a', '#2b2b2b', '#0f172a', '#26303f', '#4b5563',
+    '#8a8a8a', '#d6d3cc', '#f4f1ea', '#ffffff', '#00000000',
+  ],
+  // Paper, land, and the line around it: the tones a map is printed on.
+  surface: [
+    '#0b0d14', '#12141c', '#1b2030', '#2f3547', '#38405a',
+    '#8e97ad', '#c2c8d4', '#e2ddd1', '#f4f1ea', '#ffffff',
+  ],
+};
+
+/**
  * Caption typefaces. Stacks rather than webfonts: nothing is fetched, so an
  * export works offline and cannot render half-drawn while a font arrives — and
  * a poster whose type silently fell back to Times would be worse than one that
@@ -301,8 +330,11 @@ export const DEFAULT_SPEC = {
   strength: 1,
   palette: 'night',
   colors: {}, // overrides on top of the palette
-  // How strongly the countries around the subject are drawn, 0 = not at all.
+  // How strongly the land around the subject is drawn, 0 = not at all…
   surroundings: 0,
+  // …and how strongly the borders across it are. Separate, because "which one
+  // is Germany" and "is there anything there at all" are separate questions.
+  borders: 0,
   outline: true,
   caption: {
     on: true,
@@ -1047,21 +1079,28 @@ export function renderExport(canvas, spec, data, numbers, size = sizeOf(spec)) {
   // continent leaves a thin rim of neighbours and wants them faint; one canton
   // leaves the whole frame, and at the same setting reads as a shape floating
   // in nothing.
+  // Two settings, because they are two things. The *land* around the subject
+  // places it on a continent; the *borders* say which country each piece of that
+  // land is. Wanting one without the other is not an edge case — borders alone
+  // over the background is a good-looking map, and so is undifferentiated land
+  // with no lines on it — and tying them to one slider meant you could have
+  // neither.
   const restAlpha = Math.max(0, Math.min(1, spec.surroundings ?? 0));
-  if (restAlpha > 0.001) {
-    // One path per country rather than one for all of them, so each can be
-    // outlined. Without the borders the neighbours dissolve into a single grey
-    // continent, which places the subject on a landmass but not in a country —
-    // and "which one is Germany" is most of what the context is for.
+  const borderAlpha = Math.max(0, Math.min(1, spec.borders ?? 0));
+  if (restAlpha > 0.001 || borderAlpha > 0.001) {
+    // One path per country rather than one for all of them, so each can carry
+    // its own border — and at the sharp outline wherever that has been fetched,
+    // or a blunt national border cuts visibly across the detailed region fills
+    // on the other side of it.
     ctx.lineJoin = 'round';
     ctx.lineWidth = Math.max(0.6, size.h * 0.0011);
     ctx.fillStyle = withAlpha(palette.land, restAlpha);
-    ctx.strokeStyle = withAlpha(palette.edge, restAlpha * 0.85);
+    ctx.strokeStyle = withAlpha(palette.edge, borderAlpha);
     for (const c of allCountries()) {
       const path = new Path2D();
-      addGeometry(path, c.geometry, cam);
-      ctx.fill(path, 'evenodd');
-      ctx.stroke(path);
+      addGeometry(path, fineCountryGeometry(c.id) ?? c.geometry, cam);
+      if (restAlpha > 0.001) ctx.fill(path, 'evenodd');
+      if (borderAlpha > 0.001) ctx.stroke(path);
     }
   }
 
@@ -1257,30 +1296,44 @@ export async function ensureSharpBoundaries(scope, { spec, data, size } = {}) {
   }
 
   // …and whatever else is drawn *inside the frame*, which is the half that was
-  // missing and the one that showed. The area levels draw every lit region in
-  // the world and let the mask do the cutting, so a picture of one canton still
-  // has its neighbours' regions painted underneath the clip — and the ones over
-  // the border came from a country nobody had fetched detail for. Sharp
-  // boundaries against blunt ones do not merely look inconsistent: the blunt
-  // ones are simplified outwards in places, so they spilled *over* the sharp
-  // ones as a ragged orange fringe along the border.
-  if (spec?.detail === 'region' && data && size) {
+  // missing and the one that showed.
+  //
+  // Two things put another country's geometry in the picture. The area levels
+  // draw every lit region in the world and let the mask do the cutting, so a
+  // picture of one canton still has its neighbours' regions painted underneath
+  // the clip. And the surroundings draw every country the frame reaches. Either
+  // way, sharp boundaries against blunt ones do not merely look inconsistent:
+  // the blunt ones are simplified *outwards* in places, so a national border
+  // cuts visibly across the detailed regions on the other side of it.
+  const wantsNeighbours = spec?.detail === 'region'
+    || (spec?.surroundings ?? 0) > 0.001
+    || (spec?.borders ?? 0) > 0.001;
+  if (wantsNeighbours && data && size) {
     const frame = frameOf(spec, data);
-    if (frame) {
-      const cam = cameraFor(spec, frame, size);
-      const view = cameraRect(cam);
+    const cam = frame && cameraFor(spec, frame, size);
+    // A frame wider than half the world, or one straddling the seam, would ask
+    // for everything — and is not at a scale where any of this is visible
+    // anyway, so it simply does not ask.
+    const box = cam && cameraRect(cam);
+    if (box && box.xMax - box.xMin < WORLD / 2) {
       const [w, s2] = lngLatAt(cam, 0, cam.h);
       const [e, n] = lngLatAt(cam, cam.w, 0);
-      // A frame wider than the world, or one straddling the seam, would ask for
-      // everything; the picture is not at a scale where any of this is visible
-      // anyway, so it simply does not ask.
-      if (view.xMax - view.xMin < WORLD / 2 && w < e) {
-        const lit = new Set();
-        for (const id of data.cells()) {
-          const region = data.areaOf('region', id);
-          if (region) lit.add(region);
+      if (w < e) {
+        if (spec.detail === 'region') {
+          const lit = new Set();
+          for (const id of data.cells()) {
+            const region = data.areaOf('region', id);
+            if (region) lit.add(region);
+          }
+          for (const { iso } of countriesInView(lit, [w, s2, e, n])) isos.add(iso);
         }
-        for (const { iso } of countriesInView(lit, [w, s2, e, n])) isos.add(iso);
+        // Whatever the frame touches, when its outline is going to be drawn.
+        if ((spec.surroundings ?? 0) > 0.001 || (spec.borders ?? 0) > 0.001) {
+          for (const c of allCountries()) {
+            const [cw, cs, ce, cn] = c.bbox;
+            if (c.iso && ce >= w && cw <= e && cn >= s2 && cs <= n) isos.add(c.iso);
+          }
+        }
       }
     }
   }
