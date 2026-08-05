@@ -1000,13 +1000,39 @@ and an image has no screen. It is scaled against a reference height instead
 (`FEATHER_REF_PX`), so a poster twice as tall gets twice the feather and the
 softness reads the same at any resolution.
 
-…**and then capped at one cell radius** (`MAX_FEATHER_CELLS`). Scaling with the
-image is right while a cell is comfortably bigger than the feather and
+…**and then capped at half a cell radius** (`MAX_FEATHER_CELLS`). Scaling with
+the image is right while a cell is comfortably bigger than the feather and
 catastrophic when it is not: at the finest level a poster's cells are about a
 pixel across against a feather of fifteen, so every blob was smeared below the
 threshold of being visible at all — at exactly the setting that asked for the
 most detail. The map has no use for the cap, because its cells are always several
 screen pixels wide.
+
+**Two softnesses, and only one of them belongs here.** `BLOB_BLUR` is the blur
+that merges neighbouring cells and bleeds their colours together — the thing that
+makes a honeycomb read as poured ink — and the export leaves it exactly as the
+map has it. What the export overrides is the *rim*: how gradually a blob stops
+being a blob and becomes nothing. The map wants that wide, because the wash is a
+hint you read the basemap through and a hard edge would look pasted on. An image
+has nothing behind the blob for it to dissolve into, so the same setting reads as
+a smear with no shape, and the finer the cells the more of the picture the smear
+eats. `BLOB_RIM` and `BLOB_RIM_FEATHER_PX` at the top of `src/export-image.js`
+are the two knobs; `paintBlobSheet` takes them as `edge` and `featherPx`, which
+default to the map's own when nobody overrides them.
+
+### A cell size has to name a size
+
+*Cell size* pins a grid level, and it used to pin an *offset* from whatever the
+frame could carry — so the base moved as you zoomed and a size you had chosen
+quietly changed under you. It reads the level straight now (`blobLevelFor`), and
+the options are named by the ground a cell covers (0.9 km, 2.7 km, 8 km, …)
+rather than by an adjective: "8 km" is a fact about the grid, "Medium" is a fact
+about the list it appears in. *Auto* is still there and still means the finest
+level the picture can honestly draw.
+
+A level pinned finer than the picture can really draw is still drawn — the sheet
+floors a cell at `MIN_CELL_PX` rather than letting the level-set cut erase it,
+which is the same bargain the map makes for a pinned Detail level.
 
 Which grid level to draw is decided by the picture rather than by a zoom:
 `blobLevelFor` takes the finest level whose cells are still at least

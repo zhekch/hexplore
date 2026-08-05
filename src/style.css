@@ -6196,18 +6196,22 @@ html[data-client='ios'] .hud {
     height: calc(100vh - 24px);
   }
 
+  /* Stacked, and the picture gets a definite share rather than an `auto` row.
+     An auto row is content-sized, and the stage's content is a shell that says
+     `flex: 1 1 auto; min-height: 0` — so it collapsed to nothing and the preview
+     came out 70px tall. */
   .export-body {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 44vh) minmax(0, 1fr);
     gap: 16px;
   }
 
   .export-stage {
-    height: auto;
+    height: 100%;
   }
 
   .export-shell {
-    max-height: 46vh;
+    max-height: none;
   }
 
   .export-controls {

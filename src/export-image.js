@@ -38,7 +38,7 @@
 // `coverageOf`, which the dialog holds on to while you drag a colour around.
 
 import {
-  MAX_LEVEL, MAX_MERC_Y, WORLD, cellCenter, latOf, lngOf, mercX, mercY, radiusOf,
+  MAX_LEVEL, MAX_MERC_Y, SQRT3, WORLD, cellCenter, latOf, lngOf, mercX, mercY, radiusOf,
 } from './hexgrid.js';
 import {
   allCountries, countryAreaKm2, countryCount, countryGeometry, countryIso, loadCountries,
@@ -126,18 +126,42 @@ const INSET = 0.075;
 // this is the point at which asking for more detail starts costing detail.
 const MIN_BLOB_PX = 1.35;
 
-// The feather at the rim of a blob is measured in screen pixels on the map,
-// where a screen pixel is a known size. An image has no screen, so it is scaled
-// against a reference height instead: a poster twice as tall gets twice the
-// feather and the softness reads the same at any resolution.
+// --- How sharply a blob stops -----------------------------------------------
+//
+// **Two different softnesses, and only one of them is wanted here.** `BLOB_BLUR`
+// (src/blob-canvas.js) is the blur that merges neighbouring cells and bleeds
+// their colours into each other — that is the thing that makes a honeycomb read
+// as poured ink, and it is untouched. What follows is the *rim*: how gradually
+// a blob stops being a blob and becomes nothing.
+//
+// The map wants that rim wide, because the wash is a hint you read the basemap
+// through and a hard edge would look pasted on. An image is not sitting on a
+// basemap. There is nothing behind the blob for it to dissolve into, so the
+// same setting reads as a smear with no shape — and the finer the cells, the
+// more of the picture the smear eats.
+//
+// These are the two knobs to turn if it is still not right:
+//
+//   BLOB_RIM            width of the alpha ramp on the final cut, in units of a
+//                       cell. 0.3–0.6 is what the map uses; 0.5 fades out over
+//                       roughly half a cell. Raise for a softer edge.
+//   BLOB_RIM_FEATHER_PX a last blur over the finished shape, in pixels of a
+//                       900px-tall image (see FEATHER_REF_PX). 0 turns it off.
+const BLOB_RIM = 0.08;
+const BLOB_RIM_FEATHER_PX = 0.6;
+
+// The feather at the rim is measured in screen pixels on the map, where a
+// screen pixel is a known size. An image has no screen, so it is scaled against
+// a reference height instead: a poster twice as tall gets twice the feather and
+// the softness reads the same at any resolution.
 const FEATHER_REF_PX = 900;
 // …but never wider than the cells it is softening. That scaling is right while
 // a cell is comfortably bigger than the feather and catastrophic when it is not:
 // at the finest level a poster's cells are a pixel or so across against a
 // feather of fifteen, so every blob was smeared below the threshold of being
-// visible at all — at exactly the setting that asked for the most detail. One
+// visible at all — at exactly the setting that asked for the most detail. Half a
 // cell radius of ramp is as soft as a shape can be and still be a shape.
-const MAX_FEATHER_CELLS = 1;
+const MAX_FEATHER_CELLS = 0.5;
 
 // How many countries an export will fetch detailed boundaries for. Past this
 // the picture is at too small a scale for the detail to show and the fetch is
@@ -324,7 +348,8 @@ export const DEFAULT_SPEC = {
   // remembered between sessions, because it is a framing of one selection.
   view: null,
   detail: 'blob',
-  cellSize: 0,
+  // A grid level, or 'auto' for the finest the picture can carry.
+  cellSize: 'auto',
   colorBy: 'flat',
   accent: '#60acff',
   strength: 1,
@@ -683,14 +708,38 @@ const cameraRect = (cam) => ({
 });
 
 /**
- * The finest grid level whose cells survive being drawn at this scale, made
- * `coarser` steps blunter if asked. See MIN_BLOB_PX.
+ * Which grid level the blobs are drawn at.
+ *
+ * `pinned` is a level, not an adjustment. It used to be an offset from whatever
+ * the frame could carry — which meant the *base* moved as you zoomed, so a cell
+ * size you had chosen quietly changed size under you. A setting called "cell
+ * size" has to name a size.
+ *
+ * A level pinned finer than the picture can really draw is still drawn: the
+ * sheet floors a cell at MIN_CELL_PX rather than letting the level-set cut erase
+ * it, which is the same bargain the map makes for a pinned Detail level. Auto
+ * takes the finest level whose cells are honestly that size.
  */
-export function blobLevelFor(k, coarser = 0) {
+export function blobLevelFor(k, pinned = null) {
+  if (Number.isFinite(pinned)) return Math.max(0, Math.min(MAX_LEVEL, Math.round(pinned)));
   let L = 0;
   while (L < MAX_LEVEL && radiusOf(L) * k < MIN_BLOB_PX) L++;
-  return Math.max(0, Math.min(MAX_LEVEL, L + coarser));
+  return L;
 }
+
+/**
+ * The cell sizes on offer, named by the ground they cover rather than by an
+ * adjective: "8 km" is a fact about the grid and "Medium" is a fact about the
+ * list it appears in. Flat-to-flat at the equator, which is how the grid is
+ * described everywhere else (a Mercator cell shrinks with latitude).
+ */
+export const CELL_SIZES = [
+  { key: 'auto', label: 'Auto — fits the picture' },
+  ...Array.from({ length: MAX_LEVEL + 1 }, (_, L) => {
+    const km = (SQRT3 * radiusOf(L)) / 1000;
+    return { key: L, label: km >= 10 ? `${Math.round(km)} km` : `${km.toFixed(1)} km` };
+  }),
+];
 
 // --- Paths ---------------------------------------------------------------------
 
@@ -1179,7 +1228,7 @@ function drawVisited(ctx, spec, data, cam, size) {
 let blobBuffers = null;
 
 function drawBlobs(ctx, spec, data, cam, size) {
-  const level = blobLevelFor(cam.k, spec.cellSize ?? 0);
+  const level = blobLevelFor(cam.k, Number.isFinite(spec.cellSize) ? spec.cellSize : null);
   const { litSets, litRange } = data.rollUp(spec.colorBy);
   const cells = litSets[level];
   if (!cells?.size) return;
@@ -1193,6 +1242,9 @@ function drawBlobs(ctx, spec, data, cam, size) {
     cells,
     colorOf: cellColorOf(spec.colorBy, spec.accent, litRange[level] ?? {}),
     heat: isHeatMode(spec.colorBy),
+    // The map's own rim settings are deliberately not used — see BLOB_RIM.
+    edge: BLOB_RIM,
+    featherPx: BLOB_RIM_FEATHER_PX,
     pxPerMerc: cam.k,
     // The canvas is the cap. Nothing is gained by rendering the sheet larger
     // than the picture, and the map's own cap is set for a viewport rather than

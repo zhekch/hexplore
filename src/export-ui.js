@@ -20,7 +20,7 @@
 
 import {
   CAPTION_ANCHORS, CAPTION_FIELDS, CAPTION_FONTS, DEFAULT_SPEC, MAX_SIDE_PX, PALETTES, SCALES,
-  SHAPES, SWATCH_PRESETS, cameraFor, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitCamera,
+  CELL_SIZES, SHAPES, SWATCH_PRESETS, cameraFor, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitCamera,
   frameOf, isLightColor, lngLatAt, paletteOf, pickAt, presetOf, renderExport, scopeCountryOf,
   scopeName, sizeOf, visitedAreas,
 } from './export-image.js';
@@ -112,7 +112,9 @@ function loadSpec() {
   if (PALETTES[raw.palette]) spec.palette = raw.palette;
   if (typeof raw.accent === 'string') spec.accent = raw.accent;
   if (Number.isFinite(raw.strength)) spec.strength = Math.min(1, Math.max(0.1, raw.strength));
-  if (Number.isFinite(raw.cellSize)) spec.cellSize = Math.min(2, Math.max(0, Math.round(raw.cellSize)));
+  // It used to be an offset (0/1/2 steps coarser than auto) and is a level now.
+  // An old value would mean a different size, so it is not carried over.
+  if (CELL_SIZES.some((c) => c.key === raw.cellSize)) spec.cellSize = raw.cellSize;
   if (typeof raw.outline === 'boolean') spec.outline = raw.outline;
   // It used to be a switch and is a strength now. A stored `true` means "on",
   // and what "on" was is the old constant.
@@ -436,8 +438,14 @@ export function mountExport({ onClose, data }) {
   // --- Plain controls -----------------------------------------------------------
 
   const cellSize = $('export-cellsize');
+  for (const c of CELL_SIZES) {
+    const opt = document.createElement('option');
+    opt.value = String(c.key);
+    opt.textContent = c.label;
+    cellSize.append(opt);
+  }
   bind(cellSize, 'change', () => {
-    spec.cellSize = Number(cellSize.value) || 0;
+    spec.cellSize = cellSize.value === 'auto' ? 'auto' : Number(cellSize.value);
   });
 
   // --- Colours ---------------------------------------------------------------------

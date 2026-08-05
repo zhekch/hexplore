@@ -17,7 +17,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  CAPTION_FIELDS, MAX_PIXELS, SCALES, SHAPES,
+  CAPTION_FIELDS, CELL_SIZES, MAX_PIXELS, SCALES, SHAPES,
   blobLevelFor, cameraFor, captionLines, circularSpan, coverageOf, exportFilename, fitCamera,
   frameFor, lngLatAt, paletteOf, pickAt, presetOf, scopeAreaKm2, scopeGeometry, scopeName, sizeOf,
   unwrapRing, visitedAreas,
@@ -247,11 +247,23 @@ console.log('\nHow fine the blobs are drawn');
   const square = SHAPES.square.presets[0];
   const wide = fitCamera(frameFor([scopeGeometry('country', 'Russia')], []), square).k;
   const tight = fitCamera({ xMin: mercX(7.4), xMax: mercX(7.5), yMin: mercY(46.9), yMax: mercY(47) }, square).k;
-  check(blobLevelFor(tight) === 0, 'zoomed right in, the grid is drawn exactly as stored');
-  check(blobLevelFor(wide) > blobLevelFor(tight), 'and coarsens as the picture takes in more ground',
+  check(blobLevelFor(tight) === 0, 'on Auto and zoomed right in, the grid is drawn exactly as stored');
+  check(blobLevelFor(wide) > blobLevelFor(tight), 'and Auto coarsens as the picture takes in more ground',
     `${blobLevelFor(wide)} vs ${blobLevelFor(tight)}`);
-  check(blobLevelFor(tight, 2) === 2, 'asking for coarser cells moves it by exactly that much');
-  check(blobLevelFor(1e-12, 2) <= 4, 'and it can never run off the end of the ladder');
+
+  // A cell size that is chosen has to *stay* that size. It used to be an offset
+  // from whatever Auto picked, so the base moved with the frame and a size you
+  // had chosen quietly changed under you as you zoomed out.
+  for (const level of [0, 1, 2, 3, 4]) {
+    check(blobLevelFor(tight, level) === level && blobLevelFor(wide, level) === level,
+      `a pinned ${level} is ${level} at any scale`,
+      `${blobLevelFor(tight, level)} / ${blobLevelFor(wide, level)}`);
+  }
+  check(blobLevelFor(1e-12, 9) === 4 && blobLevelFor(1e12, -3) === 0,
+    'and a level off either end of the ladder is clamped to it');
+  check(CELL_SIZES[0].key === 'auto' && CELL_SIZES.length === 6,
+    'the picker offers Auto and one entry per level');
+  check(/^0\.9 km$/.test(CELL_SIZES[1].label), 'named by the ground a cell covers', CELL_SIZES[1].label);
 }
 
 // --- The numbers ---------------------------------------------------------------

@@ -354,6 +354,11 @@ export function createBlobBuffers() {
  * @param {(stat:object)=>string} o.colorOf  css color for a cell
  * @param {boolean} [o.heat]    a heat map rather than the single-color wash;
  *                              picks which pair of edge knobs applies
+ * @param {number} [o.edge]     override the alpha-ramp width on the final cut,
+ *                              in units of a cell. The map wants a wash that
+ *                              dissolves into the basemap; a still image is not
+ *                              sitting on a basemap and wants an edge.
+ * @param {number} [o.featherPx] override the final feather, likewise
  * @param {number} o.pxPerMerc  canvas pixels per Mercator metre, before capping
  * @param {number} [o.maxSide]  hard cap on either dimension
  * @param {number} [o.featherScale] canvas pixels per unit of BLOB_FEATHER_PX
@@ -373,6 +378,8 @@ export function paintBlobSheet({
   cells,
   colorOf,
   heat = false,
+  edge: edgeOverride,
+  featherPx: featherOverride,
   pxPerMerc,
   maxSide = MAX_SIDE,
   featherScale = 1,
@@ -383,8 +390,8 @@ export function paintBlobSheet({
   const mercH = bb.yMax - bb.yMin;
   if (!(mercW > 0) || !(mercH > 0)) return null;
 
-  const edge = heat ? BLOB_HEAT_EDGE : BLOB_EDGE;
-  const featherPx = heat ? BLOB_HEAT_FEATHER_PX : BLOB_FEATHER_PX;
+  const edge = edgeOverride ?? (heat ? BLOB_HEAT_EDGE : BLOB_EDGE);
+  const featherPx = featherOverride ?? (heat ? BLOB_HEAT_FEATHER_PX : BLOB_FEATHER_PX);
 
   const k = Math.min(pxPerMerc, maxSide / mercW, maxSide / mercH);
   const w = Math.max(1, Math.round(mercW * k));
