@@ -55,8 +55,8 @@ export function mountPersonal({
     // word tells you nothing about which of the two you are being given, and
     // the whole reason anyone opens this row is that they disagree with it.
     clockNote.textContent = clockSel.value === 'auto'
-      ? `Times follow this device — right now that is ${localIs24Hour() ? '24-hour' : '12-hour'}`
-      : 'Kept with your account, so every device you sign in on agrees';
+      ? `${localIs24Hour() ? '24-hour' : '12-hour'}`
+      : '';
     // Hidden rather than shown empty or as "unknown": the whole value of this
     // line is that it can be trusted, and a placeholder where a build number
     // belongs is the kind of thing someone reads out as if it meant something.

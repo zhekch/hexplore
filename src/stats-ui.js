@@ -705,8 +705,8 @@ export function mountStats({
       el.className = 'route-fold';
       const text = document.createElement('span');
       text.textContent = showFolded()
-        ? `${plural(folded, 'route')} marked ● above ${folded === 1 ? 'is' : 'are'} the same outing recorded twice`
-        : `${plural(folded, 'route')} recorded twice, folded into the copy that carries the link`;
+        ? `${plural(folded, 'route')} marked above ${folded === 1 ? 'is' : 'are'} the same routes recorded multiple times.`
+        : `${plural(folded, 'route')} ${folded === 1 ? 'is duplicate' : 'are duplicates'} and are hidden.`;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'home-set';

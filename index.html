@@ -92,7 +92,7 @@
                 <span>Visited color</span>
                 <button type="button" class="color-swatch" id="hud-color" aria-label="Visited color"></button>
               </div>
-              <div class="menu-note" id="cells-off" hidden>Visited areas hidden — pick a mode to bring them back.</div>
+              <div class="menu-note" id="cells-off" hidden>Visited areas hidden.</div>
             </div>
 
             <label class="menu-row">
@@ -150,7 +150,7 @@
                 <path d="m8 7 4-4 4 4" />
                 <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
               </svg>
-              <span>Import &amp; sync<small id="sync-menu-note">Files, Home Assistant, Strava, your phone</small></span>
+              <span>Import &amp; sync<small id="sync-menu-note">Files, Links, Phone</small></span>
             </button>
             <button type="button" class="menu-action" id="settings-open">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -296,7 +296,7 @@
         <div class="modal-head">
           <div>
             <div class="modal-title">Import locations</div>
-            <div class="modal-sub">KML, GPX, TCX, FIT, GeoJSON, CSV, a whole ZIP, or a JSON export from Google Timeline, Snapchat or Apple Photos.</div>
+            <div class="modal-sub">KML, GPX, TCX, FIT, GeoJSON, CSV, a whole ZIP, Strava account export, or a JSON export from Google Timeline or Snapchat.</div>
           </div>
           <button class="cell-info-close" id="import-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -331,14 +331,7 @@
              archives go in whole — rather than repeating the format list above
              it. -->
         <p class="import-note" id="import-note">
-          <b>Strava's bulk export</b> goes in whole: drop the ZIP that “Request your archive”
-          sends you and every activity inside it is read, still gzipped, and filed under Strava —
-          which is the way in now that its API wants a subscription. Any other zipped export
-          expands the same way. Re-importing refreshes dates and counts instead of duplicating
-          cells, so the same archive can be dropped again next year. Anything that drew a line
-          can keep it as a <b>saved route</b>, and fixes less than an hour apart in one cell
-          count as a single visit, so a recorded activity doesn't drown out everywhere else
-          you've been.
+          You can download <b>Strava's archive</b> from Settings → My Account → Download your account. You can also download <b>Google Timeline</b> from Google Maps on mobile, or <b>Snapchat</b> from accounts.snapchat.com → My Data → <b>Export JSON Files</b> + <b>Ranking And Location</b>. Note not all footsteps data is sent by Snapchat.
         </p>
 
         <div class="import-report" id="import-report" hidden></div>
@@ -365,7 +358,7 @@
         <div class="modal-head">
           <div>
             <div class="modal-title">Import &amp; sync</div>
-            <div class="modal-sub">Everything that brings where you've been onto the map — once from a file, or on a schedule from an app.</div>
+            <div class="modal-sub">All the ways to import and sync your data to the map.</div>
           </div>
           <button class="cell-info-close" id="sync-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -383,7 +376,7 @@
             </svg>
             <span class="sync-option-text">
               <b>Files and links</b>
-              <small id="sync-files-note">GPX, KML, FIT, a Strava export — or a Komoot link</small>
+              <small id="sync-files-note">GPX, KML, FIT, or a link</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -521,7 +514,6 @@
         <div class="modal-head">
           <div>
             <div class="modal-title">Settings</div>
-            <div class="modal-sub">Where the map is measured from, what a tap on it does, and what it is built out of.</div>
           </div>
           <button class="cell-info-close" id="personal-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -561,7 +553,7 @@
              than what it shows, which is why it is last and why it is here
              rather than in the menu you open to change the view. -->
         <label class="import-row">
-          <span>Editing<small>Puts the pencil on the map, so a tap marks or clears a cell</small></span>
+          <span>Editing<small>Allows manual editing of the map</small></span>
           <input type="checkbox" id="edit-toggle" />
         </label>
 
@@ -579,7 +571,7 @@
           </svg>
           <span class="sync-option-text">
             <b>Sources</b>
-            <small id="settings-sources-note">What is on your map, and what put it there</small>
+            <small id="settings-sources-note">Where does your data come from</small>
           </span>
           <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 5 7 7-7 7" />
@@ -599,7 +591,6 @@
           </svg>
           <span class="sync-option-text">
             <b>Reload cached data</b>
-            <small id="settings-cache-note">Throw away the offline copy and fetch everything again</small>
           </span>
         </button>
         </div>
@@ -620,8 +611,8 @@
               <path d="M6 7l1 13h10l1-13" />
             </svg>
             <span class="sync-option-text">
-              <b>Delete this account</b>
-              <small>Your map, your routes and your connections, permanently</small>
+              <b>Delete account</b>
+              <small>Everything in your account, permanently</small>
             </span>
           </button>
 
@@ -699,7 +690,7 @@
 
         <div class="ha-scroll">
           <label class="import-row">
-            <span>Back up automatically<small>Only when something has changed — an untouched map leaves one copy, not one a day</small></span>
+            <span>Back up automatically</span>
             <input type="checkbox" id="backup-enabled" checked />
           </label>
 
@@ -784,7 +775,7 @@
         <div class="modal-head">
           <div>
             <div class="modal-title">Strava</div>
-            <div class="modal-sub">Your rides and runs, pulled in on a schedule.</div>
+            <div class="modal-sub">Syncing all your activities from Strava.</div>
           </div>
           <button class="cell-info-close" id="strava-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -796,8 +787,7 @@
         <div class="ha-scroll">
           <div class="ha-setup" id="strava-setup">
             <p class="ha-help">
-              Strava only talks to registered apps, so you make one of your own — it takes a
-              minute and stays private to you.
+              Requires a subscription and needs generating credentials.
             </p>
             <ol class="ha-steps">
               <li>Open <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener noreferrer">strava.com/settings/api</a> and create an app.</li>
@@ -854,7 +844,7 @@
         <div class="modal-head">
           <div>
             <div class="modal-title">Your phone</div>
-            <div class="modal-sub">The one source that fills the map in while it is in your pocket.</div>
+            <div class="modal-sub">Used to sync photo geolocations, workouts and your location in the background.</div>
           </div>
           <button class="cell-info-close" id="device-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -922,7 +912,7 @@
         <div class="modal-head">
           <div>
             <div class="modal-title">Home Assistant</div>
-            <div class="modal-sub">Keep the map up to date from your own instance, without importing anything.</div>
+            <div class="modal-sub">Sync the data automatically from your Home Assistant instance.</div>
           </div>
           <button class="cell-info-close" id="ha-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">

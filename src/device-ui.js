@@ -95,8 +95,8 @@ export function mountDevices({ onClose, onDevices } = {}) {
     if (devices.length) {
       const newest = devices.reduce((t, d) => Math.max(t, d.lastSeen || 0), 0);
       statusEl.textContent = devices.length === 1
-        ? `Last heard from ${whenAgo(newest)}.`
-        : `${devices.length} phones · last heard from ${whenAgo(newest)}.`;
+        ? `Last updated at ${whenAgo(newest)}.`
+        : `${devices.length} phones · last updated at ${whenAgo(newest)}.`;
     }
     onDevices?.(devices);
   }
