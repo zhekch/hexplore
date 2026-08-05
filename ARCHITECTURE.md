@@ -1039,10 +1039,10 @@ loaded, and the result is sent back once.
 - **Lazy**: the map fetches route *metadata* on load and the geometry only once
   the layer is switched on.
 - **Drawn above the basemap's own lines**, unlike the visited wash which reads
-  as tinted ground beneath the streets. CARTO's styles put a few label layers
-  *before* the roads, so the usual "insert before the first symbol layer" trick
-  lands underneath every street and chops the route into dashes; `labelStart()`
-  in `src/main.js` aims past the last non-symbol layer instead.
+  as tinted ground beneath the streets. The wash's own anchor (`washAnchorIn()`,
+  see [Basemaps](#basemaps)) lands underneath every street, which is right for
+  tinted ground and chops a route into dashes wherever a road casing crosses it;
+  `labelStart()` in `src/main.js` aims past the last non-symbol layer instead.
 
 ## Taking it back
 
@@ -2742,6 +2742,30 @@ Four, picked in the menu: **Dark** (CARTO Dark Matter), **Terrain**, **Light**
 than fetched as a URL — `src/basemap.js` takes somebody else's style JSON and
 rewrites the parts that are wrong, which MapLibre accepts anywhere it accepts a
 style URL.
+
+**All four stack the same way**, and it took two bugs in opposite directions to
+get there. The map is three things: the basemap's ground, the visited wash over
+it, and the basemap's streets, railways and rooftops over *that*. A town should
+read as your colour with the streets still drawn through it.
+
+Where the wash goes used to be "before the style's first symbol layer", which is
+right about Light by luck. CARTO publishes Voyager and Dark Matter as the same
+93 layers in the same order with one difference that decides this: Voyager puts
+`waterway_label` at index 13, just before the tunnels, and Dark Matter puts it at
+66 — after every road, rail and building it has. So the identical rule landed the
+wash *under* the streets on Light and *over* them on Dark, where a town came out
+a flat patch of colour with nothing drawn in it. OpenFreeMap has the same problem
+mirrored — `water_name` at 8, `building` at 9 — and Terrain used to answer it by
+moving the buildings *down*, which made Terrain agree with the broken map instead
+of the right one.
+
+`washAnchorIn()` in `src/basemap.js` is the one rule now: **whichever comes
+first, the style's first label or the first layer it draws over the ground**
+(`OVERLAY_LAYER` — tunnels, bridges, roads, highways, rails, buildings).
+Deliberately not the aeroways: CARTO files a runway among the water fills, and
+a runway there is ground the way a car park is. On Voyager the answer is still
+index 13, so Light — the one that already looked right — does not move.
+`scripts/test/layer-order.mjs` pins all three against the real layer order.
 
 **Terrain** is OpenFreeMap's dark style, recoloured. As published it is a
 near-black monochrome (background `rgb(12,12,12)`, forest `rgb(32,32,32)`, water

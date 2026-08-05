@@ -73,9 +73,10 @@ const DARK_PATCH = {
   landcover_ice_shelf: { paint: { 'fill-color': '#4a544e' } },
   water: { paint: { 'fill-color': WATER } },
   waterway: { paint: { 'line-color': WATERWAY } },
-  // Dark enough to survive being seen *through* the visited wash — see the
-  // reorder in terrainStyle(). At the published near-black it read as a hole;
-  // at the land colour it vanished under a coloured cell.
+  // Drawn over the visited wash, so this is a rooftop on top of the colour
+  // rather than something seen through it. Published near-black it read as a
+  // hole punched in the cell; lifted to here it reads as texture, and the
+  // outline is what keeps a dense block from filling in as one dark mass.
   building: { paint: { 'fill-color': '#27342b', 'fill-outline-color': '#3d4d3f' } },
 
   highway_path: { paint: { 'line-color': '#464e42' } },
@@ -202,6 +203,43 @@ const ROAD_CLASS_GATES = [
 // the railways and piers that clutter at the same zooms.
 const ROAD_LAYER = /^(highway|railway|road_)/;
 
+// --- Where the visited wash goes ----------------------------------------------
+// Anything a basemap draws *over* the ground rather than as ground: the streets,
+// the tunnels and bridges carrying them, the railways, the rooftops.
+//
+// Deliberately not the aeroways. CARTO puts `aeroway-runway` among the water
+// fills, below its first label, and a runway there is ground the way a car park
+// is — pulling the anchor above it would drag the wash under the water.
+const OVERLAY_LAYER = /^(tunnel|bridge|road|highway|rail|building)/;
+
+/**
+ * The layer the visited wash is inserted before: over everything that is ground,
+ * under everything drawn on top of it.
+ *
+ * The first symbol layer used to decide this alone, and it is right about Light
+ * only by luck. CARTO publishes Voyager and Dark Matter as the same 93 layers in
+ * the same order with one difference that matters — Voyager puts
+ * `waterway_label` at index 13, just before the tunnels, and Dark Matter puts it
+ * at 66, after every road, rail and building in the style. So one rule landed
+ * the wash under the streets on Light and over them on Dark, where a town came
+ * out a flat patch of colour with nothing drawn in it.
+ *
+ * OpenFreeMap has the same problem from the other side: `water_name` at 8 and
+ * `building` at 9, so its rooftops cleared the wash by a single layer, and
+ * terrainStyle() used to answer that by moving the buildings down instead.
+ *
+ * Hence: whichever comes first, the style's first label or the first thing it
+ * draws over the ground. On Voyager that is still index 13, so Light — the one
+ * that already looked right — does not move.
+ *
+ * @param {Array<{id: string, type: string}>} layers a style's layers, in order
+ * @returns {string|undefined} the layer id to pass as MapLibre's `beforeId`
+ */
+export function washAnchorIn(layers) {
+  const at = (layers ?? []).findIndex((l) => l.type === 'symbol' || OVERLAY_LAYER.test(l.id));
+  return at > -1 ? layers[at].id : undefined;
+}
+
 const MAJOR_ROAD_LAYERS = new Set([
   'highway_major_subtle',
   'highway_major_casing',
@@ -311,22 +349,13 @@ export async function terrainStyle() {
     }
   }
 
-  // Buildings belong *under* the visited wash, because a building is ground —
-  // not something drawn over the map the way a street or a label is.
-  //
-  // The app inserts the wash immediately before the style's first symbol layer
-  // (see installGrid), and OpenFreeMap publishes `water_name` at index 8 with
-  // `building` right after it. So every building landed on top of the coloured
-  // cells as an opaque dark polygon, punching a swarm of holes through a town.
-  // Moving it in with the other ground fills makes a built-up area read as
-  // texture in the cell's own colour. Roads and rails deliberately stay above:
-  // they are how you recognise where you are, and a 2 px line doesn't blot out
-  // the colour underneath the way a rooftop does.
-  const buildingAt = style.layers.findIndex((l) => l.id === 'building');
-  const firstSymbol = style.layers.findIndex((l) => l.type === 'symbol');
-  if (buildingAt > firstSymbol && firstSymbol > -1) {
-    style.layers.splice(firstSymbol, 0, ...style.layers.splice(buildingAt, 1));
-  }
+  // `building` is published at index 9, right after `water_name` at 8, and used
+  // to be moved below it so the rooftops sat under the visited wash. That was
+  // solving the wrong half of the problem: it made Terrain's buildings agree
+  // with Dark, where the wash covered everything, and disagree with Light, where
+  // a town keeps its shape in the cell's own colour. Light is the one that looks
+  // right, so the wash anchor moved instead — see washAnchor() in src/main.js —
+  // and the layer is left where OpenFreeMap puts it.
 
   // Labels and minor roads on the same zoom diet Light keeps — see
   // applyZoomDiet(). Done after the recolouring, which is keyed by layer id and

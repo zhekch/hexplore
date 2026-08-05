@@ -33,7 +33,7 @@ import { mountStats } from './stats-ui.js';
 import { mountHomeAssistant } from './home-assistant-ui.js';
 import { sourceLabel } from './locations.js';
 import { mountColorPicker, hexAlpha, hexOpaque } from './color-picker.js';
-import { terrainStyle, satelliteStyle } from './basemap.js';
+import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
 import { mountKomoot } from './komoot-ui.js';
 import { mountDevices, whenAgo } from './device-ui.js';
 import { mountSources } from './sources-ui.js';
@@ -4220,11 +4220,11 @@ const VEC_ANCHOR = 'trip-glow';
 // exact flash crossPrev exists to remove. moveLayer only reorders, it never
 // re-tiles.
 function raiseVectorLayers(sfx) {
-  // Anchored to the trip track rather than to the first symbol layer.
-  // Everything added at `firstSymbol` after the two vector trios — the trip
-  // track, and the selection ring above it — has to stay above the visited
-  // wash; moving the wash to `firstSymbol` would lift it over both, and the
-  // trip you just clicked would disappear under the countries.
+  // Anchored to the trip track rather than to the wash anchor. Everything added
+  // at `washBefore` after the two vector trios — the trip track, and the
+  // selection ring above it — has to stay above the visited wash; moving the
+  // wash to `washBefore` would lift it over both, and the trip you just clicked
+  // would disappear under the countries.
   const anchor = map.getLayer(VEC_ANCHOR) ? VEC_ANCHOR : vecInsertBefore;
   if (!anchor) return;
   for (const id of VEC_LAYERS) {
@@ -5006,12 +5006,10 @@ function addRailLayer() {
 // Where the basemap's labels begin — the layer to sit *under* if you want to be
 // above every road, water and boundary but still let the place names win.
 //
-// `firstSymbol` is not that place: CARTO's styles put a few label layers (the
-// first is `waterway_label`) *before* all the road layers, so inserting there
-// lands below every street. That is exactly right for the visited wash, which
-// should read as tinted ground with the streets drawn on top of it — and
-// exactly wrong for a route, which came out chopped into dashes wherever a road
-// casing crossed it.
+// `washAnchorIn()` is not that place: it lands below every street, which is
+// exactly right for the visited wash — tinted ground with the streets drawn on
+// top of it — and exactly wrong for a route, which came out chopped into dashes
+// wherever a road casing crossed it.
 function labelStart() {
   const layers = map.getStyle().layers;
   for (let i = layers.length - 1; i >= 0; i--) {
@@ -5074,7 +5072,8 @@ const labelColors = () =>
 
 function installGrid() {
   styleParsed = true; // whatever is in place now has parsed; see styleSettled
-  const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+  // Over the ground, under the streets and rooftops — see washAnchorIn().
+  const washBefore = washAnchorIn(map.getStyle().layers);
   const lineLayout = { 'line-join': 'round', 'line-cap': 'round' };
   const isRegion = ['==', ['get', 'k'], 1];
   const isBoundary = ['==', ['get', 'k'], 2];
@@ -5096,20 +5095,20 @@ function installGrid() {
   map.addLayer({
     id: 'tile-fill', type: 'fill', source: 'tiles',
     paint: { 'fill-color': tc.fill, 'fill-opacity': tileFillOpacity(), 'fill-antialias': true },
-  }, firstSymbol);
+  }, washBefore);
   map.addLayer({
     id: 'tile-line', type: 'line', source: 'tiles', layout: lineLayout,
     paint: { 'line-color': tc.line, 'line-opacity': tileLineOpacity(), 'line-width': tileLineWidth, 'line-blur': 0.4 },
-  }, firstSymbol);
+  }, washBefore);
 
   // Blob canvases sit between the tiles and the vector region layers; only one
   // of the two paths carries the current level at a time.
   if (BLOBS) {
-    blobCur.install(firstSymbol, 0);
+    blobCur.install(washBefore, 0);
   }
 
   // Where the vector layers are inserted, kept for raiseVectorLayers().
-  vecInsertBefore = firstSymbol;
+  vecInsertBefore = washBefore;
   for (const suffix of ['-prev', '']) {
     const src = `hex${suffix}`;
     // A style swap recreates the sources empty, so forget what the old ones
@@ -5147,15 +5146,15 @@ function installGrid() {
       // the k=1 polygons or the k=2 outline gets double-filled per tile.
       id: `hex-fill${suffix}`, type: 'fill', source: src, filter: isRegion,
       paint: { 'fill-color': heatColorExpr(), 'fill-opacity': 0, 'fill-antialias': true },
-    }, firstSymbol);
+    }, washBefore);
     map.addLayer({
       id: `hex-bound-glow${suffix}`, type: 'line', source: src, filter: isBoundary, layout: lineLayout,
       paint: { 'line-color': hexOpaque(accent), 'line-opacity': 0, 'line-width': boundGlowWidth, 'line-blur': 5 },
-    }, firstSymbol);
+    }, washBefore);
     map.addLayer({
       id: `hex-bound-line${suffix}`, type: 'line', source: src, filter: isBoundary, layout: lineLayout,
       paint: { 'line-color': boundLineColor, 'line-opacity': 0, 'line-width': boundLineWidth, 'line-blur': 0.4 },
-    }, firstSymbol);
+    }, washBefore);
     // How many countries of each continent — the whole reason that level is
     // there.
     //
@@ -5302,7 +5301,7 @@ function installGrid() {
       'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.6, 17, 2.6],
       'line-opacity': 0.95,
     },
-  }, firstSymbol);
+  }, washBefore);
 
   styleReady = true;
   syncRailLayer();
