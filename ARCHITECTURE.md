@@ -874,7 +874,21 @@ Two rules that are not symmetrical, on purpose:
   CSS will not do it: with a definite height and `max-width: 100%`, a ratio wider
   than its container has its *width* clamped and its height left alone, so a 21:9
   export came out squashed into the height of a 4:5 one. Two lines of arithmetic
-  are exact for every ratio and leave the line underneath its own room.
+  are exact for every ratio and leave the line underneath its own room. A
+  `ResizeObserver` on the column re-fits it, so nothing that changes the space —
+  the window, the card, a section folding open — has to remember to.
+
+**The dialog takes the screen.** It was 940px wide, which is the right size for a
+form and the wrong one for something you *look* at: the picture came out a
+postcard beside a column of controls and the two were fighting over the same 400
+pixels. It now fills the overlay up to 1460×960.
+
+The size is set in viewport units rather than `100%`, and that is not a
+preference. The overlay is a grid whose rows are `auto`, so a percentage has
+nothing definite to resolve against: `height: min(960px, 100%)` made the row size
+to the card's content and the card size to the row, and what Chrome settled on
+was an 1813px row inside an 853px window — a dialog centred mostly below the
+fold. `calc(100vh - 48px)` is the same intent with a definite answer.
 - A click can land on somewhere you have never been, and that is allowed — a
   poster of your valley and the one next door is a composition, not a mistake.
   But it then appears in the list marked *not been*, because a selection holding

@@ -5719,20 +5719,40 @@ html[data-client='ios'] .hud {
 
    Below 860px it stacks, and the preview keeps the top — a control panel you
    scroll past to reach the thing it controls is a form, not an editor. */
+/* An export is the one dialog you *look* at rather than fill in, so it takes
+   the screen. At 940px the picture was a postcard beside a column of controls
+   and the two were fighting over the same 400 pixels; there is no arrangement
+   of a preview, a place list and a caption editor that is not cramped in that
+   much room. It fills what the overlay gives it and caps out at a size where
+   the preview stops gaining anything. */
 .export-card {
-  width: min(940px, 100%);
+  /* Viewport units, not `100%`. The overlay is a grid whose rows are `auto`, so
+     there is no definite size for a percentage to resolve against — asking for
+     `height: min(960px, 100%)` made the row size to the card's own content and
+     the card size to the row, and the answer Chrome settled on was an 1813px
+     row inside an 853px window. The overlay's padding is 24px a side. */
+  width: min(1460px, calc(100vw - 48px));
+  height: min(960px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
 }
 
-/* Both columns are exactly as tall as the picture, and the controls scroll
+.export-card .modal-head,
+.export-card .modal-actions {
+  flex: none;
+}
+
+/* Both columns take the height the card has left, and the controls scroll
    inside that. They used to size themselves independently, which meant a
    vertical or square preview left a column of dead space beside the controls
    the height of a phone — the taller the picture, the bigger the hole. */
 .export-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  gap: 24px;
   margin-top: 16px;
-  height: min(58vh, 520px);
+  flex: 1 1 auto;
+  min-height: 0;
   align-items: stretch;
 }
 
@@ -5749,7 +5769,6 @@ html[data-client='ios'] .hud {
      240px taller than the box it was supposed to be inside. */
   min-height: 0;
   height: 100%;
-  overflow: hidden;
 }
 
 /* The checkerboard is doing real work: an export can have no background at all,
@@ -5761,6 +5780,9 @@ html[data-client='ios'] .hud {
    the height when the width is the binding constraint — a 21:9 export came out
    squashed into a 4:5 box's height. It also has to leave room for the line
    under it, which the same rule was quietly eating. */
+/* The picture is centred in whatever is left, with a margin of its own: it
+   casts a shadow, and a shadow cropped flat against the edge of a scroll box
+   reads as the picture being cut off. fitFrame() subtracts the same amount. */
 .export-shell {
   flex: 1 1 auto;
   display: grid;
@@ -5768,6 +5790,7 @@ html[data-client='ios'] .hud {
   min-width: 0;
   min-height: 0;
   width: 100%;
+  overflow: hidden;
 }
 
 .export-frame {
@@ -6166,10 +6189,17 @@ html[data-client='ios'] .hud {
   padding: 7px 11px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 980px) {
+  /* The overlay's padding drops to 12px a side down here. */
+  .export-card {
+    width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
+  }
+
   .export-body {
     grid-template-columns: minmax(0, 1fr);
-    height: auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 16px;
   }
 
   .export-stage {
@@ -6177,7 +6207,7 @@ html[data-client='ios'] .hud {
   }
 
   .export-shell {
-    max-height: 42vh;
+    max-height: 46vh;
   }
 
   .export-controls {

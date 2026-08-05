@@ -59,6 +59,10 @@ const ALIGNS = [
 // letting go feels like it landed.
 const REDRAW_MS = 90;
 
+// Room left around the picture inside its column, in CSS pixels — enough for
+// the drop shadow it casts to run out rather than being cropped.
+const FRAME_MARGIN = 16;
+
 // A pointer that moved less than this between down and up was a click, not a
 // drag. Generous enough to survive the hand-wobble of a real tap on a phone.
 const CLICK_SLOP_PX = 4;
@@ -817,16 +821,36 @@ export function mountExport({ onClose, data }) {
     const full = sizeOf(spec);
     const box = shell.getBoundingClientRect();
     if (!box.width || !box.height) return;
+    // Inset by the room the picture's own drop shadow needs. Without it the
+    // shadow is cropped flat against the edge of the box, which reads as the
+    // picture being cut off rather than as a shadow running out.
+    const availW = Math.max(80, box.width - FRAME_MARGIN * 2);
+    const availH = Math.max(80, box.height - FRAME_MARGIN * 2);
     const ratio = full.w / full.h;
-    let w = box.width;
+    let w = availW;
     let h = w / ratio;
-    if (h > box.height) {
-      h = box.height;
+    if (h > availH) {
+      h = availH;
       w = h * ratio;
     }
     frame.style.width = `${Math.floor(w)}px`;
     frame.style.height = `${Math.floor(h)}px`;
   }
+
+  // Whatever changes the space the picture has — the window, the card, a
+  // control section folding open — re-fits it. Every one of those used to have
+  // to remember to call fitFrame, and the one that did not left the frame at
+  // the size it had before, overflowing the column it sits in.
+  let fitted = '';
+  const shellWatcher = new ResizeObserver(() => {
+    const box = shell.getBoundingClientRect();
+    const key = `${Math.round(box.width)}x${Math.round(box.height)}`;
+    if (key === fitted) return;
+    fitted = key;
+    fitFrame();
+    schedule();
+  });
+  shellWatcher.observe(shell);
 
   /** The size the preview is drawn at — the same picture, not a scaled copy. */
   function previewSize() {
