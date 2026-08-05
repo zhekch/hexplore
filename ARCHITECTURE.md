@@ -1874,6 +1874,30 @@ question was being answered about somebody else's layer. Ours is `hexplore-rail`
 now, and the guard asks for our own layer by our own id. The general rule: a
 basemap is somebody else's style and its ids are theirs to choose.
 
+**Where the overlay sits** was the second half of that. It anchored to
+`tile-fill`, which put it under the visited wash *and* under the basemap's own
+`rail` — so the overlay whose whole reason for existing is that it draws the
+sidings, yards and freight-only lines a basemap leaves out was rendering
+underneath the less detailed answer. `RAIL_BEFORE` now returns `route-glow` if
+the routes are there and `labelStart()` otherwise, which is the anchor a saved
+route already uses: the overlay lands in the same place they do and directly
+beneath them, since a line you actually travelled beats reference geometry about
+where a line exists. Both draw over the basemap's own labels, which on CARTO all
+fall below that point.
+
+The tiles are **raster** (`standard/{z}/{x}/{y}.png`), which is why the overlay
+is all-or-nothing: the level crossings, the kilometre posts and the switch
+numbers are pixels by the time they arrive, and nothing on this side can filter
+them out. OpenRailwayMap has published vector tiles since 2024
+(`openrailwaymap.app`, MapLibre style spec, third-party use allowed with
+attribution), where the same content arrives as separate source layers —
+`transport_lines` and `railway_line_high` for the geometry, `railway_text_km`
+for the kilometre positions, `standard_railway_switch_ref` for the switch
+numbers, `standard_railway_symbols` for the crossings and other point features,
+keyed on a `feature` property. Moving to those would make the overlay
+configurable; it would also mean carrying our own style for it rather than one
+URL.
+
 ## How sharp a region is
 
 The overview boundary set is what gets drawn until the detailed per-country
@@ -2766,6 +2790,13 @@ Deliberately not the aeroways: CARTO files a runway among the water fills, and
 a runway there is ground the way a car park is. On Voyager the answer is still
 index 13, so Light — the one that already looked right — does not move.
 `scripts/test/layer-order.mjs` pins all three against the real layer order.
+
+The **selection ring** is the one thing exempt from all of this. It takes no
+`beforeId` at all, so it is added last and sits over everything the basemap and
+this app draw, home marker included. It used to anchor beside the visited wash,
+which meant the ring around the cell you had just clicked ran under the rooftops
+in it and vanished in a dense town — and a 2 px ring that only exists while you
+are inspecting that cell is not what home needs to win against.
 
 **Terrain** is OpenFreeMap's dark style, recoloured. As published it is a
 near-black monochrome (background `rgb(12,12,12)`, forest `rgb(32,32,32)`, water

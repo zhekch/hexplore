@@ -4983,7 +4983,22 @@ function wireLayersControl() {
 // --- Layer setup (re-runs on every style load) -------------------------------
 // setStyle() replaces the whole style, dropping our sources/layers, so this
 // runs again after each basemap switch to rebuild them and restore state.
-const RAIL_BEFORE = () => (map.getLayer('tile-fill') ? 'tile-fill' : undefined);
+// Above the basemap's own railways, which is the whole point of the overlay:
+// OpenRailwayMap draws the sidings, yards and freight-only lines a basemap
+// leaves out, and underneath CARTO's `rail` it was answering a question with the
+// less detailed answer on top of it. It used to anchor to `tile-fill`, which put
+// it under the visited wash as well.
+//
+// Not all the way up, though: it lands exactly where a saved route lands, and
+// then under the routes themselves — a line you actually travelled beats
+// reference geometry about where a line exists. `labelStart()` is the same
+// anchor they use, so switching the overlay on cannot reorder anything relative
+// to them; it only fills the gap directly beneath.
+//
+// Both therefore draw over the basemap's own labels, which on CARTO are all
+// below this point. That is already true of every route on the map, and an
+// overlay you switched on is meant to be the thing you are reading.
+const RAIL_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStart());
 let firstInstall = true;
 
 function addRailLayer() {
@@ -4996,7 +5011,6 @@ function addRailLayer() {
   // fine. Namespacing ours puts the question beyond doubt.
   if (map.getLayer(RAIL_LAYER)) return;
   if (!map.getSource(RAIL_SRC)) map.addSource(RAIL_SRC, RAIL_SOURCE);
-  // Sit above the basemap but beneath our tiles/regions.
   map.addLayer(
     { id: RAIL_LAYER, type: 'raster', source: RAIL_SRC, paint: { 'raster-opacity': 0.85 } },
     RAIL_BEFORE(),
@@ -5257,9 +5271,9 @@ function installGrid() {
   // Where the trips are measured from. Off by default, and on top of the whole
   // stack when it is on — no `beforeId`, unlike everything else here. It is one
   // point on a map that may have a country's worth of ink and a basemap's worth
-  // of labels on it, and a marker you have to hunt for is not a marker. Every
-  // layer added after this one names an anchor inside the basemap, so they all
-  // land underneath it and it stays where it was put.
+  // of labels on it, and a marker you have to hunt for is not a marker. Only the
+  // selection ring goes above it, and a ring you asked for around a cell you
+  // just clicked is not something home needs to win against.
   addHomeImage();
   map.addSource('home', { type: 'geojson', data: EMPTY, tolerance: 0 });
   // Just the house. It used to sit on a coloured disc, which made a marker you
@@ -5291,8 +5305,15 @@ function installGrid() {
     },
   });
 
-  // Highlight ring for the cell being inspected in view mode — added last so
-  // it sits above the region fills.
+  // Highlight ring for the cell being inspected in view mode. No `beforeId`, so
+  // it is added last and sits over everything — the basemap's buildings and
+  // labels included.
+  //
+  // It used to anchor inside the basemap alongside the visited wash, which meant
+  // the ring around the cell you had just clicked ran *under* the rooftops in
+  // it, and in a dense town there was nothing left of the ring to see. A 2 px
+  // ring occludes almost nothing, and it only exists while you are looking at
+  // that one cell.
   map.addSource('sel', { type: 'geojson', data: EMPTY, tolerance: 0 });
   map.addLayer({
     id: 'sel-line', type: 'line', source: 'sel', layout: lineLayout,
@@ -5301,7 +5322,7 @@ function installGrid() {
       'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.6, 17, 2.6],
       'line-opacity': 0.95,
     },
-  }, washBefore);
+  });
 
   styleReady = true;
   syncRailLayer();
