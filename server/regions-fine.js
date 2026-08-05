@@ -25,8 +25,9 @@
 // https://www.geoboundaries.org/api/current/gbOpen/
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { pairFineRegions, regionsInCountry, countryForIso } from '../src/regions.js';
+import { pairFineRegions, regionsInCountry, countryForIso, regionsOf } from '../src/regions.js';
 
 const GB_COMMIT = '9469f09';
 // The media host, not github.com or jsDelivr: these files are stored in Git LFS,
@@ -39,10 +40,10 @@ const fileUrl = (iso, level) =>
 const apiUrl = (iso, level) => `https://www.geoboundaries.org/api/current/gbOpen/${iso}/${level}/`;
 
 // "Admin-1" does not mean the same thing in the two datasets, and it is not off
-// by a consistent amount either: Italy's provinces are our admin-1 and their
-// ADM3, France's départements are our admin-1 and their ADM2, and Switzerland's
-// cantons are admin-1 in both. So every level is a candidate and the one with
-// about as many units as we have wins.
+// by a consistent amount either: France's départements are our admin-1 and their
+// ADM2, Italy's regioni are ours and their ADM2, and Switzerland's cantons are
+// admin-1 in both. So every level is a candidate and the one with about as many
+// units as we have wins.
 const LEVELS = ['ADM1', 'ADM2', 'ADM3'];
 // A level has to pair this share of the smaller of the two counts to be worth
 // keeping. Partial is fine — Hungary pairs 20 of our 43, because Natural Earth
@@ -86,6 +87,40 @@ export function createFineRegions({ dir, log = () => {} }) {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * A fingerprint of *our* regions for one country.
+   *
+   * The upstream commit is pinned, so their side of this cache cannot change —
+   * which is the whole reason it never expires. Our side can, and did: Italy's
+   * 110 provinces became 20 regioni, and a cached answer keyed by
+   * `Italy/Vercelli` went on being served for a map whose regions are now named
+   * `Italy/Veneto`. Every id missed, nothing gained detail, and Italy sat on the
+   * overview geometry for good while every other country was fine — because
+   * every other country's regions had not moved.
+   *
+   * The ids, not the count: a rebuild that renames a region without changing how
+   * many there are strands the cache in exactly the same way and would be far
+   * harder to spot.
+   */
+  const fingerprintOf = (iso) =>
+    createHash('sha1')
+      .update([...regionsOf(iso)].map((r) => r.id).sort().join('\n'))
+      .digest('hex')
+      .slice(0, 12);
+
+  function cacheIsCurrent(iso, cached) {
+    if (!cached) return false;
+    if (cached.fingerprint) return cached.fingerprint === fingerprintOf(iso);
+    // Written before this existed. Rather than throw away every country's
+    // answer on the one deploy that introduces it, keep a legacy file whose
+    // keys are still keys we have — which is the same question the fingerprint
+    // asks, only answered against the payload instead of against a hash.
+    const ids = Object.keys(cached.regions ?? {});
+    if (!ids.length) return false; // a "nothing matched" answer we cannot check
+    const ours = new Set([...regionsOf(iso)].map((r) => r.id));
+    return ids.some((id) => ours.has(id));
   }
 
   async function toCache(iso, payload) {
@@ -133,10 +168,16 @@ export function createFineRegions({ dir, log = () => {} }) {
         continue;
       }
       log(`${iso} ${level}: ${paired.size} of ${mine} regions gained detail`);
-      return { iso, level, regions: Object.fromEntries(paired) };
+      return { iso, level, fingerprint: fingerprintOf(iso), regions: Object.fromEntries(paired) };
     }
     // Nothing matched. Remembered, so it is not tried again on every zoom.
-    return { iso, level: null, regions: {}, note: 'no level matches this map’s regions' };
+    return {
+      iso,
+      level: null,
+      fingerprint: fingerprintOf(iso),
+      regions: {},
+      note: 'no level matches this map’s regions',
+    };
   }
 
   /**
@@ -146,7 +187,8 @@ export function createFineRegions({ dir, log = () => {} }) {
   async function get(iso) {
     if (!ISO_RE.test(iso)) return null;
     const cached = await fromCache(iso);
-    if (cached) return cached;
+    if (cacheIsCurrent(iso, cached)) return cached;
+    if (cached) log(`${iso}: cached answer is keyed to regions this map no longer has — rebuilding`);
     if (inFlight.has(iso)) return inFlight.get(iso);
     const job = build(iso)
       .then(async (payload) => {

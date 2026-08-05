@@ -23,9 +23,9 @@ import {
   mergeCountries,
   countryGeometry,
 } from './countries.js';
-import { auth, connection, mountAuth } from './auth.js';
+import { auth, connection, mountAuth, serverBuild } from './auth.js';
 import { derived } from './derived.js';
-import { installOffline, forgetAccountOffline } from './offline.js';
+import { installOffline, forgetAccountOffline, clearOfflineCaches } from './offline.js';
 import { mountCellInfo } from './cell-info.js';
 import { mountRouteInfo } from './route-info.js';
 import { mountImport } from './import.js';
@@ -51,6 +51,10 @@ import {
 } from './regions.js';
 import { geometryAreaM2 } from './regions.js';
 import { countryAreaKm2 } from './countries.js';
+import {
+  continentOf, continentGeometry, continentAreaKm2, continentAnchor,
+  countriesInContinent, mergeContinents, forgetContinents,
+} from './continents.js';
 import { cellAreaKm2, areaOfCell, WHOLE_COUNTRY } from './stats.js';
 import { asMulti, unionGeometries } from './polygon.js';
 import { mountBackup } from './backup-ui.js';
@@ -63,8 +67,13 @@ import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
 
 // Past the finest hex levels (0..MAX_LEVEL), one more zoom-out step swaps the
-// hex regions for whole-country fills.
+// hex regions for whole-country fills — and one more after that dissolves those
+// into continents, each labelled with how many of its countries you have been
+// to. That last one is Auto-only: there is a Detail button for the two ends of
+// the useful range and for regions, and a continent is not a *detail* anyone
+// pins a valley to.
 const COUNTRY_LEVEL = MAX_LEVEL + 1;
+const CONTINENT_LEVEL = COUNTRY_LEVEL + 1;
 
 // --- View tuning ---------------------------------------------------------------
 // Grid geometry (cell size, levels, mercator math) lives in src/hexgrid.js —
@@ -533,7 +542,12 @@ const map = new maplibregl.Map({
   style: STYLES[styleKey].url ?? placeholderStyle(STYLES[styleKey].theme),
   center: initialView ? [initialView.lng, initialView.lat] : [15, 30],
   zoom: initialView?.zoom ?? 2.2,
-  minZoom: 1.8,
+  // Two, not 1.8, and not the 1 this briefly was. MapLibre asks for tiles at
+  // floor(zoom), so anything below 2 is drawn on a basemap's z1 tiles, whose
+  // coastlines are generalised far coarser than our own — see CONTINENT_ZOOM,
+  // which is what gives the continent level room without going down there.
+  // The old 1.8 had the same problem and nobody had looked: it floors to 1 too.
+  minZoom: 2,
   maxZoom: 17.5,
   // Added by hand below so it can sit top-right, out of the geolocate button's
   // corner.
@@ -784,14 +798,85 @@ const EDIT_ENABLED = true;
 // 'view' (default): a normal map with only the colored regions visible.
 // 'edit': a tile spotlight follows the cursor and clicks toggle cells.
 const MODE_KEY = 'visited-map:mode:v1';
+// One colour for both basemaps — what this was before the two were told apart.
+// Still written, so rolling back to a build that only reads this one doesn't
+// reset anybody's choice.
 const COLOR_KEY = 'visited-map:color:v1';
+const COLORS_KEY = 'visited-map:colors:v1';
 const DEFAULT_ACCENT = '#60acff';
+
+const isAccent = (v) => /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(v ?? ''));
 
 let mode = EDIT_ENABLED && localStorage.getItem(MODE_KEY) === 'edit' ? 'edit' : 'view';
 let tileVis = mode === 'edit' ? 1 : 0; // 0..1, tweened on mode change
 
-let accent = localStorage.getItem(COLOR_KEY) ?? DEFAULT_ACCENT;
-if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(accent)) accent = DEFAULT_ACCENT;
+/** Which of the two colours the basemap on screen calls for. */
+const themeNow = () => (STYLES[styleKey]?.theme === 'light' ? 'light' : 'dark');
+
+// The visited colour is picked *against the map underneath it* — that is the
+// whole reason the picker repaints on every drag frame rather than showing a
+// swatch. But "the map underneath it" is two different maps: a wash that reads
+// as a confident blue over Dark is a pale wash over Voyager, and a colour with
+// enough weight for the light basemap glares over imagery. One value could only
+// ever be right for one of them, so there are two, and the basemap chooses.
+//
+// Only the single-colour mode uses them. The heat maps derive every cell's
+// colour from its own history and never touch the accent (see accentAlpha),
+// so there is nothing for them to keep two of.
+const accents = savedAccents();
+let accent = accents[themeNow()];
+
+function savedAccents() {
+  const out = { light: DEFAULT_ACCENT, dark: DEFAULT_ACCENT };
+  let stored = null;
+  try {
+    stored = JSON.parse(localStorage.getItem(COLORS_KEY) ?? 'null');
+  } catch {
+    /* fine */
+  }
+  if (stored && typeof stored === 'object') {
+    for (const k of ['light', 'dark']) if (isAccent(stored[k])) out[k] = String(stored[k]).toLowerCase();
+    return out;
+  }
+  // A colour chosen before there were two of them. It was picked against
+  // whichever basemap happened to be on, and nothing records which — so it
+  // stands for both rather than being kept on a guess and reset on the other.
+  const one = localStorage.getItem(COLOR_KEY);
+  if (isAccent(one)) out.light = out.dark = String(one).toLowerCase();
+  return out;
+}
+
+function saveAccents() {
+  try {
+    localStorage.setItem(COLORS_KEY, JSON.stringify(accents));
+    localStorage.setItem(COLOR_KEY, accents.dark); // see COLOR_KEY
+  } catch {
+    /* fine */
+  }
+}
+
+/**
+ * Point `accent` at the colour for the basemap now on screen, and repaint if it
+ * actually moved.
+ *
+ * Everything that draws the wash reads `accent` rather than the pair, so this
+ * one assignment is the whole switch — and the guard matters: three of the four
+ * basemaps are dark, so most basemap changes must not cost a re-raster of the
+ * blob canvas.
+ */
+function syncAccent() {
+  const next = accents[themeNow()];
+  if (next === accent) return false;
+  accent = next;
+  colorPicker?.set(accent); // the swatch, and the panel behind it
+  applyColors();
+  // The opacity half of a colour lands on the layers rather than in them, so
+  // the fades have to be re-pinned — the same reason the picker does it.
+  applyFade(fade.cur);
+  applyPrevFade(fade.prev);
+  repaintAccent();
+  return true;
+}
 
 // --- Coloring modes -----------------------------------------------------------
 // 'flat' paints every visited region in the accent color and merges them into
@@ -1082,6 +1167,14 @@ function setVectorFade(suffix, f) {
   map.setPaintProperty(`hex-fill${suffix}`, 'fill-opacity', regionOpacity() * f);
   map.setPaintProperty(`hex-bound-glow${suffix}`, 'line-opacity', SHOW_REGION_BORDERS ? 0.35 * a * f : 0);
   map.setPaintProperty(`hex-bound-line${suffix}`, 'line-opacity', SHOW_REGION_BORDERS ? 0.9 * a * f : 0);
+  // Text, not wash: it takes `accentAlpha` — so switching the visited areas off
+  // takes the counts with them, and an accent you made translucent doesn't
+  // leave a label floating over a shape that has gone — but never
+  // `regionOpacity`, which is the strength of a tint over a basemap and would
+  // make a number that has to be read a 60% one.
+  if (map.getLayer(`hex-label${suffix}`)) {
+    map.setPaintProperty(`hex-label${suffix}`, 'text-opacity', a * f);
+  }
 }
 
 // The vector half of the incoming ramp. Separate because a crossfade that has
@@ -1136,10 +1229,15 @@ function applyColors() {
   if (!map.getLayer('hex-fill')) return;
   const lineColor = mixWithWhite(accent, 0.45);
   const fill = heatColorExpr();
+  const label = labelColors();
   for (const s of ['', '-prev']) {
     map.setPaintProperty(`hex-fill${s}`, 'fill-color', fill);
     map.setPaintProperty(`hex-bound-glow${s}`, 'line-color', hexOpaque(accent));
     map.setPaintProperty(`hex-bound-line${s}`, 'line-color', lineColor);
+    if (!map.getLayer(`hex-label${s}`)) continue;
+    for (const [prop, value] of Object.entries(label)) {
+      map.setPaintProperty(`hex-label${s}`, prop, value);
+    }
   }
   if (map.getLayer('sel-line')) {
     map.setPaintProperty('sel-line', 'line-color', mixWithWhite(accent, 0.75));
@@ -1238,6 +1336,11 @@ const visited = new Set(); // ids "L/col/row" at the level they were clicked
 // A cell you walked through with Timeline on *and* painted by hand has two.
 const cellMeta = new Map();
 let authed = false; // true once a session is active; gates server saves
+// Who that session belongs to. Only read by the account-deletion confirmation,
+// which names the account it is about to close — the browser is the one thing
+// here that several people share, and "this account" is not specific enough to
+// stake a map on.
+let username = null;
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
@@ -1496,54 +1599,64 @@ function rollUpPainted(id) {
 }
 
 // --- Area levels: which countries (or regions) are lit, merged into one shape --
-// The two coarsest steps of the map are not hexagons at all. Zoom out past the
+// The three coarsest steps of the map are not hexagons at all. Zoom out past the
 // finest levels and the grid gives way to the shapes people actually think in:
-// cantons, states and départements first, then whole countries. The merge (a
-// polygon union) is only recomputed when the lit set changes AND that level is
-// actually on screen, so painting hexes never pays for it.
+// cantons, states and départements first, then whole countries, then continents.
+// The merge (a polygon union) is only recomputed when the lit set changes AND
+// that level is actually on screen, so painting hexes never pays for it.
 //
-// Both are resolved from the stored cells themselves — see buildAreaFC. There
-// is no roll-up in between, because a roll-up means one hexagon's centre
+// All three are resolved from the stored cells themselves — see buildAreaFC.
+// There is no roll-up in between, because a roll-up means one hexagon's centre
 // deciding for every cell under it, and there is no size of hexagon that is
 // honest about a canton of 37 km².
 //
-// The region half of this builds correct geometry and is not yet wired to a
-// zoom level. Rendering it would mean two vector levels, and the crossfade
-// machinery below assumes exactly one: `hex` carries the vector side and the
-// blob canvas carries the other, so a region → country crossing puts both sides
-// on the same source and the outgoing one is never handed over. Doing it
-// properly means giving `hex-prev` real geometry for vector → vector fades —
-// worth doing, not worth bolting on. See ARCHITECTURE.md.
+// Handing over between them is what `hex-prev` is for: two sources are enough
+// however many polygon levels there are, because a crossing has exactly two
+// sides. See **Two vector levels** in ARCHITECTURE.md.
 
-// The two coarsest steps are not hexagons. Level 4's cells are ~73 km across,
+// The three coarsest steps are not hexagons. Level 4's cells are ~73 km across,
 // which says nothing a canton doesn't say better — and "which cantons have I
 // been to" is a question with an answer, where "which 73 km squares" is not.
 const REGION_LEVEL = MAX_LEVEL;
 const FIRST_VECTOR_LEVEL = REGION_LEVEL;
 
 /** True for the levels drawn as real polygons rather than as a blurred sheet. */
-const isVectorLevel = (L) => L === REGION_LEVEL || L === COUNTRY_LEVEL;
+const isVectorLevel = (L) => L >= FIRST_VECTOR_LEVEL;
 /** Which dataset a vector level draws. */
-const vectorKindOf = (L) => (L === COUNTRY_LEVEL ? 'country' : 'region');
-/** Is that dataset in memory yet? */
+const vectorKindOf = (L) =>
+  L === CONTINENT_LEVEL ? 'continent' : L === COUNTRY_LEVEL ? 'country' : 'region';
+/** Is that dataset in memory yet? Continents are the countries dissolved. */
 const areaReady = (kind) => (kind === 'region' ? regionsLoaded() && countriesLoaded() : countriesLoaded());
 
 // The vector level a zoom is heading towards from `level`, or null when the
 // next step is a hex level (the blob warm-up handles that side).
+//
+// Each level's band runs from levelBoundary(L) up to levelBoundary(L - 1), so
+// "within 1.2 of my own lower boundary" means the zoom-out crossing is the one
+// coming — and every level but the coarsest has a different neighbour each way.
 function neighbourVectorLevel(level, zoom) {
   if (level === REGION_LEVEL) {
     // Zooming out towards countries; zooming in leads to a blob level, which
     // needs no vector geometry at all.
     return zoom < levelBoundary(REGION_LEVEL) + 1.2 ? COUNTRY_LEVEL : null;
   }
-  if (level === COUNTRY_LEVEL) return REGION_LEVEL;
+  if (level === COUNTRY_LEVEL) {
+    // Which half of its own band the zoom is in, rather than "within 1.2 of the
+    // bottom". The country band is 0.91 wide now that continents take their
+    // room out of it, and a fixed 1.2 margin covers all of it — so the region
+    // level would never be warmed and every zoom-in would start by parsing
+    // instead of fading.
+    const mid = (levelBoundary(COUNTRY_LEVEL) + levelBoundary(REGION_LEVEL)) / 2;
+    return zoom < mid ? CONTINENT_LEVEL : REGION_LEVEL;
+  }
+  if (level === CONTINENT_LEVEL) return COUNTRY_LEVEL;
   return null;
 }
 
-// Three caches, not two: the regions are held at both resolutions, because the
+// Four caches, not three: the regions are held at both resolutions, because the
 // coarse geometry is the right thing to tile when you are looking at a
 // continent and the wrong thing when you are looking at a valley.
-const areaFC = { region: EMPTY, regionFine: EMPTY, country: EMPTY };
+const areaFC = { region: EMPTY, regionFine: EMPTY, country: EMPTY, continent: EMPTY };
 // The region ids the last build lit, so considerFineRegions() knows which
 // countries are worth asking about.
 let litRegionIds = null;
@@ -1607,14 +1720,16 @@ const wrapLng = (lng) => ((lng + 180) % 360 + 360) % 360 - 180;
 
 // One area's geometry, whichever dataset it came from.
 function areaGeometry(kind, id, fine) {
+  if (kind === 'continent') return continentGeometry(id);
   if (id.startsWith(WHOLE_COUNTRY)) return countryGeometry(id.slice(WHOLE_COUNTRY.length));
   return kind === 'region' ? regionGeometry(id, fine) : countryGeometry(id);
 }
 
-// Dissolve the lit areas into one shape. Countries go straight to their own
-// merge; regions may include whole-country stand-ins, so those are collected
-// separately and unioned with the rest.
+// Dissolve the lit areas into one shape. Countries and continents go straight to
+// their own merge; regions may include whole-country stand-ins, so those are
+// collected separately and unioned with the rest.
 function mergeAreas(kind, litIds, fine) {
+  if (kind === 'continent') return mergeContinents(litIds);
   if (kind !== 'region') return mergeCountries(litIds);
   const plain = new Set();
   const extra = [];
@@ -1655,15 +1770,34 @@ function buildAreaFC(kind, fine = false) {
   // for every build after it, because a cell centre never moves and the answer
   // is memoised per cell id. The polygon union below costs more than either.
   const isRegionKind = kind === 'region';
+  const isContinentKind = kind === 'continent';
+  // Continents read the *country* memo and map its answer on rather than
+  // resolving a third time against their own outline. The outline is those
+  // countries dissolved, so a separate lookup would be the same test run over a
+  // shape with more points in it — and one that could still disagree with the
+  // level below at a coast the union left a seam along.
   const memo = isRegionKind ? cellRegionMemo : cellCountryMemo;
+  const memoKind = isContinentKind ? 'country' : kind;
   const byType = HEAT_MODES[heatMode]?.categorical;
   const slotOf = byType ? new Map(sourceOrder.map((src, i) => [src, i])) : null;
   const litIds = new Set();
+  // Continent → the countries in it you have been to. The count is the whole
+  // point of the level; the set is what makes it a count of countries rather
+  // than of cells that happen to be in them.
+  const countriesIn = isContinentKind ? new Map() : null;
   const perArea = new Map(); // id → rolled-up stats, for the heat maps
   for (const id of visited) {
     let cid = memo.get(id);
-    if (cid === undefined) memo.set(id, (cid = areaOfCell(kind, id)));
+    if (cid === undefined) memo.set(id, (cid = areaOfCell(memoKind, id)));
     if (!cid) continue;
+    if (isContinentKind) {
+      const country = cid;
+      cid = continentOf(country);
+      if (!cid) continue;
+      let seen = countriesIn.get(cid);
+      if (!seen) countriesIn.set(cid, (seen = new Set()));
+      seen.add(country);
+    }
     litIds.add(cid);
     const stat = cellStats(id, byType);
     let e = perArea.get(cid);
@@ -1696,6 +1830,8 @@ function buildAreaFC(kind, fine = false) {
   // considerFineRegions() needs this whichever colouring mode is on.
   if (isRegionKind) litRegionIds = litIds;
 
+  const labels = isContinentKind ? continentLabels(countriesIn) : [];
+
   // In a heat mode each country is its own feature so it can carry its own
   // color; otherwise they dissolve into one borderless shape.
   const heat = heatMetric();
@@ -1719,7 +1855,7 @@ function buildAreaFC(kind, fine = false) {
         features.push({ type: 'Feature', properties: { k: 1, v: heat(stat, range) }, geometry });
       }
     }
-    return { type: 'FeatureCollection', features };
+    return { type: 'FeatureCollection', features: [...features, ...labels] };
   }
 
   const { fill, rings } = mergeAreas(kind, litIds, fine);
@@ -1730,7 +1866,34 @@ function buildAreaFC(kind, fine = false) {
   if (rings.length) {
     features.push({ type: 'Feature', properties: { k: 2 }, geometry: { type: 'MultiLineString', coordinates: rings } });
   }
-  return { type: 'FeatureCollection', features };
+  return { type: 'FeatureCollection', features: [...features, ...labels] };
+}
+
+/**
+ * One label per lit continent: its name, and how many of its countries you have
+ * been to. `k = 3`, so the fill and outline layers — which both filter on `k` —
+ * leave them alone and one source can carry all three.
+ *
+ * Rides the level's own crossfade for free by living on that source, which is
+ * the reason it isn't a layer of its own: a count that stayed on screen while
+ * the shape under it dissolved into countries would be the one thing on the map
+ * that didn't belong to a level.
+ *
+ * Only lit continents are labelled. "Africa · 0 countries" is not a fact about a
+ * map, it is the absence of one, and the empty shape underneath already says it.
+ */
+function continentLabels(countriesIn) {
+  const features = [];
+  for (const [name, seen] of countriesIn) {
+    const at = continentAnchor(name);
+    if (!at) continue;
+    features.push({
+      type: 'Feature',
+      properties: { k: 3, name, count: plural(seen.size, 'country', 'countries') },
+      geometry: { type: 'Point', coordinates: at },
+    });
+  }
+  return features;
 }
 
 // Cached country FeatureCollection. If the data hasn't loaded yet, kick off the
@@ -1743,6 +1906,9 @@ function ensureAreaFC(kind) {
     Promise.all(kind === 'region' ? [loadRegions(), loadCountries()] : [loadCountries()]).then(() => {
       cellCountryMemo.clear();
       cellRegionMemo.clear();
+      // The continent index and its dissolved outlines were built from whatever
+      // the country dataset held a moment ago, which was nothing.
+      forgetContinents();
       countryDirty = true;
       updateGrid(true);
     });
@@ -1752,6 +1918,7 @@ function ensureAreaFC(kind) {
     areaFC.region = EMPTY;
     areaFC.regionFine = EMPTY;
     areaFC.country = EMPTY;
+    areaFC.continent = EMPTY;
     countryDirty = false;
   }
   const slot = areaCacheKey(kind);
@@ -2027,9 +2194,11 @@ function cellSizeKm(level) {
 const cellSizeLabel = (level) =>
   level == null || level === COUNTRY_LEVEL
     ? 'country'
-    : level === REGION_LEVEL
-      ? 'region'
-      : `${cellSizeKm(level)} cell`;
+    : level === CONTINENT_LEVEL
+      ? 'continent'
+      : level === REGION_LEVEL
+        ? 'region'
+        : `${cellSizeKm(level)} cell`;
 
 // Roll the provenance of a set of stored cells into one summary plus a
 // per-source breakdown. Taken by the cell card and by the region/country card,
@@ -2136,6 +2305,10 @@ function areaAt(lngLat) {
   const lng = wrapLng(lngLat.lng);
   const country = countryNear(lng, lngLat.lat);
   if (!country) return null;
+  if (kind === 'continent') {
+    const name = continentOf(country.id);
+    return name ? { kind, id: name, name, of: null } : null;
+  }
   if (kind !== 'region') return { kind, id: country.id, name: country.id, of: null };
   const region = regionNear(lng, lngLat.lat, country.iso);
   if (region) return { kind, id: region.id, name: region.name, of: country.id };
@@ -2155,14 +2328,32 @@ function areaAt(lngLat) {
  */
 function storedInArea(kind, id) {
   const memo = kind === 'region' ? cellRegionMemo : cellCountryMemo;
+  // A continent has no memo of its own — the fill was built by mapping the
+  // country memo's answers on, so the card reads it back the same way.
+  const idOf = kind === 'continent' ? continentOf : (cid) => cid;
   const out = [];
   // `visited` decides, not the memo: a cell centre never moves, so an erased
   // cell keeps its answer here rather than paying to be looked up again if it
   // comes back. The card must not count it while it is gone.
   for (const [cellId, cid] of memo) {
-    if (cid === id && visited.has(cellId)) out.push(cellId);
+    if (cid && idOf(cid) === id && visited.has(cellId)) out.push(cellId);
   }
   return out;
+}
+
+/**
+ * The countries inside one continent that the map has cells in.
+ *
+ * The country memo, not a fresh sweep: the continent fill was built by mapping
+ * exactly these answers onto their continents, so the count on the card and the
+ * count on the shape can never come out different.
+ */
+function countriesVisitedIn(name) {
+  const seen = new Set();
+  for (const [cellId, cid] of cellCountryMemo) {
+    if (cid && visited.has(cellId) && continentOf(cid) === name) seen.add(cid);
+  }
+  return seen.size;
 }
 
 /** Ground area of a set of cells, each measured at its own latitude. */
@@ -2178,6 +2369,7 @@ function groundKm2(ids) {
 
 /** How big the region or country itself is, for the share of it you have been to. */
 function areaKm2(area) {
+  if (area.kind === 'continent') return continentAreaKm2(area.id);
   if (area.kind !== 'region' || area.id.startsWith(WHOLE_COUNTRY)) {
     return countryAreaKm2(area.id.startsWith(WHOLE_COUNTRY) ? area.id.slice(WHOLE_COUNTRY.length) : area.id);
   }
@@ -2186,37 +2378,79 @@ function areaKm2(area) {
 }
 
 /**
- * The card for a whole region or country. Same shape as the cell card because
- * it is the same question asked of more ground — "when was I here, how often,
- * and where does that come from" — with the two answers only a region can give:
- * how much of it you have been to, and how much of it there is.
+ * The card for a whole region, country or continent. Same shape as the cell
+ * card because it is the same question asked of more ground — "when was I here,
+ * how often, and where does that come from" — with the answers only an area can
+ * give: how much of it you have been to, how much of it there is, and at the
+ * continent level how many of the countries in it you have set foot in.
+ *
+ * **An area with nothing in it still gets a card.** It used to fall through to
+ * the cell card, which found nothing and closed — the reasoning being that an
+ * empty fill already says "you have not been here". It doesn't say the rest.
+ * How big Kazakhstan is, and that you have been to none of it, is an answer;
+ * a tap that does nothing is indistinguishable from a tap that missed. The
+ * fall-through is still there for the sea, where there is no shape to describe.
  */
 function showAreaInfoAt(lngLat) {
   const area = areaAt(lngLat);
   if (!area) return false;
   const ids = storedInArea(area.kind, area.id);
-  if (!ids.length) return false;
   closeRouteInfo(); // the two cards share the same spot on screen
   lastInfoLngLat = lngLat;
   const covered = groundKm2(ids);
   const whole = areaKm2(area);
   selection = { area };
   updateSelection();
+  const what =
+    area.kind === 'continent'
+      ? 'Continent'
+      : area.kind === 'region'
+        ? (area.of ? `Region in ${area.of}` : 'Region')
+        : 'Country';
   cellInfo?.show({
     ...rollUpIds(ids),
     title: area.name,
-    sizeLabel: [area.kind === 'region' ? (area.of ? `Region in ${area.of}` : 'Region') : 'Country',
-      whole ? `${Math.round(whole).toLocaleString()} km²` : null].filter(Boolean).join(' · '),
+    sizeLabel: [what, whole ? `${Math.round(whole).toLocaleString()} km²` : null].filter(Boolean).join(' · '),
     covered,
     coveredPct: whole ? (covered / whole) * 100 : 0,
     coveredOf: area.name,
+    // Two answers, not one dressed as a subtitle. The countries used to sit
+    // beside "Continent" in the line under the title, where it read as what
+    // kind of thing had been clicked rather than as a measurement of it — and
+    // where it could not be compared with the ground covered underneath it.
+    // They are different questions: crossing the top of Africa by road covers
+    // ground in four countries, and living in Luxembourg covers one.
+    inside:
+      area.kind === 'continent'
+        ? { label: 'Countries visited', n: countriesVisitedIn(area.id), of: countriesInContinent(area.id) }
+        : null,
   });
   return true;
 }
 
-/** Re-answer the same spot after a zoom, with whichever card the level wants. */
-function reopenInfoAt(lngLat) {
-  if (!showAreaInfoAt(lngLat)) showCellInfoAt(lngLat);
+/**
+ * Answer a spot with whichever card the level has to give: an area, a cell, or
+ * nothing.
+ *
+ * **A vector level never answers with a cell.** There are no hexagons on screen
+ * at the region, country or continent levels, so a tap is about the shape it
+ * landed on — and where there is no shape, the honest answer is nothing. It
+ * used to fall through to the cell card, which resolves the tap against the
+ * coarsest hex level: a tap on open sea could open a card about an 83 km
+ * hexagon lit by a coastline somewhere off the far side of it, and draw a hex
+ * ring around a patch of ocean. Neither the card nor the ring described
+ * anything that was on screen.
+ *
+ * The fall-through is still right below a vector level, where the hexagons are
+ * what you are looking at.
+ */
+function showInfoAt(lngLat) {
+  if (showAreaInfoAt(lngLat)) return;
+  if (isVectorLevel(currentLevel)) {
+    closeCellInfo();
+    return;
+  }
+  showCellInfoAt(lngLat);
 }
 
 function showCellInfoAt(lngLat) {
@@ -2373,7 +2607,13 @@ let hiddenTripIds = new Set();
 const prefsPayload = () => ({
   v: 1,
   updatedAt: prefsStamp,
-  accent,
+  // Both colours, and the dark one again under the old key. `accent` is what a
+  // build from before this change reads, and it must not be *this device's*
+  // current colour — that would make the account's copy depend on which basemap
+  // the last laptop to sync happened to be on. Dark is the default basemap and
+  // so the better single answer.
+  accent: accents.dark,
+  accents: { ...accents },
   routeView: routeViewJson(),
   home: homePlace,
   hiddenTrips: [...hiddenTripIds],
@@ -2418,11 +2658,14 @@ function touchPrefs() {
   try {
     localStorage.setItem(PREFS_STAMP_KEY, String(prefsStamp));
     localStorage.setItem(ROUTE_VIEW_KEY, JSON.stringify(routeViewJson()));
-    localStorage.setItem(COLOR_KEY, accent);
     localStorage.setItem(HIDDEN_TRIPS_KEY, JSON.stringify([...hiddenTripIds]));
   } catch {
     /* private mode, quota — the server copy is still attempted */
   }
+  // Both colour keys, through the one writer that keeps them agreeing — this
+  // used to mirror `accent`, which is now whichever of the two the basemap on
+  // screen calls for and so the wrong thing to put under the single-value key.
+  saveAccents();
   clearTimeout(pushViewTimer);
   // Debounced because dragging a colour fires on every frame.
   pushViewTimer = setTimeout(pushPrefs, 600);
@@ -2481,15 +2724,32 @@ function adoptPrefs(prefs) {
   // Repaint only if the formatters actually changed, since every list that
   // shows a time has to be rebuilt to pick it up.
   if (setClock(prefs.clock)) redrawClocks();
-  if (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(prefs.accent ?? ''))) {
-    accent = String(prefs.accent).toLowerCase();
+  // The pair if the account has it; the single value if it was saved before
+  // there were two, in which case it stands for both — the same reading
+  // savedAccents() gives the old localStorage key, for the same reason.
+  const pair = prefs.accents;
+  let movedAccent = false;
+  if (pair && typeof pair === 'object' && (isAccent(pair.light) || isAccent(pair.dark))) {
+    for (const k of ['light', 'dark']) {
+      if (isAccent(pair[k])) {
+        accents[k] = String(pair[k]).toLowerCase();
+        movedAccent = true;
+      }
+    }
+  } else if (isAccent(prefs.accent)) {
+    accents.light = String(prefs.accent).toLowerCase();
+    accents.dark = accents.light;
+    movedAccent = true;
+  }
+  if (movedAccent) {
+    accent = accents[themeNow()];
     colorPicker?.set(accent); // the swatch, and the panel behind it
     applyColors();
     repaintAccent();
   }
+  saveAccents();
   try {
     localStorage.setItem(ROUTE_VIEW_KEY, JSON.stringify(routeViewJson()));
-    localStorage.setItem(COLOR_KEY, accent);
     localStorage.setItem(HIDDEN_TRIPS_KEY, JSON.stringify([...hiddenTripIds]));
   } catch {
     /* fine */
@@ -2522,11 +2782,14 @@ async function syncPrefs() {
     } catch {
       /* fine */
     }
-    // The visited colour only started being synced after the activity colours
-    // were, so an account can hold the second and not the first. Rather than
-    // reset it to the default, the one this browser has been using is adopted
-    // into the account — which is the answer the person picking it meant.
-    const migrate = !/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(remote.accent ?? '')) && accent !== DEFAULT_ACCENT;
+    // Two of these, both "the account is behind what this browser has, so send
+    // it up rather than reset". The visited colour only started being synced
+    // after the activity colours were, so an account can hold the second and
+    // not the first; and an account written before the light and dark washes
+    // were told apart holds one colour where there are now two. Either way the
+    // local copy goes up, which is the answer the person picking it meant.
+    const migrate =
+      (!isAccent(remote.accent) && accent !== DEFAULT_ACCENT) || (!remote.accents && isAccent(remote.accent));
     adoptPrefs(remote);
     if (migrate) touchPrefs();
   } else if (verdict === 'push') {
@@ -3365,7 +3628,24 @@ let lastLngLat = null;
 // --- Level / coverage logic ----------------------------------------------------
 // Level L owns every zoom below LEVEL0_ZOOM - L·LEVEL_STEP, so that expression
 // is the boundary between L and L+1.
-const levelBoundary = (L) => LEVEL0_ZOOM - L * LEVEL_STEP;
+// Where the continent level takes over, and the one place the 3× ladder is
+// overridden. The ladder would put this at levelBoundary(5) = 2.075, which is
+// below MapLibre's z2 tile boundary — and a basemap serves *generalised*
+// geometry at z1, far coarser than our own 1 km outlines. Our sharp fill over
+// the basemap's blunt one shows as dark jagged rims all along every coast, and
+// it is worst in the Arctic, where Mercator stretches the mismatch 4.8×. It
+// cures itself the instant the zoom crosses 2.0 and the basemap sharpens,
+// which is exactly how it was caught: two state dumps identical in every field
+// but the zoom, one either side of the line.
+//
+// So the level takes its room out of the country level's band instead of out
+// of the bottom of the map. Continents get (2, 2.75] and countries (2.75,
+// 3.66] — both narrower than a full step, both entirely above z2 tiles, and
+// both still wide enough for LEVEL_HYSTERESIS to sit inside.
+const CONTINENT_ZOOM = 2.75;
+// The lower end of a level's band; a level owns (levelBoundary(L),
+// levelBoundary(L - 1)].
+const levelBoundary = (L) => (L === COUNTRY_LEVEL ? CONTINENT_ZOOM : LEVEL0_ZOOM - L * LEVEL_STEP);
 
 // Once a level is on screen it keeps the map until the zoom is this far past
 // the boundary. Without the margin, the wobble at the end of a scroll- or
@@ -3431,7 +3711,12 @@ function setDetailLevel(next) {
 }
 
 function levelForZoom(zoom, current = null) {
-  const raw = Math.min(COUNTRY_LEVEL, Math.max(0, Math.ceil((LEVEL0_ZOOM - zoom) / LEVEL_STEP - 1e-9)));
+  // The continent boundary is off the ladder (see CONTINENT_ZOOM), so it is
+  // tested before the ladder is inverted rather than clamped afterwards.
+  const raw =
+    zoom <= CONTINENT_ZOOM
+      ? CONTINENT_LEVEL
+      : Math.min(COUNTRY_LEVEL, Math.max(0, Math.ceil((LEVEL0_ZOOM - zoom) / LEVEL_STEP - 1e-9)));
   // A jump of more than one level means a deliberate leap, not wobble.
   if (current === null || Math.abs(raw - current) !== 1) return raw;
   // Coarsening (zooming out) crosses the current level's own boundary;
@@ -3920,8 +4205,10 @@ function setVecData(sfx, fc) {
 /** Put geometry on whichever source is currently live. */
 const setHexData = (fc) => setVecData(vecLive, fc);
 
-// The three vector layers of one source, bottom to top.
-const VEC_LAYERS = ['hex-fill', 'hex-bound-glow', 'hex-bound-line'];
+// The vector layers of one source, bottom to top. The label is only ever
+// populated at the continent level, and only exists at all on a basemap whose
+// style names a glyph server — see installGrid.
+const VEC_LAYERS = ['hex-fill', 'hex-bound-glow', 'hex-bound-line', 'hex-label'];
 // The first layer that must stay *above* the visited wash. See
 // raiseVectorLayers().
 const VEC_ANCHOR = 'trip-glow';
@@ -4069,7 +4356,7 @@ let fineLoadPending = false;
 // two or three means the level decision itself is oscillating (LEVEL_HYSTERESIS
 // too tight) rather than the crossfade misbehaving.
 const DEBUG_LEVELS = new URLSearchParams(location.search).has('debuglevels');
-const levelName = (L) => (L === COUNTRY_LEVEL ? 'country' : L === REGION_LEVEL ? 'region' : `L${L}`);
+const levelName = (L) => (isVectorLevel(L) ? vectorKindOf(L) : `L${L}`);
 
 function updateGrid(force = false) {
   // The hex sources briefly don't exist while a new basemap style loads.
@@ -4105,6 +4392,7 @@ function updateGrid(force = false) {
   }
 
   updateHud(level);
+  setBasemapContinents(level !== CONTINENT_LEVEL);
   // Hex levels go through the blob canvas; the country level stays vector.
   const asBlob = BLOBS && !isVectorLevel(level) && blobCur.isInstalled();
   // Before the early-outs: the whole point is to have this done well ahead of
@@ -4195,7 +4483,7 @@ function updateGrid(force = false) {
       paintedZoom = map.getZoom();
       currentLevel = level;
       coverage = WORLD_COVERAGE;
-      if (selection && lastInfoLngLat) reopenInfoAt(lastInfoLngLat);
+      if (selection && lastInfoLngLat) showInfoAt(lastInfoLngLat);
       return;
     }
     blobRole = currentAsBlob ? 'out' : 'in';
@@ -4255,7 +4543,7 @@ function updateGrid(force = false) {
 
   // The info card describes a cell at a particular level, so a zoom that
   // changes the level re-resolves it against the bigger (or smaller) hex.
-  if (levelChanged && selection && lastInfoLngLat) reopenInfoAt(lastInfoLngLat);
+  if (levelChanged && selection && lastInfoLngLat) showInfoAt(lastInfoLngLat);
 }
 
 // --- Hover (tweened via feature-state for a soft glass highlight) ----------
@@ -4379,8 +4667,8 @@ function updateModeUi() {
 
 function updateHud(level) {
   if (level == null) return;
-  if (level === COUNTRY_LEVEL) {
-    hudSize.textContent = 'Countries';
+  if (level === COUNTRY_LEVEL || level === CONTINENT_LEVEL) {
+    hudSize.textContent = level === CONTINENT_LEVEL ? 'Continents' : 'Countries';
     hudRes.textContent = '—';
   } else {
     hudSize.textContent = cellSizeKm(level);
@@ -4398,11 +4686,13 @@ const detailNow = document.getElementById('detail-now');
 function updateDetailNow(level = currentLevel) {
   if (level == null) return;
   detailNow.textContent =
-    level === COUNTRY_LEVEL
-      ? 'Showing whole countries'
-      : level === REGION_LEVEL
-        ? 'Showing whole regions'
-        : `Showing ${cellSizeKm(level)} cells`;
+    level === CONTINENT_LEVEL
+      ? 'Showing whole continents'
+      : level === COUNTRY_LEVEL
+        ? 'Showing whole countries'
+        : level === REGION_LEVEL
+          ? 'Showing whole regions'
+          : `Showing ${cellSizeKm(level)} cells`;
 }
 
 // --- Basemap / overlay controls ----------------------------------------------
@@ -4442,6 +4732,11 @@ function setStyleKey(key) {
   if (!STYLES[key] || key === styleKey) return;
   styleKey = key;
   presumeChrome(); // before anything is fetched, let alone painted
+  // Immediately, not once the new style lands: the wash on screen belongs to
+  // the basemap being left, and holding it until the style resolves would show
+  // the light colour over the dark map for as long as the fetch takes. A
+  // no-op between two basemaps of the same theme.
+  syncAccent();
   try {
     localStorage.setItem(STYLE_KEY, key);
   } catch {
@@ -4500,7 +4795,14 @@ function updateLayersUi() {
   // The picker only means anything in single-color mode, and nothing at all
   // while the cells are hidden — the note takes that slot instead.
   const heat = HEAT_MODES[heatMode];
-  document.getElementById('color-row').hidden = isHeatMode() || !cellsOn;
+  const colorRow = document.getElementById('color-row');
+  colorRow.hidden = isHeatMode() || !cellsOn;
+  // The swatch changes when you change basemap, and without a word for it that
+  // reads as the colour having been lost rather than as the other one arriving.
+  // A label rather than a tooltip: a phone has no hover, and this is the only
+  // place the two are visible at all.
+  colorRow.firstElementChild.textContent =
+    themeNow() === 'light' ? 'Visited color · light map' : 'Visited color · dark maps';
 
   // Type has categories rather than a range: one swatch per source, ordered
   // the way the palette was handed out, so the list matches the map.
@@ -4718,14 +5020,76 @@ function labelStart() {
   return undefined;
 }
 
+// Whatever fontstack the basemap already asks its own glyph server for.
+// Hardcoding one breaks half the basemaps — CARTO serves Open Sans and
+// OpenFreeMap serves Noto Sans, and a fontstack the server has never heard of
+// is a label that silently never draws.
+//
+// Not simply the first one: CARTO's first symbol layer is a waterway name, so
+// taking it handed the continent counts an *italic* stack. Water and terrain
+// labels are the ones styles set in italic, and there is always an upright
+// stack further down the list.
+function styleFont() {
+  const stacks = [];
+  for (const l of map.getStyle().layers) {
+    const font = l.layout?.['text-font'];
+    if (Array.isArray(font) && font.every((f) => typeof f === 'string')) stacks.push(font);
+  }
+  const upright = stacks.find((s) => !s.some((f) => /italic|oblique/i.test(f)));
+  return upright ?? stacks[0] ?? ['Open Sans Regular'];
+}
+
+// The basemap's own continent names, so they can be switched off at the level
+// where ours replace them. Cached per style rather than looked up each time:
+// map.getStyle() serializes every layer, and this is asked on a zoom crossing.
+// CARTO calls the layer `place_continent` and OpenFreeMap `continent`, so the
+// match is on the substring.
+let continentLabelLayers = [];
+let basemapContinentsOn = true;
+
+/**
+ * At the continent level the counts *are* the continent labels — they carry the
+ * name and the number both — so the basemap's own are taken off rather than
+ * drawn a centimetre away saying half as much. Collision alone doesn't do it:
+ * ours only pushes out a label it actually overlaps, and "AFRICA" sitting just
+ * above "Africa · 1 country" overlaps nothing.
+ */
+function setBasemapContinents(on) {
+  if (on === basemapContinentsOn || !continentLabelLayers.length) return;
+  basemapContinentsOn = on;
+  for (const id of continentLabelLayers) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+  }
+}
+
+// The continent counts, in the accent lifted toward whichever end of the
+// contrast the basemap leaves free — the same treatment the selection ring
+// gets, so the two read as the same ink. The halo is the basemap's own tone
+// rather than the accent's: it is there to cut the text out of a coastline, and
+// a coloured halo would tint the shape underneath.
+const labelColors = () =>
+  STYLES[styleKey].theme === 'light'
+    ? { 'text-color': mixWithBlack(accent, 0.55), 'text-halo-color': 'rgba(255, 255, 255, 0.85)', 'text-halo-width': 1.6 }
+    : { 'text-color': mixWithWhite(accent, 0.8), 'text-halo-color': 'rgba(10, 12, 18, 0.75)', 'text-halo-width': 1.6 };
+
 function installGrid() {
   styleParsed = true; // whatever is in place now has parsed; see styleSettled
   const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
   const lineLayout = { 'line-join': 'round', 'line-cap': 'round' };
   const isRegion = ['==', ['get', 'k'], 1];
   const isBoundary = ['==', ['get', 'k'], 2];
+  const isLabel = ['==', ['get', 'k'], 3];
   const boundLineColor = mixWithWhite(accent, 0.45);
   const tc = tileColors();
+  // Text needs glyphs, and the placeholder style the map opens on while a built
+  // basemap is being fetched has none. Adding the layer anyway would ask a
+  // glyph server that isn't there for a font it doesn't have, once per label.
+  const canLabel = !!map.getStyle().glyphs;
+  // A new style brings its own continent names back, visible.
+  continentLabelLayers = canLabel
+    ? map.getStyle().layers.filter((l) => l.type === 'symbol' && /continent/i.test(l.id)).map((l) => l.id)
+    : [];
+  basemapContinentsOn = true;
 
   // Tile spotlight (below the region layers).
   map.addSource('tiles', { type: 'geojson', data: EMPTY, promoteId: 'id', tolerance: 0 });
@@ -4792,6 +5156,43 @@ function installGrid() {
       id: `hex-bound-line${suffix}`, type: 'line', source: src, filter: isBoundary, layout: lineLayout,
       paint: { 'line-color': boundLineColor, 'line-opacity': 0, 'line-width': boundLineWidth, 'line-blur': 0.4 },
     }, firstSymbol);
+    // How many countries of each continent — the whole reason that level is
+    // there.
+    //
+    // No `beforeId`, unlike the three layers above it: at this zoom the basemap
+    // writes its own "EUROPE" a few hundred kilometres from ours, and the two
+    // landed on top of each other. MapLibre places symbols from the top layer
+    // down, so being above the basemap's labels is what lets ours go first —
+    // and `ignore-placement: false` is what then pushes the basemap's own
+    // continent name out of the way. `allow-overlap: true` on top of that means
+    // ours is never the one dropped: it is the answer the level exists to give,
+    // and there are at most seven of them.
+    //
+    // It lands under the trip track and home, which are added after it — and
+    // raiseVectorLayers puts it back in exactly this spot after a crossing,
+    // because VEC_ANCHOR is that same trip track.
+    if (canLabel) {
+      map.addLayer({
+        id: `hex-label${suffix}`, type: 'symbol', source: src, filter: isLabel,
+        layout: {
+          // Two sizes rather than two fontstacks: the name is the heading and
+          // the count is the reading, and one stack means one glyph fetch.
+          'text-field': [
+            'format',
+            ['get', 'name'], {},
+            '\n', {},
+            ['get', 'count'], { 'font-scale': 0.85 },
+          ],
+          'text-font': styleFont(),
+          'text-size': ['interpolate', ['linear'], ['zoom'], 1, 13, 2.5, 17],
+          'text-line-height': 1.35,
+          'text-letter-spacing': 0.02,
+          'text-allow-overlap': true,
+          'text-ignore-placement': false,
+        },
+        paint: { 'text-opacity': 0, ...labelColors() },
+      });
+    }
   }
 
   // The trip (or day) you picked, drawn over everything else as the track it
@@ -4989,10 +5390,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // under it; otherwise view mode inspects the cell.
       const route = routeAt(e.point);
       if (route) showRouteInfo(route);
-      // At the two vector levels there are no hexes on screen, so a tap is
-      // about the shape it landed on. Falls through to the cell card when the
-      // spot has nothing on it, which is what the fill says too.
-      else if (!showAreaInfoAt(e.lngLat)) showCellInfoAt(e.lngLat);
+      // At the three vector levels there are no hexes on screen, so a tap is
+      // about the shape it landed on — whether or not you have been to it — and
+      // where there is no shape, about nothing. See showInfoAt.
+      else showInfoAt(e.lngLat);
       return;
     }
     if (isCtrl(e.originalEvent)) return; // Ctrl gesture is handled as painting
@@ -5079,6 +5480,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     place: () => placeBesideMenu(colorInput, document.getElementById('color-panel')),
     onInput: (hex) => {
       accent = hex;
+      // Against the basemap it was picked on, and only that one. The other
+      // stays where its own owner put it.
+      accents[themeNow()] = hex;
+      saveAccents();
       // Stored the same way as the activity colours, and for the same reason:
       // the visited colour is a choice about the account, not about this
       // laptop. It used to be localStorage only, so picking it here left the
@@ -5215,6 +5620,20 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     },
   });
   sync = mountSync({ homeAssistant, strava: stravaUi, device: deviceUi, files: importer });
+  // Before the dialog that opens it. Back goes to Settings rather than to the
+  // hub, because Settings is where Sources is now reached from — a Back that
+  // lands somewhere you did not come from is how you lose your place.
+  //
+  // Removing a source is the only action in here that changes the map, so it is
+  // the only one that has to say so afterwards.
+  const sourcesUi = mountSources({
+    onClose: () => personalUi?.open(),
+    onChanged: async () => {
+      await hydrateVisited();
+      await loadRoutes(routesOn);
+      updateLayersUi();
+    },
+  });
   personalUi = mountPersonal({
     onClose: () => settings?.open(),
     home: () => homePlace,
@@ -5228,18 +5647,27 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       touchPrefs();
       pushPrefs();
     },
-  });
-  // Removing a source is the only action in here that changes the map, so it is
-  // the only one that has to say so afterwards.
-  const sourcesUi = mountSources({
-    onClose: () => settings?.open(),
-    onChanged: async () => {
-      await hydrateVisited();
-      await loadRoutes(routesOn);
-      updateLayersUi();
+    sources: sourcesUi,
+    onClearCache: () => clearOfflineCaches(),
+    version: () => serverBuild(),
+    username: () => username,
+    onDeleteAccount: async (password) => {
+      const out = await auth.deleteAccount(password);
+      // The server has already dropped the session and cleared the cookie, so
+      // there is nothing to log out of — but every teardown logging out does
+      // still has to happen, and the offline caches most of all: they are filed
+      // under URLs that say nothing about whose account they describe, and the
+      // account they describe no longer exists.
+      authState?.signedOut();
+      // The backups are the one thing deleting an account cannot reach, so the
+      // answer says so here rather than leaving it to be discovered later.
+      showToast(out?.backupsKept
+        ? `${out.username} deleted. Snapshots taken before now still hold a copy.`
+        : `${out?.username ?? 'Account'} deleted.`);
+      return out;
     },
   });
-  settings = mountSettings({ personal: personalUi, backup: backupUi, sources: sourcesUi });
+  settings = mountSettings({ personal: personalUi, backup: backupUi });
   document.getElementById('sync-open').addEventListener('click', () => {
     setMenuOpen(false);
     sync.open();
@@ -5498,9 +5926,10 @@ mountOfflineBanner();
 // --- Auth gate ---------------------------------------------------------------
 // Resolve the session on load: if signed in, pull the user's cells; otherwise
 // show the login/register overlay. Logging out clears the map and re-shows it.
-mountAuth({
-  onAuthed: async () => {
+const authState = mountAuth({
+  onAuthed: async (name) => {
     authed = true;
+    username = name ?? null;
     await hydrateVisited();
     await loadRoutes(routesOn);
     // After the routes, because it re-renders the per-activity rows and those
@@ -5524,6 +5953,7 @@ mountAuth({
   },
   onLoggedOut: () => {
     authed = false;
+    username = null;
     // Undo history belongs to the account that just left too, and every entry
     // in it is an instruction to change *their* map.
     history.clear();
@@ -5544,6 +5974,8 @@ mountAuth({
     prefsStamp = 0;
     prefsDirty = false;
     clearTimeout(pushViewTimer);
+    accents.light = DEFAULT_ACCENT;
+    accents.dark = DEFAULT_ACCENT;
     accent = DEFAULT_ACCENT;
     colorPicker?.set(accent);
     applyColors();
@@ -5551,6 +5983,7 @@ mountAuth({
       localStorage.removeItem(ROUTE_VIEW_KEY);
       localStorage.removeItem(PREFS_STAMP_KEY);
       localStorage.removeItem(COLOR_KEY);
+      localStorage.removeItem(COLORS_KEY);
     } catch {
       /* fine */
     }

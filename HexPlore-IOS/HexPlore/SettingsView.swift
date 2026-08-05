@@ -41,27 +41,25 @@ struct SettingsView: View {
                     photosSection
 
                     Section {
-                        Button("Reload") { settings.reload() }
-                        Button("Sign out", role: .destructive) { confirmingSignOut = true }
+                        Button("Reload map") { settings.reload() }
+                        Button("Clean cache", role: .destructive) { confirmingSignOut = true }
                     } footer: {
-                        Text("Signing out forgets the site's cookies and stored data on this device, anything this phone recorded but has not yet sent, and how far it had got through Apple Health. Your map is on the server and is not touched.")
+                        Text("Cleaning the cache forgets the site's cookies and any stored data on this device.")
                     }
                 }
 
                 Section {
-                    LabeledContent("Version", value: Self.version)
-                } footer: {
-                    Text("The map, the menu and everything in it are the web app itself, running on this phone. A fix there is a fix here.")
+                    LabeledContent("App version", value: Self.version)
                 }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .confirmationDialog(
-                "Sign out of Hexplore?",
+                "Delete all the local data?",
                 isPresented: $confirmingSignOut,
                 titleVisibility: .visible
             ) {
-                Button("Sign out", role: .destructive) {
+                Button("Yes", role: .destructive) {
                     Task { await settings.signOut() }
                 }
                 Button("Cancel", role: .cancel) {}
@@ -87,7 +85,7 @@ struct SettingsView: View {
         } header: {
             Text("Server")
         } footer: {
-            Text("Where you open Hexplore. A plain `http://` address works on your own network; anything else needs HTTPS — `tailscale serve` in front of `npm start` gives you one reachable only from your devices.")
+            Text("The address of the server to connect to. Supports both http and https.")
         }
     }
 
@@ -132,11 +130,11 @@ struct SettingsView: View {
     private var locationFooter: String {
         switch tracking.cadence {
         case .off:
-            return "The one thing this app can do that the website cannot: keep the map filling in while it is in your pocket. Nothing is recorded until you pick how often."
+            return "Uses your iPhone's location to fill in the cells in background."
         case .significant:
-            return "The cheapest setting there is. iOS mentions it once you have moved a fair way — roughly half a kilometre — off radios the phone is already listening to, so it costs no measurable battery. Enough to fill in the places you go; not enough to draw how you got there."
+            return "Uses the least battery, but with the lowest accuracy."
         default:
-            return "Fixes are asked for to about a hundred metres and never better: a cell is 900 m across, so a sharper one lands in the same hexagon and costs the GPS chip to get. Nothing is sent while there is no signal — it waits on this phone until there is."
+            return "The higher the update frequency, the higher the battery consumption is. Can also skip the location fixes with low GPS accuracy."
         }
     }
 
@@ -178,7 +176,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("Recorded here, sent when there is a connection. A push that fails changes nothing — the fixes stay on this phone and go with the next one.")
+            Text("The records are cached until there is a connection to the server.")
         }
     }
 
@@ -190,11 +188,11 @@ struct SettingsView: View {
                 .disabled(!HealthSync.shared.isAvailable)
 
             if tracking.syncWorkouts {
-                LabeledContent("Last looked", value: Self.when(tracking.status.lastWorkoutScan))
+                LabeledContent("Last checked", value: Self.when(tracking.status.lastWorkoutScan))
                 if tracking.status.workoutsSent > 0 {
                     LabeledContent("Sent", value: "\(tracking.status.workoutsSent)")
                 }
-                Button("Re-read from the start", role: .destructive) { confirmingReread = true }
+                Button("Re-import", role: .destructive) { confirmingReread = true }
                     .disabled(syncing)
             }
         } header: {
@@ -221,7 +219,7 @@ struct SettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Removes the cells and lines Apple Health put on your map and reads every workout again. Anything from your files, Home Assistant, Strava or this phone's own logger is left alone.")
+            Text("Removes the cells and routes Apple Health put on your map and reads every workout again.")
         }
     }
 
@@ -229,7 +227,7 @@ struct SettingsView: View {
         guard HealthSync.shared.isAvailable else {
             return "Health is not available on this device."
         }
-        return "Only workouts that went somewhere. A ride, a walk or a run recorded outdoors carries a route, and becomes cells and a saved line on the map; a gym session, a pool swim and twenty minutes on a rowing machine carry none and are left where they are. Health is only ever read from."
+        return "Only imports the workouts with a route."
     }
 
     // MARK: - Photos
@@ -268,7 +266,7 @@ struct SettingsView: View {
         } header: {
             Text("Photos")
         } footer: {
-            Text("A photo knows where it was taken, so your library is a record of everywhere you have been with a camera. Only the coordinate and the date are read — no photograph is opened, nothing is downloaded from iCloud, and no image ever leaves this phone. Your library is the whole answer, so each read replaces the last rather than adding to it.")
+            Text("Import the geolocation of every photo from your library.")
         }
     }
 

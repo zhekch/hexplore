@@ -138,8 +138,32 @@ export function splitOnGaps(segments, {
 }
 
 const DUP_START_SEC = 120; // how far apart two recordings of one start can be
+// …and how far apart they may drift on a long day out, as a fraction of it.
+// A flat gate is the wrong shape, and a ski day is where that shows. An hour's
+// run is two apps started with the same thumb: every such pair on a real map
+// agrees to within thirteen seconds. Six hours on a mountain is a watch started
+// at the first lift and a phone remembered somewhere on the way up — six real
+// pairs start between 5 and 20 minutes apart, and a flat two minutes hid all of
+// them, listing every ski day twice.
+//
+// Measured against the shorter of the two recordings, every duplicate on a real
+// map lands under 5.9%, and the closest thing that must *not* fold — two walks
+// round the same block on one afternoon, 2% apart in length and in the same
+// place — sits at 257%. A tenth clears the first by 1.7× and stays 26× under
+// the second, which is the widest gap any of these three numbers has.
+//
+// It only ever loosens things for long outings, and that is where it is safest:
+// at a tenth, two recordings that fold necessarily overlap by nine tenths of the
+// shorter one, and you cannot have been on two outings at once.
+const DUP_START_SPAN = 0.1;
 const DUP_LENGTH_TOL = 0.05; // 5% — observed worst case is 0.4%
 const DUP_BBOX_IOU = 0.6; // and they have to have happened in the same place
+
+// Which copy speaks for an outing when two apps recorded it. Only the three
+// that actually produce duplicates are ranked; everything else falls through to
+// the tie-breaks in `preferredRoute`, which is the right answer for a source
+// this app has no opinion about.
+const SOURCE_RANK = { komoot: 3, 'apple-health': 2, strava: 1 };
 
 const round = (v) => Math.round(v * PRECISION) / PRECISION;
 
@@ -727,29 +751,41 @@ const bboxIou = (a, b) => {
   return union > 0 ? over / union : 0;
 };
 
+// How far the two starts may be apart, for this pair. The span is the *shorter*
+// of the two recordings, so one app that stopped watching early tightens the
+// gate rather than loosening it — and a row whose clock was left running scores
+// 0 from `recordedSeconds`, which drops the pair back to the flat floor instead
+// of granting it a week of slack.
+const startGate = (a, b) =>
+  Math.max(DUP_START_SEC, Math.min(recordedSeconds(a), recordedSeconds(b)) * DUP_START_SPAN);
+
 /**
  * Are these two rows the same outing, recorded by two apps?
  *
  * The start time carries this. You cannot begin two rides in the same minute,
  * and in practice the two clocks agree to within a few seconds — so it is the
  * gate, and the other two only have to rule out the freak case of two different
- * things starting together.
+ * things starting together. How far apart the two starts may be scales with how
+ * long the outing ran: see `DUP_START_SPAN` for why a flat gate listed every ski
+ * day twice.
  *
  * What is deliberately not used:
  *  · the *end* time, and any overlap computed from it. One real Komoot row
  *    claims a 9,802-minute ride for what Strava recorded as 110 minutes; the
- *    end of a tour is not a reliable clock.
+ *    end of a tour is not a reliable clock. `recordedSeconds` is not that: it
+ *    hands back 0 for exactly those rows, so a nonsense end widens nothing.
  *  · `sport` — the same walk came back as "Walking" from one app and "Hiking"
  *    from the other.
  *  · `source` — the obvious duplicate is Komoot against Strava, but real maps
  *    also hold Strava against Strava, and gating on a difference would miss
- *    exactly those.
+ *    exactly those. Which of the two then *speaks* for the outing is a different
+ *    question, and `preferredRoute` does read the source to answer it.
  *  · `points` — a tie-break at most. Both sides pass through the same
  *    simplifier, so the counts land close, but "close" is not a fact to bet on.
  */
 export function routesLookAlike(a, b) {
   if (!a?.firstAt || !b?.firstAt) return false; // undated: nothing to compare
-  if (Math.abs(a.firstAt - b.firstAt) > DUP_START_SEC) return false;
+  if (Math.abs(a.firstAt - b.firstAt) > startGate(a, b)) return false;
   const longest = Math.max(a.lengthM || 0, b.lengthM || 0);
   if (!longest) return false;
   if (Math.abs((a.lengthM || 0) - (b.lengthM || 0)) / longest > DUP_LENGTH_TOL) return false;
@@ -763,14 +799,21 @@ export function routesLookAlike(a, b) {
  * device and every reload — a fold that changed its mind between loads would be
  * worse than showing both.
  *
- * A link leads because it is the one thing a copy can have that the other
- * cannot be given: a Komoot route opens on Komoot, and no amount of Strava data
- * turns into that. After it, a sport somebody actually recorded beats one this
- * app guessed from the speed — which is what separates the two Strava rows that
- * are the same run, where neither has a link.
+ * Which app it came from leads, because it is the only rank that answers the
+ * question the same way every time: Komoot, then Apple Health, then Strava.
+ * Komoot because a Komoot route opens on Komoot and no amount of Strava data
+ * turns into that; Health above Strava because Health is the watch's own record
+ * of the day and Strava is a copy of it, and because a Strava row can be edited
+ * after the fact while the workout it came from cannot.
+ *
+ * The ranks below it decide between two rows of the same app, and between two
+ * sources this app has no opinion about — a link first, then a sport somebody
+ * actually recorded over one this app guessed from the speed, which is what
+ * separates the two Strava rows that are the same run.
  */
 export function preferredRoute(a, b) {
   const rank = [
+    (r) => SOURCE_RANK[r.source] || 0,
     (r) => (r.link ? 1 : 0),
     (r) => (r.sportGuessed ? 0 : 1),
     (r) => (r.elevUp > 0 ? 1 : 0),
@@ -798,14 +841,30 @@ export function duplicateRoutes(routes) {
   for (let i = 0; i < byStart.length; i++) {
     const a = byStart[i];
     if (folded.has(a.id)) continue;
+    // The widest gate `a` could grant anyone: its own gate against itself, since
+    // the span is the shorter of the two recordings and so never exceeds a's.
+    // Past that the scan is done — this is what keeps it local instead of every
+    // route against every other.
+    const reach = startGate(a, a);
     for (let j = i + 1; j < byStart.length; j++) {
       const b = byStart[j];
-      if (b.firstAt - a.firstAt > DUP_START_SEC) break;
+      if (b.firstAt - a.firstAt > reach) break;
       if (folded.has(b.id) || !routesLookAlike(a, b)) continue;
       const keep = preferredRoute(a, b);
       folded.set(keep === a ? b.id : a.id, keep.id);
       if (keep !== a) break; // `a` is spoken for; move on to the next start
     }
+  }
+  // Four copies of one ski day fold pairwise, and pairwise the second can land
+  // behind the third before the third lands behind the fourth — which hides the
+  // right rows but leaves the map pointing at a row that is itself hidden. Walk
+  // each answer through to the row still standing. No cycles to guard against:
+  // a route is written into the map at most once and skipped from then on, so
+  // every chain ends at a key that isn't there.
+  for (const [hidden, stand] of folded) {
+    let end = stand;
+    while (folded.has(end)) end = folded.get(end);
+    if (end !== stand) folded.set(hidden, end);
   }
   return folded;
 }

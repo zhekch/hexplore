@@ -118,6 +118,15 @@ export function countryAreaKm2(id) {
 
 export const countryCount = () => COUNTRIES?.length ?? 0;
 
+/**
+ * Every country in the dataset, for the one caller that groups them rather than
+ * looking one up: src/continents.js, which builds each continent by dissolving
+ * the countries inside it. Deliberately not a second copy of the boundaries —
+ * a continent whose coastline disagreed with the countries one zoom level in
+ * would show as a sliver of ocean at one level and land at the next.
+ */
+export const allCountries = () => COUNTRIES ?? [];
+
 /** Countries whose name matches, for the search box. Same deal as regions:
  *  nothing until the dataset is already in memory. */
 export function searchCountries(query, limit = 2) {

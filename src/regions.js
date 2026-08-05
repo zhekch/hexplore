@@ -51,18 +51,18 @@ let loading = null;
 // is not a detail — it is the difference between a sharper canton and a fifth of
 // Italy colouring in.
 //
-// Natural Earth's admin-1 is provinces for Italy (110) and départements for
-// France (101). geoBoundaries' gbOpen hierarchy is shifted for both: Italy's
-// ADM1 has *five* units and its ADM2 has the twenty regions; France's ADM1 has
-// thirteen régions and its ADM2 the ninety-six départements. Pairing our 110
-// Italian provinces against five macro-regions is what put a fifth of the
-// country under one province — geometrically it "matched", because their polygon
-// genuinely contains our province's centre.
+// Natural Earth's admin-1 is départements for France (101), and its Italian
+// provinces are dissolved to the twenty regioni at build time (see
+// DISSOLVE_BY_REGION in scripts/build-regions.mjs). geoBoundaries' gbOpen
+// hierarchy is shifted for both: Italy's ADM1 has *five* macro-regions and its
+// ADM2 the twenty regioni; France's ADM1 has thirteen régions and its ADM2 the
+// ninety-six départements. Pairing Italy against the five macro-regions is what
+// put a fifth of the country under one unit — geometrically it "matched",
+// because their polygon genuinely contains our unit's centre.
 //
 // So the level is chosen by unit count rather than by name: whichever of their
 // levels has about as many units as we do is the one describing the same thing.
-// France then works (96 against 101) and Italy declines (20 against 110), which
-// is the honest answer — geoBoundaries has no Italian provinces to give.
+// France works (96 against 101) and Italy pairs exactly (20 against 20).
 // Each pair has to be about the same size. See pairFineRegions().
 export const AREA_MATCH = [0.3, 3.2];
 
@@ -109,6 +109,7 @@ export function loadRegions(data) {
   if (!loading) {
     loading = (data ? Promise.resolve({ default: data }) : import('./regions.json')).then((m) => {
       REGIONS = m.default;
+      idIndex = null;
       buildIndex();
       return REGIONS;
     });
@@ -171,6 +172,35 @@ export function pointInside(rings) {
  */
 export function regionsOf(iso) {
   return (REGIONS ?? []).filter((r) => r.iso === iso);
+}
+
+/**
+ * A short hash of our region ids for one country, sent with the request for its
+ * detailed boundaries so the *browser's* cache is keyed by them.
+ *
+ * That answer is served `immutable` for a year, on the grounds that the
+ * geoBoundaries commit is pinned and so it can never change. Half true, and the
+ * expensive half is the other one: the payload is a map from our region ids to
+ * their geometry, so it changes whenever `regions.json` does. When Italy's 110
+ * provinces became 20 regioni, browsers went on replaying the province answer
+ * out of the HTTP cache — through rebuilds, restarts and reloads, because
+ * `immutable` means "do not even revalidate". Rebuilding the world could not
+ * dislodge it.
+ *
+ * Putting this in the query string makes the URL change exactly when the answer
+ * would, which is what `immutable` was always claiming. It is a cache key and
+ * nothing else — the server reads it for logging, never for logic, so a browser
+ * that sends a stale or absent one still gets a correct answer.
+ *
+ * djb2: it has to be synchronous (crypto.subtle is not) and it only has to
+ * change when the ids do.
+ */
+export function regionSetTag(iso) {
+  let h = 5381;
+  for (const r of regionsOf(iso)) {
+    for (let i = 0; i < r.id.length; i++) h = ((h * 33) ^ r.id.charCodeAt(i)) >>> 0;
+  }
+  return h.toString(36);
 }
 
 let isoIndex = null;
@@ -258,13 +288,38 @@ export function pairFineRegions(iso, features) {
 /** Take detailed geometry the server worked out: { "<id>": geometry, … }. */
 export function addFineRegions(byId) {
   let n = 0;
+  let ignored = 0;
   for (const [id, g] of Object.entries(byId ?? {})) {
-    if (g) {
-      FINE.set(id, g);
-      n++;
+    if (!g) continue;
+    // Keyed by *our* region ids, which means the two sides have to be looking
+    // at the same `regions.json`. The server reads its copy once at startup and
+    // holds it, so a rebuilt dataset with the server left running gives an
+    // answer keyed to regions this browser no longer has — every id misses, no
+    // detail is gained, and the country quietly stays coarse while its
+    // neighbours sharpen. That is a stale process, not a missing dataset, and
+    // it cost a long time to find once. Say so rather than failing silently.
+    if (!byIdIndex().has(id)) {
+      ignored++;
+      continue;
     }
+    FINE.set(id, g);
+    n++;
+  }
+  if (ignored) {
+    console.warn(
+      `[regions] ignored ${ignored} detailed boundaries keyed to regions this map does not have`
+      + ' — the server is holding an older regions.json than the browser. Restart it.',
+    );
   }
   return n;
+}
+
+// Region ids, built once and reused: addFineRegions is called per country and
+// would otherwise walk the whole dataset each time.
+let idIndex = null;
+function byIdIndex() {
+  if (!idIndex) idIndex = new Set((REGIONS ?? []).map((r) => r.id));
+  return idIndex;
 }
 
 /**
@@ -276,7 +331,8 @@ export async function loadFineRegions(iso) {
   if (!iso || fineDone.has(iso) || finePending.has(iso)) return 0;
   finePending.add(iso);
   try {
-    const res = await fetch(`/api/regions/${encodeURIComponent(iso)}`);
+    // `?r=` is the cache key, not an argument — see regionSetTag.
+    const res = await fetch(`/api/regions/${encodeURIComponent(iso)}?r=${regionSetTag(iso)}`);
     if (!res.ok) return 0;
     const body = await res.json();
     return addFineRegions(body?.regions);

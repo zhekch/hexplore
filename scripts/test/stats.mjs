@@ -182,7 +182,12 @@ check(countryAt(...SAN_MARCO) === null,
   String(countryAt(...SAN_MARCO)?.id));
 check(countryNear(...SAN_MARCO)?.id === 'Italy', 'looking a few km around finds Italy',
   String(countryNear(...SAN_MARCO)?.id));
-check(regionNear(...SAN_MARCO, countryNear(...SAN_MARCO).iso)?.name === 'Venezia',
+// Veneto, not Venezia: Italy is held as its twenty regioni rather than as
+// Natural Earth's 110 province (see DISSOLVE_BY_REGION in
+// scripts/build-regions.mjs). What this line is testing is unchanged — that a
+// point outside every polygon still resolves once there is a country to ask
+// under — only the name of the answer moved up a level.
+check(regionNear(...SAN_MARCO, countryNear(...SAN_MARCO).iso)?.name === 'Veneto',
   'and with a country to ask under, the region comes back too',
   String(regionNear(...SAN_MARCO, countryNear(...SAN_MARCO)?.iso)?.name));
 // Murano and the Giudecca are the same story; the gazetteer's own coordinate for

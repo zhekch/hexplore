@@ -55,13 +55,16 @@ glass look. Click hexagons to mark places you've visited.
 - **Zoom steps**: each grid level is exactly **3×** wider than the previous
   (5 levels, 0–4), and every big-cell center lands on a small-cell center. As
   you zoom out the grid snaps to the next coarser level (~1.585 map-zoom
-  levels apart) and regions **crossfade** concentrically. **Detail** in the
+  levels apart) and regions **crossfade** concentrically. Past the hexagons come
+  three polygon levels — regions, countries, continents. **Detail** in the
   menu pins that choice instead, at either end: *Tiniest* holds level 0 — the
   grid exactly as stored — at every zoom, *Country* holds whole-country fills,
   and *Auto* (the default) follows the zoom. The in-between levels used to have
   buttons of their own; they were five ways of asking for what Auto already
   picks, so a level pinned before they were retired now falls back to Auto
-  rather than sitting there with no way to un-pin it.
+  rather than sitting there with no way to un-pin it. Continents have no button
+  either, for the opposite reason: *Detail* answers "how fine", and the coarsest
+  step is not a fineness anyone pins a valley to — see [Continents](#continents).
 - **Antimeridian**: the column count is integer and even at every level, so
   the grid wraps seamlessly at ±180°; cell ids are canonicalized so the same
   cell matches across world copies.
@@ -158,7 +161,22 @@ glass look. Click hexagons to mark places you've visited.
   per country. Single-color mode's swatch opens the app's **own color picker**
   (`src/color-picker.js`) rather than the OS one, and the map repaints as you
   drag. Every colour it produces can carry an **opacity** — see
-  [Colours with an opacity](#colours-with-an-opacity). Pressing whichever mode
+  [Colours with an opacity](#colours-with-an-opacity).
+  **There are two of them, one per basemap theme** (`accents.light` /
+  `accents.dark`, with `accent` pointing at whichever the basemap on screen
+  calls for). The colour is chosen *against the map underneath it* — that is why
+  the picker repaints on every drag frame instead of showing a swatch — and that
+  map is two different maps: a confident blue over Dark is a pale wash over
+  Voyager, and a weight that reads on the light basemap glares over imagery. One
+  value could only ever be right for one of them. `syncAccent()` does the swap
+  on a basemap change and is a no-op between two basemaps of the same theme,
+  which is most of them, so the blob canvas is not re-rastered for nothing. Only
+  single-colour mode has two: the heat maps never touch the accent. Stored under
+  `visited-map:colors:v1` and in the account as `accents`, with the old
+  single-value key and the old `accent` field still written so a rollback — or a
+  phone on an older build — keeps working; a copy of either that predates the
+  split is read as "this colour stands for both", since nothing records which
+  basemap it was picked against. Pressing whichever mode
   is already on takes the visited areas off the map altogether: the panel could
   do everything except get out of the way, and "what does this valley actually
   look like" is a fair question to ask of a map you have painted over. One flag
@@ -706,7 +724,8 @@ rows and never removes the ones a source has quietly stopped claiming, so until
 now anything that had once put something on the map could not be taken back off
 it.
 
-Settings → **Sources** lists everything that has, with its cells and its routes,
+Export & settings → Settings → **Sources** lists everything that has, with its
+cells and its routes,
 and removes one wholesale: `POST /api/sources/delete` → `forgetSource()`. A cell
 another source also vouches for keeps that row and stays on the map, because
 provenance is per source.
@@ -725,6 +744,55 @@ The dialog arms the button before it fires it, rather than raising a
 confirmation: a modal on top of a modal reads as an error message. It also says
 which kind of loss it is — a source that can be read again says so, and one that
 cannot says that instead.
+
+### Closing the account
+
+Export & settings → Settings, last row and set apart by a rule: **Delete this
+account**, `POST /api/account/delete` → `deleteAccount()`. Every cell, every
+saved route, the preferences, the Home Assistant and Strava links, the remembered
+workouts, the device rows and the sessions — then the account itself.
+
+**There are no foreign keys in this database**, so nothing cascades and nothing
+complains. `DELETE FROM users` on its own leaves every one of those rows behind,
+attached to a user id that belongs to nobody, and ids are handed out by
+`AUTOINCREMENT` — which makes an orphan a row waiting for the day it is
+inherited. So the tables are a written-out list, `USER_TABLES`, and the delete is
+one transaction over it: a failure halfway through leaves the account intact
+rather than half-erased, because a map with its cells gone and its routes still
+drawn is worse than one that refused.
+
+A hand-written list has one failure mode, and it is silent: a table added later
+that nobody adds to the list. So `scripts/test/account-delete.mjs` reads the live
+schema, finds every table carrying a `user_id`, and fails if the server would
+have missed one. It also fills each of them for a real account, closes it through
+the HTTP API, and checks that nothing survives — including `cell_sets`, the
+pre-provenance blob that nothing has written in years and that an old database
+still has a row in. That test is the guarantee; the list is only what it checks.
+
+**The password is asked for again**, and this is the one place here that asks.
+Everything else destructive takes back one source or one route, is scoped, and is
+recoverable from a file you still have. This is the whole map, it is not
+undoable, and what would otherwise stand as consent is a 90-day session cookie —
+which is a fact about a browser, not about who is sitting at it. The endpoint is
+rate limited like a login for the same reason logins are: it verifies a password,
+so unlimited attempts is unlimited guessing.
+
+Two things it deliberately does **not** do:
+
+- **Delete the backups.** They are whole-database snapshots covering every
+  account, so deleting them to close one would destroy everybody else's only way
+  back. A snapshot taken before now still holds the account until it ages out,
+  and the answer carries `backupsKept` so the app can say so rather than leave it
+  to be discovered.
+- **Reserve the username.** It goes back in the pool. A name held forever by an
+  account that no longer exists is a worse answer on a personal server than one
+  that can be taken again.
+
+On the client the answer is treated as a sign-out that has already happened: the
+session is gone before the response arrives, so `mountAuth` exposes `signedOut()`
+— every teardown logging out does, without asking the server anything. The
+offline caches matter most of the four, because the service worker files an
+account's cells and routes under URLs that say nothing about whose they are.
 
 ## Backups
 
@@ -1055,7 +1123,7 @@ row, it's a reading of the rows.
   called `rail`, and for as long as ours had that name too, switching to Light
   or Dark left `getLayer('rail')` answering yes about somebody else's layer
   while the train-track overlay quietly stopped existing. Setting home, and the switch that draws it, live in
-  **Export & settings** under *Personal*, beside the Editing switch — three
+  **Export & settings** under *Settings*, beside the Editing switch — three
   surfaces each opened for another reason used to hold one setting about you
   apiece. The tick for it sits on the home card itself, because "is this the
   right home" is a question you answer by looking at where it is — it started
@@ -1344,7 +1412,7 @@ dataset doesn't subdivide isn't pressable at all.
 
 Admin-1 boundaries — states, provinces, cantons, départements — counted in the
 same sweep as countries, because the expensive part is projecting each cell's
-centre and that is paid once either way. `12 of 4,553` is a number nobody can
+centre and that is paid once either way. `12 of 4,484` is a number nobody can
 feel, so the denominator is the regions of the countries you have actually
 visited.
 
@@ -1358,16 +1426,51 @@ simplifies it hard.
 0.003–0.06°), not one tolerance for everything. A flat 5 km of slack is nothing
 to Krasnoyarsk Krai and it deletes Basel-Stadt outright: at a fixed tolerance the
 build lost 329 small regions, every one of them a place you can visit and would
-then never be credited for. Sized per region, all 4,553 survive in 2.5 MB —
+then never be credited for. Sized per region, all 4,484 survive in 4.0 MB —
 dynamic-imported, like the countries and the place names. Douglas–Peucker runs
 *before* rounding, or it would be measuring the 1 km lattice the rounding just
 made rather than the coastline underneath.
 
-**Regions are the second-coarsest zoom level.** Level 4's hexagons were ~73 km
+**Sizing it per region is also why the dissolve leaks, and the dissolve is
+cleaned up rather than the build.** Two adjacent cantons thin the border they
+share to different vertices, because each is sized against its own bbox. The two
+polylines then cross back and forth along the whole border, and the union opens
+a thin triangle at every crossing: dissolving Switzerland's 26 cantons produced
+one outer ring and **110 holes**.
+
+That is wrong on its own terms — solid Switzerland is what dissolving its
+cantons means — and it also broke the renderer, which is how it surfaced. A near
+zero-width hole tessellates into a fan that reaches the far side of the polygon,
+so a map of Zurich grew two translucent wedges spanning nineteen degrees of
+longitude. Three properties made it very hard to read as a geometry bug: it came
+and went with the zoom (the fan follows wherever the tile clip falls), it was
+absent in the heat modes (which draw each region separately and never dissolve
+anything), and the geometry behind it was byte-identical either way. Those last
+two are what finally pinned it on the union.
+
+`unionGeometries` therefore drops holes that are gaps rather than places, and
+**vertex count is what tells them apart**. Over a nine-country dissolve, 1,643
+of 1,666 holes had six vertices or fewer — triangles and quads, none above
+69 km². Everything above that was real and had to stay a hole: Luxembourg (35
+vertices), Andorra (16), San Marino (14), the Caspian Sea (386). A few lenses
+reach seven or eight vertices, so Polsby–Popper compactness catches the tail —
+a border gap is long and thin where an enclave is compact, and San Marino, the
+least compact real one, still scores 3× the threshold. Area alone would not
+work: the largest artifact is bigger than San Marino. The test is only ever
+applied to *holes*; an outer ring may be as thin as it likes, and a barrier
+island or a fjord's far shore is exactly that.
+
+The country and continent levels never had this, and the reason is worth
+keeping: `countries.json` rounds every coordinate to a shared 0.01° grid, so
+neighbours land on the same lattice and agree about the border between them.
+Rounding to a common grid is a cruder tool than Douglas–Peucker and it is the
+one that preserves topology.
+
+**Regions are the finest of the polygon levels.** Level 4's hexagons were ~73 km
 across, which says nothing a canton doesn't say better — "which cantons have I
 been to" is a question with an answer where "which 73 km squares" is not. So the
-two coarsest steps of the map are polygons: cantons, then countries. *Detail →
-Region* pins that level the way *Country* pins the one above it.
+coarsest steps of the map are polygons: cantons, then countries, then continents.
+*Detail → Region* pins that level the way *Country* pins the one above it.
 
 That needed the crossfade machinery to grow a second vector level, which is what
 had blocked it before (see **Two vector levels**, below).
@@ -1403,6 +1506,23 @@ attempt and is the right one for three reasons, each learned by getting it wrong
   it**, and the answers are cached on disk (`REGION_CACHE_DIR`, default
   `./cache/regions`). The upstream commit is pinned, so the data cannot change
   and the cache never expires: a repeat request is 2–15 ms.
+
+  **But only their side of it is pinned.** A cached answer is a map from *our*
+  region ids to their geometry, and our ids move whenever `regions.json` is
+  rebuilt. When Italy's 110 provinces became its 20 regioni, the cached file —
+  keyed by `Italy/Vercelli` and 105 others — went on being served to a map whose
+  regions are now named `Italy/Veneto`. Every id missed, nothing gained detail,
+  and Italy alone sat on the overview geometry for good, while every other
+  country was fine because no other country's regions had moved. A cache that
+  never expires has to be invalidated by *something*, and "the upstream cannot
+  change" is only half the inputs.
+
+  So each payload carries a `fingerprint`: a hash of our sorted region ids for
+  that country, checked on read. The ids and not the count, because a rebuild
+  that renames a region without changing how many there are strands the cache
+  the same way and is far harder to notice. A file written before the
+  fingerprint existed is kept if the ids it is keyed by are still ids we have,
+  so introducing this did not throw away every country's answer at once.
 - **Choosing the level takes several small requests** and the answer is the same
   for everyone.
 
@@ -1411,14 +1531,43 @@ The browser therefore asks `GET /api/regions/:ISO` and gets back
 proxy onto someone else's dataset is their bandwidth to spend.
 
 **The level is chosen by unit count, and it is not off by a constant.** "Admin-1"
-means something different in each dataset *per country*: Italy's provinces are our
-admin-1 and their **ADM3**, France's départements are ours and their **ADM2**,
-Switzerland's cantons are admin-1 in both. So every level is a candidate, each is
+means something different in each dataset *per country*: France's départements
+are our admin-1 and their **ADM2**,
+Switzerland's cantons are admin-1 in both, and Italy's regioni are ours and their
+**ADM2**. So every level is a candidate, each is
 asked its `admUnitCount`, and they are tried closest-count-first. Getting this
-wrong is not subtle — pairing our 110 Italian provinces against their five ADM1
-macro-regions put a fifth of Italy under one province, and it looked like a
+wrong is not subtle — pairing Italy against their five ADM1
+macro-regions put a fifth of the country under one unit, and it looked like a
 renderer bug: geometrically it *matched*, because their polygon really does
-contain our province's centre.
+contain our unit's centre.
+
+**Italy is dissolved to its twenty regioni at build time.** Natural Earth files
+the 110 *province* as Italy's admin-1, which is a level below the one the
+country is organised into and a level below what anyone means by "which parts of
+Italy have I been to" — nobody counts provinces. Natural Earth already records
+the regione on every province (`region`, ISO code in `region_cod`), so
+`DISSOLVE_BY_REGION` in `scripts/build-regions.mjs` unions them together.
+
+The dissolve runs on the **raw** geometry, before any simplification, which is
+the whole reason it is clean: Natural Earth's provinces share exact vertices
+along the borders between them, so nothing opens up. Thinning first and
+dissolving after is precisely the failure described above under
+`unionGeometries`. The one hole that survives is Natural Earth's own — its five
+Marche provinces already fail to meet at the Umbria–Toscana tripoint, an 11 km²
+gap across 15 points in the source.
+
+It fixes the detailed boundaries at the same time, which is the other half of
+the reason. geoBoundaries' Italian hierarchy is ADM1 = 5 macro-regions, ADM2 =
+the 20 regioni, ADM3 = 107 province. At 110 units the chooser landed on ADM3 and
+paired 106; at 20 it matches ADM2 exactly and pairs **20 of 20**, by name rather
+than by geometry, because geoBoundaries names them in Italian and so do we
+(Natural Earth gives two of the twenty in English — `REGION_NAME_OVERRIDES`
+puts Puglia and Sicilia back). Italy's drawn detail goes from 1,015 points to
+28,836.
+
+One country, by explicit ISO code, rather than "dissolve wherever `region` is
+set": that field is populated for plenty of countries where admin-1 is already
+the level being asked about.
 
 **Partial answers are kept.** Natural Earth counts Hungary's 23 city-counties as
 admin-1 units and geoBoundaries folds them into their counties, so 17 of our 43
@@ -1438,7 +1587,7 @@ rather than catastrophic.
 is decided once, on the overview geometry, so the answer cannot change under you
 when the fine one lands and the per-cell memo stays valid.
 
-What this buys, measured: Switzerland 26 of 26 regions, Italy 106 of 110, France
+What this buys, measured: Switzerland 26 of 26 regions, Italy 20 of 20, France
 96 of 101, Liechtenstein 11 of 11, Hungary 17 of 43. The drawn union of two
 Italian provinces goes from 342 points to 4,158.
 
@@ -1512,6 +1661,179 @@ sit *below* a saved route the rest of the time, because a route is something you
 switched on and left on, and `showTrack` raises them past it only while a day or
 a trip is actually being shown. Home is re-raised immediately after, so the
 order from the top is always home, then the highlight, then everything else.
+
+## Continents
+
+The last step out, below `CONTINENT_ZOOM` (2.75). Each lit continent is filled like a country and
+carries a label saying **how many of its countries you have been to** — which is
+the whole reason the level exists. "Which continents have I set foot on" has a
+seven-item answer a world map already gives you; "how many countries of each" is
+the one worth zooming out to ask, and it is the one number on the map that no
+other level can show.
+
+**It is Auto-only, deliberately.** *Detail* answers "how fine do you want the
+cells", and its four buttons are a range: the grid as stored, Auto, Region,
+Country. A continent is not a fineness — pinning one would mean looking at a
+valley through a shape the size of Africa. The zoom is the only way there.
+
+**There is no continent boundary file.** A continent is its countries dissolved
+(`mergeContinents` in `src/continents.js`), so the two coarsest steps of the map
+are cut from the same coastline. A second outline set would disagree with
+`countries.json` somewhere along every coast, and that shows as a sliver of ocean
+at one zoom level and land at the next. Only the membership is committed —
+`src/continent-map.js`, 2 KB, built by `scripts/build-continents.mjs` from the
+same Natural Earth admin-0 file the countries come from and joined on `ADM0_A3`
+for the same reason (the names disagree).
+
+It is a `.js` module rather than the `.json` every other dataset is, because it
+is 2 KB rather than 4 MB: it belongs in the bundle answering synchronously, not
+behind a dynamic import — and plain Node reads a `.js` module without the import
+attribute JSON needs and Vite doesn't want. It is grouped by continent so a
+re-run's diff says which country moved rather than reflowing 240 lines.
+
+**A cell reaches its continent through its country.** `buildAreaFC` reads the
+*country* memo and maps the answer on rather than resolving a third time against
+the dissolved outline — which would be the same test over a shape with more
+points in it, and one that could still disagree with the level below wherever the
+union left a seam. So the two levels cannot light different places for the same
+cell, by construction rather than by two implementations agreeing.
+`scripts/test/continents.mjs` pins that from both ends, including through the
+tap path (`countryNear`), which is a different lookup than the fill uses.
+
+**A country belongs to one continent whole.** Natural Earth — and the UN's M49
+scheme — put all of Russia in Europe and all of Turkey in Asia, so Europe is
+23M km² here rather than the 10M an atlas prints. Splitting a country would break
+both the shape and the count: the fill is its countries dissolved, and the count
+would have to place Russia twice or nowhere. The label says "12 countries", not
+"12 of 50" — the denominator would be Natural Earth's admin-0 list, which counts
+Jersey and the Vatican, and this map has no business settling what a country is.
+
+**The eight countries Natural Earth files under "Seven seas (open ocean)" are
+placed by hand** in the build script. Three of them — Mauritius, Seychelles, the
+Maldives — are sovereign states somebody can spend a fortnight in, and a country
+with no continent is drawn at the country level and then *vanishes* one zoom out,
+which reads as a hole in a landmass. The polar leftovers go to Antarctica.
+
+**The label rides the level's own source.** It is a `k = 3` point feature on
+`hex`/`hex-prev` beside the `k = 1` fill and `k = 2` outline, so it crossfades
+with the level for free. A count that stayed on screen while the shape under it
+dissolved into countries would be the one thing on the map not belonging to a
+level. Three details it took a look at the real map to get right:
+
+- **The fontstack is read off the basemap** (`styleFont`), not hardcoded: CARTO
+  serves Open Sans and OpenFreeMap serves Noto Sans, and a stack the glyph server
+  has never heard of is a label that silently never draws. Not simply the *first*
+  stack in the style, either — CARTO's first symbol layer is a waterway name, and
+  taking it drew the continent counts in italic.
+- **The basemap's own continent names are switched off** while this level is live
+  (`setBasemapContinents`). Ours carry the name and the number both, and MapLibre's
+  collision only removes a label ours actually overlaps — "AFRICA" sitting just
+  above "Africa · 1 country" overlaps nothing. The layer is `place_continent` on
+  CARTO and `continent` on OpenFreeMap, so the match is on the substring.
+- **The label layer takes no `beforeId`**, unlike the three under it. MapLibre
+  places symbols from the top layer down, so being above the basemap's labels is
+  what lets ours go first; `ignore-placement: false` then pushes colliding
+  basemap labels out of the way, and `allow-overlap: true` means ours is never
+  the one dropped. `raiseVectorLayers` puts it back in the same spot after a
+  crossing, because `VEC_ANCHOR` is the trip track that was added just above it.
+
+**It is the one boundary off the 3× ladder, and `minZoom` is 2.** The ladder
+puts the country → continent crossing at `levelBoundary(5)` = z2.075, which
+`LEVEL_HYSTERESIS` (0.28) makes unreachable from a floor of 1.8 — the level had
+no room at all. The obvious fix was to drop `minZoom` to 1 and take the room
+from the bottom of the map. That was wrong, and the way it was wrong is worth
+keeping:
+
+MapLibre requests tiles at `floor(zoom)`, so **anything below z2 draws on a
+basemap's z1 tiles**, and a basemap generalises its coastlines hard at z1 —
+much coarser than our own ~1 km outlines. Our sharp fill over the basemap's
+blunt one leaves the basemap's land poking out all along every coast as dark
+jagged rims, and it is worst in the Arctic, where Mercator stretches the
+mismatch 4.8×. Almost the whole of the (1, 2.075] band was down there.
+
+It reads exactly like a level-of-detail bug in our own data, and it isn't one:
+`countries.json` has a single resolution, the source is created with
+`tolerance: 0`, and geojson-vt's quantisation works out to ⅛ of a pixel at
+every zoom. Three separate measurements chased the wrong thing — the region
+dataset is no *finer* than the country one (539 points for Svalbard against
+567), the polygon union is byte-clean around the artifact, and the jagged view
+was at *lower* zoom than the clean one, where the same polygons must look
+smoother. What settled it was two `visitedMap.state()` dumps identical in every
+field but the zoom, one either side of 2.0.
+
+So `CONTINENT_ZOOM` (2.75) overrides `levelBoundary(COUNTRY_LEVEL)` and the
+level takes its room out of the country band instead: continents own (2, 2.75]
+and countries (2.75, 3.66]. Both are narrower than a full 1.585 step and both
+are wide enough for the hysteresis to sit inside, and every zoom either level
+can be at is on z2 tiles or finer. `neighbourVectorLevel` reads the *midpoint*
+of the country band rather than "within 1.2 of the bottom", because 1.2 now
+covers the whole of it — which would warm continents on every zoom and leave
+the region level to be parsed from cold on the way in.
+
+The cost is that the map no longer zooms out quite as far as it did (2 rather
+than 1.8), and that the default first view — zoom 2.2 — now lands on continents
+rather than countries.
+
+**The union is the cost, and it is paid before the crossing.** Dissolving Europe
+and Africa together is ~200 ms of main thread — the same order as the region
+level's first build, and the reason `warmVector` pre-tiles the neighbour a zoom
+early applies here unchanged. It is held in `areaFC.continent` afterwards, and
+each continent's own outline is memoised separately in `src/continents.js` for
+the heat maps (one feature per continent) and the selection ring.
+
+## Which pieces of a country are the country
+
+`stripDetachedTerritories` (`scripts/lib/geo-filter.mjs`) trims a country's
+outline to the parts that are the country proper, so that one cell in French
+Guiana doesn't light the whole of France at the country level and mainland Spain
+isn't tied to the Canaries. It is a proximity flood-fill from the largest
+polygon, keeping anything that chains within `OVERSEAS_GAP_DEG` (6°) of a piece
+already kept — which holds Japan, Indonesia, the UK and Malaysia's two halves
+together while dropping the colonies.
+
+**Distance alone was deciding it, and it got Alaska wrong.** Alaska's bounding
+box is 7.6° from the contiguous United States; the Canaries' is 8.6° from
+Andalusia. There is no single distance that keeps a state and drops an
+archipelago when the two are the same distance away, and the answer for a long
+time was to drop both.
+
+That was not a cosmetic loss. The filter deletes geometry, so Alaska was not
+merely unlit — it was **not in the dataset**. `countryAt` returned null across
+the whole state, which meant an Alaskan cell was in no country, so it was
+counted as *ocean* by the coverage sweep, got no region either (the region
+lookup is only ever run inside the country a cell already resolved to, and the
+admin-1 file had Alaska all along), was named "at sea or off the map" by the
+trip-naming pass, and left a bite out of North America at the continent level.
+The continent level is only where it became obvious: a hole in a country reads
+as somewhere you have not been, and a hole in a continent reads as a bug.
+
+**Size is the second reason to keep a piece**, because size is what the question
+was always about. Alaska is 18% of the contiguous United States; the Canaries
+are 0.4% of mainland Spain, the Galápagos 1.9% of Ecuador, Hawaii 0.13%. So a
+polygon is also kept when it is at least `MAJOR_PART_SHARE` (10%) of the
+mainland *and* within `MAJOR_PART_GAP_DEG` (10°) — large, and still on the same
+side of the world. French Guiana is 16% of France and would pass the size test;
+it is 59° away and never gets asked.
+
+Every bound has an order of magnitude of slack on the cases it decides, except
+Alaska's own distance, which has a third. Measured against Natural Earth 1:50m,
+exactly three countries change: the United States gains Alaska, and Micronesia
+and French Polynesia gain the far halves of their own archipelagos. The share is
+measured as real spherical area rather than the flat shoelace that used to pick
+the seed — a share of the mainland has to mean the same thing at 65°N as at
+25°N, and in degrees² Alaska reads three times its size.
+
+**What is still dropped is dropped knowingly.** A cell in Tenerife, Honolulu or
+Cayenne resolves to no country and is counted as ocean, which is the price of
+not letting a remote holding light a mainland. `scripts/test/area-attribution.mjs`
+pins both halves — Alaska in, those three out — so that widening the gap to
+rescue somewhere else has to face what it costs.
+
+One genuine gap remains: the **western Aleutians**, past 180°. `bboxGap` is flat
+lng/lat arithmetic, so a polygon at +173° reads as 300° from Alaska rather than
+7°, and no threshold reaches it. Attu is a few hundred square kilometres and a
+hundred and fifty people; measuring the gap the short way round the world is the
+fix, and it has not been worth doing.
 
 ## What a basemap switch takes with it
 
@@ -1605,16 +1927,41 @@ listed it twice, and counted its kilometres twice. On a real map, 81 rows were
 70 outings and 342 km of the 1,779 km total had been ridden once.
 
 **The start time carries it.** You cannot begin two rides in the same minute,
-and in practice the two clocks agree to within five seconds. `DUP_START_SEC`,
-`DUP_LENGTH_TOL` and `DUP_BBOX_IOU` are set an order of magnitude looser than
-the worst real pair (5 s, 0.4%) and are still nowhere near loose enough to fuse
+and in practice the two clocks agree to within seconds. `DUP_START_SEC`,
+`DUP_LENGTH_TOL` and `DUP_BBOX_IOU` are set from what the real pairs look like
+rather than from what felt safe, and are still nowhere near loose enough to fuse
 two outings.
 
-Three signals are deliberately *not* used, each because the real data says so:
+### A ski day is not a run
+
+A *flat* start gate is the wrong shape, and the ski days are where that showed:
+thirteen of them sat in the list twice, each as an Apple Health row beside a
+Strava one, because the two starts were minutes apart rather than seconds. An
+hour's run is two apps started with the same thumb — every such pair on the map
+agrees to within thirteen seconds. Six hours on a mountain is a watch started at
+the first lift and a phone remembered somewhere on the way up: six real pairs
+start between 5 and 20 minutes apart, and two minutes hid all of them.
+
+So the gate scales. Measured as a fraction of the *shorter* of the two
+recordings, every duplicate on a real map lands under 5.9% and the closest thing
+that must **not** fold — two walks round the same block on one afternoon, 2%
+apart in length and in the same place — sits at 257%. `DUP_START_SPAN` is a
+tenth: 1.7× clear of the first, 26× under the second, the widest margin any of
+these numbers has.
+
+It only ever loosens things for long outings, which is where it is safest — at a
+tenth, two recordings that fold necessarily overlap by nine tenths of the shorter
+one, and you cannot have been on two outings at once. The span comes from
+`recordedSeconds`, which hands back 0 for a clock left running, so those rows
+drop back to the flat floor instead of being granted a week of slack.
+
+Three signals are deliberately *not* used to decide **whether** two rows are one
+outing, each because the real data says so:
 
 - **the end time**, and any overlap computed from it. One real Komoot row claims
   a 9,802-minute ride for what Strava recorded as 110 minutes. The end of a tour
-  is not a clock.
+  is not a clock. (`recordedSeconds` above is not an exception: it scores exactly
+  those rows 0.)
 - **the activity.** The same walk came back as *Walking* from one app and
   *Hiking* from the other.
 - **the source.** The obvious duplicate is Komoot against Strava, but the same
@@ -1622,13 +1969,29 @@ Three signals are deliberately *not* used, each because the real data says so:
   the pair that prompted this.
 
 **Which copy survives** is `preferredRoute`, ordered so the answer is identical
-on every device and every reload: a link first, because a Komoot route opens on
-Komoot and no amount of Strava data turns into that; then a recorded activity
-over one this app guessed from the speed, which is what separates the two Strava
-rows that are the same run; then known ascent, then more points, then the older
-row. On the eleven real pairs that chain keeps every Komoot row and, among
-same-source pairs, the one that was not guessed at — *Bern → Zollikofen* over
-*bern zollikofen*.
+on every device and every reload. Which app it came from leads — `SOURCE_RANK`:
+**Komoot, then Apple Health, then Strava**. Komoot because a Komoot route opens
+on Komoot and no amount of Strava data turns into that; Health above Strava
+because Health is the watch's own record of the day and Strava is a copy of it,
+and because a Strava row can be edited after the fact while the workout it came
+from cannot. Only those three are ranked: they are the ones that actually
+produce duplicates, and a source this app has no opinion about should fall
+through rather than be guessed at.
+
+Below the source, deciding between two rows of the same app and between two
+unranked sources: a link, then a recorded activity over one this app guessed from
+the speed — which is what separates the two Strava rows that are the same run —
+then known ascent, then more points, then the older row. On a real map of 393
+routes that chain folds 78 rows away: 46 Apple Health rows over Strava, 11 Komoot
+rows over Health.
+
+**Folded flat, not into a chain.** Four copies of one ski day are matched
+pairwise, and pairwise the second can land behind the third before the third
+lands behind the fourth — which hides the right rows but records the first as
+standing behind a row that is itself hidden. A pass at the end of
+`duplicateRoutes` walks each answer through to the row still standing. There are
+no cycles to guard against: a route is written into the map at most once and
+skipped from then on, so every chain ends at a key that isn't there.
 
 **Derived, never stored.** It is a fact about the data rather than a judgement
 about it, so `duplicateRoutes` runs whenever the list changes; a tour imported
@@ -1744,12 +2107,18 @@ an answer.
 
 ## Tapping a region
 
-At the two vector levels there are no hexagons on screen, so a tap is about the
+At the three vector levels there are no hexagons on screen, so a tap is about the
 shape it landed on rather than about the 83 km cell underneath it. The card is
 the same one a cell gets, because it is the same question asked of more ground —
 when was I here, how often, and where does that come from — with the two answers
 only an area can give: how much of it you have been to, and how much of it there
-is.
+is. A continent adds a third — **how many of its countries you have been to**,
+`3 of 50` — as a row of its own above the ground covered, not as a decoration on
+the line that names what was tapped. The two are different measurements and want
+comparing: crossing the top of Africa by road is a rounding error of its ground
+and four of its countries, and a year in Luxembourg is the other way round. It
+was briefly in the subtitle beside the word "Continent", where it read as *what
+kind of thing this is* rather than as a number about it.
 
 **The area is resolved from the point, not from the hex.** `areaAt` runs
 `countryNear`/`regionNear` on the tapped coordinate, so a tap near a border gets
@@ -1765,9 +2134,21 @@ invalidated by an edit — a cell centre never moves, so its answer is good
 forever — which means an erased cell keeps its entry, and the card must not go
 on counting it.
 
-**Nothing lit means no card.** An unvisited region, or open sea, falls through
-to the cell card, which finds nothing and closes — the same answer the fill is
-already giving by being empty there.
+**A shape you have never been to still gets a card.** It used to fall through to
+the cell card, which found nothing and closed, on the reasoning that an empty
+fill already says "you have not been here". It says that and nothing else. How
+big Kazakhstan is, that you have been to none of it, and that Asia is 54
+countries of which you have seen three are all answers, and the second is only
+worth having next to the first. A tap that does nothing is also indistinguishable
+from a tap that missed, which at this zoom — where a country can be four pixels
+wide — is a real question the map was refusing to answer.
+
+The fall-through survives for the **open sea**, where `areaAt` finds no shape at
+all: there the cell card takes over, finds nothing, and closes. That is still
+right, because there is nothing there to describe.
+
+The card says `None yet` rather than `0.0 km² · 0%` for the ground covered.
+Zero is the answer, but printed as a measurement it reads like a rounding of one.
 
 **Ground covered is measured per cell, at its own latitude.** The grid is
 Mercator, so a cell's ground area shrinks with `cos²(lat)`; summing a constant
@@ -1821,7 +2202,7 @@ pins that, and pins the Appenzell case from both ends.
 The saving that motivated the roll-up turned out not to be needed. The note it
 came from predates both the region tile index and passing the already-resolved
 country into the region lookup, which together drop all but a couple of dozen of
-the 4,553 shapes before any geometry is touched. Measured on a 23k-cell map: 115
+the 4,484 shapes before any geometry is touched. Measured on a 23k-cell map: 115
 ms for the first build at the region level, 1.1 ms for every build after it,
 because the answer is memoised per cell id and a cell centre never moves. The
 polygon union in `mergeRegions` costs more than either.
@@ -1859,10 +2240,14 @@ across sources that sample at wildly different rates, and it isn't.
 
 ## Two vector levels
 
-Two of the levels are polygons rather than hexagons, and they have to hand over
-to each other. That is what `hex-prev` is for — and until regions arrived it was
-a permanently empty scaffold, because the outgoing side was always either the
-blob canvas or `hex` itself.
+Three of the levels are polygons rather than hexagons — regions, countries,
+continents — and they have to hand over to each other. That is what `hex-prev` is
+for, and two sources are all it takes however many such levels there are: a
+crossing has exactly two sides. Until regions arrived `hex-prev` was a permanently
+empty scaffold, because the outgoing side was always either the blob canvas or
+`hex` itself. Adding continents on top of that cost one line —
+`neighbourVectorLevel` learning that the country level has a different neighbour
+each way, which is what the region level already had to know.
 
 **Each vector source carries its own role**, and the two ramps read those rather
 than assuming which surface is which:
@@ -2230,6 +2615,33 @@ written and nothing bundled into the IPA. Bundling the built site into the app
 was the obvious alternative and is the worse one: a copy of the web app inside
 the app is a second copy that can disagree with the server's, which is the trade
 this project keeps refusing.
+
+## The build number, and bumping it
+
+**`SERVER_VERSION` at the top of `server/index.js` must be bumped on every
+change to the code.** It rides along with the session (`/api/me`, and the login
+and register responses, so a fresh sign-in knows it without a second round
+trip), and it is printed at the foot of **Settings**.
+
+It is one line of work and it earns its keep on the one question this codebase
+keeps failing to answer quickly: *which build am I actually looking at*. Every
+long debugging session here has turned out to be a version of it —
+
+- a browser replaying a year-old `immutable` response for `/api/regions/:ISO`
+  through twenty rebuilds and restarts,
+- a `304` served against a signature that could not see a dataset change
+  underneath it, so the statistics went on reporting 110 Italian provinces,
+- a service worker holding a shell from two deploys ago.
+
+In every one, the map looked merely *wrong*, and there was nothing on screen to
+say that the code being read was not the code that was running. A number you can
+read out settles it in one message, and rules out the whole class before anyone
+measures anything.
+
+Bump the patch for a fix, the minor for anything someone would notice. **A stale
+version is worse than none at all**: the entire value is that it can be trusted
+to rule the question out, and one that lies rules out the very thing that is
+wrong.
 
 ## Run & host
 

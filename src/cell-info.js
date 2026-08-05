@@ -102,18 +102,35 @@ export function mountCellInfo({ onClose } = {}) {
     // when a file was dropped in, which is never the question anyone opened this
     // card to ask.
     if (info.cellCount > 1) row('Cells inside', info.cellCount.toLocaleString());
+    // How many of the smaller places inside it you have been to — countries in
+    // a continent. It sits above the ground covered because the two answer
+    // genuinely different questions and this is the one that scales with a
+    // trip: crossing the top of Africa covers a rounding error of its ground
+    // and four of its countries.
+    if (info.inside) {
+      row(
+        info.inside.label,
+        info.inside.of ? `${info.inside.n} of ${info.inside.of.toLocaleString()}` : info.inside.n.toLocaleString(),
+      );
+    }
     // How much of it you have actually been to. Only an area can answer this —
-    // for a single cell the question is the cell.
-    if (info.covered) {
+    // for a single cell the question is the cell, so `covered` is left undefined
+    // there. Zero is still an answer, and an area card that has been opened on
+    // somewhere you have never been is exactly where it has to be given: the
+    // card would otherwise be a title and a size, which reads as a card that
+    // failed to load.
+    if (info.covered != null) {
       // The share is dropped only when there is nothing to compare against —
       // a region whose polygon area we don't have. Being a very small fraction
       // of France is a fact about France, not a reason to withhold it.
       row(
         'Ground covered',
-        info.coveredPct > 0
-          ? `${km2(info.covered)} · ${pct(info.coveredPct)}`
-          : km2(info.covered),
-        `${Math.round(info.covered).toLocaleString()} km² of ${info.coveredOf}`,
+        info.covered <= 0 ? 'None yet'
+        : info.coveredPct > 0 ? `${km2(info.covered)} · ${pct(info.coveredPct)}`
+        : km2(info.covered),
+        info.covered > 0
+          ? `${Math.round(info.covered).toLocaleString()} km² of ${info.coveredOf}`
+          : `Nothing on the map in ${info.coveredOf} yet`,
       );
     }
     // Visits are the number the heat map reads, and the only count worth

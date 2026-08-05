@@ -60,3 +60,40 @@ export function installOffline() {
 export function forgetAccountOffline() {
   container()?.controller?.postMessage({ type: 'forget-account' });
 }
+
+/**
+ * Throw away every cached copy this origin holds and come back fresh.
+ *
+ * All of it is derived — the shell, the boundary datasets, the last answer the
+ * API gave — so the cost is one slower load and nothing else. Nothing here
+ * touches the account: cells, routes and preferences live on the server.
+ *
+ * It exists because a stale cache is invisible from the inside. Italy's region
+ * boundaries were served `immutable` for a year under a URL that did not
+ * mention which regions they were for, so when the dataset changed underneath,
+ * browsers went on replaying the old answer through rebuilds, restarts and
+ * reloads — and from the map it simply looked as though the app drew Italy
+ * badly. The URL is keyed properly now, but any cache can go wrong in a way
+ * that leaves no way to ask it to stop, and one button beats explaining
+ * `caches.keys()` to someone.
+ *
+ * The service worker goes too, not just its caches: a worker from an older
+ * build carries its own idea of what to serve, and unregistering it is the only
+ * way to be sure the next load is the one on the server.
+ */
+export async function clearOfflineCaches() {
+  const sw = container();
+  const results = await Promise.allSettled([
+    (async () => {
+      for (const r of (await sw?.getRegistrations?.()) ?? []) await r.unregister();
+    })(),
+    (async () => {
+      if (typeof caches === 'undefined') return;
+      for (const key of await caches.keys()) await caches.delete(key);
+    })(),
+  ]);
+  // Reported rather than thrown: a browser that refuses one of these (private
+  // browsing, a disabled worker) has still had the other one done, and the
+  // reload that follows is worth doing either way.
+  return results.every((r) => r.status === 'fulfilled');
+}

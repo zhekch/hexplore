@@ -9,6 +9,7 @@
 import { SQRT3, radiusOf, cellCenter, project, MAX_LEVEL } from './hexgrid.js';
 import { loadCountries, countryAt, countryNear, countryAreaKm2, countryCount } from './countries.js';
 import { loadRegions, regionNear, regionAreaKm2, regionsInCountry } from './regions.js';
+import { continentOf } from './continents.js';
 import { dayKey, longestStreak } from './trips.js';
 
 // Earth's land surface, the yardstick for "% of the world" (oceans excluded —
@@ -38,7 +39,7 @@ export const WHOLE_COUNTRY = '\u0000country:';
  * `countryAt`, because it has a second question to answer — how much of what
  * you covered was *sea* — and "near land" is the wrong answer to that one.
  *
- * @param {'region'|'country'} kind
+ * @param {'region'|'country'|'continent'} kind
  * @param {string} id stored cell id, "L/col/row"
  * @returns {string|null} the area's id, or null for a cell in no country at all
  */
@@ -69,6 +70,11 @@ export function areaOfCell(kind, id) {
 function areaAtPoint(kind, lng, lat) {
   const at = countryNear(lng, lat);
   if (!at) return null;
+  // A continent is reached through its country rather than from its own
+  // outline: the outline *is* the countries dissolved, so asking it directly
+  // would be the same test run against a shape with more points in it, and the
+  // two could still disagree at a coast where the union left a seam.
+  if (kind === 'continent') return continentOf(at.id);
   if (kind !== 'region') return at.id;
   const region = regionNear(lng, lat, at.iso);
   if (region) return region.id;

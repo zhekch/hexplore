@@ -22,7 +22,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { areaOfCell, computeStats } from '../../src/stats.js';
-import { loadCountries } from '../../src/countries.js';
+import { loadCountries, countryAreaKm2 } from '../../src/countries.js';
 import { loadRegions } from '../../src/regions.js';
 import { pointToCell, mercX, mercY, colsOf, normCol, parentOf } from '../../src/hexgrid.js';
 
@@ -144,6 +144,46 @@ console.log('\nthe map and the statistics panel agree');
     !counted.has('Switzerland/Appenzell Innerrhoden'),
     'and neither of them counts Appenzell Innerrhoden',
   );
+}
+
+console.log('\na state is not an overseas territory');
+
+// Alaska used to be missing from the country dataset outright.
+// `stripDetachedTerritories` drops pieces more than 6° from the mainland so
+// that one cell in French Guiana doesn't light the whole of France, and Alaska
+// is 7.6° from Washington state — so it was dropped along with the colonies.
+// That did not merely leave it unlit: `countryAt` returned null there, so an
+// Alaskan cell was in no country, counted as ocean by the coverage sweep,
+// named "at sea or off the map", and left a hole in North America at the
+// continent level. See scripts/lib/geo-filter.mjs.
+{
+  const towns = { Anchorage: [-149.9, 61.22], Fairbanks: [-147.72, 64.84], Juneau: [-134.42, 58.3] };
+  for (const [town, at] of Object.entries(towns)) {
+    const country = areaOfCell('country', cellAt(...at));
+    check(country === 'United States of America', `${town} is in the United States`, country);
+  }
+  const region = areaOfCell('region', cellAt(...towns.Anchorage));
+  check(region === 'United States of America/Alaska', 'and in Alaska', region);
+  // The region dataset always had Alaska — it is the *country* file that was
+  // filtered — so before the fix the region lookup found nothing either, because
+  // it is only ever asked inside the country a cell already resolved to.
+  check(
+    countryAreaKm2('United States of America') > 9e6,
+    'the country it is part of is measured with it in',
+    Math.round(countryAreaKm2('United States of America')).toLocaleString(),
+  );
+}
+
+// The other half of the same rule: distance still drops what it is for. Both of
+// these resolve to nothing, which is the deliberate cost of not letting a
+// remote holding light a mainland — a Canary Islands cell is counted as ocean.
+// Pinned so that widening the gap to rescue somewhere else has to face it.
+{
+  const away = { Honolulu: [-157.86, 21.31], 'Tenerife': [-16.55, 28.29], 'Cayenne': [-52.33, 4.92] };
+  for (const [place, at] of Object.entries(away)) {
+    const country = areaOfCell('country', cellAt(...at));
+    check(country === null, `${place} is still outside the filtered outlines`, country);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

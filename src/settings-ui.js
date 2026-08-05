@@ -11,25 +11,23 @@
 
 /**
  * @param {object} opts
- * @param {{open:Function, summary:() => string}} opts.personal the Personal dialog
+ * @param {{open:Function}} opts.personal the Settings dialog
  * @param {{open:Function}} opts.backup the Backups dialog
- * @param {{open:Function}} opts.sources the Sources dialog
  */
-export function mountSettings({ personal, backup, sources }) {
+export function mountSettings({ personal, backup }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('settings-overlay');
   const backupNote = $('settings-backup-note');
-  const personalNote = $('settings-personal-note');
 
   // Export is listed and disabled rather than left out. There is nothing behind
   // it yet, and saying so is more honest than a menu that quietly grows an
   // entry later — the row points at where the way out currently is.
-  const targets = { personal, backup, sources };
+  //
+  // Sources is no longer one of these. It is reached from inside Settings now,
+  // because it is not a way of getting your map out — which is what this hub is.
+  const targets = { personal, backup };
 
   const open = () => {
-    // Where home is can be changed from the picker two dialogs down, so the row
-    // is written on every opening rather than pushed at us when it changes.
-    personalNote.textContent = personal?.summary?.() ?? 'Home and editing';
     overlay.hidden = false;
   };
   const close = () => {

@@ -5,10 +5,19 @@
 // tag" but the two ways a tag can lie:
 //
 //   • **too sticky** — the answer changed and the tag didn't, so the client is
-//     told 304 and goes on showing the old one. Both real instances of this are
-//     pinned below: renaming a route (which moves none of the aggregates the
+//     told 304 and goes on showing the old one. Two of the three real instances
+//     are pinned below: renaming a route (which moves none of the aggregates the
 //     signature is built from) and setting your home (which is an input to
 //     every trip and is not a row at all).
+//
+//     The third is not pinned here and should be. Rebuilding a gazetteer is an
+//     input change of exactly the same kind: when Italy's 110 provinces became
+//     20 regioni the statistics went on saying 110, because the rows behind the
+//     signature had not moved and the server answered 304 without recomputing —
+//     through every restart. `GAZETTEER_STAMP` in server/index.js is now in the
+//     signature, but testing it needs a seam this file does not have: the
+//     datasets are read from a fixed path, so a case would have to write to
+//     `src/`. Worth adding a data-directory override for.
 //   • **too loose** — the answer didn't change and the tag did, so nothing is
 //     ever a 304 and the whole exercise was for nothing. Hence the checks that
 //     a repeat read matches, and that a route edit leaves the *cells* alone.

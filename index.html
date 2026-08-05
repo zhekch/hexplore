@@ -449,18 +449,21 @@
         </div>
 
         <div class="sync-options">
-          <!-- First in the list on purpose: these are settings about you and
-               your map, and the two below are about getting a copy of it out.
-               Home used to live in the trips palette and Editing in the layers
-               menu, which meant "things about me" was in three places. -->
+          <!-- First in the list on purpose: everything about this instance and
+               how it behaves, where the two below are about getting a copy of
+               your map out. Home used to live in the trips palette and Editing
+               in the layers menu, which meant "things about me" was in three
+               places; Sources and the cache escape hatch were rows of their own
+               here, which made a hub of five doors where two of them were
+               settings. -->
           <button type="button" class="sync-option" data-settings="personal">
             <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="8" r="3.6" />
-              <path d="M4.8 20a7.2 7.2 0 0 1 14.4 0" />
+              <circle cx="12" cy="12" r="3.2" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
             </svg>
             <span class="sync-option-text">
-              <b>Personal</b>
-              <small id="settings-personal-note">Home and editing</small>
+              <b>Settings</b>
+              <small>Home, clock, editing, sources and cached data</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -477,21 +480,6 @@
               <b>Export</b>
               <small>Nothing here yet — the way out is a backup, below</small>
             </span>
-          </button>
-
-          <button type="button" class="sync-option" data-settings="sources">
-            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 7h16" />
-              <path d="M4 12h16" />
-              <path d="M4 17h10" />
-            </svg>
-            <span class="sync-option-text">
-              <b>Sources</b>
-              <small id="settings-sources-note">What is on your map, and what put it there</small>
-            </span>
-            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m9 5 7 7-7 7" />
-            </svg>
           </button>
 
           <button type="button" class="sync-option" data-settings="backup">
@@ -520,8 +508,8 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Personal</div>
-            <div class="modal-sub">Where the map is measured from, and what a tap on it does.</div>
+            <div class="modal-title">Settings</div>
+            <div class="modal-sub">Where the map is measured from, what a tap on it does, and what it is built out of.</div>
           </div>
           <button class="cell-info-close" id="personal-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -564,6 +552,86 @@
           <span>Editing<small>Puts the pencil on the map, so a tap marks or clears a cell</small></span>
           <input type="checkbox" id="edit-toggle" />
         </label>
+
+        <!-- The two that are about the map's ingredients rather than about you.
+             Both used to be rows in the hub, which made a list of five doors
+             where two of them belonged behind this one. In the same container
+             the hub uses, which is where a row of this shape gets its spacing
+             from — on their own they sit flush against each other. -->
+        <div class="sync-options">
+        <button type="button" class="sync-option" data-personal="sources">
+          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 7h16" />
+            <path d="M4 12h16" />
+            <path d="M4 17h10" />
+          </svg>
+          <span class="sync-option-text">
+            <b>Sources</b>
+            <small id="settings-sources-note">What is on your map, and what put it there</small>
+          </span>
+          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m9 5 7 7-7 7" />
+          </svg>
+        </button>
+
+        <!-- The escape hatch. Everything this app caches is derived — the
+             shell, the boundary datasets, the last answer the API gave — so
+             throwing it away costs a slower next load and nothing else. It
+             exists because a stale cache is invisible from the inside: it looks
+             like the app is simply wrong, and nothing on the map tells you that
+             you are being shown last week's copy of it. -->
+        <button type="button" class="sync-option" id="settings-clear-cache">
+          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 11a8 8 0 1 0-2.3 6.3" />
+            <path d="M20 5v6h-6" />
+          </svg>
+          <span class="sync-option-text">
+            <b>Reload cached data</b>
+            <small id="settings-cache-note">Throw away the offline copy and fetch everything again</small>
+          </span>
+        </button>
+        </div>
+
+        <!-- Closing the account. Last in the dialog and visually apart from it,
+             because it is the one control here that cannot be undone and the
+             one that should never be hit on the way to something else.
+
+             The password field is not shown until the first press: a password
+             box sitting open in a settings dialog invites a browser to fill it
+             in, and an autofilled field one click from deleting everything is
+             the arrangement this whole section exists to avoid. -->
+        <div class="settings-danger">
+          <button type="button" class="settings-danger-open" id="account-delete-open">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 7h16" />
+              <path d="M9 7V5h6v2" />
+              <path d="M6 7l1 13h10l1-13" />
+            </svg>
+            <span class="sync-option-text">
+              <b>Delete this account</b>
+              <small>Your map, your routes and your connections, permanently</small>
+            </span>
+          </button>
+
+          <form class="settings-danger-confirm" id="account-delete-form" hidden>
+            <p class="settings-danger-warning" id="account-delete-warning"></p>
+            <label class="settings-danger-field">
+              <span>Enter your password to confirm</span>
+              <input type="password" id="account-delete-password" autocomplete="current-password" />
+            </label>
+            <p class="settings-danger-error" id="account-delete-error" hidden></p>
+            <div class="settings-danger-actions">
+              <button type="button" class="modal-btn" id="account-delete-cancel">Cancel</button>
+              <button type="submit" class="modal-btn danger" id="account-delete-confirm">Delete everything</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Last, and deliberately plain: it is not a control. It is here so
+             that "which build am I actually running" has an answer you can read
+             out over a message, which is the question every stale-cache report
+             turns out to have been. -->
+        <div class="settings-version" id="settings-version" hidden></div>
 
         <div class="modal-actions">
           <button type="button" class="modal-btn" id="personal-back">Back</button>

@@ -17,7 +17,7 @@ number of approaches that were tried and abandoned.
 
 - **Click to mark.** Turn on editing and paint cells. The base cell is about
   900 m across; marks roll up, so a single visited cell lights its whole
-  country when you zoom out.
+  country when you zoom out — and its whole continent one step further.
 - **Soft blobs, not tiles.** Marked areas are drawn as discs, blurred, and cut
   at a fixed alpha — neighbouring cells merge and blend their colours.
 - **Import your history.** GPX, KML, TCX, FIT, GeoJSON, CSV, Google Timeline,
@@ -136,6 +136,12 @@ back off wholesale. That is a different question from clearing a cell: clearing
 says *I was never here*, whoever said otherwise, while this says *stop trusting
 this way of finding out* — so a cell another source also vouches for stays.
 
+**Done with the whole thing?** Menu → Export & settings → **Settings** → **Delete
+this account**, at the bottom. It takes the map, the saved routes, your
+preferences and any Home Assistant or Strava connection with it, and asks for
+your password first because none of it comes back. One thing it cannot reach:
+a backup taken before you did it still holds a copy until it ages out.
+
 ## What you get
 
 **Saved routes.** Any track you import can keep the line it drew, not just the
@@ -247,9 +253,15 @@ The iOS app gets this for free: its Map tab is the same site in a web view, and
 web views have run service workers since iOS 14.
 
 **Zooming out** goes from hexagons to shapes you recognise: at about z5 the grid
-gives way to **regions** — cantons, states, départements — and one step further
-out to whole countries. *Detail* pins any of those: the finest grid, Region, or
-Country.
+gives way to **regions** — cantons, states, départements — one step further out
+to whole countries, and at the very end to **continents**, each labelled with
+how many of its countries you have been to. *Detail* pins the first three: the
+finest grid, Region, or Country. Continents are the end of the zoom rather than
+a setting — there is nothing to pin a valley to.
+
+A country belongs to one continent whole, which is why Russia lights up Europe
+and Turkey lights up Asia: that is how Natural Earth files them, and how the UN
+does too.
 
 Pinned to Region and zoomed in, the outlines sharpen: the shipped boundaries are
 simplified to about a kilometre, and past that zoom the app fetches the real
@@ -287,6 +299,7 @@ Committed, so a clone runs without network. Re-run only to refresh it:
 
 ```sh
 npm run build:countries   # Natural Earth boundaries
+npm run build:continents  # which continent each country is on
 npm run build:places      # GeoNames towns + Natural Earth lakes
 npm run build:regions     # Natural Earth states, provinces and cantons
 ```

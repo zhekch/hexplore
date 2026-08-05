@@ -23,6 +23,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bboxOfGeometry } from './lib/geo-filter.mjs';
+import { asMulti, unionGeometries, inPolygon } from '../src/polygon.js';
 
 const SRC =
   'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson';
@@ -165,6 +166,172 @@ function dropSpecks(polys) {
   return kept.length ? kept : polys;
 }
 
+/** How hard to thin one shape: a fraction of its own size, clamped. */
+function toleranceFor(geometry) {
+  const raw = bboxOfGeometry(geometry);
+  const diag = Math.hypot(raw[2] - raw[0], raw[3] - raw[1]);
+  return Math.min(SIMPLIFY_MAX_DEG, Math.max(SIMPLIFY_MIN_DEG, diag * SIMPLIFY_FRACTION));
+}
+
+// --- Countries organised one level above Natural Earth's "admin-1" ------------
+// Natural Earth files Italy's 110 *province* as its admin-1 units, which is a
+// level below the one the country is actually organised into and a level below
+// what anyone means by "which parts of Italy have I been to". The answer people
+// want is the twenty regioni — Toscana, Lombardia, Sicilia — and Natural Earth
+// already knows which regione each province belongs to (`region`, with the ISO
+// code in `region_cod`), so they can simply be dissolved together.
+//
+// It fixes the detailed boundaries at the same time, which is the other half of
+// the reason. `server/regions-fine.js` picks a geoBoundaries level by unit
+// count, and their hierarchy for Italy is ADM1 = 5 macro-regions, ADM2 = the 20
+// regioni, ADM3 = 107 provinces. At 110 units we paired against ADM3, which is
+// the finest thing they have and a poor match (107 against 110). At 20 we pair
+// against ADM2 exactly, and their names are the local ones, so all twenty pair
+// by name rather than falling through to the geometry test.
+//
+// One country, by explicit code, rather than "dissolve wherever `region` is
+// set": the field is populated for plenty of countries where admin-1 is already
+// the right level, and folding those together would be silently answering a
+// different question than the one asked.
+const DISSOLVE_BY_REGION = new Set(['ITA']);
+// Natural Earth gives two of the twenty in English where it gives the other
+// eighteen in Italian. `name` is documented as the local short form throughout
+// this file, and using it also lands both on the name geoBoundaries uses.
+const REGION_NAME_OVERRIDES = { 'IT-75': 'Puglia', 'IT-82': 'Sicilia' };
+
+/**
+ * Drop the holes a dissolve opened that are nowhere, keeping the ones that are
+ * somewhere — in place, on the union's own coordinates.
+ *
+ * Natural Earth's Italian provinces do not quite meet at several tripoints, so
+ * merging them leaves 5–13 km² holes inland: two in the Apennines, one in
+ * Sicily, one in Basilicata. They are gaps in the source's coverage, and by
+ * shape they are indistinguishable from a real enclave — that is the lesson
+ * `unionGeometries` is annotated with, where a 4.4 km² artifact turned out to be
+ * rounder than Llívia, which is a real Spanish town.
+ *
+ * Here, though, the question can be answered instead of guessed. A dissolve
+ * knows what it merged, so a hole can be offered to the rest of the dataset: if
+ * any other unit claims that ground it is a place and stays a hole (San Marino
+ * and the Vatican are their own admin-1 features and are found this way), and if
+ * nobody claims it at all it is ground the source simply failed to cover.
+ */
+/** A point provably inside one ring, or null if none was found. */
+function pointInRing(ring) {
+  const n = ring.length - 1; // the last vertex repeats the first
+  if (n < 3) return null;
+  let x = 0;
+  let y = 0;
+  for (let k = 0; k < n; k++) {
+    x += ring[k][0];
+    y += ring[k][1];
+  }
+  const mean = [x / n, y / n];
+  if (inPolygon(mean[0], mean[1], [ring])) return mean;
+  // Convex enough is not guaranteed, so fall back to diagonal midpoints.
+  for (let a = 0; a < n; a++) {
+    for (let b = a + 2; b < n; b++) {
+      const mx = (ring[a][0] + ring[b][0]) / 2;
+      const my = (ring[a][1] + ring[b][1]) / 2;
+      if (inPolygon(mx, my, [ring])) return [mx, my];
+    }
+  }
+  return null;
+}
+
+function dropCoverageGaps(fill, allFeatures, members) {
+  for (const poly of fill) {
+    for (let i = poly.length - 1; i >= 1; i--) {
+      const ring = poly[i];
+      // A point provably inside the hole. Not the vertex mean on its own: this
+      // runs on the *raw* union, where the gap at the Marche tripoint is fifteen
+      // points rather than the four it simplifies down to, and a mean can fall
+      // outside a shape that bends. A hole no point can be found in is left
+      // alone rather than judged on a guess.
+      const at = pointInRing(ring);
+      if (!at) continue;
+      const [x, y] = at;
+      let claimed = false;
+      for (const f of allFeatures) {
+        if (members.has(f) || !f.geometry) continue;
+        for (const p of asMulti(f.geometry)) {
+          if (inPolygon(x, y, p)) {
+            claimed = true;
+            break;
+          }
+        }
+        if (claimed) break;
+      }
+      if (!claimed) poly.splice(i, 1);
+    }
+  }
+}
+
+/**
+ * Replace each dissolving country's admin-1 features with one feature per
+ * `region`, its parts unioned together.
+ *
+ * Deliberately before any simplification. Natural Earth's provinces share exact
+ * vertices along the borders between them, so the union closes cleanly; thinning
+ * each province first would let two neighbours round the same border to
+ * different points and open a gap at every crossing — the failure documented
+ * against `unionGeometries` in src/polygon.js.
+ */
+function dissolveByRegion(features) {
+  const groups = new Map();
+  const out = [];
+  for (const f of features) {
+    const p = f.properties ?? {};
+    const iso = p.adm0_a3 ?? p.iso_a3 ?? p.sov_a3 ?? null;
+    if (!iso || !DISSOLVE_BY_REGION.has(iso) || !p.region || !f.geometry) {
+      out.push(f);
+      continue;
+    }
+    const key = `${iso}/${p.region_cod ?? p.region}`;
+    let g = groups.get(key);
+    if (!g) {
+      groups.set(key, (g = {
+        properties: { ...p, name: REGION_NAME_OVERRIDES[p.region_cod] ?? p.region, type_en: 'Region' },
+        geoms: [],
+        tolerances: [],
+        members: new Set(),
+      }));
+    }
+    g.members.add(f);
+    // Speck-filtered here, against the province, and not again afterwards.
+    // MIN_PART_SHARE is a share of the region's *largest* part, so merging
+    // moves the goalposts: Capri is 0.9% of the province of Napoli and 0.08% of
+    // Campania. Applying it after the dissolve quietly deleted ten Italian
+    // islands — the country's outline went from 15 polygons to 5.
+    g.geoms.push(dropSpecks(asMulti(f.geometry)));
+    g.tolerances.push(toleranceFor(f.geometry));
+  }
+  for (const g of groups.values()) {
+    const { fill } = unionGeometries(g.geoms);
+    if (!fill.length) continue;
+    dropCoverageGaps(fill, features, g.members);
+    // Simplified as finely as the provinces it is made of, not as coarsely as
+    // the shape it became.
+    //
+    // The tolerance is normally a fraction of a region's own bounding box, so
+    // merging twelve Lombard provinces into Lombardia takes it from ~0.008° to
+    // the 0.03° clamp and thins the *coastline* four times over — the first cut
+    // of this took Italy from 4,046 points to 1,015, fewer than Germany's
+    // sixteen Länder for a far more intricate outline, and it looked exactly
+    // like what it was: Italy alone drawn badly.
+    //
+    // Nothing about the coast changed when the administrative lines inland were
+    // dissolved, so neither should its fidelity. The finest of the parts rather
+    // than their median, because the median still thins the coastline — Italy's
+    // outline went from a 4.40 km median segment to 5.92 km on it. This is the
+    // only setting under which no stretch of coast is drawn worse than it was
+    // before the dissolve, and it costs one country a few thousand points.
+    g.properties.dissolvedTolerance = Math.min(...g.tolerances);
+    out.push({ type: 'Feature', properties: g.properties, geometry: { type: 'MultiPolygon', coordinates: fill } });
+  }
+  return out;
+}
+
 console.log(`Fetching ${SRC} …`);
 const res = await fetch(SRC);
 if (!res.ok) {
@@ -172,10 +339,16 @@ if (!res.ok) {
   process.exit(1);
 }
 const geo = await res.json();
+const sourceFeatures = dissolveByRegion(geo.features);
+for (const iso of DISSOLVE_BY_REGION) {
+  const before = geo.features.filter((f) => (f.properties?.adm0_a3 ?? f.properties?.iso_a3) === iso).length;
+  const after = sourceFeatures.filter((f) => (f.properties?.adm0_a3 ?? f.properties?.iso_a3) === iso).length;
+  console.log(`  ${iso}: dissolved ${before} admin-1 units into ${after} regions`);
+}
 
 const regions = [];
 const seen = new Map(); // "country/name" → how many, so duplicates get numbered
-for (const f of geo.features) {
+for (const f of sourceFeatures) {
   const p = f.properties ?? {};
   // `name` is the local short form ("Bern", "Île-de-France"); the fallbacks are
   // for the handful of features that leave it null.
@@ -186,10 +359,9 @@ for (const f of geo.features) {
   // boundaries when someone zooms in far enough to see the difference.
   const iso = p.adm0_a3 ?? p.iso_a3 ?? p.sov_a3 ?? null;
 
-  // Sized from the raw geometry, before anything is thinned.
-  const raw = bboxOfGeometry(f.geometry);
-  const diag = Math.hypot(raw[2] - raw[0], raw[3] - raw[1]);
-  const tol = Math.min(SIMPLIFY_MAX_DEG, Math.max(SIMPLIFY_MIN_DEG, diag * SIMPLIFY_FRACTION));
+  // Sized from the raw geometry, before anything is thinned — except for a
+  // region that was dissolved from smaller ones, which keeps theirs.
+  const tol = p.dissolvedTolerance ?? toleranceFor(f.geometry);
 
   let geometry;
   if (f.geometry.type === 'Polygon') {
@@ -197,7 +369,11 @@ for (const f of geo.features) {
     if (!rings.length) continue;
     geometry = { type: 'Polygon', coordinates: rings };
   } else if (f.geometry.type === 'MultiPolygon') {
-    const polys = dropSpecks(f.geometry.coordinates.map((poly) => processRings(poly, tol)).filter((poly) => poly.length));
+    const processed = f.geometry.coordinates.map((poly) => processRings(poly, tol)).filter((poly) => poly.length);
+    // A dissolved region had its specks dropped per source unit, before the
+    // union — doing it again here would measure each island against the whole
+    // merged region and delete it.
+    const polys = p.dissolvedTolerance != null ? processed : dropSpecks(processed);
     if (!polys.length) continue;
     geometry = { type: 'MultiPolygon', coordinates: polys };
   } else {

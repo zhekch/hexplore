@@ -116,7 +116,13 @@ function slot(userId, signature) {
   return fresh;
 }
 
-/** Throw away everything derived for an account. Only for tests. */
+/**
+ * Throw away everything derived for an account.
+ *
+ * Two callers: the tests, and closing an account — where the rows the cache was
+ * read from are gone and holding a reading of them would outlive the map it
+ * describes.
+ */
 export function forget(userId) {
   if (userId === undefined) cache.clear();
   else cache.delete(userId);

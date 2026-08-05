@@ -6,10 +6,11 @@
 //   • node:crypto   — scrypt password hashing + random session tokens
 //
 // Endpoints (all JSON, same-origin):
-//   POST /api/register {username,password} → {username}  + session cookie
-//   POST /api/login    {username,password} → {username}  + session cookie
+//   POST /api/register {username,password} → {username,version} + session cookie
+//   POST /api/login    {username,password} → {username,version} + session cookie
 //   POST /api/logout                       → {ok}        (clears cookie)
-//   GET  /api/me                           → {username}  | 401
+//   POST /api/account/delete {password}    → {ok,username,removed} | 401/403/429
+//   GET  /api/me                           → {username,version} | 401
 //   GET  /api/prefs                        → {prefs}            | 401
 //   POST /api/prefs {prefs}                → {ok}               | 401
 //   GET  /api/cells                        → {sources,rows}     | 401
@@ -77,6 +78,25 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeLimiter, clientIp } from './rate-limit.js';
 import * as derive from './derive.js';
+
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │  BUMP THIS ON EVERY CHANGE TO THE CODE.                                  │
+// └──────────────────────────────────────────────────────────────────────────┘
+//
+// It is shown at the foot of Settings, and it exists for one question: *which
+// build am I actually looking at*. Every confusing hour this project has spent
+// so far has been some version of that — a browser replaying a year-old
+// `immutable` response, a 304 served against a signature that could not see the
+// dataset change underneath it, a service worker holding a shell from a build
+// two deploys ago. In each of them the map looked merely *wrong*, and there was
+// nothing on screen to say the code you were reading was not the code that was
+// running.
+//
+// A number you can read out loud settles that in one message. It is only worth
+// anything if it moves, so move it — a patch bump for a fix, a minor for
+// anything a user would notice. Stale here is worse than absent: a version that
+// lies is how you rule out the very thing that is wrong.
+export const SERVER_VERSION = '0.2.0';
 
 const scrypt = promisify(scryptCb);
 // The same folding the browser importer uses, so a fix from Home Assistant and
@@ -146,6 +166,12 @@ function registrationRefusal() {
 const loginIpLimiter = makeLimiter({ windowMs: 15 * 60 * 1000, max: 20 });
 const loginUserLimiter = makeLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
 const registerLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, max: 5 });
+// Closing an account checks a password, so it is a password oracle like the
+// login is — and a slower one to be caught at, since nothing about a failed
+// attempt shows up on the map. Tighter than login: nobody deletes their account
+// five times in an hour, and the one person who is trying already knows the
+// password.
+const deleteAccountLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, max: 5 });
 
 const nowISO = () => new Date().toISOString();
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -355,6 +381,7 @@ const q = {
   insUser: db.prepare('INSERT INTO users(username, pass, created_at) VALUES(?, ?, ?)'),
   userByName: db.prepare('SELECT * FROM users WHERE username = ?'),
   userById: db.prepare('SELECT * FROM users WHERE id = ?'),
+  delUser: db.prepare('DELETE FROM users WHERE id = ?'),
   insSession: db.prepare('INSERT INTO sessions(token, user_id, created_at) VALUES(?, ?, ?)'),
   session: db.prepare('SELECT * FROM sessions WHERE token = ?'),
   delSession: db.prepare('DELETE FROM sessions WHERE token = ?'),
@@ -1041,6 +1068,33 @@ function storedHome(user) {
 }
 
 /**
+ * A stamp for the boundary and place datasets the derivations read.
+ *
+ * They are inputs, in exactly the sense the note below says home is: rebuilding
+ * `regions.json` changes how much of which region you have covered while
+ * touching no row any aggregate can see. Italy's 110 provinces became 20
+ * regioni and the statistics went on reporting 110 — the browser held a copy,
+ * revalidated it, and the server answered 304 without ever recomputing, through
+ * every restart, because the rows behind the signature had not moved.
+ *
+ * Hashed from the bytes rather than from mtimes, so re-running a build that
+ * produces the same file does not invalidate every client's copy. Read once, at
+ * startup: ~8.5 MB of JSON is about 20 ms, and it can only change by restarting
+ * anyway.
+ */
+const GAZETTEER_STAMP = (() => {
+  const h = createHash('sha1');
+  for (const name of ['countries.json', 'regions.json', 'places.json']) {
+    try {
+      h.update(readFileSync(path.join(ROOT, 'src', name)));
+    } catch {
+      h.update(`missing:${name}`); // no dataset is still a state worth keying on
+    }
+  }
+  return h.digest('base64url').slice(0, 8);
+})();
+
+/**
  * What a cached derivation is keyed on — and, since the answer is the same
  * whenever the signature is, what its ETag is built from too.
  *
@@ -1065,6 +1119,8 @@ function derivedSignature(user, home) {
   return [
     cellsSignature(user),
     routes.n, routes.added, routes.len, edits,
+    // The gazetteers, for the same reason home is here — see GAZETTEER_STAMP.
+    GAZETTEER_STAMP,
     // Slash, not comma. This string becomes an ETag, and `If-None-Match` is a
     // comma-separated list — a coordinate pair written the natural way splits
     // itself in half on the way back and matches nothing, so every read is a
@@ -1657,6 +1713,59 @@ function forgetSource(user, source) {
   return out;
 }
 
+// --- Closing an account -------------------------------------------------------
+//
+// Every table that files rows under a `user_id`, written out by hand rather
+// than discovered from the schema at runtime. There are no foreign keys in this
+// database, so nothing cascades and nothing complains: a table added later and
+// forgotten here would simply leave its rows behind, attached to a user id that
+// no longer exists and ready to be handed to whoever is issued that id next.
+//
+// So it is a list, and `scripts/test/account-delete.mjs` reads the live schema
+// and fails if any table carrying a user_id is missing from it. That test is
+// the actual guarantee; this list is just what it checks.
+const USER_TABLES = [
+  'sessions',
+  'cell_sets',
+  'cell_sources',
+  'routes',
+  'ha_links',
+  'strava_links',
+  'user_prefs',
+  'device_links',
+  'device_workouts',
+];
+const delUserRows = USER_TABLES.map((t) => [t, db.prepare(`DELETE FROM ${t} WHERE user_id = ?`)]);
+
+/**
+ * Delete an account and everything filed under it.
+ *
+ * One transaction, so a failure halfway through leaves the account intact
+ * rather than half-erased — a map with its cells gone and its routes still
+ * drawn is worse than one that refused.
+ *
+ * What this does **not** touch, deliberately: the snapshots in BACKUP_DIR. They
+ * are whole-database copies covering every account, so deleting them to close
+ * one would destroy everybody else's only way back — and keeping them means a
+ * copy of this account survives in them until they age out. The API says so in
+ * its answer rather than leaving it to be discovered.
+ */
+function deleteAccount(user) {
+  const removed = tx(() => {
+    const counts = {};
+    for (const [table, stmt] of delUserRows) counts[table] = stmt.run(user.id).changes;
+    counts.users = q.delUser.run(user.id).changes;
+    return counts;
+  });
+  // The server's own readings of a map that no longer exists. Keyed by user id,
+  // and ids are handed out by AUTOINCREMENT — but a cache that outlives its
+  // account is a bug waiting for the reuse that proves it.
+  derive.forget(user.id);
+  const rows = Object.values(removed).reduce((a, b) => a + b, 0);
+  console.log(`[visited-map] deleted account ${user.id} (${user.username}): ${rows} rows`);
+  return removed;
+}
+
 /** What the sync screen shows for one phone. */
 function deviceOut(row) {
   return {
@@ -1841,7 +1950,7 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       const info = q.insUser.run(u, await hashPassword(pw), nowISO());
       const token = newToken();
       q.insSession.run(token, Number(info.lastInsertRowid), nowISO());
-      return send(res, 200, { username: u }, { 'Set-Cookie': sessionCookie(req, token, SESSION_MAX_AGE) });
+      return send(res, 200, { username: u, version: SERVER_VERSION }, { 'Set-Cookie': sessionCookie(req, token, SESSION_MAX_AGE) });
     }
 
     if (req.method === 'POST' && pathname === '/api/login') {
@@ -1876,7 +1985,7 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       loginUserLimiter.reset(u.toLowerCase());
       const token = newToken();
       q.insSession.run(token, row.id, nowISO());
-      return send(res, 200, { username: row.username }, { 'Set-Cookie': sessionCookie(req, token, SESSION_MAX_AGE) });
+      return send(res, 200, { username: row.username, version: SERVER_VERSION }, { 'Set-Cookie': sessionCookie(req, token, SESSION_MAX_AGE) });
     }
 
     if (req.method === 'POST' && pathname === '/api/logout') {
@@ -1885,10 +1994,50 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(req, '', 0) });
     }
 
+    // Close the account and take the map with it.
+    //
+    // **The password is asked for again**, and a live session is not accepted
+    // as consent on its own. Every other destructive thing here takes back one
+    // source or one route and is undoable from a file you still have; this one
+    // is the whole map, it is not undoable, and the session it would ride in on
+    // is a 90-day cookie sitting on an unlocked laptop. Re-entering the password
+    // is the difference between someone deciding to do this and someone finding
+    // the button.
+    if (req.method === 'POST' && pathname === '/api/account/delete') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const hit = deleteAccountLimiter.take(`${user.id}:${clientIp(req)}`);
+      if (!hit.ok) {
+        return send(res, 429, { error: 'Too many attempts. Try again later.' }, { 'Retry-After': String(hit.retryAfter) });
+      }
+      const { password } = await readBody(req);
+      const row = q.userById.get(user.id);
+      // Timing here says nothing an authenticated caller doesn't already know —
+      // they hold a session for this account — but it costs nothing to keep the
+      // comparison constant-time, and verifyPassword is that already.
+      const ok = row ? await verifyPassword(String(password ?? ''), row.pass) : false;
+      if (!ok) return send(res, 403, { error: 'That password is not right.' });
+      const removed = deleteAccount(user);
+      // The cookie goes in the same answer. The session row is already gone, so
+      // it points at nothing — but a browser left holding a dead cookie retries
+      // with it on every request and gets a 401 it has no way to explain.
+      return send(res, 200, {
+        ok: true,
+        username: user.username,
+        removed,
+        // Said rather than left to be found out. A snapshot taken before this
+        // still holds the account, and only the owner can reach or delete those.
+        backupsKept: existsSync(BACKUP_DIR),
+      }, { 'Set-Cookie': sessionCookie(req, '', 0) });
+    }
+
     if (req.method === 'GET' && pathname === '/api/me') {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
-      return send(res, 200, { username: user.username });
+      // The build comes back with the session rather than from an endpoint of
+      // its own: it is only ever read by a signed-in page, and a version number
+      // an unauthenticated caller can ask for is a fingerprint for free.
+      return send(res, 200, { username: user.username, version: SERVER_VERSION });
     }
 
     // Display preferences, so the same account sees the same map on the phone
@@ -2858,7 +3007,13 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       const iso = pathname.slice('/api/regions/'.length).toUpperCase();
       const out = await fineRegions.get(iso);
       if (!out) return send(res, 400, { error: 'bad country code' });
-      // The upstream commit is pinned, so this answer can never change.
+      // Immutable *for this pair of inputs*, which is what the `?r=` the client
+      // appends is for: the geoBoundaries commit is pinned, so their half cannot
+      // change, and the tag changes whenever our region ids do. Caching it for a
+      // year on the ISO code alone was wrong in a way that took a long time to
+      // find — browsers replayed Italy's pre-dissolve province answer through
+      // every rebuild, restart and reload, because `immutable` means the browser
+      // will not even ask.
       return send(res, 200, out, { 'Cache-Control': 'public, max-age=31536000, immutable' });
     }
 

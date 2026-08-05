@@ -6,10 +6,14 @@ dist/
 
 # Database — accounts, sessions, saved routes and every visited cell.
 # Created on first run at DB_PATH (defaults to ./data.db).
-data.db
-data.db-shm
-data.db-wal
-data.db-journal
+#
+# Globbed rather than named: a copy made to trim or inspect it (data2.db,
+# data-old.db) is the same real location history as the original, and the one
+# that gets committed is always the one nobody thought to list.
+data*.db
+data*.db-shm
+data*.db-wal
+data*.db-journal
 *.sqlite
 *.sqlite3
 

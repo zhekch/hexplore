@@ -11,10 +11,38 @@
 // Azores/Madeira, the Dutch Caribbean, …) fall outside the gap and are dropped.
 //
 // 6° keeps Malaysia's peninsula joined to Borneo (~5.2° apart) while still
-// dropping Madeira (~8°) and the Canaries (~10°). Raise it to keep more distant
-// pieces (e.g. Alaska/Hawaii for the USA, which are ~11° from the mainland and
-// currently dropped); lower it to trim more aggressively.
+// dropping Madeira, the Azores and the Canaries. Lower it to trim more
+// aggressively.
 export const OVERSEAS_GAP_DEG = 6;
+
+// …but distance alone cannot decide, and the case that proves it is Alaska.
+//
+// Alaska's bounding box is 7.6° from the contiguous United States and the
+// Canaries' is 8.6° from mainland Spain. There is no single distance that keeps
+// a state and drops an archipelago when the two are the same distance away, and
+// for a long time the answer was to drop both — which did not merely leave
+// Alaska unlit. It left it *off the dataset*: `countryAt` returned null there,
+// so a cell in Anchorage was in no country, counted as ocean by the statistics,
+// filed under "at sea or off the map" by the naming pass, and left a hole in
+// North America at the continent level.
+//
+// Size is what tells them apart, because it is what the question was always
+// about. Alaska is 18% of the contiguous United States; the Canaries are 0.4%
+// of mainland Spain, the Galápagos 1.9% of Ecuador, Hawaii 0.13%. So a second
+// reason to keep a piece: it is *large* and still on the same side of the
+// world. Both bounds have an order of magnitude of slack on every case they
+// decide except Alaska's own distance, which has a third — and French Guiana,
+// which is 16% of France and would qualify on size, is 59° away and never gets
+// asked.
+//
+// Measured against Natural Earth 1:50m, exactly three countries turn on this:
+// the United States gains Alaska, and Micronesia and French Polynesia gain the
+// far half of their own archipelagos. Hawaii (30° out) stays dropped, as do the
+// Canaries, the Azores, Madeira, the Galápagos and every French colony.
+export const MAJOR_PART_GAP_DEG = 10;
+export const MAJOR_PART_SHARE = 0.1;
+
+import { ringAreaM2 } from '../../src/polygon.js';
 
 // A "poly" is GeoJSON polygon coordinates: [outerRing, ...holes].
 function polyBbox(poly) {
@@ -30,15 +58,15 @@ function polyBbox(poly) {
   return [w, s, e, n];
 }
 
-// Absolute shoelace area of the outer ring — a cheap "which polygon is biggest"
-// proxy (good enough to pick the mainland as the flood-fill seed).
-function outerArea(poly) {
-  const ring = poly[0];
-  let a = 0;
-  for (let i = 0; i < ring.length - 1; i++) {
-    a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
-  }
-  return Math.abs(a / 2);
+// Ground area of one polygon in km², outer ring less its holes. Real spherical
+// area, shared with everything else that measures a country (src/polygon.js),
+// rather than the flat shoelace this used to pick the seed with: a share of the
+// mainland has to mean the same thing at 65°N as at 25°N, and in degrees² it
+// does not — Alaska alone would read three times its size.
+function polyKm2(poly) {
+  let m2 = ringAreaM2(poly[0]);
+  for (let i = 1; i < poly.length; i++) m2 -= ringAreaM2(poly[i]);
+  return m2 / 1e6;
 }
 
 // Shortest gap between two bounding boxes (0 if they overlap), in degrees.
@@ -57,9 +85,13 @@ export function stripDetachedTerritories(geometry, gapDeg = OVERSEAS_GAP_DEG) {
   if (polys.length < 2) return geometry;
 
   const boxes = polys.map(polyBbox);
-  const areas = polys.map(outerArea);
+  const areas = polys.map(polyKm2);
   let seed = 0;
   for (let i = 1; i < polys.length; i++) if (areas[i] > areas[seed]) seed = i;
+  // What counts as a piece of the country in its own right, rather than a
+  // holding of it. Measured against the mainland, not the whole country: the
+  // whole country is the thing being decided.
+  const major = areas[seed] * MAJOR_PART_SHARE;
 
   const kept = new Set([seed]);
   let grew = true;
@@ -68,7 +100,8 @@ export function stripDetachedTerritories(geometry, gapDeg = OVERSEAS_GAP_DEG) {
     for (let i = 0; i < polys.length; i++) {
       if (kept.has(i)) continue;
       for (const k of kept) {
-        if (bboxGap(boxes[i], boxes[k]) <= gapDeg) {
+        const gap = bboxGap(boxes[i], boxes[k]);
+        if (gap <= gapDeg || (gap <= MAJOR_PART_GAP_DEG && areas[i] >= major)) {
           kept.add(i);
           grew = true;
           break;

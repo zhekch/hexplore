@@ -1231,6 +1231,140 @@ body {
   margin-top: 18px;
 }
 
+/* The build, at the foot of Settings. Quiet on purpose — it is a fact to read
+   back, not a thing to press, so it sits below everything and does not compete
+   with the rows above it. */
+/* Closing an account. Set apart from the rows above it by a rule and by colour,
+   because everything else in this dialog is a preference you can change back
+   and this is not one of them. */
+.settings-danger {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 122, 105, 0.22);
+}
+
+.settings-danger-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 122, 105, 0.3);
+  background: rgba(255, 122, 105, 0.08);
+  color: rgba(255, 168, 155, 0.95);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.settings-danger-open:hover {
+  background: rgba(255, 122, 105, 0.16);
+}
+
+.settings-danger-open .sync-option-text small {
+  color: rgba(255, 168, 155, 0.62);
+}
+
+.settings-danger-confirm {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 122, 105, 0.3);
+  background: rgba(255, 122, 105, 0.07);
+}
+
+.settings-danger-warning {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: rgba(255, 200, 192, 0.9);
+}
+
+.settings-danger-field {
+  display: block;
+  font-size: 12px;
+  color: rgba(255, 200, 192, 0.75);
+}
+
+.settings-danger-field input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(10, 14, 22, 0.5);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.settings-danger-error {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 138, 122, 1);
+}
+
+.settings-danger-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+[data-theme='light'] .settings-danger {
+  border-top-color: rgba(214, 62, 42, 0.2);
+}
+
+[data-theme='light'] .settings-danger-open {
+  border-color: rgba(214, 62, 42, 0.28);
+  background: rgba(214, 62, 42, 0.06);
+  color: rgba(150, 32, 18, 0.95);
+}
+
+[data-theme='light'] .settings-danger-open:hover {
+  background: rgba(214, 62, 42, 0.12);
+}
+
+[data-theme='light'] .settings-danger-open .sync-option-text small,
+[data-theme='light'] .settings-danger-field {
+  color: rgba(150, 32, 18, 0.7);
+}
+
+[data-theme='light'] .settings-danger-confirm {
+  border-color: rgba(214, 62, 42, 0.26);
+  background: rgba(214, 62, 42, 0.05);
+}
+
+[data-theme='light'] .settings-danger-warning {
+  color: rgba(120, 26, 14, 0.92);
+}
+
+[data-theme='light'] .settings-danger-field input {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(15, 23, 42, 0.18);
+  color: #0f172a;
+}
+
+[data-theme='light'] .settings-danger-error {
+  color: rgba(178, 40, 24, 1);
+}
+
+.settings-version {
+  margin-top: 16px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--muted, rgba(235, 243, 255, 0.45));
+  font-variant-numeric: tabular-nums;
+}
+
 .modal-btn {
   appearance: none;
   font: inherit;

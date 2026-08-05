@@ -61,15 +61,33 @@ async function api(method, url, body) {
   return data;
 }
 
+// The build the server reports, kept from the session check so Settings can
+// show it without a request of its own. Null until that check has answered, and
+// null forever if it never does — a version we do not know is not one to invent.
+let serverVersion = null;
+
+/** What the server said it was, or null if it has not said yet. */
+export const serverBuild = () => serverVersion;
+
+/** Stash the build off any response that carries one, and pass the name on. */
+function keepVersion(d) {
+  if (typeof d?.version === 'string') serverVersion = d.version;
+  return d?.username;
+}
+
 export const auth = {
   // Resolves to the username if a valid session cookie exists, else null.
-  me: () =>
-    api('GET', '/api/me')
-      .then((d) => d.username)
-      .catch(() => null),
-  register: (username, password) => api('POST', '/api/register', { username, password }).then((d) => d.username),
-  login: (username, password) => api('POST', '/api/login', { username, password }).then((d) => d.username),
+  me: () => api('GET', '/api/me').then(keepVersion).catch(() => null),
+  // Both carry the build as well, so signing in fresh knows it without a second
+  // round trip — `me()` is only called for an existing session.
+  register: (username, password) => api('POST', '/api/register', { username, password }).then(keepVersion),
+  login: (username, password) => api('POST', '/api/login', { username, password }).then(keepVersion),
   logout: () => api('POST', '/api/logout'),
+  // Close the account: the map, the routes, the connections, the account row.
+  // The password is sent again because the server asks for it again — a session
+  // is not consent to this one. Answers with what it removed, and with whether
+  // a backup still holds a copy.
+  deleteAccount: (password) => api('POST', '/api/account/delete', { password }),
 
   // { sources: ['manual', …], rows: [[cellId, sourceIdx, addedAt, firstAt, lastAt, hits, fixes], …] }
   // Timestamps are epoch seconds; 0 means the source didn't carry a date.
@@ -178,8 +196,14 @@ export const auth = {
 
 // Wires the auth overlay (markup in index.html) and the account row in the
 // base-map menu. Calls onAuthed(username) after a successful session/login/
-// register, and onLoggedOut() after logout. Returns a promise that settles once
-// the initial session check has resolved.
+// register, and onLoggedOut() after logout.
+//
+// Returns `{ ready, signedOut }`: `ready` settles once the initial session check
+// has resolved, and `signedOut()` puts the page back to the signed-out state
+// without asking the server anything. Closing an account needs that second one —
+// the session is already gone by the time the answer arrives, so there is
+// nothing left to log out of, but the page still has to stop showing a map that
+// no longer exists.
 export function mountAuth({ onAuthed, onLoggedOut }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('auth-overlay');
@@ -257,23 +281,30 @@ export function mountAuth({ onAuthed, onLoggedOut }) {
     }
   });
 
-  logoutBtn.addEventListener('click', async () => {
-    try {
-      await auth.logout();
-    } catch {
-      /* clear the UI regardless */
-    }
+  // Everything logging out does to the page, with nothing said to the server.
+  // Shared with account deletion, which has already been signed out by the time
+  // it gets an answer.
+  function signedOut() {
     register = false;
     renderMode();
     userEl.value = '';
     passEl.value = '';
     showModal();
     onLoggedOut?.();
+  }
+
+  logoutBtn.addEventListener('click', async () => {
+    try {
+      await auth.logout();
+    } catch {
+      /* clear the UI regardless */
+    }
+    signedOut();
   });
 
   renderMode();
 
-  return (async () => {
+  const ready = (async () => {
     const username = await auth.me();
     if (username) {
       showAuthed(username);
@@ -282,4 +313,6 @@ export function mountAuth({ onAuthed, onLoggedOut }) {
       showModal();
     }
   })();
+
+  return { ready, signedOut };
 }
