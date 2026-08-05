@@ -2797,11 +2797,20 @@ board a half-transparent swatch just looks like a darker one.
 ## What a cell knows
 
 Tap any colored area in view mode and a card shows what's inside it: when you
-were there (from the dates in the imported data), when it landed on the map,
-how many visits it came from, and the breakdown by source. Zoomed out, the card aggregates every stored cell
-inside the hexagon you tapped. Cells, their sources and their dates live in
-SQLite on the server (`cell_sources`), per account; saved routes live beside
-them in `routes`.
+were there (from the dates in the imported data), how much ground you have
+covered, and how many visits it came from. Zoomed out, the card aggregates every
+stored cell inside the hexagon you tapped. Cells, their sources and their dates
+live in SQLite on the server (`cell_sources`), per account; saved routes live
+beside them in `routes`.
+
+**Which apps put those cells there is not on the card.** It was, as a
+per-source breakdown under the dates, and it is the same mistake the fix count
+was: a fact about the recording rather than about the place. It also made the
+card grow with the size of the area — a country card ran to a screenful of app
+names before it reached the numbers anyone opened it for. The provenance is
+still stored per source and still shown where it can be acted on: the statistics
+panel totals it, and Settings → **Sources** lists every source with its dates and
+can rename or remove one. `rollUpIds` therefore returns dates and counts only.
 
 ## Derived on the server, once
 

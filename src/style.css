@@ -955,47 +955,6 @@ body {
   text-align: right;
 }
 
-.cell-info-sources-head[hidden] {
-  display: none;
-}
-
-.cell-info-sources-head {
-  margin-top: 10px;
-  padding-top: 9px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  font-size: 10.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: rgba(255, 255, 255, 0.45);
-  margin-bottom: 5px;
-}
-
-.cell-info-source {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 14px;
-  font-size: 12.5px;
-  padding: 2px 0;
-}
-
-.cell-info-source-name {
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cell-info-source-meta {
-  flex: none;
-  text-align: right;
-  font-size: 11.5px;
-  white-space: nowrap;
-  color: rgba(255, 255, 255, 0.5);
-}
-
 /* Tap-a-route card: same glass as the cell card, with actions at the bottom */
 .route-info-actions {
   display: flex;
@@ -2872,8 +2831,6 @@ body {
 
 [data-theme='light'] .cell-info-coord,
 [data-theme='light'] .cell-info-row,
-[data-theme='light'] .cell-info-source-meta,
-[data-theme='light'] .cell-info-sources-head,
 [data-theme='light'] .modal-sub,
 [data-theme='light'] .import-file-line,
 [data-theme='light'] .import-summary-sub,
@@ -2897,12 +2854,10 @@ body {
 }
 
 [data-theme='light'] .cell-info-row b,
-[data-theme='light'] .cell-info-source-name,
 [data-theme='light'] .import-summary-main {
   color: #0f172a;
 }
 
-[data-theme='light'] .cell-info-sources-head,
 [data-theme='light'] .import-summary {
   border-top-color: rgba(15, 23, 42, 0.12);
 }

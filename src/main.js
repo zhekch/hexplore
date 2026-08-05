@@ -2205,11 +2205,10 @@ const cellSizeLabel = (level) =>
         ? 'region'
         : `${cellSizeKm(level)} cell`;
 
-// Roll the provenance of a set of stored cells into one summary plus a
-// per-source breakdown. Taken by the cell card and by the region/country card,
-// which differ only in how they decide which cells to ask about.
+// Roll the dates and counts of a set of stored cells into one summary. Taken by
+// the cell card and by the region/country card, which differ only in how they
+// decide which cells to ask about.
 function rollUpIds(ids) {
-  const bySource = new Map();
   let addedAt = 0;
   let firstAt = 0;
   let lastAt = 0;
@@ -2217,15 +2216,6 @@ function rollUpIds(ids) {
   const earlier = (a, b) => (b && (!a || b < a) ? b : a); // 0 means "unknown"
   for (const id of ids) {
     for (const m of cellMeta.get(id) ?? []) {
-      let s = bySource.get(m.source);
-      if (!s) {
-        bySource.set(m.source, (s = { key: m.source, cells: 0, hits: 0, addedAt: 0, firstAt: 0, lastAt: 0 }));
-      }
-      s.cells++;
-      s.hits += m.hits || 0;
-      s.addedAt = earlier(s.addedAt, m.addedAt);
-      s.firstAt = earlier(s.firstAt, m.firstAt);
-      s.lastAt = Math.max(s.lastAt, m.lastAt || 0);
       // Only imported data has a meaningful count — a hand-marked cell carries
       // a placeholder 1 that would be nonsense to show.
       if (m.source !== 'manual' && m.source !== 'unknown') hits += m.hits || 0;
@@ -2234,18 +2224,11 @@ function rollUpIds(ids) {
       lastAt = Math.max(lastAt, m.lastAt || 0);
     }
   }
-  // `fixes` is deliberately not rolled up. It is still stored, and the import
-  // and sync screens still report it as “how much was read out of this file”,
-  // but as a fact about a place it only ever said how often a recorder
-  // sampled — which is a fact about the recorder.
-  return {
-    cellCount: ids.length,
-    hits,
-    addedAt,
-    firstAt,
-    lastAt,
-    sources: [...bySource.values()].sort((a, b) => b.cells - a.cells),
-  };
+  // Neither `fixes` nor the per-source breakdown is rolled up. Both are still
+  // stored — the import, sync and Sources screens report them — but as facts
+  // about a place they answer questions about the recording rather than about
+  // where you were: how often a recorder sampled, and which app was running.
+  return { cellCount: ids.length, hits, addedAt, firstAt, lastAt };
 }
 
 function gatherInfo(L, col, row) {

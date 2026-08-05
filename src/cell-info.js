@@ -1,12 +1,14 @@
-// The view-mode info card: tap a colored area and this says when it was
-// marked and where that came from. Pure DOM rendering — main.js gathers the
-// numbers (it owns the grid state) and hands over a plain object.
+// The view-mode info card: tap a colored area and this says when you were
+// there and how much of it you have covered. Pure DOM rendering — main.js
+// gathers the numbers (it owns the grid state) and hands over a plain object.
+//
+// Which apps put those cells on the map is deliberately not here: it is a fact
+// about the recording, not about the place, and it is answered in one place
+// that can act on it — Settings → Sources, which can also rename or remove one.
 
-import { sourceLabel } from './locations.js';
 import { formatTime } from './clock.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-const monthFmt = new Intl.DateTimeFormat(undefined, { month: 'short' });
 
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
 
@@ -17,18 +19,6 @@ function range(first, last) {
   if (!a && !b) return null;
   if (!a || !b || a === b) return a ?? b;
   return `${a} – ${b}`;
-}
-
-// The same span, squeezed down to fit beside a source name: "2023–2026",
-// "Sep–Nov 2023", "Sep 2023". Full dates stay in the row above and in the
-// tooltip.
-function shortRange(first, last) {
-  if (!first || !last) return day(first || last);
-  const a = new Date(first * 1000);
-  const b = new Date(last * 1000);
-  if (a.getFullYear() !== b.getFullYear()) return `${a.getFullYear()}–${b.getFullYear()}`;
-  if (a.getMonth() !== b.getMonth()) return `${monthFmt.format(a)}–${monthFmt.format(b)} ${a.getFullYear()}`;
-  return day(first) === day(last) ? day(first) : `${monthFmt.format(a)} ${a.getFullYear()}`;
 }
 
 const coord = (lat, lng) => `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`;
@@ -58,8 +48,6 @@ export function mountCellInfo({ onClose } = {}) {
   const closeBtn = $('cell-info-close');
   const coordEl = $('cell-info-coord');
   const rowsEl = $('cell-info-rows');
-  const sourcesEl = $('cell-info-sources');
-  const sourcesHead = document.querySelector('.cell-info-sources-head');
 
   const hide = () => {
     card.hidden = true;
@@ -139,28 +127,6 @@ export function mountCellInfo({ onClose } = {}) {
     // how often a recorder happened to sample, not how often you were here, so
     // an hour parked with a workout app running outranked a week somewhere.
     if (info.hits) row('Visits', info.hits.toLocaleString());
-
-    sourcesEl.replaceChildren();
-    sourcesHead.hidden = !info.sources.length;
-    for (const s of info.sources) {
-      const el = document.createElement('div');
-      el.className = 'cell-info-source';
-      const name = document.createElement('span');
-      name.className = 'cell-info-source-name';
-      name.textContent = sourceLabel(s.key);
-      const meta = document.createElement('span');
-      meta.className = 'cell-info-source-meta';
-      const bits = [];
-      if (info.cellCount > 1) bits.push(`${s.cells.toLocaleString()} cells`);
-      bits.push(shortRange(s.firstAt, s.lastAt) ?? day(s.addedAt) ?? 'no dates');
-      meta.textContent = bits.join(' · ');
-      const counted = `${s.hits.toLocaleString()} ${s.hits === 1 ? 'visit' : 'visits'}`;
-      el.title = range(s.firstAt, s.lastAt)
-        ? `${sourceLabel(s.key)} · ${range(s.firstAt, s.lastAt)} · ${counted}`
-        : `${sourceLabel(s.key)} · added ${day(s.addedAt) ?? 'unknown'}`;
-      el.append(name, meta);
-      sourcesEl.append(el);
-    }
 
     card.hidden = false;
   }
