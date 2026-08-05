@@ -1,0 +1,275 @@
+// The image export: the arithmetic behind the picture, against the real
+// boundary datasets.
+//
+// Everything that can be tested without a canvas is tested here, and that is
+// deliberately most of it — the framing, the seam, the type fitting and the
+// caption are all pure functions of a spec and a set of cells, precisely so
+// that "does a poster of Fiji show Fiji" is a question a script can ask.
+//
+// The cases below pin the three things that are quietly wrong in every map
+// exporter ever written: a frame that spans the globe because the subject
+// straddles ±180°, numbers that describe the world when they claim to describe
+// a country, and a caption that reports a map of nothing when nothing is picked.
+//
+//   node scripts/test/export-image.mjs
+
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  CAPTION_FIELDS, SHAPES,
+  blobLevelFor, captionLines, circularSpan, coverageOf, exportFilename, fitCamera, frameFor,
+  paletteOf, scopeAreaKm2, scopeGeometry, scopeName, sizeOf, unwrapRing, visitedAreas,
+} from '../../src/export-image.js';
+import { loadCountries, countryAreaKm2 } from '../../src/countries.js';
+import { loadRegions } from '../../src/regions.js';
+import { areaOfCell, computeStats } from '../../src/stats.js';
+import { WORLD, colsOf, lngOf, latOf, mercX, mercY, normCol, pointToCell } from '../../src/hexgrid.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const json = async (name) => JSON.parse(await readFile(path.join(ROOT, 'src', name), 'utf8'));
+
+let pass = 0;
+let fail = 0;
+const check = (ok, label, detail) => {
+  console.log(`${ok ? '  ok  ' : '  FAIL'} ${label}${ok || !detail ? '' : ` — ${detail}`}`);
+  ok ? pass++ : fail++;
+};
+const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+await Promise.all([loadCountries(await json('countries.json')), loadRegions(await json('regions.json'))]);
+
+// Local midday, matching the other suites — which day a timestamp belongs to is
+// worked out in local time, so a fixture pinned to midnight UTC lands on the
+// day before for anyone west of Greenwich.
+const T = (day) => Math.floor(new Date(`${day}T12:00:00`).getTime() / 1000);
+
+const idAt = (lng, lat, L = 0) => {
+  const [c, r] = pointToCell(L, mercX(lng), mercY(lat));
+  return `${L}/${normCol(c, colsOf(L))}/${r}`;
+};
+
+/** A patch of cells walking east from a point, with dates and a source. */
+function patch(meta, lng, lat, n, { firstAt, lastAt = firstAt, hits = 1, source = 'test' }) {
+  const [L, col, row] = idAt(lng, lat).split('/').map(Number);
+  for (let i = 0; i < n; i++) {
+    meta.set(`${L}/${col + i}/${row}`, [{ source, addedAt: firstAt, firstAt, lastAt, hits, fixes: 0 }]);
+  }
+}
+
+// --- The seam ------------------------------------------------------------------
+// Mercator has one join in it, and everything that frames a picture has to know
+// where it is. A naive min/max over longitudes calls New Zealand "the Pacific".
+
+console.log('\nFraming across the antimeridian');
+{
+  // Two arcs either side of ±180°, the shape Fiji and Chukotka both have.
+  const span = circularSpan([[176, 180], [-180, -178]], 360);
+  check(near(span.max - span.min, 6, 1e-9), 'a shape either side of the line spans 6°, not 354°',
+    `got ${(span.max - span.min).toFixed(2)}°`);
+
+  const europe = circularSpan([[-10, 30]], 360);
+  check(near(europe.max - europe.min, 40, 1e-9), 'and an ordinary shape keeps its own width');
+  check(near(((europe.min % 360) + 360) % 360, 350, 1e-9),
+    'even when its own width crosses the origin of the representation');
+
+  // Two far-apart subjects: the answer is the smaller of the two ways round.
+  const both = circularSpan([[-5, 5], [170, 175]], 360);
+  check(both.max - both.min <= 200, 'two distant subjects take the short way round',
+    `got ${(both.max - both.min).toFixed(1)}°`);
+
+  check(circularSpan([], 360) === null, 'and nothing at all has no frame');
+}
+
+console.log('\nRings that jump the line are put back together');
+{
+  // A ring walking east across ±180°: stored as +179, -179, it must come back
+  // as +179, +181, or it is drawn all the way round the world instead.
+  const unwrapped = unwrapRing([[179, 10], [-179, 10], [-179, 12], [179, 12], [179, 10]]);
+  const xs = unwrapped.map((p) => p[0]);
+  check(Math.max(...xs) - Math.min(...xs) === 2, 'a 2°-wide ring stays 2° wide', `got ${Math.max(...xs) - Math.min(...xs)}`);
+  check(xs.includes(181), 'by carrying past ±180 rather than snapping back');
+
+  const plain = [[5, 10], [7, 10], [7, 12], [5, 10]];
+  check(JSON.stringify(unwrapRing(plain)) === JSON.stringify(plain), 'a ring that never crosses is untouched');
+}
+
+console.log('\nA country frames itself');
+{
+  const frame = frameFor([scopeGeometry('country', 'Switzerland')], []);
+  const west = lngOf(frame.xMin);
+  const east = lngOf(frame.xMax);
+  const south = latOf(frame.yMin);
+  const north = latOf(frame.yMax);
+  check(near(west, 5.96, 0.4) && near(east, 10.49, 0.4), 'Switzerland is framed at its own longitudes',
+    `${west.toFixed(2)}..${east.toFixed(2)}`);
+  check(near(south, 45.82, 0.4) && near(north, 47.81, 0.4), 'and at its own latitudes',
+    `${south.toFixed(2)}..${north.toFixed(2)}`);
+
+  // Every country at once, including the ones that cross the line — the frame
+  // is the world, and no wider than it.
+  const all = frameFor([scopeGeometry('country', 'Fiji'), scopeGeometry('country', 'New Zealand')], []);
+  check(all.xMax - all.xMin < WORLD * 0.15, 'Fiji and New Zealand together are a corner of the Pacific',
+    `${(((all.xMax - all.xMin) / WORLD) * 360).toFixed(0)}° wide`);
+}
+
+console.log('\nAnd so does a set of cells, when nothing is picked');
+{
+  const meta = new Map();
+  patch(meta, 7.44, 46.94, 6, { firstAt: T('2020-05-01') });
+  patch(meta, 8.54, 47.37, 6, { firstAt: T('2021-06-01') });
+  const frame = frameFor([], meta.keys());
+  check(lngOf(frame.xMin) > 6 && lngOf(frame.xMax) < 10, 'the frame is what you have visited, not the planet',
+    `${lngOf(frame.xMin).toFixed(2)}..${lngOf(frame.xMax).toFixed(2)}`);
+  check(frameFor([], []) === null, 'an empty map has no frame at all');
+}
+
+// --- The camera ----------------------------------------------------------------
+
+console.log('\nFitting a frame into a shape');
+{
+  const bb = { xMin: mercX(6), xMax: mercX(10), yMin: mercY(46), yMax: mercY(48) };
+  for (const [key, shape] of Object.entries(SHAPES)) {
+    const cam = fitCamera(bb, shape);
+    const wPx = (bb.xMax - bb.xMin) * cam.k;
+    const hPx = (bb.yMax - bb.yMin) * cam.k;
+    check(wPx <= shape.w * 0.851 && hPx <= shape.h * 0.851, `${key}: the subject stays inside its margins`,
+      `${wPx.toFixed(0)}×${hPx.toFixed(0)} in ${shape.w}×${shape.h}`);
+    // Letterboxed: one axis touches the margin exactly, the other has slack.
+    const tight = near(wPx, shape.w * 0.85, 1) || near(hPx, shape.h * 0.85, 1);
+    check(tight, `${key}: and is as large as those margins allow`);
+    // Centred: the middle of the frame lands in the middle of the canvas.
+    const midX = ((bb.xMin + bb.xMax) / 2 - cam.x0) * cam.k;
+    const midY = (cam.y0 - (bb.yMin + bb.yMax) / 2) * cam.k;
+    check(near(midX, shape.w / 2, 0.5) && near(midY, shape.h / 2, 0.5), `${key}: and centred in it`);
+  }
+}
+
+console.log('\nA frame past the seam is still a frame beside the geometry');
+{
+  // circularSpan answers on a circle, so its origin can land a world east. The
+  // rectangle handed to the camera must not.
+  const frame = frameFor([scopeGeometry('country', 'France')], []);
+  const mid = (frame.xMin + frame.xMax) / 2;
+  check(Math.abs(mid) < WORLD / 2, 'the middle of the frame is a real longitude',
+    `${lngOf(mid).toFixed(1)}°`);
+}
+
+// --- Blobs ---------------------------------------------------------------------
+
+console.log('\nHow fine the blobs are drawn');
+{
+  // A country-sized picture, and a street-sized one.
+  const wide = fitCamera(frameFor([scopeGeometry('country', 'Russia')], []), SHAPES.square).k;
+  const tight = fitCamera({ xMin: mercX(7.4), xMax: mercX(7.5), yMin: mercY(46.9), yMax: mercY(47) }, SHAPES.square).k;
+  check(blobLevelFor(tight) === 0, 'zoomed right in, the grid is drawn exactly as stored');
+  check(blobLevelFor(wide) > blobLevelFor(tight), 'and coarsens as the picture takes in more ground',
+    `${blobLevelFor(wide)} vs ${blobLevelFor(tight)}`);
+  check(blobLevelFor(tight, 2) === 2, 'asking for coarser cells moves it by exactly that much');
+  check(blobLevelFor(1e-12, 2) <= 4, 'and it can never run off the end of the ladder');
+}
+
+// --- The numbers ---------------------------------------------------------------
+
+console.log('\nThe caption measures what the picture shows');
+{
+  const meta = new Map();
+  // Bern, Zürich — Switzerland. Paris — not.
+  patch(meta, 7.44, 46.94, 40, { firstAt: T('2016-03-04'), lastAt: T('2024-01-09'), hits: 12 });
+  patch(meta, 8.54, 47.37, 25, { firstAt: T('2018-07-19'), lastAt: T('2025-06-02'), hits: 4 });
+  patch(meta, 2.35, 48.85, 30, { firstAt: T('2019-04-13'), lastAt: T('2019-04-20'), hits: 3 });
+  const cells = [...meta.keys()];
+  const memo = new Map();
+  const areaOf = (kind, id) => {
+    const key = `${kind} ${id}`;
+    if (!memo.has(key)) memo.set(key, areaOfCell(kind, id));
+    return memo.get(key);
+  };
+  const data = { cells: () => cells, meta: () => meta, areaOf };
+
+  const swiss = await coverageOf({ kind: 'country', ids: ['Switzerland'] }, data);
+  const world = await coverageOf({ kind: 'world', ids: [] }, data);
+
+  check(swiss.cells === 65, 'a country counts only the cells inside it', `got ${swiss.cells}`);
+  check(world.cells === 95, 'and everywhere counts them all', `got ${world.cells}`);
+  check(swiss.countries === 1 && world.countries === 2, 'one country against two');
+  check(swiss.firstAt === T('2016-03-04'), 'the first date is the first one inside the selection');
+  check(world.firstAt === T('2016-03-04'), 'which here is also the first one anywhere');
+  check(swiss.lastAt === T('2025-06-02'), 'and the last is the last one inside it');
+
+  // The denominator is the thing named, not the planet.
+  check(near(swiss.totalKm2, countryAreaKm2('Switzerland'), 1),
+    'the share of a country is measured against that country');
+  check(swiss.pct > world.worldPct * 100, 'so a country reads as a much bigger share than the world does');
+  check(near(swiss.pct, (swiss.km2 / countryAreaKm2('Switzerland')) * 100, 1e-9), 'and the arithmetic is that division');
+
+  // Regions: the denominator is the cantons of the countries actually touched.
+  check(swiss.regionsTotal === 26, 'Switzerland is 26 cantons', `got ${swiss.regionsTotal}`);
+  check(swiss.regions > 0 && swiss.regions <= 26, 'and you have been to some of them', `got ${swiss.regions}`);
+
+  // Nothing picked is everywhere, in the numbers as well as in the picture.
+  const empty = await coverageOf({ kind: 'country', ids: [] }, data);
+  check(empty.cells === world.cells, 'picking nothing measures everywhere, not nothing',
+    `got ${empty.cells}`);
+  check(empty.title === 'The world', 'and says so');
+
+  // The same sweep, unfiltered, has to agree with computeStats itself — this is
+  // the guarantee that the poster and the Cells tab are one measurement.
+  const direct = await computeStats(cells, meta);
+  check(direct.cells === world.cells && near(direct.km2, world.km2, 1e-6),
+    'an unfiltered export reads exactly what the statistics panel reads');
+
+  console.log('\nWhat a caption says');
+  const lines = captionLines(
+    { on: true, fields: ['first', 'title', 'covered'], title: '' },
+    swiss,
+  );
+  check(lines[0].title === true && lines[0].value === 'Switzerland',
+    'the title leads, whatever order the fields were ticked in');
+  check(lines.map((l) => l.label).join('|') === '|Land covered|First seen',
+    'and the rest follow the order they are declared in', lines.map((l) => l.label).join('|'));
+
+  const named = captionLines({ on: true, fields: ['title'], title: '  Home  ' }, swiss);
+  check(named[0].value === 'Home', 'a title you type wins over the names of the places');
+
+  const dateless = captionLines({ on: true, fields: ['first', 'last'] }, { ...swiss, firstAt: 0, lastAt: 0 });
+  check(dateless.length === 0, 'a line with no honest answer is left out, not printed empty');
+
+  check(captionLines({ on: false, fields: ['title'] }, swiss).length === 0, 'and none of it appears when it is switched off');
+
+  console.log('\nNaming the file');
+  check(exportFilename({ shape: 'vertical' }, swiss) === 'switzerland-vertical.png', 'after the place and the shape');
+  check(exportFilename({ shape: 'square' }, world) === 'hexplore-square.png', 'and after the app when there is no place');
+  check(
+    exportFilename({ shape: 'square' }, { names: ['Zürich', 'Neuchâtel'] }) === 'zurich-neuchatel-square.png',
+    'with the accents folded away, because a filename travels',
+  );
+
+  console.log('\nListing the places worth offering');
+  const countries = visitedAreas('country', cells, areaOf);
+  check(countries.length === 2, 'only the places you have actually been are listed', `got ${countries.length}`);
+  check(countries[0].id === 'Switzerland', 'biggest first', countries.map((c) => c.id).join(', '));
+  const regions = visitedAreas('region', cells, areaOf);
+  check(regions.every((r) => r.name && r.country), 'and a region carries its country, since a dozen share a name');
+}
+
+// --- Specs ---------------------------------------------------------------------
+
+console.log('\nThe spec resolves to a picture');
+{
+  check(sizeOf({ shape: 'vertical', scale: 1 }).h === 1350, 'a shape has a size');
+  check(sizeOf({ shape: 'vertical', scale: 2 }).h === 2700, 'and Large doubles it');
+  check(sizeOf({ shape: 'nonsense', scale: 9 }).w === 1080, 'a spec from an older build falls back rather than failing');
+
+  const overridden = paletteOf({ palette: 'paper', colors: { land: '#123456' } });
+  check(overridden.background === '#f4f1ea' && overridden.land === '#123456',
+    'and a colour you changed sits on top of the palette you chose');
+
+  check(scopeName('country', 'Italy') === 'Italy', 'a country is called by its name');
+  check(scopeName('region', 'Switzerland/Bern') === 'Bern', 'and a region by its own, not by its id');
+  check(scopeAreaKm2('country', 'Switzerland') > 39_000, 'a country knows how big it is');
+  check(CAPTION_FIELDS.every((f) => f.key && f.label), 'every caption field has something to call itself');
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

@@ -39,6 +39,10 @@ number of approaches that were tried and abandoned.
   over the map in the basemap's own light or dark. Choose which parts you want —
   tracks, stations, signals and crossings, platforms, kilometre posts — and tap
   any of them for its name, reference, operator and a link to OpenStreetMap.
+- **Export a picture.** A place cut out of the world — one canton, three
+  countries, a whole continent — with your ground inside it and a caption saying
+  how much of it you have covered. Vertical, horizontal or square, in the colours
+  you pick.
 - **Undo and redo**, with a line naming what it just took back — worth having
   when the thing that changed is off-screen.
 - **Backups.** The server copies the database on a schedule — nightly at 04:00
@@ -156,6 +160,17 @@ of their own shape, which is how you actually recognise one. Tap a line on the
 map for its card. The list sorts by **newest or longest** and groups by **app or
 activity**, and the two are independent — so "the longest ride, and the longest
 hike" is one question you can ask.
+
+**An image of a place.** *Export & settings → Export an image* makes a picture
+rather than a screenshot: pick any number of regions, countries or continents and
+everything outside them is cut away along their real boundaries. Choose the shape
+(vertical, horizontal, square), how the visited ground is drawn (the blobs
+themselves, or filled regions, countries or continents), what it is coloured by,
+and the palette — including a transparent background, if you want to drop it onto
+something else. Then add a caption: pick a corner for it, pick which numbers it
+carries — land covered, regions visited, first seen, longest streak — and set the
+type, the size and the colour. It is drawn from the map already in your browser
+and saved straight to your machine; nothing is uploaded.
 
 **Trips.** The search panel groups your history into the runs of
 days you didn't come home: `Zermatt, Switzerland · Aug 10 – Aug 16, 2024 ·
@@ -317,9 +332,10 @@ npm test
 Covers the parts where being wrong is quiet: the hex maths, visit counting,
 activity guessing, the route API, preference syncing, the backup scheduler and
 its skip logic, undo's restore path, trip derivation and naming, search, colour
-parsing, the coverage arithmetic, and the request caching — including the two
-ways a cache can lie, by answering "nothing changed" when something did and by
-never saying it when nothing has.
+parsing, the coverage arithmetic, the framing and captioning behind the image
+export — including whether a picture of Fiji comes out as Fiji or as the Pacific
+— and the request caching, including the two ways a cache can lie, by answering
+"nothing changed" when something did and by never saying it when nothing has.
 
 ## Keeping it yours
 

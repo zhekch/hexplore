@@ -18,6 +18,25 @@ export const EARTH_LAND_KM2 = 148_940_000;
 
 const wrapLng = (lng) => (((lng + 180) % 360) + 360) % 360 - 180;
 
+// How these numbers are spelled, in the one place both readers of them can
+// reach. The Cells tab and the image export show the same coverage; a poster
+// that rounded 1.24 % to "1%" beside a panel saying "1.2%" would read as two
+// different measurements of the same ground.
+export const formatKm2 = (v) =>
+  v >= 1000 ? `${Math.round(v).toLocaleString()} km²`
+  : v >= 10 ? `${v.toFixed(0)} km²`
+  : `${v.toFixed(1)} km²`;
+
+// Coverage numbers span orders of magnitude — 7 % of Switzerland next to
+// 0.005 % of the planet — so keep enough digits for the small end to survive.
+export const formatPct = (v) =>
+  v >= 10 ? `${v.toFixed(0)}%`
+  : v >= 1 ? `${v.toFixed(1)}%`
+  : v >= 0.01 ? `${v.toFixed(2)}%`
+  : v >= 0.001 ? `${v.toFixed(3)}%`
+  : v > 0 ? '<0.001%' // a single cell in a big country rounds to nothing
+  : '0%';
+
 // Marks a "region" that is really a whole country, for the countries the
 // admin-1 dataset doesn't subdivide. The prefix can't collide: real region ids
 // are "Country/Name".
@@ -110,10 +129,19 @@ function fillYearGaps(pairs) {
  * the cell already resolved to, which drops all but a couple of dozen of the
  * 4,500 shapes before any geometry is touched.
  *
+ * `only` narrows the sweep to part of the map without narrowing what is
+ * measured about it. The image export asks these same questions of one country
+ * or one canton — "how much of *Switzerland*, first seen when, over how many
+ * days" — and every one of them is this function's answer over a subset of the
+ * rows. A predicate is all it takes because the arithmetic never looks outside
+ * the cell it is on; the caller supplies the denominator (a country's own area)
+ * that a filtered sweep cannot know.
+ *
  * @param {Iterable<string>} cellIds visited cell ids ("L/col/row")
  * @param {Map<string, Array>} cellMeta id → provenance entries
+ * @param {(id:string) => boolean} [only] which cells to count; all of them by default
  */
-export async function computeStats(cellIds, cellMeta) {
+export async function computeStats(cellIds, cellMeta, only = null) {
   await Promise.all([loadCountries(), loadRegions()]);
 
   const byCountry = new Map(); // id → { iso, cells, km2 }
@@ -134,6 +162,7 @@ export async function computeStats(cellIds, cellMeta) {
   for (const id of cellIds) {
     const [L, col, row] = id.split('/').map(Number);
     if (L > MAX_LEVEL) continue;
+    if (only && !only(id)) continue;
     const [lng, lat] = project(cellCenter(L, col, row));
     const area = cellAreaKm2(L, lat);
     cells++;

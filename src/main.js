@@ -33,6 +33,10 @@ import { mountStats } from './stats-ui.js';
 import { mountHomeAssistant } from './home-assistant-ui.js';
 import { sourceLabel } from './locations.js';
 import { mountColorPicker, hexAlpha, hexOpaque } from './color-picker.js';
+import {
+  HEAT_MODES, HEAT_NEIGHBOURHOOD, TYPE_COLORS, TYPE_MAX, TYPE_OTHER_COLOR, UNDATED_COLOR,
+  cellColorOf, cellStats, heatMetric, hotOf, isHeatMode as isHeatColoring,
+} from './coloring.js';
 import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
 // The theme is not handed over separately: it only ever changes by switching
 // basemap, which replaces the style and rebuilds the overlay from scratch.
@@ -47,6 +51,7 @@ import { setClock, clockMode } from './clock.js';
 import { mountStrava } from './strava-ui.js';
 import { mountSync } from './sync-ui.js';
 import { mountSettings } from './settings-ui.js';
+import { mountExport } from './export-ui.js';
 import { mountPersonal } from './personal-ui.js';
 import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
@@ -884,72 +889,12 @@ function syncAccent() {
 }
 
 // --- Coloring modes -----------------------------------------------------------
-// 'flat' paints every visited region in the accent color and merges them into
-// blobs. The heat maps instead give each cell its own color from its rolled-up
-// stats, so the regions break back into a hex mosaic — the shape stops being
-// the message and the numbers take over.
-//
-// Ramps run cool → hot / old → new and are sampled with an `interpolate`
-// expression on the per-feature value `v` (0..1).
-// How far out "how often was I around here" looks. A cell is read together
-// with the hex this many levels above it — level 0's neighbourhood is a level-2
-// hex, about 9 km across. Without it the finest level is almost all floor:
-// `hits` counts arrivals in one 1 km hexagon, and going back to a city lands on
-// a different street rather than the same hexagon, so five visits produce five
-// cells seen once rather than one cell seen five times.
-const HEAT_NEIGHBOURHOOD = 2;
-// Where the hot end of a ramp is pinned. Deliberately not the maximum: a single
-// cell at home can hold four orders of magnitude more arrivals than anywhere
-// else, and measured against it the entire rest of the world sits in the bottom
-// fifth of the ramp. Everything above this pins to the hottest color, which is
-// the honest answer — past a point, "more" stops being a distinction worth a
-// shade.
-const HEAT_HOT_PERCENTILE = 0.98;
-
-const HEAT_MODES = {
-  flat: { label: 'Single color' },
-  visits: {
-    label: 'Most visited',
-    legend: ['Rare', 'Often'],
-    ramp: ['#2b3a6b', '#2f6fa8', '#39a0a0', '#8fc55f', '#f2d049', '#f08b3a', '#e4562f'],
-    // A cell's own arrivals plus what a typical cell around it got, against the
-    // hot percentile rather than the maximum — see HEAT_NEIGHBOURHOOD and
-    // HEAT_HOT_PERCENTILE. Areas that carry their own neighbourhood (a whole
-    // country) have no `near` and are read on their own count.
-    value: (s, r) =>
-      Math.min(1, Math.log(s.hits + (s.near ?? 0)) / Math.log(Math.max(2, r.hotHits))),
-  },
-  // Not a ramp: a color per source. "Where did this part of the map come from"
-  // is a question about categories, so cool→hot would be meaningless here — the
-  // colors only have to be told apart, not ordered.
-  type: {
-    label: 'Type',
-    categorical: true,
-  },
-  oldest: {
-    label: 'First seen',
-    legend: ['Long ago', 'Lately'],
-    ramp: ['#5c2a3f', '#8a3d52', '#b35c5c', '#cf8560', '#dcb377', '#b9cf87', '#79c39b'],
-    value: (s, r) =>
-      !s.age ? UNDATED : r.maxAge > r.minAge ? (s.age - r.minAge) / (r.maxAge - r.minAge) : 1,
-  },
-};
-// Sentinel value for "this cell has no date": painted a flat grey instead of
-// being parked at one end of the ramp, where it would read as a real answer.
-const UNDATED = -1;
-const UNDATED_COLOR = '#5b6377';
-
-// Colors for the Type mode. Picked to stay apart from each other rather than to
-// run in any order, and assigned by first appearance in SOURCE_ORDER so a given
-// source keeps its color as the map grows.
-const TYPE_COLORS = [
-  '#60acff', '#ff7ab8', '#5fd0a8', '#ffcf5c', '#b98cff',
-  '#ff8f5c', '#4fd4e0', '#c3e05a', '#e0607a', '#8fa0d8',
-];
-// Anything not on the map yet, and anything past the palette, shares this.
-const TYPE_OTHER_COLOR = '#7d8698';
-const TYPE_MAX = TYPE_COLORS.length;
-
+// The modes themselves — their labels, their ramps and the arithmetic that
+// turns one rolled-up cell into a color — live in src/coloring.js, because the
+// image export paints the same cells in the same modes and a second copy of the
+// ramps would be a second answer to the same question. What stays here is what
+// is genuinely the map's: the MapLibre expression built from those ramps, and
+// the roll-up that produces the stats they read.
 const HEAT_KEY = 'visited-map:heat:v1';
 let heatMode = localStorage.getItem(HEAT_KEY) ?? 'flat';
 if (!HEAT_MODES[heatMode]) heatMode = 'flat';
@@ -962,19 +907,8 @@ if (!HEAT_MODES[heatMode]) heatMode = 'flat';
 const CELLS_KEY = 'visited-map:cells:v1';
 let cellsOn = localStorage.getItem(CELLS_KEY) !== 'off';
 
-// The value function for the active mode, or null when regions are flat.
-// A categorical mode puts a palette index in `v` instead of a 0..1 position,
-// so it skips the clamping the ramps need.
-function heatMetric() {
-  const m = HEAT_MODES[heatMode];
-  if (m?.categorical) return (stat) => (stat.src ?? TYPE_MAX);
-  if (!m?.value) return null;
-  return (stat, range) => {
-    const v = m.value(stat, range ?? {});
-    if (v === UNDATED) return UNDATED;
-    return Math.round(Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0)) * 1000) / 1000;
-  };
-}
+// The value function for whichever mode is on, or null when regions are flat.
+const heatMetricNow = () => heatMetric(heatMode);
 
 // --- Blob canvas --------------------------------------------------------------
 // Hex levels are painted into a canvas and blurred (src/blob-canvas.js) so the
@@ -1024,54 +958,8 @@ let vecInsertBefore = undefined;
 // it before updateGrid's state block is evaluated.
 const vecHeld = { '': EMPTY, '-prev': EMPTY };
 
-// slice(1, 7), not slice(1): a colour may carry an opacity as a fourth pair of
-// digits, and eight digits through parseInt would shift every channel one pair
-// left — the colour arithmetic here wants the colour, never its transparency.
-// That is applied separately, as opacity, because the wash is drawn by blurring
-// discs and cutting them at a fixed alpha: a translucent fill would move the
-// cut and shrink the blobs rather than fade them.
-const hexToRgb = (hex) => {
-  const n = parseInt(hex.slice(1, 7), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-};
-
-// Sample a ramp at t (0..1) with a straight sRGB mix — the ramps are dense
-// enough that a fancier interpolation buys nothing here.
-function sampleRamp(ramp, t) {
-  const x = Math.min(1, Math.max(0, t)) * (ramp.length - 1);
-  const i = Math.min(ramp.length - 2, Math.floor(x));
-  const f = x - i;
-  const a = hexToRgb(ramp[i]);
-  const b = hexToRgb(ramp[i + 1]);
-  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * f)}, ${Math.round(a[1] + (b[1] - a[1]) * f)}, ${Math.round(
-    a[2] + (b[2] - a[2]) * f,
-  )})`;
-}
-
-// Per-cell color for the canvas painter, quantized so a whole region shares a
-// handful of fill styles.
-function blobColorOf(level) {
-  const heat = HEAT_MODES[heatMode];
-  if (heat.categorical) return (stat) => TYPE_COLORS[stat.src] ?? TYPE_OTHER_COLOR;
-  // Opaque for the same reason the vector fill is, and one more: these discs
-  // are blurred and re-cut at a fixed alpha, so a translucent fill would move
-  // the contour and shrink every blob instead of fading it.
-  if (!heat.ramp) return () => hexOpaque(accent);
-  const metric = heatMetric();
-  const range = litRange[level] ?? {};
-  const steps = 48;
-  const cache = new Map();
-  return (stat) => {
-    const v = metric(stat, range);
-    const bucket = v < 0 ? -1 : Math.round(v * steps);
-    let color = cache.get(bucket);
-    if (!color) {
-      color = bucket < 0 ? UNDATED_COLOR : sampleRamp(heat.ramp, bucket / steps);
-      cache.set(bucket, color);
-    }
-    return color;
-  };
-}
+// Per-cell color for the canvas painter, against this level's own range.
+const blobColorOf = (level) => cellColorOf(heatMode, accent, litRange[level] ?? {});
 
 // MapLibre expression that turns `v` into a color for the active ramp.
 function heatColorExpr() {
@@ -1258,10 +1146,7 @@ function applyColors() {
 // Whether the active coloring mode is a heat map (per-cell colors from a ramp)
 // rather than the single-color wash. The two are tuned separately — opacity
 // here, edge softness in src/blob-canvas.js.
-const isHeatMode = () => {
-  const m = HEAT_MODES[heatMode];
-  return !!(m?.ramp || m?.categorical);
-};
+const isHeatMode = () => isHeatColoring(heatMode);
 
 // Heat-map cells are opaque enough to read as data; flat regions stay a
 // translucent wash over the basemap. Both live in src/blob-canvas.js.
@@ -1370,6 +1255,11 @@ let litRange = [];
 // out its palette in, so the biggest source gets the most distinct color and a
 // source keeps its color as long as its standing doesn't change.
 let sourceOrder = [];
+// Whether that tally is missing anything. It is only built while the Type mode
+// is the one on screen, so the image export — which can ask for Type over a map
+// showing something else — needs to know when what is in `litSets` predates a
+// cell, or was never built at all. See exportRollUp.
+let typeRollUpStale = true;
 
 // Tally one source's visits onto a rolled-up cell. Nearly every cell only ever
 // sees a single source, so the Map is only allocated once a second turns up.
@@ -1410,18 +1300,6 @@ function attachNeighbourhoods(level) {
   for (const [key, e] of litSets[level]) e.near = neighbourhoodOf(level, key);
 }
 
-/**
- * The value the hot end of a ramp is pinned to — `HEAT_HOT_PERCENTILE` of the
- * counts actually present, rather than the largest of them. See the constant.
- */
-function hotOf(lit) {
-  if (!lit.size) return 2;
-  const all = [];
-  for (const e of lit.values()) all.push(e.hits + (e.near ?? 0));
-  all.sort((a, b) => a - b);
-  return Math.max(2, all[Math.min(all.length - 1, Math.floor(all.length * HEAT_HOT_PERCENTILE))]);
-}
-
 // Which source speaks for this cell: the one that saw you there most often.
 // Ties go to the alphabetically first, so the map doesn't shuffle between loads.
 function dominantSource(e) {
@@ -1437,51 +1315,21 @@ function dominantSource(e) {
   return best;
 }
 
-/**
- * What one stored cell contributes to anything that aggregates cells: the
- * roll-up, and the region and country levels.
- *
- * Shared rather than written twice because the area levels used to read their
- * numbers off a rolled-up hexagon instead of off the cells themselves, and the
- * moment they stopped, the two had to agree about what a cell is worth. `own`
- * is the cell's dominant source, and only worked out when a mode is going to
- * colour by it — it costs a comparison per provenance row and nothing reads it
- * otherwise.
- */
-function cellStats(id, byType) {
-  // Cells marked by hand have no fix count worth showing, so they weigh 1.
-  let hits = 0;
-  let time = 0;
-  let age = 0;
-  let own = null;
-  let ownN = -1;
-  for (const m of cellMeta.get(id) ?? []) {
-    if (m.source !== 'manual' && m.source !== 'unknown') hits += m.hits || 0;
-    if (m.lastAt > time) time = m.lastAt;
-    if (m.firstAt && (!age || m.firstAt < age)) age = m.firstAt;
-    if (byType) {
-      const n = m.hits || 1;
-      if (n > ownN || (n === ownN && m.source < own)) {
-        own = m.source;
-        ownN = n;
-      }
-    }
-  }
-  // No fix count (hand-marked, or carried over from before provenance) still
-  // counts as one visit. Dates are left at 0 on purpose: "we don't know when"
-  // is its own answer, and the date heat maps grey those cells out rather
-  // than pretending they happened when they were added.
-  if (!hits) hits = 1;
-  if (!age) age = time;
-  return { hits, time, age, own, ownN };
-}
+// One stored cell's contribution to any roll-up, read off its provenance. The
+// arithmetic lives in src/coloring.js, beside the ramps that consume it.
+const cellStatsOf = (id, byType) => cellStats(cellMeta.get(id) ?? [], byType);
 
-function recomputeLit() {
+/**
+ * Roll every stored cell up through the levels above it.
+ *
+ * @param {boolean} [byType] also build the per-source tally. It is an extra
+ *   pass and an extra field on every rolled-up cell, so it defaults to whether
+ *   the *map* is going to read one — the image export passes true to colour by
+ *   Type over a map that is showing something else.
+ */
+function recomputeLit(byType = HEAT_MODES[heatMode]?.categorical) {
   // A full rebuild already accounts for anything sitting in the queue.
   paintQueue.length = 0;
-  // The per-source tally is only worth building when something is going to read
-  // it — it's an extra pass and an extra field on every rolled-up cell.
-  const byType = HEAT_MODES[heatMode]?.categorical;
   litSets = Array.from({ length: MAX_LEVEL + 1 }, () => new Map());
   const sourceCells = new Map();
 
@@ -1489,7 +1337,7 @@ function recomputeLit() {
     let [L, col, row] = id.split('/').map(Number);
     if (L > MAX_LEVEL) continue; // stored at a level that no longer exists
 
-    const { hits, time, age, own, ownN } = cellStats(id, byType);
+    const { hits, time, age, own, ownN } = cellStatsOf(id, byType);
     if (byType && own) sourceCells.set(own, (sourceCells.get(own) ?? 0) + 1);
 
     for (let l = L; l <= MAX_LEVEL; l++) {
@@ -1547,6 +1395,7 @@ function recomputeLit() {
     return r;
   });
 
+  typeRollUpStale = !byType;
   countryDirty = true; // the set of lit countries may have changed
 }
 
@@ -1599,6 +1448,10 @@ function rollUpPainted(id) {
     const e = litSets[l].get(key);
     if (e) e.near = neighbourhoodOf(l, key);
   }
+  // This path never works out a source slot — it is only taken when the map is
+  // in a mode that would not read one. So any tally built earlier for the image
+  // export is now one cell short of the truth, and says so.
+  typeRollUpStale = true;
   countryDirty = true;
   return true;
 }
@@ -1723,6 +1576,26 @@ const cellRegionMemo = new Map(); //  "L/col/row" -> region id
 // western-hemisphere cells (Portugal, Spain, the Americas) land near +350°.
 const wrapLng = (lng) => ((lng + 180) % 360 + 360) % 360 - 180;
 
+/**
+ * Which area of `kind` one stored cell belongs to, memoised.
+ *
+ * The memo is never invalidated by an edit: a cell's centre never moves, so the
+ * answer for "L/col/row" is the same every time it is asked. Only a dataset
+ * arriving late clears it (see ensureAreaFC).
+ *
+ * Named rather than inlined because the image export asks the same question of
+ * the same rows — which countries are lit, which cantons — and a second memo
+ * would mean a second run of twenty thousand point-in-polygon tests for an
+ * answer already sitting in this one.
+ */
+function areaOfCellMemo(kind, id) {
+  const memo = kind === 'region' ? cellRegionMemo : cellCountryMemo;
+  let at = memo.get(id);
+  if (at === undefined) memo.set(id, (at = areaOfCell(kind === 'continent' ? 'country' : kind, id)));
+  if (kind !== 'continent') return at;
+  return at ? continentOf(at) : null;
+}
+
 // One area's geometry, whichever dataset it came from.
 function areaGeometry(kind, id, fine) {
   if (kind === 'continent') return continentGeometry(id);
@@ -1751,7 +1624,18 @@ function mergeAreas(kind, litIds, fine) {
   return unionGeometries([...(merged.fill.length ? [merged.fill] : []), ...extra]);
 }
 
-function buildAreaFC(kind, fine = false) {
+/**
+ * @param {'region'|'country'|'continent'} kind
+ * @param {object} [o]
+ * @param {boolean} [o.fine]  prefer the detailed region boundaries
+ * @param {string} [o.mode]   colour by this mode rather than the one on screen —
+ *   the image export paints these same areas in a mode of its own choosing
+ * @param {boolean} [o.record] let the build update the map's own state. False
+ *   for a build nobody is about to draw on the map: `litRegionIds` decides
+ *   which countries get their detailed boundaries fetched, and an export of one
+ *   canton must not be what answers that.
+ */
+function buildAreaFC(kind, { fine = false, mode = heatMode, record = true } = {}) {
   // Resolved from each stored cell, at the level it was stored — not from a
   // rolled-up hexagon.
   //
@@ -1781,9 +1665,7 @@ function buildAreaFC(kind, fine = false) {
   // countries dissolved, so a separate lookup would be the same test run over a
   // shape with more points in it — and one that could still disagree with the
   // level below at a coast the union left a seam along.
-  const memo = isRegionKind ? cellRegionMemo : cellCountryMemo;
-  const memoKind = isContinentKind ? 'country' : kind;
-  const byType = HEAT_MODES[heatMode]?.categorical;
+  const byType = HEAT_MODES[mode]?.categorical;
   const slotOf = byType ? new Map(sourceOrder.map((src, i) => [src, i])) : null;
   const litIds = new Set();
   // Continent → the countries in it you have been to. The count is the whole
@@ -1792,19 +1674,16 @@ function buildAreaFC(kind, fine = false) {
   const countriesIn = isContinentKind ? new Map() : null;
   const perArea = new Map(); // id → rolled-up stats, for the heat maps
   for (const id of visited) {
-    let cid = memo.get(id);
-    if (cid === undefined) memo.set(id, (cid = areaOfCell(memoKind, id)));
+    const cid = areaOfCellMemo(kind, id);
     if (!cid) continue;
     if (isContinentKind) {
-      const country = cid;
-      cid = continentOf(country);
-      if (!cid) continue;
+      const country = areaOfCellMemo('country', id);
       let seen = countriesIn.get(cid);
       if (!seen) countriesIn.set(cid, (seen = new Set()));
       seen.add(country);
     }
     litIds.add(cid);
-    const stat = cellStats(id, byType);
+    const stat = cellStatsOf(id, byType);
     let e = perArea.get(cid);
     // `near` stays 0: a whole region is its own neighbourhood, so it is read on
     // its own count rather than against the ring of hexes around it.
@@ -1833,13 +1712,13 @@ function buildAreaFC(kind, fine = false) {
 
   // Recorded before the heat branch, which returns without reaching the merge:
   // considerFineRegions() needs this whichever colouring mode is on.
-  if (isRegionKind) litRegionIds = litIds;
+  if (isRegionKind && record) litRegionIds = litIds;
 
   const labels = isContinentKind ? continentLabels(countriesIn) : [];
 
   // In a heat mode each country is its own feature so it can carry its own
   // color; otherwise they dissolve into one borderless shape.
-  const heat = heatMetric();
+  const heat = heatMetric(mode);
   if (heat) {
     const range = { maxHits: 1, hotHits: hotOf(perArea), minTime: 0, maxTime: 0, minAge: 0, maxAge: 0 };
     for (const e of perArea.values()) {
@@ -1929,9 +1808,36 @@ function ensureAreaFC(kind) {
   const slot = areaCacheKey(kind);
   // Built on demand and then held: setVecData() tells "same data" from "rebuilt"
   // by identity, and re-feeding a source it already holds re-tiles the world.
-  if (areaFC[slot] === EMPTY) areaFC[slot] = buildAreaFC(kind, slot === 'regionFine');
+  if (areaFC[slot] === EMPTY) areaFC[slot] = buildAreaFC(kind, { fine: slot === 'regionFine' });
   return areaFC[slot];
 }
+
+// --- What the image export reads ------------------------------------------------
+// The export (src/export-image.js) draws the same cells, coloured by the same
+// modes, cut to the same boundaries — but at a size and in a mode that need have
+// nothing to do with what is on screen. So it is handed accessors rather than
+// state: everything below answers "as things stand", and none of it lets the
+// export change what the map is doing.
+
+/**
+ * The roll-up to paint one mode from.
+ *
+ * The per-source tally behind the Type mode is only built while Type is the mode
+ * on screen, because it costs a pass and a field per cell that nothing else
+ * reads. Exporting a Type-coloured picture from a map showing First seen is a
+ * perfectly reasonable thing to ask for, so the tally is built on demand — once,
+ * and then left alone until something invalidates it, or every drag of the
+ * strength slider would pay for a full rebuild.
+ */
+function exportRollUp(mode) {
+  if (HEAT_MODES[mode]?.categorical && typeRollUpStale && visited.size) recomputeLit(true);
+  return { litSets, litRange };
+}
+
+// Uncached on purpose. `ensureAreaFC` holds one answer per kind for the mode the
+// map is in, and an export asking for a different mode must not evict it — the
+// next pan would rebuild and re-tile the level under the user's hand.
+const exportAreaFC = (kind, mode) => buildAreaFC(kind, { mode, record: false });
 
 // Initial (empty) light-up so litSets/countryDirty exist before the map draws;
 // hydrateVisited() re-runs this once the user's cells arrive from the server.
@@ -3922,7 +3828,7 @@ function buildGrid(bb, L) {
   // Heat maps need one shape per cell to carry its own value, so the blob
   // merge is off in those modes and cells tile as flat hexagons instead —
   // which is what makes the mosaic readable as data rather than a shape.
-  const heat = heatMetric();
+  const heat = heatMetricNow();
   const features = [];
   const boundary = [];
 
@@ -5995,7 +5901,22 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       return out;
     },
   });
-  settings = mountSettings({ personal: personalUi, backup: backupUi });
+  // Nothing about the export is stored on the server and nothing it draws is
+  // sent anywhere: it reads the map that is already in this tab and writes a
+  // PNG the browser saves. Which is why it takes accessors and not a copy —
+  // there is only one set of cells and it belongs up here.
+  const exportUi = mountExport({
+    onClose: () => settings?.open(),
+    data: {
+      cells: () => visited,
+      meta: () => cellMeta,
+      accent: () => hexOpaque(accent),
+      rollUp: exportRollUp,
+      areaFC: exportAreaFC,
+      areaOf: areaOfCellMemo,
+    },
+  });
+  settings = mountSettings({ personal: personalUi, backup: backupUi, exportImage: exportUi });
   document.getElementById('sync-open').addEventListener('click', () => {
     setMenuOpen(false);
     sync.open();

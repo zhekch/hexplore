@@ -110,6 +110,7 @@ export function loadRegions(data) {
     loading = (data ? Promise.resolve({ default: data }) : import('./regions.json')).then((m) => {
       REGIONS = m.default;
       idIndex = null;
+      recordIndex = null;
       buildIndex();
       return REGIONS;
     });
@@ -449,6 +450,18 @@ export function regionsInCountry(iso) {
 }
 
 export const regionCount = () => REGIONS?.length ?? 0;
+
+// Region records by id. A second index rather than a `find`, because the image
+// export names every region in a selection and a linear scan of 4,553 shapes
+// per name adds up on a list the user is dragging a filter across.
+let recordIndex = null;
+
+/** One region's record — its name, its country, its bbox — or null. */
+export function regionById(id) {
+  if (!REGIONS) return null;
+  if (!recordIndex) recordIndex = new Map(REGIONS.map((r) => [r.id, r]));
+  return recordIndex.get(id) ?? null;
+}
 
 /**
  * The countries of the given regions whose shapes touch the given view — which

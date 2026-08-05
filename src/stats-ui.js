@@ -3,7 +3,7 @@
 // list of saved tracks, and the only place to browse them without hunting for
 // their lines on the map. main.js owns both sets and passes them in.
 
-import { EARTH_LAND_KM2 } from './stats.js';
+import { EARTH_LAND_KM2, formatKm2, formatPct } from './stats.js';
 import { sourceLabel, IMPORT_SOURCES } from './locations.js';
 import { formatDistance, formatDuration, totalLength, thumbSegments, recordedSeconds } from './routes.js';
 import { auth } from './auth.js';
@@ -21,20 +21,10 @@ const dayOf = (key) => (key ? dayFmt.format(new Date(`${key}T12:00:00`)) : '');
 
 const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 
-const km2 = (v) =>
-  v >= 1000 ? `${Math.round(v).toLocaleString()} km²`
-  : v >= 10 ? `${v.toFixed(0)} km²`
-  : `${v.toFixed(1)} km²`;
-
-// Coverage numbers span orders of magnitude — 7 % of Switzerland next to
-// 0.005 % of the planet — so keep enough digits for the small end to survive.
-const pct = (v) =>
-  v >= 10 ? `${v.toFixed(0)}%`
-  : v >= 1 ? `${v.toFixed(1)}%`
-  : v >= 0.01 ? `${v.toFixed(2)}%`
-  : v >= 0.001 ? `${v.toFixed(3)}%`
-  : v > 0 ? '<0.001%' // a single cell in a big country rounds to nothing
-  : '0%';
+// Spelled in src/stats.js, so the image export says the same thing about the
+// same ground.
+const km2 = formatKm2;
+const pct = formatPct;
 
 /**
  * The cells themselves are deliberately not a parameter any more. This dialog

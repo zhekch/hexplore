@@ -794,6 +794,159 @@ session is gone before the response arrives, so `mountAuth` exposes `signedOut()
 offline caches matter most of the four, because the service worker files an
 account's cells and routes under URLs that say nothing about whose they are.
 
+## Export an image
+
+Export & settings → **Export an image**. A picture of where you have been, cut
+to the shape of a place: Switzerland with your blobs inside it and two lines
+saying how much of it you have covered.
+
+**It is not a screenshot, and the whole design follows from that.** A screenshot
+is the window you happened to have open — an aspect ratio the browser decided, a
+frame decided by where you last dragged, and a basemap that is somebody else's
+tiles with somebody else's licence attached. Reading pixels back out of the live
+map would also need `preserveDrawingBuffer` on the WebGL context, which is a cost
+paid by every frame of every session for the sake of a button most people press
+twice. So `src/export-image.js` draws the picture itself, on a plain 2D canvas,
+from the same cells and the same boundaries the map draws from. An export is
+therefore the same image on any machine at any resolution, and needs no map
+instance at all — which is also what makes most of it testable
+(`scripts/test/export-image.mjs`).
+
+Four choices, and the order matters:
+
+| | |
+| --- | --- |
+| **Shape** | Vertical (4:5), Horizontal (16:9) or Square, at 1× or 2×. Sets the canvas, and through it the camera, the type scale and the blob level |
+| **What is in it** | Any number of regions, countries or continents — or everywhere. This is the *cut*: the selection's outline is the clip, and nothing outside it is painted |
+| **Detail** | How the visited ground is generalised: blobs, or filled regions, countries or continents |
+| **Color by** | The same four modes the map has |
+
+**"What is in it" and "Detail" are two controls because they are two questions.**
+"Show me Switzerland" and "colour it by canton" have nothing to do with each
+other — you can have a picture of one canton coloured by whole countries (a flat
+fill, which is the honest answer) or a picture of Europe coloured cell by cell.
+Folding them into one control is how a map ends up claiming a resolution it does
+not have.
+
+**The list only offers places you have been.** All 4,553 admin-1 regions behind
+a search box would mostly be places the export would draw as an empty shape. The
+picker sweeps the visited cells through the same memoised
+`areaOfCell` the map's own region level uses (`areaOfCellMemo` in `src/main.js`,
+handed over as an accessor) and lists what comes back, biggest first.
+
+**Nothing picked means everywhere, in the numbers as well as in the picture.**
+The picture already worked that way — an empty selection has no outline to cut
+with — and the numbers did not: an empty id set matched no cell, and the caption
+reported a map of nothing with complete confidence. `settleScope` normalises it
+once, and everything that reads a scope goes through it.
+
+### The seam
+
+Mercator has one join in it and every framing decision has to know where it is.
+Taking the minimum and maximum longitude of a selection frames Fiji as the entire
+Pacific and Chukotka as the northern hemisphere.
+
+`circularSpan` answers by looking at what is *not* covered: union the arcs, find
+the widest hole, and the frame is everything else. One hole nobody selected is
+the difference between "New Zealand" and "a planet". Rings are put back together
+by `unwrapRing`, which follows the ±180° jumps and accumulates a whole-world
+offset, so a ring stored as +179, −179 comes back as +179, +181 — past the line
+rather than snapped back across the world. Everything is then drawn in **world
+copies**: each polygon is emitted once per whole-world offset that can reach the
+frame, so a frame straddling the line gets both halves and neither is cut.
+
+That leaves `circularSpan` free to answer with an origin anywhere on the circle —
+a frame over France legitimately comes back as 358°…375°, and every path here
+would render it correctly. `frameFor` slides the centre back into [−180, 180)
+anyway, without touching the width: a rectangle a world east of the geometry it
+frames is a trap for whoever next reads a number out of it. (It was, for an hour.)
+
+### Blobs, off the map
+
+The blobs are the same pipeline, not a second one. `paintBlobSheet` was lifted out
+of `createBlobLayer` in `src/blob-canvas.js` and takes what the map used to read
+off itself — pixels per Mercator metre, the feather scale, the buffers to work
+in — as arguments. The map passes its zoom and display density; the export passes
+the camera it just computed and its own canvas as the size cap, so the sheet is
+rendered at poster resolution rather than at the 0.3× the map can afford.
+
+The feather is the one knob that could not simply come along. `BLOB_FEATHER_PX`
+is measured in *screen* pixels, so that the rim looks the same at every zoom —
+and an image has no screen. It is scaled against a reference height instead
+(`FEATHER_REF_PX`), so a poster twice as tall gets twice the feather and the
+softness reads the same at any resolution.
+
+Which grid level to draw is decided by the picture rather than by a zoom:
+`blobLevelFor` takes the finest level whose cells are still at least
+`MIN_BLOB_PX` across on this canvas. Below about a pixel a disc rasterizes at
+partial alpha and the level-set cut erases it — the same floor `MIN_CELL_PX`
+holds on the map. *Cell size* offers two steps coarser than that, for a picture
+that wants to read as a shape rather than as a mosaic.
+
+### One vocabulary, two renderers
+
+The moment there were two things painting the same cells, the ramps had to stop
+living inside `src/main.js`. `src/coloring.js` now holds the four modes, their
+ramps, the categorical palette, the roll-up arithmetic (`cellStats`, `hotOf`) and
+the two functions that turn a rolled-up cell or an area's `v` into a colour. The
+map keeps what is genuinely its own — the MapLibre `interpolate` expression built
+from those ramps, since an expression is a thing you hand a GPU and not a colour.
+A second copy of the ramps would have been a second answer to "what colour is a
+cell you were at twice", and the two would have drifted the first time either was
+tuned. `formatKm2` and `formatPct` moved into `src/stats.js` for the same reason:
+a poster rounding 1.24 % to "1%" beside a panel saying "1.2%" reads as two
+measurements of the same ground.
+
+**Colouring by Type from a map that is not showing Type** is the one case that
+needs work rather than a lookup. The per-source tally costs a pass and a field on
+every rolled-up cell, so it is only built while Type is the mode on screen.
+`exportRollUp` builds it on demand and `typeRollUpStale` says when what is in
+`litSets` predates a cell or was never built — otherwise every drag of the
+strength slider would pay for a full rebuild, and a cell painted afterwards would
+quietly render as *Other*.
+
+### The caption
+
+The lines are a list, not a template: `CAPTION_FIELDS` in `src/export-image.js`
+is where a new one is added, and the dialog builds its checkboxes from it.
+Whatever is ticked is drawn in the order the fields are *declared*, not the order
+they were ticked — a caption reads top to bottom and the title belongs at the top
+whenever it was chosen.
+
+**A field with no honest answer is left out.** A poster that says "First seen —"
+is telling you about the software. `value` returns null and the line does not
+appear.
+
+Two controls, because they are two questions again: the **anchor** is where the
+block sits on the picture (nine cells laid out the way they sit, so picking a
+corner is pointing at it), and the **alignment** is how the lines sit within the
+block. Sizes are all fractions of the image's own height, which is what lets a
+300 px preview be the same picture as a 2560 px file rather than a picture of one.
+
+And it **fits rather than clips**. Three continents on one line with the size
+dragged to the top of its range will not fit any frame, and there are only two
+honest answers: run the title off the edge, or set it smaller. `drawCaption`
+measures, and re-lays-out once at whatever scale makes the block fit inside the
+margins. A caption that has quietly shrunk still says what it says.
+
+Typefaces are stacks, never webfonts. Nothing is fetched, so an export works
+offline and cannot render half-drawn while a font arrives.
+
+### What it does not do
+
+- **No basemap.** The picture is a silhouette of the selection with your ground
+  inside it, not a photograph with a hole cut in it. *The rest of the world* draws
+  the surrounding countries faintly behind the cut, which is enough to place a
+  canton without turning the export into a tile-licence question.
+- **Nothing leaves the tab.** The dialog reads the cells already in memory and
+  writes a PNG the browser saves. There is no server call and no upload; the
+  accessors it is handed (`cells()`, `meta()`, `rollUp()`, `areaFC()`) are read-only
+  views of the map's own state, so an export can never change what is on screen.
+- **The places you picked are not remembered between sessions.** Everything else
+  in the spec is (`visited-map:export:v1`), because it is a look. The places are a
+  fact about the map that may have changed since, and an id with no cell under it
+  would draw an empty shape with no way of saying why.
+
 ## Backups
 
 Everything behind the other door pulls data in. This writes it out: on a schedule,

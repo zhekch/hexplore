@@ -312,6 +312,185 @@ function cutAtLevel(context, w, h, edge) {
 }
 
 /**
+ * The three canvases one run of the pipeline needs: the sharp discs, the
+ * ping-pong partner the shaping rounds bounce between, and the finished sheet.
+ *
+ * Handed in rather than allocated per call because the map repaints on every
+ * moveend and a fresh pair of multi-megapixel canvases each time is a garbage
+ * collector's problem. Anything painting once — the image export — can simply
+ * ask for its own set.
+ */
+export function createBlobBuffers() {
+  const latest = document.createElement('canvas'); // the finished sheet
+  const sheet = document.createElement('canvas'); // sharp discs, pre-blur
+  const work = document.createElement('canvas'); // ping-pong for extra rounds
+  latest.width = latest.height = sheet.width = sheet.height = work.width = work.height = 1;
+  return {
+    latest,
+    sheet,
+    work,
+    latestCtx: latest.getContext('2d', { willReadFrequently: true }),
+    sheetCtx: sheet.getContext('2d'),
+    workCtx: work.getContext('2d', { willReadFrequently: true }),
+  };
+}
+
+/**
+ * Paint every lit cell of one level as discs, blur them, and re-cut the result
+ * at a fixed alpha level — the whole of what makes a honeycomb look poured.
+ * The finished sheet is left in `buffers.latest`.
+ *
+ * Everything the map knows and a still image does not — the zoom, the display
+ * density, which canvas the result is composed into — arrives as `pxPerMerc`
+ * and `featherScale` rather than being read off a map, which is what lets the
+ * export render the same shapes at poster resolution.
+ *
+ * @param {object} o
+ * @param {ReturnType<createBlobBuffers>} o.buffers
+ * @param {{xMin:number,xMax:number,yMin:number,yMax:number}} o.bb  the rectangle
+ *   to draw, in Mercator metres
+ * @param {number} o.level      grid level being drawn
+ * @param {Map} o.cells         "col/row" → rolled-up stats
+ * @param {(stat:object)=>string} o.colorOf  css color for a cell
+ * @param {boolean} [o.heat]    a heat map rather than the single-color wash;
+ *                              picks which pair of edge knobs applies
+ * @param {number} o.pxPerMerc  canvas pixels per Mercator metre, before capping
+ * @param {number} [o.maxSide]  hard cap on either dimension
+ * @param {number} [o.featherScale] canvas pixels per unit of BLOB_FEATHER_PX
+ * @returns {{w:number, h:number, xMax:number}|null} the sheet's size, and the
+ *   eastern edge it actually reached (rounding to whole pixels moves it)
+ */
+export function paintBlobSheet({
+  buffers,
+  bb,
+  level,
+  cells,
+  colorOf,
+  heat = false,
+  pxPerMerc,
+  maxSide = MAX_SIDE,
+  featherScale = 1,
+}) {
+  const { latest, latestCtx, sheet, sheetCtx, work, workCtx } = buffers;
+  const mercW = bb.xMax - bb.xMin;
+  const mercH = bb.yMax - bb.yMin;
+  if (!(mercW > 0) || !(mercH > 0)) return null;
+
+  const edge = heat ? BLOB_HEAT_EDGE : BLOB_EDGE;
+  const featherPx = heat ? BLOB_HEAT_FEATHER_PX : BLOB_FEATHER_PX;
+
+  const k = Math.min(pxPerMerc, maxSide / mercW, maxSide / mercH);
+  const w = Math.max(1, Math.round(mercW * k));
+  const h = Math.max(1, Math.round(mercH * k));
+  const xMax = bb.xMin + w / k;
+
+  sheet.width = w;
+  sheet.height = h;
+  latest.width = w;
+  latest.height = h;
+  work.width = w;
+  work.height = h;
+
+  const R = radiusOf(level);
+  const colSp = 1.5 * R;
+  const rowSp = SQRT3 * R;
+  const N = colsOf(level);
+
+  // How big one cell is on this canvas, with a floor. Below about a pixel a
+  // disc only ever covers a fraction of one, so it comes out of the rasterizer
+  // at a fraction of full alpha — and the level-set cut then reads that as
+  // "outside the shape" and erases it. Pinning Detail to a fine level and
+  // zooming out made everything disappear for exactly that reason.
+  //
+  // The floor only bites once a cell is too small to draw honestly, so at every
+  // zoom where the cells are visible at all nothing changes. Past that point a
+  // cell is drawn slightly larger than it really is, which is the same bargain
+  // any map makes to keep a city dot on screen — the alternative here is
+  // drawing nothing.
+  const unit = Math.max(R * k, MIN_CELL_PX);
+  const rPx = unit * CELL_RADIUS;
+
+  // Mercator → canvas pixels (y grows north in Mercator, down on canvas).
+  const px = (x) => (x - bb.xMin) * k;
+  const py = (y) => (bb.yMax - y) * k;
+
+  // Grouping by color keeps this to one path per distinct shade instead of one
+  // fill call per cell.
+  const paths = new Map();
+  const margin = rPx + 2;
+  const colMin = Math.floor((bb.xMin - R) / colSp);
+  const colMax = Math.ceil((xMax + R) / colSp);
+
+  for (const [key, stat] of cells) {
+    const sep = key.indexOf('/');
+    const nc = +key.slice(0, sep);
+    const row = +key.slice(sep + 1);
+    const cyM = row * rowSp; // parity offset added per world copy below
+
+    // Every world-copy instance of this canonical column in the window.
+    const kMin = Math.ceil((colMin - nc) / N);
+    const kMax = Math.floor((colMax - nc) / N);
+    for (let wc = kMin; wc <= kMax; wc++) {
+      const col = nc + wc * N;
+      const cx = px(col * colSp);
+      const cy = py(cyM + (col & 1 ? 0.5 * rowSp : 0));
+      if (cx < -margin || cy < -margin || cx > w + margin || cy > h + margin) continue;
+
+      const color = colorOf(stat);
+      let path = paths.get(color);
+      if (!path) paths.set(color, (path = new Path2D()));
+      path.moveTo(cx + rPx, cy);
+      path.arc(cx, cy, rPx, 0, Math.PI * 2);
+    }
+  }
+
+  for (const [color, path] of paths) {
+    sheetCtx.fillStyle = color;
+    sheetCtx.fill(path);
+  }
+
+  // Blur, then re-cut the shape at a fixed alpha level — a level-set smoothing
+  // step. The blur is what merges cells and blends their colors; taking the
+  // ~half-alpha contour afterwards is what keeps the blob the size it should be
+  // while every dent narrower than the blur fills in and every corner sharper
+  // than the blur rounds off. Repeating it rounds harder without inflating
+  // anything, which is the whole trick: the cells never grow, the outline just
+  // relaxes.
+  let src = sheet;
+  let dst = latest;
+  for (let round = 0; round < BLOB_ROUNDS; round++) {
+    // Later rounds work on an already-smooth shape, so they need less blur.
+    const sigma = unit * BLOB_BLUR * (round === 0 ? 1 : 0.62);
+    const dctx = dst === latest ? latestCtx : workCtx;
+    // Intermediate rounds exist to shape the outline, so they cut tightly — a
+    // soft cut halfway through would just get blurred again and lose the
+    // definition the next round needs. Only the last cut is the visible rim,
+    // which is why the edge knob means "how gradually the blob dissolves into
+    // the map" and nothing else.
+    blurInto(dctx, src, w, h, sigma, round === BLOB_ROUNDS - 1 ? edge : SHAPE_EDGE);
+    src = dst;
+    dst = dst === latest ? work : latest;
+  }
+  if (src !== latest) {
+    latestCtx.clearRect(0, 0, w, h);
+    latestCtx.drawImage(work, 0, 0);
+  }
+
+  // Feather the finished shape by a fixed number of screen pixels, so the
+  // dissolve looks the same at every zoom instead of tracking cell size.
+  // Deliberately no cut afterwards: the tail is left as the blur made it, so it
+  // fades out with correct colors all the way down to nothing.
+  const feather = featherPx * featherScale;
+  if (feather > 0.5) {
+    blurInto(workCtx, latest, w, h, feather, null);
+    latestCtx.clearRect(0, 0, w, h);
+    latestCtx.drawImage(work, 0, 0);
+  }
+
+  return { w, h, xMax };
+}
+
+/**
  * The blob layer. Level changes cross-dissolve *inside* this one canvas rather
  * than between two map layers: a canvas source uploads its pixels to the GPU
  * asynchronously, so handing over between two of them shows whatever texture
@@ -321,16 +500,12 @@ function cutAtLevel(context, w, h, edge) {
 export function createBlobLayer(map, id) {
   const canvas = document.createElement('canvas'); // what the map samples
   const ctx = canvas.getContext('2d');
-  const latest = document.createElement('canvas'); // newest level, fully rendered
-  const latestCtx = latest.getContext('2d', { willReadFrequently: true });
+  const buffers = createBlobBuffers();
+  const { latest } = buffers;
   const outgoing = document.createElement('canvas'); // level being dissolved away
   const outgoingCtx = outgoing.getContext('2d');
-  const sheet = document.createElement('canvas'); // sharp discs, pre-blur
-  const sheetCtx = sheet.getContext('2d');
-  const work = document.createElement('canvas'); // ping-pong for extra rounds
-  const workCtx = work.getContext('2d', { willReadFrequently: true });
-  canvas.width = canvas.height = latest.width = latest.height = 1;
-  outgoing.width = outgoing.height = sheet.width = sheet.height = work.width = work.height = 1;
+  canvas.width = canvas.height = 1;
+  outgoing.width = outgoing.height = 1;
 
   // Mercator rectangle each buffer covers, so the outgoing image can be placed
   // at its own geography while the new one is drawn over it.
@@ -397,7 +572,7 @@ export function createBlobLayer(map, id) {
   }
 
   /**
-   * Paint every lit cell of one level.
+   * Paint every lit cell of one level onto the sheet the map samples.
    *
    * @param {object} o
    * @param {{xMin:number,xMax:number,yMin:number,yMax:number}} o.bb padded viewport in Mercator metres
@@ -408,127 +583,23 @@ export function createBlobLayer(map, id) {
    *                              picks which pair of edge knobs applies
    */
   function paint({ bb, level, cells, colorOf, heat = false }) {
-    const mercW = bb.xMax - bb.xMin;
-    const mercH = bb.yMax - bb.yMin;
-    if (!(mercW > 0) || !(mercH > 0)) return;
-
-    const edge = heat ? BLOB_HEAT_EDGE : BLOB_EDGE;
-    const featherPx = heat ? BLOB_HEAT_FEATHER_PX : BLOB_FEATHER_PX;
-
     // Screen scale straight from the zoom (MapLibre's world is 512·2^z px).
+    // The feather takes the same scale, so a width measured in CSS pixels stays
+    // the same on screen whatever the display density.
     const scale = displayScale();
-    const pxPerMerc = ((512 * 2 ** map.getZoom()) / WORLD) * scale;
-    const k = Math.min(pxPerMerc, MAX_SIDE / mercW, MAX_SIDE / mercH);
-    const w = Math.max(1, Math.round(mercW * k));
-    const h = Math.max(1, Math.round(mercH * k));
-    const xMax = bb.xMin + w / k;
+    const out = paintBlobSheet({
+      buffers,
+      bb,
+      level,
+      cells,
+      colorOf,
+      heat,
+      pxPerMerc: ((512 * 2 ** map.getZoom()) / WORLD) * scale,
+      featherScale: scale,
+    });
+    if (!out) return;
 
-    sheet.width = w;
-    sheet.height = h;
-    latest.width = w;
-    latest.height = h;
-    work.width = w;
-    work.height = h;
-
-    const R = radiusOf(level);
-    const colSp = 1.5 * R;
-    const rowSp = SQRT3 * R;
-    const N = colsOf(level);
-
-    // How big one cell is on this canvas, with a floor. Below about a pixel a
-    // disc only ever covers a fraction of one, so it comes out of the
-    // rasterizer at a fraction of full alpha — and the level-set cut then reads
-    // that as "outside the shape" and erases it. Pinning Detail to a fine level
-    // and zooming out made everything disappear for exactly that reason.
-    //
-    // The floor only bites once a cell is too small to draw honestly, so at
-    // every zoom where the cells are visible at all nothing changes. Past that
-    // point a cell is drawn slightly larger than it really is, which is the
-    // same bargain any map makes to keep a city dot on screen — the alternative
-    // here is drawing nothing.
-    const unit = Math.max(R * k, MIN_CELL_PX);
-    const rPx = unit * CELL_RADIUS;
-
-    // Mercator → canvas pixels (y grows north in Mercator, down on canvas).
-    const px = (x) => (x - bb.xMin) * k;
-    const py = (y) => (bb.yMax - y) * k;
-
-    // Grouping by color keeps this to one path per distinct shade instead of
-    // one fill call per cell.
-    const paths = new Map();
-    const margin = rPx + 2;
-    const colMin = Math.floor((bb.xMin - R) / colSp);
-    const colMax = Math.ceil((xMax + R) / colSp);
-
-    for (const [key, stat] of cells) {
-      const sep = key.indexOf('/');
-      const nc = +key.slice(0, sep);
-      const row = +key.slice(sep + 1);
-      const cyM = row * rowSp; // parity offset added per world copy below
-
-      // Every world-copy instance of this canonical column in the window.
-      const kMin = Math.ceil((colMin - nc) / N);
-      const kMax = Math.floor((colMax - nc) / N);
-      for (let wc = kMin; wc <= kMax; wc++) {
-        const col = nc + wc * N;
-        const cx = px(col * colSp);
-        const cy = py(cyM + (col & 1 ? 0.5 * rowSp : 0));
-        if (cx < -margin || cy < -margin || cx > w + margin || cy > h + margin) continue;
-
-        const color = colorOf(stat);
-        let path = paths.get(color);
-        if (!path) paths.set(color, (path = new Path2D()));
-        path.moveTo(cx + rPx, cy);
-        path.arc(cx, cy, rPx, 0, Math.PI * 2);
-      }
-    }
-
-    for (const [color, path] of paths) {
-      sheetCtx.fillStyle = color;
-      sheetCtx.fill(path);
-    }
-
-    // Blur, then re-cut the shape at a fixed alpha level — a level-set
-    // smoothing step. The blur is what merges cells and blends their colors;
-    // taking the ~half-alpha contour afterwards is what keeps the blob the
-    // size it should be while every dent narrower than the blur fills in and
-    // every corner sharper than the blur rounds off. Repeating it rounds
-    // harder without inflating anything, which is the whole trick: the cells
-    // never grow, the outline just relaxes.
-    let src = sheet;
-    let dst = latest;
-    for (let round = 0; round < BLOB_ROUNDS; round++) {
-      // Later rounds work on an already-smooth shape, so they need less blur.
-      const sigma = unit * BLOB_BLUR * (round === 0 ? 1 : 0.62);
-      const dctx = dst === latest ? latestCtx : workCtx;
-      // Intermediate rounds exist to shape the outline, so they cut tightly —
-      // a soft cut halfway through would just get blurred again and lose the
-      // definition the next round needs. Only the last cut is the visible rim,
-      // which is why the edge knob means "how gradually the blob dissolves
-      // into the map" and nothing else.
-      blurInto(dctx, src, w, h, sigma, round === BLOB_ROUNDS - 1 ? edge : SHAPE_EDGE);
-      src = dst;
-      dst = dst === latest ? work : latest;
-    }
-    if (src !== latest) {
-      latestCtx.clearRect(0, 0, w, h);
-      latestCtx.drawImage(work, 0, 0);
-    }
-
-    // Feather the finished shape by a fixed number of screen pixels, so the
-    // dissolve looks the same at every zoom instead of tracking cell size.
-    // Deliberately no cut afterwards: the tail is left as the blur made it, so
-    // it fades out with correct colors all the way down to nothing.
-    // Same scale as the sheet, so a feather measured in CSS pixels stays the
-    // same width on screen whatever the display density.
-    const feather = featherPx * scale;
-    if (feather > 0.5) {
-      blurInto(workCtx, latest, w, h, feather, null);
-      latestCtx.clearRect(0, 0, w, h);
-      latestCtx.drawImage(work, 0, 0);
-    }
-
-    latestRect = { xMin: bb.xMin, xMax, yMin: bb.yMin, yMax: bb.yMax };
+    latestRect = { xMin: bb.xMin, xMax: out.xMax, yMin: bb.yMin, yMax: bb.yMax };
     compose();
   }
 

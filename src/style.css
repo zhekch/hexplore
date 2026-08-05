@@ -5705,3 +5705,358 @@ html[data-client='ios'] .layers {
 html[data-client='ios'] .hud {
   bottom: calc(127px + var(--safe-b));
 }
+
+/* --- Export an image ---------------------------------------------------------
+   Two columns on anything with room: the picture, and the controls that change
+   it. The picture is the wider of the two and comes first, because everything
+   in the right-hand column is a question about it and none of them is worth
+   answering blind.
+
+   Below 860px it stacks, and the preview keeps the top — a control panel you
+   scroll past to reach the thing it controls is a form, not an editor. */
+.export-card {
+  width: min(940px, 100%);
+}
+
+.export-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+  gap: 18px;
+  margin-top: 16px;
+  align-items: start;
+}
+
+.export-stage {
+  position: sticky;
+  top: 0;
+  min-width: 0;
+}
+
+/* The checkerboard is doing real work: an export can have no background at all,
+   and a transparent PNG previewed on a dark card looks exactly like a black
+   one until you have already saved it. */
+.export-frame {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgba(255, 255, 255, 0.04);
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.05) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.05) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.05) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.export-frame canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.export-caption-note {
+  margin-top: 8px;
+  font-size: 11.5px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  min-height: 14px;
+}
+
+.export-controls {
+  min-width: 0;
+  max-height: min(62vh, 560px);
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.export-controls::-webkit-scrollbar {
+  width: 6px;
+}
+
+.export-controls::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.export-section + .export-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.export-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.export-hint {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.export-hint[hidden] {
+  display: none;
+}
+
+.export-filter {
+  margin-top: 10px;
+  font-size: 12.5px;
+  padding: 7px 11px;
+}
+
+.export-list {
+  margin-top: 8px;
+  max-height: 190px;
+  overflow-y: auto;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.export-place {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 11px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.export-place + .export-place {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.export-place:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.export-place b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-place small {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.export-place input[type='checkbox'],
+.export-field input[type='checkbox'] {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  accent-color: #60acff;
+  cursor: pointer;
+}
+
+.export-list-note {
+  padding: 12px 11px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.export-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  margin: 10px 0 2px;
+}
+
+.export-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+/* Nine cells laid out the way they sit on the picture, so picking a corner is
+   pointing at it rather than reading a list of nine names. */
+.export-anchor {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  width: 96px;
+  aspect-ratio: 4 / 5;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.export-anchor-cell {
+  appearance: none;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.export-anchor-cell:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.export-anchor-cell.active {
+  background: rgba(96, 172, 255, 0.85);
+}
+
+.export-align {
+  flex: none;
+}
+
+.export-swatches {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.export-swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+}
+
+.export-swatch input[type='color'] {
+  appearance: none;
+  width: 100%;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.export-swatch input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.export-swatch input[type='color']::-webkit-color-swatch {
+  border: 0;
+  border-radius: 7px;
+}
+
+.export-range {
+  flex: none;
+  width: 130px;
+  accent-color: #60acff;
+  cursor: pointer;
+}
+
+.export-switch {
+  display: flex;
+  align-items: center;
+}
+
+.export-switch input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #60acff;
+  cursor: pointer;
+}
+
+#export-caption-body[hidden] {
+  display: none;
+}
+
+#export-title {
+  margin-top: 6px;
+  font-size: 12.5px;
+  padding: 7px 11px;
+}
+
+@media (max-width: 860px) {
+  .export-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .export-stage {
+    position: static;
+  }
+
+  .export-frame {
+    max-width: 300px;
+    margin: 0 auto;
+  }
+
+  .export-controls {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+[data-theme='light'] .export-frame {
+  border-color: rgba(15, 23, 42, 0.16);
+  background-color: rgba(15, 23, 42, 0.04);
+  background-image:
+    linear-gradient(45deg, rgba(15, 23, 42, 0.05) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(15, 23, 42, 0.05) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(15, 23, 42, 0.05) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(15, 23, 42, 0.05) 75%);
+}
+
+[data-theme='light'] .export-caption-note,
+[data-theme='light'] .export-heading,
+[data-theme='light'] .export-hint,
+[data-theme='light'] .export-list-note,
+[data-theme='light'] .export-place small,
+[data-theme='light'] .export-swatch {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+[data-theme='light'] .export-section + .export-section {
+  border-top-color: rgba(15, 23, 42, 0.1);
+}
+
+[data-theme='light'] .export-list,
+[data-theme='light'] .export-anchor {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: rgba(15, 23, 42, 0.03);
+}
+
+[data-theme='light'] .export-place + .export-place {
+  border-top-color: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='light'] .export-place:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+[data-theme='light'] .export-anchor-cell {
+  background: rgba(15, 23, 42, 0.09);
+}
+
+[data-theme='light'] .export-anchor-cell:hover {
+  background: rgba(15, 23, 42, 0.16);
+}
+
+[data-theme='light'] .export-swatch input[type='color'] {
+  border-color: rgba(15, 23, 42, 0.16);
+}
+
+[data-theme='light'] .export-controls::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+}

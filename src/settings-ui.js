@@ -13,19 +13,20 @@
  * @param {object} opts
  * @param {{open:Function}} opts.personal the Settings dialog
  * @param {{open:Function}} opts.backup the Backups dialog
+ * @param {{open:Function}} opts.exportImage the image export
  */
-export function mountSettings({ personal, backup }) {
+export function mountSettings({ personal, backup, exportImage }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('settings-overlay');
   const backupNote = $('settings-backup-note');
 
-  // Export is listed and disabled rather than left out. There is nothing behind
-  // it yet, and saying so is more honest than a menu that quietly grows an
-  // entry later — the row points at where the way out currently is.
+  // Export used to be listed and disabled — a row pointing at where the way out
+  // currently was, which was a database backup. It is a picture now, and a
+  // picture is what people were asking that row for.
   //
   // Sources is no longer one of these. It is reached from inside Settings now,
   // because it is not a way of getting your map out — which is what this hub is.
-  const targets = { personal, backup };
+  const targets = { personal, backup, export: exportImage };
 
   const open = () => {
     overlay.hidden = false;
