@@ -41,11 +41,11 @@ import {
   MAX_LEVEL, MAX_MERC_Y, WORLD, cellCenter, latOf, lngOf, mercX, mercY, radiusOf,
 } from './hexgrid.js';
 import {
-  allCountries, countryAreaKm2, countryCount, countryGeometry, loadCountries,
+  allCountries, countryAreaKm2, countryCount, countryGeometry, countryIso, loadCountries,
 } from './countries.js';
 import {
-  fineRegionsLoaded, loadFineRegions, loadRegions, mergeRegions, regionAreaKm2, regionById,
-  regionGeometry, regionsOf,
+  countriesInView, fineCountryOutline, loadFineRegions, loadRegions, regionAreaKm2, regionById,
+  regionGeometry,
 } from './regions.js';
 import { continentAreaKm2, continentGeometry, countriesInContinent } from './continents.js';
 import { asMulti } from './polygon.js';
@@ -131,11 +131,21 @@ const MIN_BLOB_PX = 1.35;
 // against a reference height instead: a poster twice as tall gets twice the
 // feather and the softness reads the same at any resolution.
 const FEATHER_REF_PX = 900;
+// …but never wider than the cells it is softening. That scaling is right while
+// a cell is comfortably bigger than the feather and catastrophic when it is not:
+// at the finest level a poster's cells are a pixel or so across against a
+// feather of fifteen, so every blob was smeared below the threshold of being
+// visible at all — at exactly the setting that asked for the most detail. One
+// cell radius of ramp is as soft as a shape can be and still be a shape.
+const MAX_FEATHER_CELLS = 1;
 
-// How many countries an export will fetch detailed boundaries for. Past a
-// handful the picture is too small a scale for the detail to show and the fetch
-// is megabytes — see ensureSharpBoundaries.
-const FINE_COUNTRY_LIMIT = 6;
+// How many countries an export will fetch detailed boundaries for. Past this
+// the picture is at too small a scale for the detail to show and the fetch is
+// megabytes — see ensureSharpBoundaries. Ten rather than a handful, because the
+// frame around one canton routinely reaches four or five countries and every
+// one of them has to be as sharp as the subject or the border between them
+// shows which is which.
+const FINE_COUNTRY_LIMIT = 10;
 
 // Rings smaller than this on the finished canvas are skipped. At world scale a
 // country dataset is mostly islets nobody can see, and each one is still a
@@ -304,6 +314,10 @@ export const DEFAULT_SPEC = {
     size: 1,
     color: '',
     shadow: true,
+    // Blank means "the opposite lightness to the text", which is right nearly
+    // always and is the only answer that survives changing the palette.
+    shadowColor: '',
+    shadowStrength: 0.45,
   },
 };
 
@@ -337,32 +351,18 @@ export const SCOPE_KINDS = {
 // border shows the disagreement between the two datasets as a rim of land the
 // cantons do not reach, and the outline stroke traces the wrong shape.
 
-const fineCountryMemo = new Map(); // country name → geometry | null
-
 /** The ISO3 code the region dataset files a country under, or null. */
-export function isoOf(country) {
-  return allCountries().find((c) => c.id === country)?.iso ?? null;
-}
+export const isoOf = countryIso;
 
 /**
- * A country's outline built from its detailed regions, or null when none have
- * been fetched. Dissolving 26 cantons of a few thousand points each is not
- * free, so the answer is held — an export redraws on every drag of a slider.
+ * A country's outline at the best resolution in memory — its detailed regions
+ * dissolved and trimmed back to the country proper, or the shipped outline.
+ *
+ * The trim is not optional: the region dataset keeps overseas territories on
+ * purpose and `countries.json` does not, so an untrimmed dissolve puts French
+ * Guiana back into the shape of France. See `fineCountryOutline`.
  */
-function fineCountryGeometry(name) {
-  if (fineCountryMemo.has(name)) return fineCountryMemo.get(name);
-  let geometry = null;
-  const iso = isoOf(name);
-  if (iso && fineRegionsLoaded()) {
-    const ids = new Set(regionsOf(iso).map((r) => r.id));
-    if (ids.size) {
-      const { fill } = mergeRegions(ids, true);
-      if (fill.length) geometry = { type: 'MultiPolygon', coordinates: fill };
-    }
-  }
-  fineCountryMemo.set(name, geometry);
-  return geometry;
-}
+const fineCountryGeometry = (name) => fineCountryOutline(countryIso(name));
 
 /** One selected area's outline, at the best resolution in memory. */
 export function scopeGeometry(kind, id) {
@@ -897,7 +897,9 @@ function drawCaption(ctx, lines, caption, size, color) {
     // just looks smudged. Light type wants a dark halo and dark type wants a
     // pale one, which is the same rule either way — a shadow the opposite
     // lightness to the thing it is holding up.
-    ctx.shadowColor = isLight(color) ? 'rgba(0, 0, 0, 0.42)' : 'rgba(255, 255, 255, 0.5)';
+    const strength = Math.max(0, Math.min(1, caption.shadowStrength ?? 0.45));
+    const picked = caption.shadowColor || (isLight(color) ? '#000000' : '#ffffff');
+    ctx.shadowColor = withAlpha(picked, strength);
     ctx.shadowBlur = Math.round(m.body * 0.55);
     ctx.shadowOffsetY = Math.round(m.body * 0.06);
   }
@@ -928,12 +930,13 @@ function drawCaption(ctx, lines, caption, size, color) {
 }
 
 /** Is this colour nearer white than black? Rec. 601 luma, which is plenty. */
-function isLight(color) {
+export function isLightColor(color) {
   const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(color).trim());
   if (!m) return true;
   const [r, g, b] = m.slice(1).map((h) => parseInt(h, 16));
   return (r * 299 + g * 587 + b * 114) / 1000 > 140;
 }
+const isLight = isLightColor;
 
 /** A hex colour at a given opacity, as something canvas will take. */
 function withAlpha(color, alpha) {
@@ -1046,10 +1049,20 @@ export function renderExport(canvas, spec, data, numbers, size = sizeOf(spec)) {
   // in nothing.
   const restAlpha = Math.max(0, Math.min(1, spec.surroundings ?? 0));
   if (restAlpha > 0.001) {
-    const rest = new Path2D();
-    for (const c of allCountries()) addGeometry(rest, c.geometry, cam);
+    // One path per country rather than one for all of them, so each can be
+    // outlined. Without the borders the neighbours dissolve into a single grey
+    // continent, which places the subject on a landmass but not in a country —
+    // and "which one is Germany" is most of what the context is for.
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(0.6, size.h * 0.0011);
     ctx.fillStyle = withAlpha(palette.land, restAlpha);
-    ctx.fill(rest, 'evenodd');
+    ctx.strokeStyle = withAlpha(palette.edge, restAlpha * 0.85);
+    for (const c of allCountries()) {
+      const path = new Path2D();
+      addGeometry(path, c.geometry, cam);
+      ctx.fill(path, 'evenodd');
+      ctx.stroke(path);
+    }
   }
 
   // The subject: the selection's own silhouette, or every country when the
@@ -1147,6 +1160,7 @@ function drawBlobs(ctx, spec, data, cam, size) {
     // for a poster.
     maxSide: Math.max(size.w, size.h),
     featherScale: size.h / FEATHER_REF_PX,
+    maxFeatherCells: MAX_FEATHER_CELLS,
   });
   if (!out) return;
   // The sheet's width is rounded to whole pixels, so it covers slightly more
@@ -1228,25 +1242,51 @@ export async function ensureGeography({ scope, detail } = {}) {
  * @returns {Promise<boolean>} whether anything new arrived, so the caller knows
  *   to redraw
  */
-export async function ensureSharpBoundaries(scope) {
-  const { kind, ids } = settleScope(scope);
-  if (kind === 'world' || kind === 'continent') return false;
+export async function ensureSharpBoundaries(scope, { spec, data, size } = {}) {
+  const settled = settleScope(scope);
   const isos = new Set();
-  for (const id of ids) {
-    if (kind === 'country') {
-      const iso = isoOf(id);
-      if (iso) isos.add(iso);
-    } else {
-      const iso = regionById(id)?.iso ?? isoOf(String(id).replace(WHOLE_COUNTRY, ''));
+
+  // Whatever was picked.
+  if (settled.kind !== 'world' && settled.kind !== 'continent') {
+    for (const id of settled.ids) {
+      const iso = settled.kind === 'country'
+        ? isoOf(id)
+        : regionById(id)?.iso ?? isoOf(String(id).replace(WHOLE_COUNTRY, ''));
       if (iso) isos.add(iso);
     }
   }
+
+  // …and whatever else is drawn *inside the frame*, which is the half that was
+  // missing and the one that showed. The area levels draw every lit region in
+  // the world and let the mask do the cutting, so a picture of one canton still
+  // has its neighbours' regions painted underneath the clip — and the ones over
+  // the border came from a country nobody had fetched detail for. Sharp
+  // boundaries against blunt ones do not merely look inconsistent: the blunt
+  // ones are simplified outwards in places, so they spilled *over* the sharp
+  // ones as a ragged orange fringe along the border.
+  if (spec?.detail === 'region' && data && size) {
+    const frame = frameOf(spec, data);
+    if (frame) {
+      const cam = cameraFor(spec, frame, size);
+      const view = cameraRect(cam);
+      const [w, s2] = lngLatAt(cam, 0, cam.h);
+      const [e, n] = lngLatAt(cam, cam.w, 0);
+      // A frame wider than the world, or one straddling the seam, would ask for
+      // everything; the picture is not at a scale where any of this is visible
+      // anyway, so it simply does not ask.
+      if (view.xMax - view.xMin < WORLD / 2 && w < e) {
+        const lit = new Set();
+        for (const id of data.cells()) {
+          const region = data.areaOf('region', id);
+          if (region) lit.add(region);
+        }
+        for (const { iso } of countriesInView(lit, [w, s2, e, n])) isos.add(iso);
+      }
+    }
+  }
+
   if (!isos.size || isos.size > FINE_COUNTRY_LIMIT) return false;
   await loadRegions();
   const added = await Promise.all([...isos].map((iso) => loadFineRegions(iso)));
-  if (!added.some(Boolean)) return false;
-  // The dissolved outlines were built from whatever geometry was in memory a
-  // moment ago, which was the blunt one.
-  fineCountryMemo.clear();
-  return true;
+  return added.some(Boolean);
 }

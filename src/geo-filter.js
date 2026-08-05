@@ -2,6 +2,16 @@
 // the zoomed-out "country" level, visiting (say) French Guiana doesn't light up
 // all of France, and mainland Spain isn't tied to the Canary Islands.
 //
+// In `src/` rather than beside the build scripts, because it is no longer only a
+// build-time filter. `src/countries.json` ships already trimmed, but the image
+// export builds a country's outline from its *regions* dissolved together (see
+// **Boundaries good enough to print** in ARCHITECTURE.md) — and the region
+// dataset deliberately keeps overseas territories, so that a cell in Cayenne
+// lights Guyane rather than mainland France. Dissolving them put French Guiana
+// straight back into the shape of France, at run time, in the browser. The same
+// filter with the same thresholds runs there too, so both answers to "what is
+// the shape of France" come out the same.
+//
 // Heuristic: proximity flood-fill. Start from the country's largest polygon and
 // keep every polygon that chains within OVERSEAS_GAP_DEG of an already-kept one
 // (measured as the gap between bounding boxes, in degrees). Genuine archipelago
@@ -42,7 +52,7 @@ export const OVERSEAS_GAP_DEG = 6;
 export const MAJOR_PART_GAP_DEG = 10;
 export const MAJOR_PART_SHARE = 0.1;
 
-import { ringAreaM2 } from '../../src/polygon.js';
+import { ringAreaM2 } from './polygon.js';
 
 // A "poly" is GeoJSON polygon coordinates: [outerRing, ...holes].
 function polyBbox(poly) {

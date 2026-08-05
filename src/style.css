@@ -5750,16 +5750,22 @@ html[data-client='ios'] .hud {
 /* The checkerboard is doing real work: an export can have no background at all,
    and a transparent PNG previewed on a dark card looks exactly like a black
    one until you have already saved it. */
-.export-frame {
-  /* Sized from the height it is given and the ratio it is: a 21:9 export and a
-     9:16 one both have to fit the same box, and only one of them is limited by
-     the width. */
-  flex: 0 1 auto;
+/* The box the picture is fitted into. The picture's own width and height are
+   set from JS (see fitFrame in src/export-ui.js) rather than from aspect-ratio,
+   because `height: 100%` + `max-width: 100%` + `aspect-ratio` does not shrink
+   the height when the width is the binding constraint — a 21:9 export came out
+   squashed into a 4:5 box's height. It also has to leave room for the line
+   under it, which the same rule was quietly eating. */
+.export-shell {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  min-width: 0;
   min-height: 0;
-  height: 100%;
-  width: auto;
-  max-width: 100%;
-  aspect-ratio: 4 / 5;
+  width: 100%;
+}
+
+.export-frame {
   cursor: grab;
   touch-action: none;
   border-radius: 16px;
@@ -5796,6 +5802,7 @@ html[data-client='ios'] .hud {
 }
 
 .export-stage-foot {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6140,7 +6147,8 @@ html[data-client='ios'] .hud {
   cursor: pointer;
 }
 
-#export-caption-body[hidden] {
+#export-caption-body[hidden],
+#export-shadow-body[hidden] {
   display: none;
 }
 
@@ -6160,12 +6168,8 @@ html[data-client='ios'] .hud {
     height: auto;
   }
 
-  .export-frame {
-    height: auto;
-    width: 100%;
-    max-width: 280px;
+  .export-shell {
     max-height: 42vh;
-    margin: 0 auto;
   }
 
   .export-controls {

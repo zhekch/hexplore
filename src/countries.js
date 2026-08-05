@@ -119,6 +119,15 @@ export function countryAreaKm2(id) {
 export const countryCount = () => COUNTRIES?.length ?? 0;
 
 /**
+ * The ISO3 code a country is filed under, or null.
+ *
+ * By code, never by name, for everything that then asks the *region* dataset a
+ * question: the two Natural Earth files disagree on twelve country names, and
+ * joining them on the name is how a country ends up with "no regions".
+ */
+export const countryIso = (id) => COUNTRIES?.find((c) => c.id === id)?.iso ?? null;
+
+/**
  * Every country in the dataset, for the one caller that groups them rather than
  * looking one up: src/continents.js, which builds each continent by dissolving
  * the countries inside it. Deliberately not a second copy of the boundaries —

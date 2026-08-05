@@ -155,7 +155,7 @@ console.log('\na state is not an overseas territory');
 // That did not merely leave it unlit: `countryAt` returned null there, so an
 // Alaskan cell was in no country, counted as ocean by the coverage sweep,
 // named "at sea or off the map", and left a hole in North America at the
-// continent level. See scripts/lib/geo-filter.mjs.
+// continent level. See src/geo-filter.js.
 {
   const towns = { Anchorage: [-149.9, 61.22], Fairbanks: [-147.72, 64.84], Juneau: [-134.42, 58.3] };
   for (const [town, at] of Object.entries(towns)) {

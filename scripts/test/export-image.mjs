@@ -25,6 +25,7 @@ import {
 import { loadCountries, countryAreaKm2 } from '../../src/countries.js';
 import { loadRegions } from '../../src/regions.js';
 import { areaOfCell, computeStats } from '../../src/stats.js';
+import { stripDetachedTerritories } from '../../src/geo-filter.js';
 import { WORLD, colsOf, lngOf, latOf, mercX, mercY, normCol, pointToCell } from '../../src/hexgrid.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -171,6 +172,49 @@ console.log('\nDragging the picture off its own frame');
     `${lngA.toFixed(4)}, ${latA.toFixed(4)}`);
   check(near(lngA, lngB, 1e-6) && near(latA, latB, 1e-6),
     'and the preview shows the same middle as the file, at half the size');
+}
+
+console.log('\nA country is its mainland, however the shape was arrived at');
+{
+  // `countries.json` ships trimmed; the *region* dataset deliberately keeps
+  // overseas territories so a cell in Cayenne lights Guyane rather than
+  // mainland France. Dissolving the regions to make a sharper country outline
+  // therefore hands the colonies straight back — which put a piece of South
+  // America in the frame of a poster of France.
+  const spread = (g) => {
+    let w = 180;
+    let e = -180;
+    for (const poly of (g.type === 'Polygon' ? [g.coordinates] : g.coordinates)) {
+      for (const [lng] of poly[0]) {
+        if (lng < w) w = lng;
+        if (lng > e) e = lng;
+      }
+    }
+    return e - w;
+  };
+  for (const country of ['France', 'Netherlands', 'Spain', 'Portugal']) {
+    const g = scopeGeometry('country', country);
+    check(g && spread(g) < 30, `${country} is the country, not the empire`,
+      g ? `${spread(g).toFixed(0)}° of longitude` : 'no geometry');
+  }
+  // …and the filter is the same one the shipped dataset was built with, so the
+  // two can never disagree about where the line is.
+  const guiana = stripDetachedTerritories({
+    type: 'MultiPolygon',
+    coordinates: [
+      [[[0, 45], [4, 45], [4, 49], [0, 49], [0, 45]]], // mainland
+      [[[-54, 3], [-52, 3], [-52, 5], [-54, 5], [-54, 3]]], // an ocean away
+    ],
+  });
+  check(guiana.coordinates.length === 1, 'a piece an ocean away is dropped');
+  const corsica = stripDetachedTerritories({
+    type: 'MultiPolygon',
+    coordinates: [
+      [[[0, 45], [4, 45], [4, 49], [0, 49], [0, 45]]],
+      [[[8, 41], [9, 41], [9, 43], [8, 43], [8, 41]]], // just offshore
+    ],
+  });
+  check(corsica.coordinates.length === 2, 'and one just offshore is kept');
 }
 
 console.log('\nClicking the picture picks a place');

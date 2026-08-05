@@ -10,7 +10,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { stripDetachedTerritories, bboxOfGeometry } from './lib/geo-filter.mjs';
+import { stripDetachedTerritories, bboxOfGeometry } from '../src/geo-filter.js';
 
 const SRC =
   'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson';

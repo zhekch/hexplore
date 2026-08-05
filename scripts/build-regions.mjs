@@ -22,7 +22,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bboxOfGeometry } from './lib/geo-filter.mjs';
+import { bboxOfGeometry } from '../src/geo-filter.js';
 import { asMulti, unionGeometries, inPolygon } from '../src/polygon.js';
 
 const SRC =

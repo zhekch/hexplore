@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Re-applies the detached-territory filter (scripts/lib/geo-filter.mjs) to the
+// Re-applies the detached-territory filter (src/geo-filter.js) to the
 // already-committed src/countries.json, in place — no network download needed.
 //
 //   node scripts/apply-territory-filter.mjs
@@ -11,7 +11,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { stripDetachedTerritories, bboxOfGeometry, OVERSEAS_GAP_DEG } from './lib/geo-filter.mjs';
+import { stripDetachedTerritories, bboxOfGeometry, OVERSEAS_GAP_DEG } from '../src/geo-filter.js';
 
 const DECIMALS = 2;
 const round = (n) => +n.toFixed(DECIMALS);

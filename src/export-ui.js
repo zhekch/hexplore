@@ -21,8 +21,8 @@
 import {
   CAPTION_ANCHORS, CAPTION_FIELDS, CAPTION_FONTS, DEFAULT_SPEC, MAX_SIDE_PX, PALETTES, SCALES,
   SHAPES, cameraFor, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitCamera,
-  frameOf, lngLatAt, paletteOf, pickAt, presetOf, renderExport, scopeCountryOf, scopeName, sizeOf,
-  visitedAreas,
+  frameOf, isLightColor, lngLatAt, paletteOf, pickAt, presetOf, renderExport, scopeCountryOf,
+  scopeName, sizeOf, visitedAreas,
 } from './export-image.js';
 import { mercX, mercY } from './hexgrid.js';
 import { HEAT_MODES } from './coloring.js';
@@ -135,6 +135,10 @@ function loadSpec() {
     if (typeof c.title === 'string') spec.caption.title = c.title.slice(0, 120);
     if (typeof c.color === 'string') spec.caption.color = c.color;
     if (typeof c.shadow === 'boolean') spec.caption.shadow = c.shadow;
+    if (typeof c.shadowColor === 'string') spec.caption.shadowColor = c.shadowColor;
+    if (Number.isFinite(c.shadowStrength)) {
+      spec.caption.shadowStrength = Math.min(1, Math.max(0, c.shadowStrength));
+    }
     if (Array.isArray(c.fields)) {
       const known = new Set(CAPTION_FIELDS.map((f) => f.key));
       spec.caption.fields = c.fields.filter((k) => known.has(k));
@@ -154,6 +158,7 @@ export function mountExport({ onClose, data }) {
   const overlay = $('export-overlay');
   const canvas = $('export-canvas');
   const frame = $('export-frame');
+  const shell = $('export-shell');
   const note = $('export-note');
   const errorBox = $('export-error');
   const picker = $('export-picker');
@@ -462,6 +467,28 @@ export function mountExport({ onClose, data }) {
     spec.caption.title = title.value.slice(0, 120);
   });
 
+  /**
+   * Take the suggestion. The placeholder is the title the picture would use if
+   * you typed nothing — the names of the places, kept current as you pick them —
+   * and this is how you get hold of it to edit rather than retyping it.
+   *
+   * Tab, Space and Right all mean "accept" in one autocomplete or another, and
+   * all three are free here: the field is empty, so none of them had anything
+   * else to do.
+   */
+  title.addEventListener('keydown', (e) => {
+    if (title.value !== '' || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key !== 'Tab' && e.key !== ' ' && e.key !== 'ArrowRight') return;
+    const suggestion = title.placeholder;
+    if (!suggestion) return;
+    e.preventDefault();
+    title.value = suggestion;
+    title.setSelectionRange(suggestion.length, suggestion.length);
+    spec.caption.title = suggestion;
+    save();
+    schedule();
+  });
+
   const textSize = $('export-textsize');
   bind(textSize, 'input', () => {
     spec.caption.size = Number(textSize.value) / 100;
@@ -475,6 +502,16 @@ export function mountExport({ onClose, data }) {
   const shadow = $('export-shadow');
   bind(shadow, 'change', () => {
     spec.caption.shadow = shadow.checked;
+  });
+
+  const shadowColor = $('export-shadow-color');
+  bind(shadowColor, 'input', () => {
+    spec.caption.shadowColor = shadowColor.value;
+  });
+
+  const shadowStrength = $('export-shadow-strength');
+  bind(shadowStrength, 'input', () => {
+    spec.caption.shadowStrength = Number(shadowStrength.value) / 100;
   });
 
   filter.addEventListener('input', () => renderList());
@@ -619,11 +656,18 @@ export function mountExport({ onClose, data }) {
     textSize.value = String(Math.round(spec.caption.size * 100));
     textColor.value = (spec.caption.color || palette.text || '#ffffff').slice(0, 7);
     shadow.checked = spec.caption.shadow;
+    $('export-shadow-body').hidden = !spec.caption.shadow;
+    // Blank means "work it out from the text", which is the sensible answer and
+    // the one most people want; the swatch shows what that came to so pressing
+    // it is an edit rather than a jump.
+    shadowColor.value = (spec.caption.shadowColor || autoShadowColor()).slice(0, 7);
+    $('export-shadow-auto').textContent = spec.caption.shadowColor ? 'Chosen' : 'Follows the text';
+    shadowStrength.value = String(Math.round((spec.caption.shadowStrength ?? 0.45) * 100));
 
     $('export-scope-hint').hidden = spec.scope.kind !== 'world';
     $('export-refit').hidden = !spec.view;
     frame.classList.toggle('pickable', spec.scope.kind !== 'world');
-    frame.style.aspectRatio = `${size.w} / ${size.h}`;
+    fitFrame();
   }
 
   // --- Drawing --------------------------------------------------------------------
@@ -664,7 +708,7 @@ export function mountExport({ onClose, data }) {
     // that goes blank for a second while a country's real coastline is fetched
     // reads as a bug rather than as an improvement arriving. It lands when it
     // lands, and the picture sharpens under you.
-    ensureSharpBoundaries(spec.scope)
+    ensureSharpBoundaries(spec.scope, { spec, data, size: previewSize() })
       .then((arrived) => {
         if (arrived && open_ && gen === asking) draw();
       })
@@ -692,6 +736,30 @@ export function mountExport({ onClose, data }) {
     draw();
   }
 
+  /**
+   * Fit the picture's box inside the space the stage has left it.
+   *
+   * In JS rather than in CSS because `aspect-ratio` will not do it: with a
+   * definite height and `max-width: 100%`, a ratio wider than its container has
+   * its width clamped and its height left alone, so a 21:9 export came out
+   * squashed into the height of a 4:5 one. Two lines of arithmetic are exact for
+   * every ratio and leave the line underneath its own room.
+   */
+  function fitFrame() {
+    const full = sizeOf(spec);
+    const box = shell.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const ratio = full.w / full.h;
+    let w = box.width;
+    let h = w / ratio;
+    if (h > box.height) {
+      h = box.height;
+      w = h * ratio;
+    }
+    frame.style.width = `${Math.floor(w)}px`;
+    frame.style.height = `${Math.floor(h)}px`;
+  }
+
   /** The size the preview is drawn at — the same picture, not a scaled copy. */
   function previewSize() {
     const full = sizeOf(spec);
@@ -703,6 +771,11 @@ export function mountExport({ onClose, data }) {
 
   function draw() {
     if (!numbers) return;
+    fitFrame();
+    // The placeholder is the title the picture would use if you typed nothing,
+    // and it follows the selection — pick a second country and it says so. That
+    // is also what the Tab/Space/→ shortcut hands you to edit.
+    title.placeholder = numbers.title || 'Switzerland';
     try {
       renderExport(canvas, spec, data, numbers, previewSize());
       note.textContent = describe();
@@ -863,6 +936,12 @@ export function mountExport({ onClose, data }) {
     schedule();
   });
 
+  /** What the renderer would pick if no shadow colour has been chosen. */
+  function autoShadowColor() {
+    const text = spec.caption.color || paletteOf(spec).text || '#ffffff';
+    return isLightColor(text) ? '#000000' : '#ffffff';
+  }
+
   /** One line under the preview saying what is being looked at. */
   function describe() {
     if (spec.scope.kind === 'world') return 'Everywhere you have been';
@@ -941,8 +1020,17 @@ export function mountExport({ onClose, data }) {
     sync();
     schedule();
   });
+  // Clicking the backdrop closes — but only when the click *started* there too.
+  // A `click` is dispatched on the nearest common ancestor of the press and the
+  // release, so letting go of a slider outside the card fires one on the overlay
+  // and the dialog shut itself in the middle of dragging a colour.
+  let pressedBackdrop = false;
+  overlay.addEventListener('pointerdown', (e) => {
+    pressedBackdrop = e.target === overlay;
+  });
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
+    if (e.target === overlay && pressedBackdrop) close();
+    pressedBackdrop = false;
   });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();

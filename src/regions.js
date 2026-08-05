@@ -16,6 +16,7 @@
 // bboxes for every one of ~20k cells, and this one cannot.
 
 import { inPolygon, asMulti, ringAreaM2, unionGeometries } from './polygon.js';
+import { stripDetachedTerritories } from './geo-filter.js';
 
 let REGIONS = null; // [{ id, name, country, bbox:[w,s,e,n], geometry }]
 let index = null; //   "gx/gy" → region indices whose bbox touches that tile
@@ -288,6 +289,7 @@ export function pairFineRegions(iso, features) {
 
 /** Take detailed geometry the server worked out: { "<id>": geometry, … }. */
 export function addFineRegions(byId) {
+  fineOutlineMemo.clear();
   let n = 0;
   let ignored = 0;
   for (const [id, g] of Object.entries(byId ?? {})) {
@@ -495,6 +497,42 @@ export function countriesInView(ids, view) {
 export function regionGeometry(id, fine = false) {
   if (fine && FINE.has(id)) return FINE.get(id);
   return REGIONS?.find((r) => r.id === id)?.geometry ?? null;
+}
+
+// A country's own outline, built from its detailed regions. Keyed by ISO3 and
+// held, because dissolving 26 cantons of a few thousand points each costs real
+// milliseconds and an export redraws on every drag of a slider.
+const fineOutlineMemo = new Map();
+
+/**
+ * The sharp shape of a whole country: its detailed regions dissolved, trimmed
+ * back to the country proper. Null until `loadFineRegions` has fetched them.
+ *
+ * **Trimmed, and that is the whole subtlety.** `src/countries.json` ships with
+ * far-detached territories already filtered out, so mainland France is what the
+ * map means by France. This dataset deliberately keeps them — an overseas
+ * département has to light itself rather than the mainland — so dissolving them
+ * hands French Guiana back, and a poster of France came out with a piece of
+ * South America in the frame. The same filter at the same thresholds runs here
+ * (see src/geo-filter.js), so the two datasets agree about the shape of a
+ * country however the shape was arrived at.
+ */
+export function fineCountryOutline(iso) {
+  if (!iso) return null;
+  if (fineOutlineMemo.has(iso)) return fineOutlineMemo.get(iso);
+  let geometry = null;
+  if (FINE.size) {
+    const ids = new Set(regionsOf(iso).map((r) => r.id));
+    // Only worth building once the detailed set is what would be dissolved:
+    // otherwise this is the overview geometry with a slower path to it.
+    const anyFine = [...ids].some((id) => FINE.has(id));
+    if (anyFine) {
+      const { fill } = mergeRegions(ids, true);
+      if (fill.length) geometry = stripDetachedTerritories({ type: 'MultiPolygon', coordinates: fill });
+    }
+  }
+  fineOutlineMemo.set(iso, geometry);
+  return geometry;
 }
 
 /**

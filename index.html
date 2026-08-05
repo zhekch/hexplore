@@ -697,8 +697,10 @@
 
         <div class="export-body">
           <div class="export-stage">
-            <div class="export-frame" id="export-frame">
-              <canvas id="export-canvas"></canvas>
+            <div class="export-shell" id="export-shell">
+              <div class="export-frame" id="export-frame">
+                <canvas id="export-canvas"></canvas>
+              </div>
             </div>
             <div class="export-stage-foot">
               <span class="export-caption-note" id="export-note"></span>
@@ -825,6 +827,16 @@
                   <span>Soft shadow<small>Keeps it readable over anything</small></span>
                   <input type="checkbox" id="export-shadow" />
                 </label>
+                <div id="export-shadow-body">
+                  <label class="menu-row">
+                    <span>Shadow color<small id="export-shadow-auto">Follows the text</small></span>
+                    <input type="color" id="export-shadow-color" />
+                  </label>
+                  <label class="import-row">
+                    <span>Shadow strength</span>
+                    <input class="export-range" id="export-shadow-strength" type="range" min="0" max="100" step="5" />
+                  </label>
+                </div>
               </div>
             </div>
           </div>

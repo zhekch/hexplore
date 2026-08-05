@@ -58,10 +58,10 @@ import { mountHome } from './home-ui.js';
 import { activeDays, findHome } from './trips.js';
 import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
-  loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView,
+  loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView, fineCountryOutline,
 } from './regions.js';
 import { geometryAreaM2 } from './regions.js';
-import { countryAreaKm2 } from './countries.js';
+import { countryAreaKm2, countryIso } from './countries.js';
 import {
   continentOf, continentGeometry, continentAreaKm2, continentAnchor,
   countriesInContinent, mergeContinents, forgetContinents,
@@ -1597,18 +1597,39 @@ function areaOfCellMemo(kind, id) {
 }
 
 // One area's geometry, whichever dataset it came from.
+//
+// A country asked for `fine` is its own regions dissolved (trimmed back to the
+// country proper — see fineCountryOutline). That matters for the *export* far
+// more than for the map: picking Countries as the detail while the picture is
+// of one country draws a shape four pixels per vertex across, and the seam
+// against the mask around it is the first thing you see.
 function areaGeometry(kind, id, fine) {
   if (kind === 'continent') return continentGeometry(id);
-  if (id.startsWith(WHOLE_COUNTRY)) return countryGeometry(id.slice(WHOLE_COUNTRY.length));
-  return kind === 'region' ? regionGeometry(id, fine) : countryGeometry(id);
+  const country = id.startsWith(WHOLE_COUNTRY) ? id.slice(WHOLE_COUNTRY.length) : null;
+  if (country) return sharpCountry(country, fine);
+  return kind === 'region' ? regionGeometry(id, fine) : sharpCountry(id, fine);
 }
+
+const sharpCountry = (id, fine) =>
+  (fine ? fineCountryOutline(countryIso(id)) : null) ?? countryGeometry(id);
 
 // Dissolve the lit areas into one shape. Countries and continents go straight to
 // their own merge; regions may include whole-country stand-ins, so those are
 // collected separately and unioned with the rest.
 function mergeAreas(kind, litIds, fine) {
   if (kind === 'continent') return mergeContinents(litIds);
-  if (kind !== 'region') return mergeCountries(litIds);
+  if (kind !== 'region') {
+    if (!fine) return mergeCountries(litIds);
+    // Same dissolve, over the sharper outlines where they have been fetched.
+    // Done here rather than inside mergeCountries so that countries.js does not
+    // have to know that regions exist.
+    const geoms = [];
+    for (const id of litIds) {
+      const g = sharpCountry(id, true);
+      if (g) geoms.push(asMulti(g));
+    }
+    return geoms.length ? unionGeometries(geoms) : { fill: [], rings: [] };
+  }
   const plain = new Set();
   const extra = [];
   for (const id of litIds) {

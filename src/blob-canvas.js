@@ -357,6 +357,12 @@ export function createBlobBuffers() {
  * @param {number} o.pxPerMerc  canvas pixels per Mercator metre, before capping
  * @param {number} [o.maxSide]  hard cap on either dimension
  * @param {number} [o.featherScale] canvas pixels per unit of BLOB_FEATHER_PX
+ * @param {number} [o.maxFeatherCells] cap the feather at this many cell radii.
+ *   The map has no use for it — its feather is a screen-pixel width against
+ *   cells that are several pixels across — but an image scales the feather with
+ *   its own height, and at the finest level a poster's cells are barely a pixel
+ *   while the feather is fifteen. The blobs then dissolve into nothing at
+ *   exactly the setting that asked for the most detail.
  * @returns {{w:number, h:number, xMax:number}|null} the sheet's size, and the
  *   eastern edge it actually reached (rounding to whole pixels moves it)
  */
@@ -370,6 +376,7 @@ export function paintBlobSheet({
   pxPerMerc,
   maxSide = MAX_SIDE,
   featherScale = 1,
+  maxFeatherCells = Infinity,
 }) {
   const { latest, latestCtx, sheet, sheetCtx, work, workCtx } = buffers;
   const mercW = bb.xMax - bb.xMin;
@@ -480,7 +487,7 @@ export function paintBlobSheet({
   // dissolve looks the same at every zoom instead of tracking cell size.
   // Deliberately no cut afterwards: the tail is left as the blur made it, so it
   // fades out with correct colors all the way down to nothing.
-  const feather = featherPx * featherScale;
+  const feather = Math.min(featherPx * featherScale, unit * maxFeatherCells);
   if (feather > 0.5) {
     blurInto(workCtx, latest, w, h, feather, null);
     latestCtx.clearRect(0, 0, w, h);

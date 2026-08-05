@@ -870,6 +870,11 @@ Two rules that are not symmetrical, on purpose:
 - Ticking a place **in the list** re-frames on it. Clicking one **on the picture**
   does not: you are already looking at it, and moving the camera out from under
   the cursor is the one thing that would make picking a second one hard.
+- The picture's box is sized from JS rather than from `aspect-ratio`, because
+  CSS will not do it: with a definite height and `max-width: 100%`, a ratio wider
+  than its container has its *width* clamped and its height left alone, so a 21:9
+  export came out squashed into the height of a 4:5 one. Two lines of arithmetic
+  are exact for every ratio and leave the line underneath its own room.
 - A click can land on somewhere you have never been, and that is allowed — a
   poster of your valley and the one next door is a composition, not a mistake.
   But it then appears in the list marked *not been*, because a selection holding
@@ -927,7 +932,29 @@ a bug rather than as an improvement arriving. It lands, and the picture sharpens
 The country silhouette is then the **union of its own fine regions** rather than
 the coarse national outline. It has to be: a sharp canton drawn inside a blunt
 border shows the disagreement between the two datasets as a rim of land the
-cantons do not reach, and the outline stroke traces the wrong shape.
+cantons do not reach, and the outline stroke traces the wrong shape. The map's
+own country level takes the same outline when it is asked for `fine`, for the
+same reason — picking *Countries* as the detail while the picture is of one
+country otherwise draws a shape four pixels per vertex across.
+
+**And the union has to be trimmed, or France gets French Guiana back.**
+`src/countries.json` ships with far-detached territories already filtered out
+(see [Which pieces of a country are the country](#which-pieces-of-a-country-are-the-country));
+the region set deliberately keeps them, so that a cell in Cayenne lights Guyane
+rather than the mainland. Dissolving them is therefore not the same shape, and
+the difference is a piece of South America in the frame of a poster of France.
+`stripDetachedTerritories` moved from `scripts/lib/` to `src/geo-filter.js` and
+runs on the union at run time, so both answers to "what is the shape of France"
+come from the same rule at the same thresholds.
+
+**The neighbours have to be as sharp as the subject.** The area levels draw every
+lit region in the world and let the mask do the cutting, so a picture of one
+canton still has its neighbours' regions painted underneath the clip — and until
+this was noticed, the ones over the border came from countries nobody had fetched
+detail for. That is not merely inconsistent: the blunt outlines are simplified
+*outwards* in places, so they spilled over the sharp ones as a ragged fringe
+along the border. `ensureSharpBoundaries` now also asks for every country whose
+lit regions fall inside the frame (`countriesInView`), bounded to ten.
 
 Two rendering bugs live next door to this, and both of them looked like data
 problems:
@@ -958,6 +985,14 @@ is measured in *screen* pixels, so that the rim looks the same at every zoom —
 and an image has no screen. It is scaled against a reference height instead
 (`FEATHER_REF_PX`), so a poster twice as tall gets twice the feather and the
 softness reads the same at any resolution.
+
+…**and then capped at one cell radius** (`MAX_FEATHER_CELLS`). Scaling with the
+image is right while a cell is comfortably bigger than the feather and
+catastrophic when it is not: at the finest level a poster's cells are about a
+pixel across against a feather of fifteen, so every blob was smeared below the
+threshold of being visible at all — at exactly the setting that asked for the
+most detail. The map has no use for the cap, because its cells are always several
+screen pixels wide.
 
 Which grid level to draw is decided by the picture rather than by a zoom:
 `blobLevelFor` takes the finest level whose cells are still at least
@@ -1000,6 +1035,17 @@ whenever it was chosen.
 is telling you about the software. `value` returns null and the line does not
 appear.
 
+The **title** field's placeholder is the title the picture would use if you typed
+nothing — the names of the places, kept current as you pick them — and **Tab,
+Space or →** takes it as editable text rather than making you retype it. All
+three are free: the field is empty, so none of them had anything else to do.
+
+The **shadow** follows the text unless you give it a colour: dark type on a pale
+palette with a black shadow under it does not separate from anything, it just
+looks smudged, so the default is a halo of the opposite lightness. Colour and
+strength are both there for when the default is not what a particular picture
+wants.
+
 Two controls, because they are two questions again: the **anchor** is where the
 block sits on the picture (nine cells laid out the way they sit, so picking a
 corner is pointing at it), and the **alignment** is how the lines sit within the
@@ -1024,7 +1070,10 @@ offline and cannot render half-drawn while a font arrives.
   rather than a switch, because the right answer depends entirely on how much of
   the frame the subject occupies: a continent leaves a thin rim of neighbours and
   wants them faint, one canton leaves the whole frame and at the same setting
-  reads as a shape floating in nothing.
+  reads as a shape floating in nothing. Each neighbour is drawn as its own path
+  so it can carry its border: without them they dissolve into a single grey
+  continent, which places the subject on a landmass but not in a country — and
+  "which one is Germany" is most of what the context is for.
 - **Nothing leaves the tab.** The dialog reads the cells already in memory and
   writes a PNG the browser saves. There is no server call and no upload; the
   accessors it is handed (`cells()`, `meta()`, `rollUp()`, `areaFC()`) are read-only
@@ -2023,7 +2072,7 @@ the heat maps (one feature per continent) and the selection ring.
 
 ## Which pieces of a country are the country
 
-`stripDetachedTerritories` (`scripts/lib/geo-filter.mjs`) trims a country's
+`stripDetachedTerritories` (`src/geo-filter.js`) trims a country's
 outline to the parts that are the country proper, so that one cell in French
 Guiana doesn't light the whole of France at the country level and mainland Spain
 isn't tied to the Canaries. It is a proximity flood-fill from the largest
