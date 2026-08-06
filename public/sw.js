@@ -24,6 +24,12 @@
 // evicted under pressure, and on a phone it is evicted often. Held here they
 // survive, so searching for a town costs nothing on the second day.
 //
+// The airports are the same deal with one extra property worth keeping: they
+// ship as one file per group, and because nothing here is pre-fetched, a group
+// left switched off is never requested and never stored. Switching one on pays
+// for it once — see "The airports, from a file rather than an API" in
+// ARCHITECTURE.md.
+//
 // Then the shell: the app opens with no server. And then the map itself, which
 // is the point of the whole thing — the last answer `/api/cells` gave is still
 // in the cache, so an aeroplane still shows you where you have been.

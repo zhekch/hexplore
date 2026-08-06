@@ -25,14 +25,15 @@ import { localIs24Hour } from './clock.js';
  * @param {(mode:string) => void} opts.onClock
  * @param {{open:Function}} [opts.sources] the Sources dialog, opened from here
  * @param {{open:Function}} [opts.rail] the Train tracks dialog, likewise
+ * @param {{open:Function}} [opts.airports] the Airports dialog, likewise
  * @param {() => Promise<boolean>} [opts.onClearCache] throw the offline copy away
  * @param {() => string|null} [opts.version] the build the server reports
  * @param {() => string|null} [opts.username] whose account this is
  * @param {(password:string) => Promise<object>} [opts.onDeleteAccount] close it
  */
 export function mountPersonal({
-  onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, sources, rail, onClearCache,
-  version, username, onDeleteAccount,
+  onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, sources, rail, airports,
+  onClearCache, version, username, onDeleteAccount,
 }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('personal-overlay');
@@ -92,7 +93,7 @@ export function mountPersonal({
   // Each of these needs the whole dialog, so this one gets out of the way rather
   // than stacking a second overlay on top of itself — the same hand-off the home
   // picker above does, and the same one the hub used to do to reach Sources.
-  const doors = { sources, rail };
+  const doors = { sources, rail, airports };
   for (const btn of overlay.querySelectorAll('[data-personal]')) {
     const door = doors[btn.dataset.personal];
     if (!door) continue;

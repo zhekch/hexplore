@@ -183,6 +183,13 @@ glass look. Click hexagons to mark places you've visited.
   (`cellsOn`), read through `accentAlpha()`, so every surface that draws the
   wash — the blob raster, the region fills, the region outlines — goes with it,
   and `heatMode` is left alone so coming back returns to the mode you had.
+- **Reference overlays**: two, switched on from the layers menu and configured in
+  Settings. **Train tracks** are OpenRailwayMap's vector tiles through a caching
+  proxy — see [The train tracks, in vector](#the-train-tracks-in-vector).
+  **Airports** are the opposite arrangement: a public-domain dataset built into
+  the app, one file per group so a switch that is off costs nothing, and no
+  server involved at all — see
+  [The airports, from a file rather than an API](#the-airports-from-a-file-rather-than-an-api).
 - **Saved routes**: track files can keep the line they drew, not just the ground
   it covered — see [Saved routes](#saved-routes) below.
 - **Region borders**: `SHOW_REGION_BORDERS` in `src/main.js` toggles the crisp
@@ -2818,6 +2825,178 @@ and the overlay may never have been switched on. It is a 315 KB lazy chunk and
 opening this dialog is a clear enough statement of intent; the alternative was an
 empty box until you had switched the overlay on first, which is a dialog that
 looks broken for the one reason nobody could guess.
+
+## The airports, from a file rather than an API
+
+The other reference overlay, and deliberately not built the way the railways
+are. `src/airports.js`, `scripts/build-airports.mjs`.
+
+**It is a dataset, not a tile server, and everything else follows from that.**
+Look at what the train tracks cost: a 584-line caching proxy, a usage policy to
+read before changing anything, a per-zoom health monitor, a detail ceiling that
+descends and climbs on its own, and a banner apologising for somebody else's
+outage. All of it is correct, and all of it is the price of geometry too big to
+ship — OpenRailwayMap is every siding on Earth. Airports are not that. There are
+**85,835** of them including the closed ones, they are points rather than
+geometry, and the whole set is smaller than `regions.json`, which this repo
+already commits. Paying a permanent runtime dependency to avoid a one-off
+download would be the wrong way round.
+
+So the source is [OurAirports](https://ourairports.com/data/), which is public
+domain — no key, no quota, no rate limit, and no terms to be careful about. The
+build fetches `airports.csv` and `runways.csv`, trims them hard, and commits the
+result, exactly as `build-places.mjs` and `build-countries.mjs` do. There is no
+server code for this feature at all, and the overlay **works offline**, which no
+proxied layer can.
+
+### One file per group, because a group is a download
+
+All 85,835 are 2.6 MB gzipped, and that is a great deal to spend on flipping a
+switch. Measured field by field, none of it is trimmable — the bytes *are* the
+names and the coordinates, and dropping the wikipedia links, the home pages and
+the municipalities together saves under 15%. The saving has to come from not
+fetching what is not drawn.
+
+It is almost all the long tail. The five thousand airports an airline actually
+flies to are **250 KB**; the other eighty thousand are 42,707 small airfields,
+23,143 helipads on hospital roofs and oil platforms, and 13,378 that closed. So
+the build emits one file per group and each is its own dynamic import:
+
+| Group | What | Gzipped | On |
+| --- | --- | --- | --- |
+| **Airline airports** | large + medium | 250 KB | yes |
+| **Airfields** | small, seaplane, balloon | 1.4 MB | no |
+| **Helipads** | heliports | 640 KB | no |
+| **Closed** | no longer operating | 360 KB | no |
+
+Three of the four are off for the same reason three of the railway's six groups
+are: switching an overlay on for the first time should answer the question you
+switched it on to ask, and "where are the airports" is answered by the ones with
+scheduled flights. The rest is aviation infrastructure — real, correctly mapped,
+and between them several times as much ink as the thing you were looking for.
+The service worker caches on demand and pre-fetches nothing, so a group left off
+is never requested and a group switched on is kept.
+
+**The dialog says the counts**, which the railway's does not, and the difference
+is the point: the rail groups filter tiles that arrive anyway, so switching one
+on is free. These are downloads. A cost you cannot see is a cost you cannot
+weigh, and the numbers are written by the build into `airports-counts.json`
+rather than typed into the dialog, so they cannot drift from the files they
+describe.
+
+### The two halves of one agreement
+
+The build and the client each hold half of something neither can check at run
+time: which letter means which kind, which kinds travel in which file, and what
+the sixteen slots of a record are. A record read one field along is not an error
+— it is an airport whose elevation is its runway count. So
+`scripts/test/airports.mjs` checks the two against each other and against the
+committed files, and the build **fails rather than ships** if OurAirports grows
+a type no group claims.
+
+The record is an array rather than an object because the keys would otherwise be
+repeated 86,000 times, and the rows are sorted by kind and then by country — not
+cosmetic, but because it puts the two lowest-cardinality columns into long runs
+and gzip is much happier about `"L","L","L"` than the same letters scattered.
+
+### Saying it the way a person reads it
+
+The same job the railway card does for voltages and gauges. Runway surfaces
+arrive as **650 distinct spellings of about eight materials** — `ASP`, `ASPH`,
+`Asphalt`, `asp`, `ASPH-G`, `ASPH/ CONC` — typed by whoever filed the airport and
+never normalised, which is fine for a database and no good on a card claiming to
+say what the runway is made of. Unrecognised is left unsaid rather than printed
+raw: "PIÇARRA" is a real surface and shows nothing to somebody asking whether it
+is paved.
+
+Elevations and runway lengths carry metres *and* feet, because aviation is feet
+and this map is metric. A country code becomes a country through
+`Intl.DisplayNames`, which every browser and Node already has — a 250-name table
+would be bytes spent on something the platform knows, and it answers in the
+reader's own language for free. (`countries.json` is no help: it is keyed by ISO
+alpha-3 and OurAirports files by alpha-2.)
+
+Only the longest runway's surface and lighting are kept. The full table is 47,000
+rows and the questions a card answers are "how many" and "how big is the biggest"
+— the longest runway is what decides whether a 737 can land, and a list of every
+threshold identifier is an aviation chart rather than a map popup.
+
+### Which airport wins a collision
+
+**This is the one that was actually wrong on a real map, and it is invisible in
+the code.** `symbol-sort-key` decides who wins a collision *within* a layer and
+says nothing at all across two — and MapLibre places symbols from the **top of
+the layer stack downwards**, so the layer added last places first.
+
+There is a layer per kind class rather than per group, because the two things a
+layer decides — which icon, and from which zoom — vary inside a group: a large
+international airport is worth drawing where a continent fits on screen and the
+regional field beside it is not. Installed in declaration order, that put
+`medium` above `large`, and **Zürich Airport lost its label to Dübendorf Air Base
+eight kilometres away**. Nothing threw and nothing warned; the busiest airport in
+the country was simply not drawn, which reads as missing data rather than as a
+z-order bug. The layers are declared most-important-first and installed in
+reverse, so the most important kind is top-most, places first, and also draws on
+top — the same answer to both questions. The test installs against a stub map and
+asserts the order, because this cannot be seen by reading the layer table.
+
+The zoom thresholds are the other half of keeping it legible. Much of the
+American Midwest is a grid of small airfields; drawn from z4 they are a texture
+rather than a map. Each threshold is roughly where that kind stops being clutter
+and starts being an answer — large from z3, medium from z5.5, airfields from
+z8.5, closed from z9, helipads from z11.
+
+**The label is two different things at two zooms.** Zoomed out it is the code:
+`ZRH` is shorter and more recognisable than "Zürich Airport", and at the zoom
+where a country fits on screen the difference between a three-letter tag and a
+forty-character name is whether the labels collide into nothing at all. From z9.5
+it is the name, because by then you are looking at one airport rather than
+counting them. An airfield with no IATA code — which is most of them — is named
+at both ends.
+
+### The icons, and what they are not
+
+Drawn into images the style owns, the same way the house marker and the search
+pin are: a sprite would mean shipping and loading one, and a symbol layer with no
+image draws nothing while saying nothing about why. Stroked wide in white and
+then filled dark, which is the trick the basemap's own labels use and the reason
+one icon reads on a dark map, a light one and a photograph without a coloured
+disc behind it guaranteeing contrast by shouting.
+
+They are **not** in the accent colour, and that is a rule rather than an
+oversight: the accent belongs to ground you have covered, and an airport is
+reference data about somewhere you may never have been. A solid plane for the
+airports an airline flies to, hollow for the small ones — which is how a map says
+"the same kind of thing, less of it" without needing a legend — an H in a ring
+for a helipad, and a ring with a stroke through it for a field that closed.
+
+The seaplane icon took two goes. A full-size plane with a wave added underneath
+was unreadable: the wave crossed the tailplane and the two stroked shapes merged
+into one blob at the only size this is ever seen at. The plane is shrunk and
+lifted instead, clear of the water. Two separated marks beat one clever one when
+the whole icon is fourteen pixels across.
+
+### A tap, with no switch in front of it
+
+The railway's interaction is off by default because a hit test across 288 layers
+on every tap is a real cost, and an overlay switched on to look at should not
+quietly take taps away from the map underneath. Neither half of that argument
+survives here: this is one query over six layers of a point source, about the
+same work as the saved-route test that has always run unconditionally. An icon
+you can see and cannot tap is the worse answer when tapping it is nearly free, so
+airports answer a tap whenever the overlay is on, and there is no switch — copying
+the railway's would be cargo-culting the conclusion without the reason.
+
+In the click handler an airport comes after a saved route and after a railway,
+the same order the three are drawn in. The query is a padded box rather than a
+bare point, because an icon is fourteen pixels across and a finger is not.
+
+**And the overlay is remembered across reloads**, where the train tracks
+deliberately are not. Switching the tracks on is a conversation with somebody
+else's tile server and 2.25 MB of sprite atlas, which should be asked for rather
+than assumed. This is a file the app already ships, cached by the service worker,
+drawn from one GeoJSON source — there is nothing to spare anyone by forgetting
+the answer overnight.
 
 ## How sharp a region is
 

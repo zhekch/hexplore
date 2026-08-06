@@ -45,6 +45,14 @@ import {
   railFeature, railLayerIds, removeRail, setRailGroup, setRailHover, setRailTechnical,
   splitRouteLabel,
 } from './rail.js';
+// The airports overlay is a dataset rather than a tile server, so unlike the
+// railways above there is no proxy, no detail ceiling and no outage to report —
+// see the note at the top of src/airports.js. The group *data* is still a lazy
+// import, which is what these functions arrange between them.
+import {
+  airportGroupsOn, airportLayerIds, describeAirportFeature,
+  installAirports, loadAirports, removeAirports,
+} from './airports.js';
 import { mountKomoot } from './komoot-ui.js';
 import { mountDevices, whenAgo } from './device-ui.js';
 import { mountSources } from './sources-ui.js';
@@ -55,6 +63,7 @@ import { mountSettings } from './settings-ui.js';
 import { mountExport } from './export-ui.js';
 import { mountPersonal } from './personal-ui.js';
 import { mountRail } from './rail-ui.js';
+import { mountAirports } from './airports-ui.js';
 import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
 import { activeDays, findHome } from './trips.js';
@@ -537,6 +546,20 @@ let railTechnicalOn = localStorage.getItem(RAIL_TECHNICAL_KEY) === 'on';
 const RAIL_INTERACTIVE_KEY = 'visited-map:rail-interactive:v1';
 let railInteractive = localStorage.getItem(RAIL_INTERACTIVE_KEY) === 'on';
 
+// Which kinds of airfield the airports overlay draws. Same reasoning as the rail
+// groups above — a shape of the thing rather than a state of this visit — with
+// one addition of its own: a group here is also a download, so a choice that did
+// not survive a reload would re-fetch a file the browser already holds.
+// Anything not named falls back to the group's own default in src/airports.js.
+const AIRPORT_GROUPS_KEY = 'visited-map:airport-groups:v1';
+let airportGroupsChosen = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(AIRPORT_GROUPS_KEY)) ?? {};
+  } catch {
+    return {};
+  }
+})();
+
 let styleKey = localStorage.getItem(STYLE_KEY) ?? 'dark';
 if (!STYLES[styleKey]) styleKey = 'dark';
 // Apply the matching chrome colors before the map initializes to avoid a
@@ -546,6 +569,15 @@ presumeChrome();
 // Train tracks are deliberately session-only and always start disabled after
 // a page reload. Their state still survives basemap switches within the page.
 let railOn = false;
+
+// Airports, on the other hand, are remembered. The tracks start off because
+// switching them on is a conversation with somebody else's tile server — 2.25 MB
+// of sprite atlas and a per-zoom health check — and a layer that expensive should
+// be asked for rather than assumed. The airports are a file this app already
+// ships, cached by the service worker, drawn from one GeoJSON source; there is
+// nothing to spare anyone by forgetting the answer overnight.
+const AIRPORTS_KEY = 'visited-map:airports:v1';
+let airportsOn = localStorage.getItem(AIRPORTS_KEY) === 'on';
 // Whether the home marker is drawn. A way of looking at the map rather than a
 // fact about it, so it lives beside `railOn` in localStorage and not in the
 // account preferences — where *home is* follows the account, whether you are
@@ -4637,6 +4669,7 @@ function updateDetailNow(level = currentLevel) {
 const layersBtn = document.getElementById('layers-btn');
 const layersMenu = document.getElementById('layers-menu');
 const railToggle = document.getElementById('rail-toggle');
+const airportsToggle = document.getElementById('airports-toggle');
 // `setStyle()` rebuilds MapLibre's entire style asynchronously. Keep the
 // checkbox as the source of truth while that happens, then reconcile the
 // actual layer once our custom sources/layers are ready again.
@@ -4776,6 +4809,145 @@ function syncRailLayer() {
   });
 }
 
+// --- Airports -------------------------------------------------------------------
+
+function setAirports(on) {
+  airportsOn = on;
+  try {
+    localStorage.setItem(AIRPORTS_KEY, on ? 'on' : 'off');
+  } catch {
+    /* fine */
+  }
+  updateLayersUi();
+  syncAirportLayer();
+}
+
+/**
+ * One group of airfields on or off.
+ *
+ * Unlike the railway's equivalent this may have to *fetch* before it can draw —
+ * the groups are separate files and a group that has never been on has never
+ * been downloaded. `syncAirportLayer` is the one path that knows how to wait, so
+ * this defers to it rather than growing a second copy of the same await.
+ */
+function setAirportGroupOn(key, on) {
+  airportGroupsChosen = { ...airportGroupsChosen, [key]: on };
+  try {
+    localStorage.setItem(AIRPORT_GROUPS_KEY, JSON.stringify(airportGroupsChosen));
+  } catch {
+    /* fine */
+  }
+  if (styleReady && airportsOn) syncAirportLayer();
+}
+
+// Which install this is, so a slow fetch cannot apply over a basemap the map has
+// since switched away from — the same guard `setStyleKey` uses, and needed for
+// the same reason: `loadAirports` awaits, and the world moves while it does.
+let airportInstall = 0;
+
+function syncAirportLayer() {
+  // A switch during initial load or a basemap switch is intentionally deferred;
+  // installGrid() calls this again for the newly loaded style.
+  if (!styleReady) return;
+  const mine = ++airportInstall;
+  if (!airportsOn) {
+    removeAirports(map);
+    airportPopup?.remove();
+    pointerOnAirport = false;
+    syncPointer();
+    return;
+  }
+  loadAirports(airportGroupsOn(airportGroupsChosen)).then(() => {
+    // The basemap may have changed underneath, the overlay may have been
+    // switched off again, or a second group may have been ticked while this one
+    // was in flight — in which case a later call owns the map and this one is
+    // stale. Asked on the far side of the await rather than trusted from before.
+    if (mine !== airportInstall || !styleReady || !airportsOn) return;
+    // One call whether this is a first install, a basemap rebuild or a group
+    // being ticked — `installAirports` is idempotent precisely so this does not
+    // have to ask which, and so the source's id stays inside the module that
+    // owns it.
+    installAirports(map, {
+      // Whatever upright stack the basemap's own glyph server serves; a
+      // fontstack it has never heard of is a label that silently never draws.
+      font: styleFont(),
+      theme: STYLES[styleKey].theme,
+      before: AIRPORT_BEFORE(),
+      groups: airportGroupsChosen,
+    });
+  }).catch((e) => {
+    console.warn('Airports could not be loaded.', e);
+  });
+}
+
+// --- What an airport says about itself --------------------------------------------
+//
+// Everything is already in the feature that drew the icon — no request, no
+// second door, nothing that can be down. That is the dividend of shipping the
+// dataset instead of proxying somebody's API, and it is why this half is a
+// hundred lines rather than the railway's four hundred.
+let airportPopup = null;
+
+/** Scoped to our own layer ids: a basemap draws airports too, and reporting its
+ *  idea of one while the overlay is showing OurAirports' would be the same
+ *  mistake the rail hit test exists to avoid. */
+function airportFeatureAt(point) {
+  const ids = airportLayerIds().filter((id) => map.getLayer(id));
+  if (!ids.length) return null;
+  // A padded box rather than the bare point: an icon is about 14 px across and a
+  // finger is not, so a tap that visibly landed on the plane should open it.
+  const pad = 6;
+  const box = [[point.x - pad, point.y - pad], [point.x + pad, point.y + pad]];
+  return map.queryRenderedFeatures(box, { layers: ids })[0] ?? null;
+}
+
+/** Open a card about whatever airport was clicked, and say whether there was one. */
+function showAirportInfo(e) {
+  const hit = airportFeatureAt(e.point);
+  const info = hit && describeAirportFeature(hit);
+  if (!info) return false;
+
+  const card = document.createElement('div');
+  card.className = 'feature-popup';
+  const h = document.createElement('h4');
+  h.textContent = info.title;
+  card.append(h);
+  if (info.subtitle) {
+    const sub = document.createElement('div');
+    sub.className = 'feature-popup-kind';
+    sub.textContent = info.subtitle;
+    card.append(sub);
+  }
+  if (info.rows.length) {
+    const dl = document.createElement('dl');
+    for (const [label, value] of info.rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = label;
+      const dd = document.createElement('dd');
+      dd.textContent = value;
+      dl.append(dt, dd);
+    }
+    card.append(dl);
+  }
+  // textContent and an href, never innerHTML: these are strings out of a
+  // community-edited dataset, which is to say strings anyone can write.
+  for (const link of info.links) {
+    const a = document.createElement('a');
+    a.href = link.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = link.label;
+    card.append(a);
+  }
+
+  airportPopup?.remove();
+  airportPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+    .setLngLat(hit.geometry.coordinates.slice(0, 2))
+    .setDOMContent(card)
+    .addTo(map);
+  return true;
+}
+
 // --- What a railway says about itself ------------------------------------------
 // The reason the overlay is vector rather than pixels. Everything shown here is
 // already in the tile that drew the line: OpenRailwayMap's own app answers this
@@ -4818,13 +4990,13 @@ function showRailInfo(e) {
   if (!info) return false;
 
   const card = document.createElement('div');
-  card.className = 'rail-popup';
+  card.className = 'feature-popup';
   const h = document.createElement('h4');
   h.textContent = info.title;
   card.append(h);
   if (info.subtitle) {
     const sub = document.createElement('p');
-    sub.className = 'rail-popup-kind';
+    sub.className = 'feature-popup-kind';
     sub.textContent = info.subtitle;
     card.append(sub);
   }
@@ -4946,8 +5118,14 @@ let railHoverPoint = null;
 // later. One place decides, so the later answer cannot clear the earlier one's.
 let pointerOnRoute = false;
 let pointerOnRail = false;
+// And an airport, which answers on the mousemove like a route rather than a
+// frame later like a railway: this is one query over six layers of a point
+// source, not 288 layers of somebody else's style, so there is nothing here to
+// throttle away.
+let pointerOnAirport = false;
 const syncPointer = () => {
-  map.getCanvas().style.cursor = pointerOnRoute || pointerOnRail ? 'pointer' : '';
+  map.getCanvas().style.cursor =
+    pointerOnRoute || pointerOnRail || pointerOnAirport ? 'pointer' : '';
 };
 
 function railHoverAt(point) {
@@ -4990,6 +5168,7 @@ function updateLayersUi() {
   }
   updateDetailNow();
   railToggle.checked = railOn;
+  airportsToggle.checked = airportsOn;
   updateRoutesUi();
 
   // The picker only means anything in single-color mode, and nothing at all
@@ -5151,6 +5330,7 @@ function wireLayersControl() {
     btn.addEventListener('click', () => setDetailLevel(detailFromToken(btn.dataset.detail)));
   }
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
+  airportsToggle.addEventListener('change', () => setAirports(airportsToggle.checked));
   document.getElementById('home-pick-cancel').addEventListener('click', () => endHomePick(false));
   document.getElementById('home-pick-ok').addEventListener('click', () => endHomePick(true));
   document.getElementById('route-solo-clear').addEventListener('click', () => {
@@ -5203,6 +5383,16 @@ function wireLayersControl() {
 // below this point. That is already true of every route on the map, and an
 // overlay you switched on is meant to be the thing you are reading.
 const RAIL_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStart());
+
+// The same slot, and therefore above the railways rather than below them —
+// `addLayer(l, before)` inserts immediately beneath `before`, so whichever
+// installs last sits on top of the other, and `syncAirportLayer` runs after
+// `syncRailLayer`. That is the right way round: an airport is one icon standing
+// for a place, a railway is a network of lines, and a line drawn over a symbol
+// is what makes the symbol unreadable rather than the other way about. Both
+// still go under the saved routes, for the reason the railways do — a line you
+// actually travelled beats reference geometry about what exists.
+const AIRPORT_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStart());
 let firstInstall = true;
 
 // How deep the server says each of OpenRailwayMap's sources can currently be
@@ -5644,6 +5834,9 @@ function installGrid() {
 
   styleReady = true;
   syncRailLayer();
+  // After the railways, which is what puts the airports above them — see
+  // AIRPORT_BEFORE.
+  syncAirportLayer();
   syncHomeMarker();
   // A style rebuild dropped the sources above and re-created them empty, so
   // anything the page was already showing has to be put back. The chip never
@@ -5735,6 +5928,12 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // otherwise, and an overlay switched on to look at should not be quietly
       // taking taps away from the ground it is drawn over.
       else if (railOn && railInteractive && showRailInfo(e)) { /* the card is the whole of the tap */ }
+      // Then an airport, in the order these are drawn. No switch guarding it,
+      // unlike the railway above: that one is off by default because a hit test
+      // across 288 layers on every tap is a real cost, and this is one query
+      // over six layers of a point source. An icon you can see and cannot tap
+      // is the worse answer when tapping it is nearly free.
+      else if (airportsOn && showAirportInfo(e)) { /* the card is the whole of the tap */ }
       // At the three vector levels there are no hexes on screen, so a tap is
       // about the shape it landed on — whether or not you have been to it — and
       // where there is no shape, about nothing. See showInfoAt.
@@ -5759,6 +5958,12 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // And the railway under it, if the overlay has been asked to answer. A
       // frame behind, and its own half of the cursor — see railHoverAt.
       railHoverAt(e.point);
+      // And an airport, answered here and now: six layers over a point source is
+      // the same order of work as the route test above it, not the railway's.
+      if (airportsOn && styleReady) {
+        pointerOnAirport = !!airportFeatureAt(e.point);
+        syncPointer();
+      }
     }
     if (mode !== 'edit' || currentLevel == null) return;
     // Keep the paint gesture in sync with the live modifier state (covers the
@@ -5997,6 +6202,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     interactive: () => railInteractive,
     onInteractive: (on) => setRailInteractive(on),
   });
+  const airportsUi = mountAirports({
+    onClose: () => personalUi?.open(),
+    groups: () => airportGroupsChosen,
+    onGroup: (key, on) => setAirportGroupOn(key, on),
+  });
   personalUi = mountPersonal({
     onClose: () => settings?.open(),
     home: () => homePlace,
@@ -6012,6 +6222,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     },
     sources: sourcesUi,
     rail: railUi,
+    airports: airportsUi,
     onClearCache: () => clearOfflineCaches(),
     version: () => serverBuild(),
     username: () => username,

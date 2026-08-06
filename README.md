@@ -43,6 +43,16 @@ number of approaches that were tried and abandoned.
   **Interactable** and the railway answers the pointer: whatever is under it
   lights up, and a tap opens a card with the track number, the operator, the
   voltage, the platform, and every service that calls there.
+- **Airports.** Every airport, airfield and helipad on Earth, from the
+  public-domain OurAirports dataset — built into the app, so there is no key to
+  get, nothing to sign up for, and it works offline. Switch it on in the layers
+  menu. Out of the box it shows the five thousand airports airlines actually fly
+  to; Settings → Airports adds the small airfields and glider strips, the
+  helipads, and the ones that have closed. Codes when you are zoomed out, names
+  when you are in, and a tap says the IATA and ICAO codes, the town, the
+  elevation, how many runways there are and how long the longest one is, what it
+  is made of and whether it is lit — with links to Wikipedia and the airport's
+  own site.
 - **Export a picture.** A place cut out of the world — one canton, three
   countries, a whole continent — with your ground inside it and a caption saying
   how much of it you have covered. Drag the preview to frame it, click it to pick
@@ -330,6 +340,7 @@ npm run build:countries   # Natural Earth boundaries
 npm run build:continents  # which continent each country is on
 npm run build:places      # GeoNames towns + Natural Earth lakes
 npm run build:regions     # Natural Earth states, provinces and cantons
+npm run build:airports    # OurAirports airports and runways
 ```
 
 ## Tests
@@ -343,8 +354,10 @@ activity guessing, the route API, preference syncing, the backup scheduler and
 its skip logic, undo's restore path, trip derivation and naming, search, colour
 parsing, the coverage arithmetic, the framing and captioning behind the image
 export — including whether a picture of Fiji comes out as Fiji or as the Pacific
-— and the request caching, including the two ways a cache can lie, by answering
-"nothing changed" when something did and by never saying it when nothing has.
+— the request caching, including the two ways a cache can lie, by answering
+"nothing changed" when something did and by never saying it when nothing has, and
+the airports overlay, where the build and the browser hold two halves of one
+agreement that nothing at run time would notice had drifted.
 
 ## Keeping it yours
 
@@ -378,6 +391,8 @@ allowed to connect to, and why each limit is where it is — is in
 - Detailed region boundaries, fetched per country on demand:
   [geoBoundaries](https://www.geoboundaries.org/) (CC BY 4.0, compositing national survey data)
 - Town names: [GeoNames](https://www.geonames.org/) `cities1000`, thinned (CC BY 4.0)
+- Airports and runways: [OurAirports](https://ourairports.com/data/) (public domain),
+  built into the app rather than fetched
 
 Built with no runtime dependencies beyond MapLibre and a polygon-clipping
 library; the server has none at all.

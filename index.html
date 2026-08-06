@@ -103,6 +103,14 @@
               <span>Train tracks<small>OpenRailwayMap</small></span>
               <input type="checkbox" id="rail-toggle" />
             </label>
+
+            <!-- Same deal as the tracks above: the switch is a question about
+                 the view and belongs here, while which kinds of airfield are
+                 drawn is a setting you make once. -->
+            <label class="menu-row">
+              <span>Airports<small>OurAirports</small></span>
+              <input type="checkbox" id="airports-toggle" />
+            </label>
           </section>
 
           <section class="menu-section">
@@ -580,6 +588,24 @@
           </svg>
         </button>
 
+        <!-- The airports overlay's own settings, beside the railway's for the
+             same reason: both are about the map's ingredients. -->
+        <button type="button" class="sync-option" data-personal="airports">
+          <!-- A top-down aircraft, the same shape the map icon draws. Nose up
+               and symmetrical: at 18px anything three-quarter-view reads as a
+               blot, and the swept wing is the whole of what says aeroplane. -->
+          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 2c1 1.1 1.3 2.9 1.3 5.1l8 5.6v1.9l-8-2.8v4.5l3 2.4v1.3L12 19l-4.3 1v-1.3l3-2.4v-4.5l-8 2.8v-1.9l8-5.6C10.7 4.9 11 3.1 12 2Z" />
+          </svg>
+          <span class="sync-option-text">
+            <b>Airports</b>
+            <small>Which airfields the overlay draws</small>
+          </span>
+          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m9 5 7 7-7 7" />
+          </svg>
+        </button>
+
         <button type="button" class="sync-option" data-personal="sources">
           <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 7h16" />
@@ -698,6 +724,40 @@
         <div class="modal-actions">
           <button type="button" class="modal-btn" id="rail-back">Back</button>
           <button type="button" class="modal-btn primary" id="rail-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Which airfields the airports overlay draws. The rows are built in
+         src/airports-ui.js from the same table that decides which file each
+         airport is packed into, so a group the dialog offers is always a group
+         there is data for. -->
+    <div class="modal-overlay" id="airports-overlay" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">Airports</div>
+            <div class="modal-sub">Which airfields the overlay draws. Switch the overlay itself on from the layers menu.</div>
+          </div>
+          <button class="cell-info-close" id="airports-close" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="ha-scroll">
+          <div class="menu-subhead"><span>Show</span></div>
+          <div id="airports-groups"></div>
+          <!-- Unlike the railway's groups, which filter tiles that arrive
+               anyway, each of these is its own download — hence the counts in
+               the rows, and this line saying why they are there. -->
+          <div class="import-note">Each group is fetched the first time you switch it on, and kept for next time. Nothing is downloaded for a group that stays off.</div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="modal-btn" id="airports-back">Back</button>
+          <button type="button" class="modal-btn primary" id="airports-done">Done</button>
         </div>
       </div>
     </div>

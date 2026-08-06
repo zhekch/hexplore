@@ -3481,13 +3481,19 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* --- The card a clicked railway opens ---------------------------------------
+/* --- The card a clicked feature opens ---------------------------------------
    MapLibre's own popup is a white box with a white tip, which on the dark
    basemaps is the only opaque white thing on screen. This is the same glass as
    `.cell-info` — the card that opens when you tap a hexagon — down to the radius
    and the shadow, because they are the same kind of object: something the map
    is telling you about the thing you just tapped. Anything else here would be a
-   second visual language for one idea. */
+   second visual language for one idea.
+
+   `.feature-popup` is the shared card — a heading, a kind, and a `dl` of
+   label-and-value rows — used by both reference overlays: a tapped railway and a
+   tapped airport are the same sort of answer and should not look like two. The
+   `.rail-popup-route*` rules below are the railway's own, because the list of
+   services calling at a station is not a shape anything else has. */
 .maplibregl-popup-content {
   padding: 14px 16px 12px;
   border-radius: 24px;
@@ -3533,14 +3539,14 @@ body {
   color: rgba(255, 255, 255, 0.92);
 }
 
-.rail-popup h4 {
+.feature-popup h4 {
   margin: 0 16px 0 0;
   font-size: 13px;
   font-weight: 650;
   line-height: 1.3;
 }
 
-.rail-popup-kind {
+.feature-popup-kind {
   margin: 2px 0 0;
   font-size: 11px;
   text-transform: capitalize;
@@ -3549,7 +3555,7 @@ body {
 
 /* Label and value in two columns, so a run of them lines up as a table rather
    than as sentences. The value wraps; the label never does. */
-.rail-popup dl {
+.feature-popup dl {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 2px 10px;
@@ -3561,16 +3567,16 @@ body {
    to be honoured explicitly. It matters: the list starts empty on a station,
    whose rows all arrive from the feature API, and an empty grid still has its
    top margin. */
-.rail-popup dl[hidden] {
+.feature-popup dl[hidden] {
   display: none;
 }
 
-.rail-popup dt {
+.feature-popup dt {
   color: rgba(255, 255, 255, 0.55);
   white-space: nowrap;
 }
 
-.rail-popup dd {
+.feature-popup dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -3680,14 +3686,14 @@ body {
   border-color: rgba(15, 23, 42, 0.3);
 }
 
-.rail-popup a {
+.feature-popup a {
   display: inline-block;
   margin-top: 10px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.62);
 }
 
-.rail-popup a:hover {
+.feature-popup a:hover {
   color: rgba(255, 255, 255, 0.92);
 }
 
@@ -3712,9 +3718,9 @@ body {
 
 /* The routes heading was missed here and came out white on a light card —
    invisible, and the only thing in the popup that was. */
-[data-theme='light'] .rail-popup-kind,
-[data-theme='light'] .rail-popup dt,
-[data-theme='light'] .rail-popup a,
+[data-theme='light'] .feature-popup-kind,
+[data-theme='light'] .feature-popup dt,
+[data-theme='light'] .feature-popup a,
 [data-theme='light'] .rail-popup-routes h5 {
   color: rgba(15, 23, 42, 0.58);
 }
@@ -3723,7 +3729,7 @@ body {
   border-top-color: rgba(15, 23, 42, 0.12);
 }
 
-[data-theme='light'] .rail-popup a:hover {
+[data-theme='light'] .feature-popup a:hover {
   color: rgba(15, 23, 42, 0.9);
 }
 
