@@ -963,6 +963,42 @@ if (!HEAT_MODES[heatMode]) heatMode = 'flat';
 const CELLS_KEY = 'visited-map:cells:v1';
 let cellsOn = localStorage.getItem(CELLS_KEY) !== 'off';
 
+// Sources switched off in the Type legend. A filter over the view, not a
+// deletion — Settings → Sources is where a source is actually taken off the map
+// (see forgetSource) — so nothing is stored differently and switching one back
+// on puts the map back exactly as it was.
+//
+// A cell is hidden by its *dominant* source, the one that speaks for it in the
+// Type mode, so what disappears is precisely what was painted in that colour; a
+// cell two sources vouch for stays as long as the louder one is on.
+//
+// **It applies in every mode, not only in Type.** The legend is the only place
+// it can be set, which argued for scoping it there — but the roll-up it filters
+// is a single shared thing, and the image export rebuilds that roll-up in
+// whatever mode *it* is drawing. A filter that switched itself on and off with
+// the mode would therefore change the map underneath you when the export dialog
+// asked for a Type picture over a map showing First seen. One set of cells,
+// always, is the only version of this with no such seam in it.
+const HIDDEN_KEY = 'visited-map:hidden-sources:v1';
+const hiddenSources = new Set(readHiddenSources());
+
+function readHiddenSources() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? '[]');
+    return Array.isArray(stored) ? stored.filter((s) => typeof s === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHiddenSources() {
+  try {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hiddenSources]));
+  } catch {
+    /* private mode, quota — the filter still applies for this session */
+  }
+}
+
 // The value function for whichever mode is on, or null when regions are flat.
 const heatMetricNow = () => heatMetric(heatMode);
 
@@ -1271,6 +1307,24 @@ function setCellsOn(on) {
   updateLayersUi();
 }
 
+/**
+ * Take one source's cells off the map, or put them back. See hiddenSources.
+ *
+ * A full roll-up rather than anything cleverer: which source speaks for a cell
+ * is only decided while the whole set is being walked, and this is a press of a
+ * legend entry rather than something that happens as you pan.
+ */
+function toggleSource(src) {
+  if (!src) return;
+  if (!hiddenSources.delete(src)) hiddenSources.add(src);
+  saveHiddenSources();
+  recomputeLit();
+  updateLayersUi();
+  updateGrid(true);
+  updateTiles();
+  updateHud(currentLevel);
+}
+
 // --- Visited cells & upward propagation -------------------------------------
 // Cells are stored per user on the server (see server/index.js and src/auth.js),
 // not in localStorage. `visited` starts empty and is hydrated once the user's
@@ -1316,6 +1370,13 @@ let sourceOrder = [];
 // showing something else — needs to know when what is in `litSets` predates a
 // cell, or was never built at all. See exportRollUp.
 let typeRollUpStale = true;
+// The cells that are actually drawn: `visited` minus whatever a hidden source
+// speaks for (see hiddenSources). Literally the same Set when nothing is hidden,
+// which is the usual case and costs nothing — only a live filter allocates a
+// second one. Everything that draws cells or counts what is on the map reads
+// this; `visited` stays the answer to "what have I got", which is what the
+// statistics, the saves and the search read.
+let visibleCells = visited;
 
 // Tally one source's visits onto a rolled-up cell. Nearly every cell only ever
 // sees a single source, so the Map is only allocated once a second turns up.
@@ -1388,13 +1449,31 @@ function recomputeLit(byType = HEAT_MODES[heatMode]?.categorical) {
   paintQueue.length = 0;
   litSets = Array.from({ length: MAX_LEVEL + 1 }, () => new Map());
   const sourceCells = new Map();
+  // Which source speaks for a cell is normally only worth working out for the
+  // mode that colours by it — but with something hidden it is also what says
+  // whether the cell is drawn at all, so the pass is paid for either way.
+  const filtering = hiddenSources.size > 0;
+  const shown = filtering ? new Set() : null;
 
   for (const id of visited) {
     let [L, col, row] = id.split('/').map(Number);
-    if (L > MAX_LEVEL) continue; // stored at a level that no longer exists
+    // Stored at a level that no longer exists. It draws no hexagon, but it is
+    // not *hidden* either — it still lights the country it is in, which is what
+    // it did before there was anything to hide.
+    if (L > MAX_LEVEL) {
+      shown?.add(id);
+      continue;
+    }
 
-    const { hits, time, age, own, ownN } = cellStatsOf(id, byType);
+    const { hits, time, age, own, ownN } = cellStatsOf(id, byType || filtering);
+    // Tallied before it is skipped, and deliberately: the palette is handed out
+    // in this order, so counting only what is drawn would reshuffle everyone
+    // else's colour every time a source was switched off. A hidden source keeps
+    // its slot and its place in the legend, which is also what makes the legend
+    // the way back.
     if (byType && own) sourceCells.set(own, (sourceCells.get(own) ?? 0) + 1);
+    if (filtering && hiddenSources.has(own)) continue;
+    shown?.add(id);
 
     for (let l = L; l <= MAX_LEVEL; l++) {
       if (l > L) [col, row] = parentOf(l - 1, col, row);
@@ -1418,6 +1497,21 @@ function recomputeLit(byType = HEAT_MODES[heatMode]?.categorical) {
     sourceOrder = [...sourceCells.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([src]) => src);
+    // Forget anything hidden that no cell claims any more. A source removed for
+    // good in Settings → Sources while it happened to be switched off would
+    // otherwise stay in the list for ever, and it is not a harmless entry: it
+    // keeps `filtering` true, which costs every roll-up the extra pass and
+    // permanently disables the paint shortcut in rollUpPainted, invisibly and
+    // for nothing. Only when there is a tally to check against — an empty one
+    // means the cells have not arrived yet, not that the sources are gone.
+    if (hiddenSources.size && sourceOrder.length) {
+      const present = new Set(sourceOrder);
+      let dropped = false;
+      for (const src of hiddenSources) {
+        if (!present.has(src)) dropped = hiddenSources.delete(src) || dropped;
+      }
+      if (dropped) saveHiddenSources();
+    }
     const slot = new Map(sourceOrder.map((src, i) => [src, i]));
     for (const lit of litSets) {
       for (const e of lit.values()) {
@@ -1451,6 +1545,7 @@ function recomputeLit(byType = HEAT_MODES[heatMode]?.categorical) {
     return r;
   });
 
+  visibleCells = shown ?? visited;
   typeRollUpStale = !byType;
   countryDirty = true; // the set of lit countries may have changed
 }
@@ -1466,6 +1561,11 @@ function recomputeLit(byType = HEAT_MODES[heatMode]?.categorical) {
 // stay untouched and the shortcut is exact — which is the only case this is
 // used for. Anything dated takes the slow path.
 function rollUpPainted(id) {
+  // Whether a cell is drawn at all depends on which source speaks for it, and
+  // that is only settled by the pass over the whole set. Rare enough — a filter
+  // is on, and you are painting — to be worth a rebuild rather than a second
+  // answer to the same question here.
+  if (hiddenSources.size) return false;
   let [L, col, row] = id.split('/').map(Number);
   if (L > MAX_LEVEL) return true; // same skip as recomputeLit()
 
@@ -1750,7 +1850,11 @@ function buildAreaFC(kind, { fine = false, mode = heatMode, record = true } = {}
   // than of cells that happen to be in them.
   const countriesIn = isContinentKind ? new Map() : null;
   const perArea = new Map(); // id → rolled-up stats, for the heat maps
-  for (const id of visited) {
+  // `visibleCells`, not `visited`: a source switched off in the Type legend is
+  // off the whole map, so it cannot be what lights a region either — a country
+  // nothing visible remains in is a country you have not been to as far as this
+  // picture is concerned. The two are the same Set unless something is hidden.
+  for (const id of visibleCells) {
     const cid = areaOfCellMemo(kind, id);
     if (!cid) continue;
     if (isContinentKind) {
@@ -4650,7 +4754,9 @@ function updateHud(level) {
     hudSize.textContent = cellSizeKm(level);
     hudRes.textContent = String(level);
   }
-  hudVisited.textContent = String(visited.size);
+  // What is on the map, which is not the same as what you have the moment a
+  // source is switched off in the Type legend. See hiddenSources.
+  hudVisited.textContent = String(visibleCells.size);
   updateDetailNow(level);
 }
 
@@ -5206,17 +5312,40 @@ function updateLayersUi() {
     // every entry the full width rather than truncating half of them.
     typeLegend.classList.toggle('wide', labels.some((l) => l.length > 16));
     for (const [i, label] of labels.entries()) {
-      const key = document.createElement('span');
-      key.className = 'legend-key';
-      key.title = label;
+      const src = sourceOrder[i];
+      const off = hiddenSources.has(src);
+      // A button, because each entry is a switch — see toggleSource.
+      const key = document.createElement('button');
+      key.type = 'button';
+      key.className = off ? 'legend-key off' : 'legend-key';
+      key.dataset.source = src;
+      // The title was already carrying the full name, which a narrow column
+      // clips; what it does is on the end of it, because a swatch and a name
+      // read as a legend and nothing else here says they can be pressed.
+      key.title = off ? `${label} — hidden. Click to show` : `${label} — click to hide`;
+      key.setAttribute('aria-pressed', String(!off));
       const dot = document.createElement('i');
-      dot.style.background = TYPE_COLORS[i] ?? TYPE_OTHER_COLOR;
+      // A custom property rather than `background`, so the stylesheet can spend
+      // the colour on an outline instead of a fill for a source that is off.
+      dot.style.setProperty('--key-color', TYPE_COLORS[i] ?? TYPE_OTHER_COLOR);
       const name = document.createElement('span');
       name.textContent = label;
       key.append(dot, name);
       typeLegend.append(key);
     }
   }
+
+  // A source stays off the map in every mode, and the legend above is the only
+  // way back — so in the other three the button that leads to it is the only
+  // sign that the map is not showing everything. A dot in its corner rather
+  // than anything wider: the four of them already fill the row, and a control
+  // that changes width when a filter is on moves under the hand reaching for it.
+  const typeBtn = layersMenu.querySelector('[data-heat="type"]');
+  typeBtn.dataset.baseTitle ??= typeBtn.title;
+  typeBtn.classList.toggle('has-filter', hiddenSources.size > 0);
+  typeBtn.title = hiddenSources.size
+    ? `${typeBtn.dataset.baseTitle} · ${hiddenSources.size} source${hiddenSources.size === 1 ? '' : 's'} hidden, and this is the list`
+    : typeBtn.dataset.baseTitle;
 
   // Legend: the ramp itself, plus what its ends stand for right now.
   const legend = document.getElementById('heat-legend');
@@ -5335,6 +5464,13 @@ function wireLayersControl() {
   for (const btn of layersMenu.querySelectorAll('[data-detail]')) {
     btn.addEventListener('click', () => setDetailLevel(detailFromToken(btn.dataset.detail)));
   }
+  // Delegated, unlike the three above: the Type legend's entries are rebuilt
+  // every time the menu is refreshed, so a listener per entry would be wired
+  // again on every pan that changes the detail level.
+  document.getElementById('type-legend').addEventListener('click', (e) => {
+    const key = e.target.closest('[data-source]');
+    if (key) toggleSource(key.dataset.source);
+  });
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
   airportsToggle.addEventListener('change', () => setAirports(airportsToggle.checked));
   document.getElementById('home-pick-cancel').addEventListener('click', () => endHomePick(false));
@@ -6255,7 +6391,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   const exportUi = mountExport({
     onClose: () => settings?.open(),
     data: {
-      cells: () => visited,
+      // What the map is drawing, so a picture of it is a picture of it: the
+      // frame it fits to and the numbers in the caption agree with the cells
+      // the same accessors' roll-up paints. See hiddenSources.
+      cells: () => visibleCells,
       meta: () => cellMeta,
       accent: () => hexOpaque(accent),
       rollUp: exportRollUp,

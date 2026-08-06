@@ -595,6 +595,27 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
+/* Something is being kept off the map by the Type legend, and that legend is the
+   only control for it — so in the other three modes this dot is the only sign
+   that the map is not showing everything, on the button that leads to the list.
+   Absolutely positioned so the row of four does not re-wrap when it appears. */
+#heat-seg .seg-btn.has-filter {
+  position: relative;
+}
+
+#heat-seg .seg-btn.has-filter::after {
+  content: '';
+  position: absolute;
+  /* Clear of the pill's 10px corner radius — nearer the corner and the dot
+     rides the curve and reads as something that has come loose. */
+  top: 5px;
+  right: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 /* Heat-map legend */
 .legend {
   width: 100%;
@@ -621,13 +642,45 @@ body {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* Each entry is a switch: pressing one takes that source's cells off the map and
+   pressing it again puts them back (see hiddenSources in src/main.js). The
+   padding is what makes it a target a finger can find, and the negative margin
+   cancels it again so eleven px of text still line up where they did. It is
+   half the row gap and no more: any deeper and vertically adjacent entries
+   would overlap, and a press near the edge would toggle the wrong source.
+   Vertical only, for the same reason in the other direction — `.menu-scroll`
+   is a scroller with no padding, so it clips at its own edge, and a key that
+   reached 4px past it had the rounded corner sliced off the highlight. The
+   entry fills its grid column exactly instead, which is also what keeps the
+   swatches lined up with everything else down the left of the panel. */
 .legend-key {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  margin: -2px 0;
+  border-radius: 5px;
+  text-align: left;
+  font: inherit;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+}
+
+/* Mid-grey rather than a tint per theme: this sits on dark glass, on light glass
+   and over a photograph, and the one value reads as a highlight on all three. */
+.legend-key:hover {
+  background: rgba(128, 128, 128, 0.22);
+}
+
+/* Dimmed, never removed — the entry is the only way back, so it has to stay
+   legible enough to aim at. */
+.legend-key.off {
+  opacity: 0.45;
 }
 
 /* A name too long for its column is clipped, not allowed to widen the grid —
@@ -643,7 +696,15 @@ body {
   width: 9px;
   height: 9px;
   border-radius: 3px;
+  background: var(--key-color);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+/* Hollow for a source that isn't drawn. The colour stays, because it is how you
+   recognise the entry; what goes is the ink, which is what went from the map. */
+.legend-key.off i {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--key-color);
 }
 
 .legend-empty {

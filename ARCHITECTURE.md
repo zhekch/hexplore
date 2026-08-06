@@ -157,8 +157,10 @@ glass look. Click hexagons to mark places you've visited.
   zoom. **Type** is categorical instead — a color per app the cells came from,
   so the legend is a list of swatches rather than a gradient, and a cell several
   sources cover goes to whichever saw you there most often (a whole country, to
-  whichever covers the most of its ground). At the country level all four apply
-  per country. Single-color mode's swatch opens the app's **own color picker**
+  whichever covers the most of its ground). Each of those swatches is also a
+  switch — see [A legend you can press](#a-legend-you-can-press). At the country
+  level all four apply per country. Single-color mode's swatch opens the app's
+  **own color picker**
   (`src/color-picker.js`) rather than the OS one, and the map repaints as you
   drag. Every colour it produces can carry an **opacity** — see
   [Colours with an opacity](#colours-with-an-opacity).
@@ -3432,6 +3434,68 @@ stays and the one weekend is one. What it still cannot separate is a long stay
 from a short one — a fortnight somewhere and an afternoon somewhere both count
 one — which is the question `fixes` would answer if `fixes` were trustworthy
 across sources that sample at wildly different rates, and it isn't.
+
+## A legend you can press
+
+In the Type mode the legend is a list of every source on the map, which makes it
+the one place where "what would this look like without Google Timeline" can be
+asked. Each entry is a button: pressing it takes that source's cells off the map,
+pressing it again puts them back (`toggleSource`, `hiddenSources`). A hidden
+entry keeps its place in the list and its colour, drawn as a hollow ring instead
+of a filled swatch — it is the only way back, so it cannot go anywhere.
+
+It lives in `visited-map:hidden-sources:v1` and **not** in the account, unlike
+the trips you put away. The two look alike and are not: putting a trip away is a
+judgement about your history and should follow you to the phone, while this is a
+way of looking at the map for a minute — the same kind of thing as which
+colouring mode is on, which is also per browser. Move it into `prefsPayload` if
+that turns out to be wrong; nothing else would have to change.
+
+**It is not a deletion, and there is already one of those.** Export & settings →
+Settings → Sources removes a source's rows for good — see [Taking a source back
+off the map](#taking-a-source-back-off-the-map). This changes nothing that is
+stored: the rows stay, the roll-up simply skips them.
+
+**A cell is hidden by its dominant source** — the one that speaks for it in the
+Type mode — so what disappears is exactly what was painted in that colour, and a
+cell two sources vouch for stays as long as the louder one is on. `recomputeLit`
+does the skip once and leaves the survivors in `visibleCells`, which is the same
+Set as `visited` whenever nothing is hidden; `buildAreaFC`, the HUD's count and
+the image export's accessors all read that rather than `visited`, so a country
+nothing visible remains in is a country you have not been to as far as the
+picture is concerned. `visited` stays the answer to *what have I got*, which is
+what the statistics, the saves and the search read.
+
+**The palette is handed out before the skip, not after.** `sourceOrder` is sorted
+by how many cells each source accounts for, and if that tally counted only what
+was drawn, switching one source off would renumber the slots and repaint every
+*other* source a different colour. Counting first and skipping second is what
+keeps the map still under the press.
+
+**It applies in every mode, not only in Type**, and that is not the obvious
+choice — the legend is the only place to set it, which argues for scoping it
+there. The roll-up is what rules it out. `litSets` is one shared structure, and
+`exportRollUp` rebuilds it in whatever mode the *export* is drawing: a filter
+that switched itself on and off with the mode would then add or remove cells
+from the live map the moment the export dialog asked for a Type picture over a
+map showing First seen. One set of cells, always, is the only version of this
+with no such seam in it. The cost is that in the other three modes nothing on
+screen would say the map is incomplete, which is what the dot in the corner of
+the **Type** button is for — it is also where the list to undo it lives.
+
+The one shortcut that cannot survive a filter is `rollUpPainted`, which folds a
+newly painted cell into the roll-up without redoing it: whether a cell is drawn
+now depends on which source speaks for it, and that is only settled by the pass
+over the whole set. It declines while anything is hidden, which is what its
+return value is for.
+
+**Editing with a filter on edits what you can see, and nothing else.**
+`toggleCell` reads `litSets`, so a tap clears the cells stored under it that are
+being drawn and leaves the hidden ones where they are — which is why they come
+back when the source does. A tap on ground that *looks* empty but has a hidden
+cell under it marks a new one rather than clearing the old, because it is
+`litSets` that says the ground is empty. Neither loses anything, and the
+alternative — clearing cells nobody can see — is the worse of the two.
 
 ## Two vector levels
 
