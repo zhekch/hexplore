@@ -57,6 +57,9 @@ final class LocationLogger: NSObject, ObservableObject, CLLocationManagerDelegat
     /// Set while we are waiting for the system prompt to be answered, so the
     /// answer can start the services the request was made for.
     private var startWhenAuthorized = false
+    /// Set while the manager is running only to make the prompt appear, so the
+    /// answer can stop it again. See ``requestAuthorizationIfNeeded()``.
+    private var nudging = false
 
     private override init() {
         super.init()
@@ -149,12 +152,42 @@ final class LocationLogger: NSObject, ObservableObject, CLLocationManagerDelegat
     func requestAuthorizationIfNeeded() {
         guard manager.authorizationStatus == .notDetermined else { return }
         manager.requestAlwaysAuthorization()
+        // **And then actually want a location**, which is the part that was
+        // missing.
+        //
+        // `requestAlwaysAuthorization()` alone is enough on a phone. On a Mac it
+        // is documented to raise the prompt and does not reliably do so; what
+        // does is a manager that has *started*, because the prompt is really
+        // about a service being used rather than a permission being asked for.
+        // Starting here costs nothing and cannot record anything:
+        // `didUpdateLocations` returns immediately while tracking is off, which
+        // on a Mac is the default.
+        //
+        // It stops itself the moment the question is answered, either way —
+        // below, and on a timer in case the answer never arrives.
+        nudging = true
+        manager.startUpdatingLocation()
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            self?.endNudge()
+        }
+    }
+
+    /// Stop the manager started purely to raise the prompt — unless the logger
+    /// itself now wants it running.
+    private func endNudge() {
+        guard nudging else { return }
+        nudging = false
+        guard !TrackingSettings.shared.isTracking else { return }
+        manager.stopUpdatingLocation()
     }
 
     // MARK: - CLLocationManagerDelegate
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorization = manager.authorizationStatus
+        // Answered, so whatever was running only to ask can stop.
+        if authorization != .notDetermined { endNudge() }
         guard startWhenAuthorized || TrackingSettings.shared.isTracking else { return }
         apply()
     }

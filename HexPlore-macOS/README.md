@@ -27,6 +27,40 @@ Four things, and only the first is a feature decision.
 | **Location is off by default** | It is off on the phone too, but here it stays off for a second reason — see below |
 | **Settings is a window, not a tab** | ⌘, is where a Mac keeps settings. The phone's two tabs are what a phone has |
 | **One photo window, reused** | The phone's viewer is a full-screen modal; a window is not modal, so a second click has to do something |
+| **"My location" is served by the app** | WebKit here grants the permission and then never delivers a position — see below |
+
+### The map's own locate button, and why the app has to answer it
+
+On the phone this needs nothing: iOS WebKit asks the app for permission and then
+delivers positions, so the site's locate button works untouched. **On macOS it
+does not**, and the failure is silent in the worst way — the button spins for
+ever rather than failing, because `getCurrentPosition` fires *neither* callback
+and MapLibre is left waiting on a promise nothing ever settles.
+
+Measured in a `WKWebView` on macOS 27, against an https origin, with location
+authorised: WebKit **does** call
+`webView(_:requestGeolocationPermissionFor:initiatedByFrame:decisionHandler:)`,
+the app grants it, and then the page times out with no position. Granting is not
+the problem; there is simply nothing behind it.
+
+**And below macOS 27 the question cannot even be asked.** That delegate method
+is `API_AVAILABLE(macos(27.0))`, so on the macOS 14 this app supports there is
+no way for a web view to be granted geolocation at all. Anything resting on
+WebKit would have worked on one OS version out of fourteen.
+
+So `LocationBridge` answers instead. The app already had CoreLocation, the
+entitlement and the authorisation — everything the page needed was on this side
+the whole time. A user script replaces `navigator.geolocation` with a shim
+backed by a message handler before the page's first line runs, so MapLibre asks
+the standard question and gets a standard answer.
+
+Two things worth knowing about it. **Nothing in `src/` knows it exists** — unlike
+the photo and save bridges, which the web app calls deliberately, this one is
+invisible to the site, which keeps the site free of a special case for one host.
+And **`watchPosition` is a poll**, once every five seconds, rather than a
+subscription pushed from native: a Mac does not move between fixes often enough
+for the difference to show, and the shim's `maximumAge` handling makes a repeat
+ask nearly free.
 
 ### Apple Health is gone, and the workouts are not
 
@@ -188,13 +222,22 @@ Two things this machine needs, both inherited from the iOS project's notes:
 
 ### Deployment target
 
-**macOS 14.0.** Verified rather than declared — the built binary reports
-`minos 14.0` and the shipped `Info.plist` says `LSMinimumSystemVersion 14.0`.
+**macOS 14.0, and every feature works at 14.0** — including the locate button,
+which is the whole reason `LocationBridge` exists rather than a dependency on
+the macOS 27 permission API.
 
-Nothing here wants anything newer except `requestGeolocationPermissionFor`,
-which is macOS 27 and is `@available`-guarded. 14.0 is what `SettingsLink` and
-the single-`Window` scene want, and going lower would buy a fallback path for
-each in exchange for supporting a Mac that cannot run the current OS anyway.
+Verified rather than declared, and in two ways. The built binary reports
+`minos 14.0` and the shipped `Info.plist` says `LSMinimumSystemVersion 14.0`; and
+the build itself is the guarantee that nothing newer is called unguarded, since
+Swift's availability checking and `CLANG_WARN_UNGUARDED_AVAILABILITY =
+YES_AGGRESSIVE` make an unprotected call to a later API a build failure rather
+than a crash on somebody's older Mac. The one macOS 27 API left in the source —
+`requestGeolocationPermissionFor` — is `@available`-guarded and is now belt to
+the bridge's braces rather than the mechanism.
+
+14.0 is what `SettingsLink` and the single-`Window` scene want; going lower would
+buy a fallback path for each in exchange for supporting a Mac that cannot run the
+current OS anyway.
 
 It is set in one place: `MACOSX_DEPLOYMENT_TARGET` in the project, in both Debug
 and Release.
@@ -243,6 +286,7 @@ HexPlore-macOS/
     PhotoBridge.swift       answering the map when it asks for the photographs
     PhotoViewer.swift       the photo window and the video window
     ServerCheck.swift       is that address a Hexplore server, and is it up
+    LocationBridge.swift    the position the page's locate button cannot get
     SaveBridge.swift        writing an exported picture to Downloads
     FixQueue.swift          what has been recorded but not yet accepted
     SyncClient.swift        the uploads, and the session they borrow

@@ -37,6 +37,17 @@ struct SettingsView: View {
     @State private var draft = ""
     @State private var syncing = false
 
+    /// Which field has the keyboard, and — the reason this exists — the fact
+    /// that at the moment the window opens the answer should be *none*.
+    ///
+    /// A macOS window makes its first text field the first responder when it
+    /// becomes key, so opening Settings put the caret in the server address:
+    /// the field you least want to be typing into by accident, since it is
+    /// already filled in and already correct. Nothing here is a form you sit
+    /// down and fill in, so nothing should be waiting for a keystroke.
+    private enum Field: Hashable { case server, deviceName }
+    @FocusState private var focused: Field?
+
     var body: some View {
         Form {
             serverSection
@@ -57,9 +68,17 @@ struct SettingsView: View {
         // does, and one left to guess comes up as a tall thin column.
         .frame(width: 520)
         .frame(minHeight: 420, idealHeight: 560)
+        // Declarative half: nothing is the default focus for this scope.
+        .defaultFocus($focused, nil)
         .onAppear {
             draft = settings.serverURL
             server.check()
+            // …and the belt to that pair of braces. AppKit assigns the first
+            // responder as the window becomes key, which happens *after* this
+            // view appears, so the declaration above can be overruled by the
+            // window itself. Handing focus back to nothing one turn of the run
+            // loop later is what actually leaves the caret out of the address.
+            DispatchQueue.main.async { focused = nil }
         }
         // The address changing is the one moment the answer is certainly stale.
         .onChange(of: settings.reloadToken) { server.check() }
@@ -80,6 +99,7 @@ struct SettingsView: View {
                       prompt: Text("hexplore.your-tailnet.ts.net"))
                 .labelsHidden()
                 .autocorrectionDisabled()
+                .focused($focused, equals: .server)
                 .onSubmit(commit)
 
             if draft.trimmingCharacters(in: .whitespacesAndNewlines) != settings.serverURL {
@@ -151,6 +171,8 @@ struct SettingsView: View {
                 }
             }
 
+            accessRow
+
             if tracking.isTracking {
                 Picker("Skip vague fixes", selection: $tracking.precision) {
                     ForEach(TrackingSettings.Precision.allCases) { precision in
@@ -165,6 +187,7 @@ struct SettingsView: View {
                               prompt: Text("This Mac"))
                         .labelsHidden()
                         .autocorrectionDisabled()
+                        .focused($focused, equals: .deviceName)
                         .multilineTextAlignment(.trailing)
                 }
             }
@@ -207,6 +230,60 @@ struct SettingsView: View {
     /// recording the moment you leave — has no equivalent here, because
     /// `kCLAuthorizationStatusAuthorizedWhenInUse` does not exist on this
     /// platform.
+    /// What macOS currently allows, said out loud, with the way to change it
+    /// next to it.
+    ///
+    /// This row exists because its absence was unfalsifiable. Location simply
+    /// did not work, and from the outside "the app never asked", "the app asked
+    /// and you missed the prompt" and "you answered no once, months ago" are
+    /// the same silence — there was no way to tell them apart, and the fix for
+    /// each is different. A permission is a piece of state the app can read at
+    /// any time, so there is no excuse for not showing it.
+    ///
+    /// The button is the other half. Raising the prompt from a control somebody
+    /// pressed is the one call site guaranteed to run, with the app frontmost
+    /// and a person looking at it — where a request fired from a view's
+    /// lifecycle can be missed, land behind a window, or never happen at all if
+    /// that lifecycle method is not called.
+    private var accessRow: some View {
+        LabeledContent("Access") {
+            HStack(spacing: 8) {
+                Text(accessLabel)
+                    .foregroundStyle(accessColor)
+                if logger.authorization == .notDetermined {
+                    Button("Allow…") { logger.requestAuthorizationIfNeeded() }
+                } else if logger.authorization == .denied || logger.authorization == .restricted {
+                    // Nothing in the app can undo a refusal; only System
+                    // Settings can, so the button goes there rather than
+                    // pretending to ask again.
+                    Button("Open System Settings") {
+                        openPrivacySettings("Privacy_LocationServices")
+                    }
+                }
+            }
+        }
+    }
+
+    private var accessLabel: String {
+        switch logger.authorization {
+        case .notDetermined: return "Not asked yet"
+        // `.authorized` is the same value as `.authorizedAlways` on macOS —
+        // there is one grant here, not the phone's two. See LocationLogger.
+        case .authorizedAlways: return "Allowed"
+        case .denied: return "Denied"
+        case .restricted: return "Not permitted on this Mac"
+        @unknown default: return "Unknown"
+        }
+    }
+
+    private var accessColor: Color {
+        switch logger.authorization {
+        case .authorizedAlways: return .green
+        case .denied, .restricted: return .orange
+        default: return .secondary
+        }
+    }
+
     /// Not gated on the switch being on, unlike the phone's.
     ///
     /// The map's own "where am I" button wants location with tracking off, so a
