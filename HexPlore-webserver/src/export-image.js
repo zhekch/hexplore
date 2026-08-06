@@ -178,6 +178,24 @@ const FINE_COUNTRY_LIMIT = 10;
 // path, a fill and a rasterizer pass.
 const MIN_RING_PX = 0.4;
 
+// …and the same judgement applied one level down, to the points inside a ring
+// that is worth drawing: a step shorter than this on the finished canvas is
+// dropped rather than turned into a `lineTo`.
+//
+// The boundaries here are national-survey geometry, whose whole point is being
+// exact at a scale nothing on screen is. "Borders inside" is the case that made
+// this matter — it draws every admin-1 unit the frame reaches rather than only
+// the lit ones, so a European frame is a few hundred thousand points, and the
+// preview rebuilds that path on every frame of a drag because the camera it is
+// projected through has moved. At a preview's ~600 px that was a slideshow.
+//
+// Measured against the last point actually emitted, so the drawn line never
+// wanders further than this from the true one — the error is bounded by the
+// threshold rather than accumulating along a slow curve. And it scales with the
+// picture by construction: a poster keeps the vertices a poster can resolve, and
+// drops the ones it cannot, which is a thing no fixed simplification can do.
+const MIN_STEP_PX = 0.35;
+
 /**
  * Ready-made palettes. Each is a complete answer — background, land, the line
  * around it and the caption — because these four have to be picked against each
@@ -824,9 +842,17 @@ function addGeometry(path, geometry, cam) {
     if (x1 + dx < view.xMin || x0 + dx > view.xMax) continue;
     for (const ring of rings) {
       if (ring.length < 3) continue;
-      path.moveTo(px(mercX(ring[0][0]) + dx), py(toMercY(ring[0][1])));
+      let lastX = px(mercX(ring[0][0]) + dx);
+      let lastY = py(toMercY(ring[0][1]));
+      path.moveTo(lastX, lastY);
       for (let i = 1; i < ring.length; i++) {
-        path.lineTo(px(mercX(ring[i][0]) + dx), py(toMercY(ring[i][1])));
+        const x = px(mercX(ring[i][0]) + dx);
+        const y = py(toMercY(ring[i][1]));
+        // Sub-pixel step: the line already goes here. See MIN_STEP_PX.
+        if (Math.abs(x - lastX) < MIN_STEP_PX && Math.abs(y - lastY) < MIN_STEP_PX) continue;
+        path.lineTo(x, y);
+        lastX = x;
+        lastY = y;
       }
       path.closePath();
     }
