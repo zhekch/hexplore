@@ -1903,13 +1903,28 @@ body {
   background-position: 0 0, 0 4px, 4px -4px, -4px 0;
 }
 
+/* No gloss on this one, deliberately. There used to be an
+   `inset 0 1px 0 rgba(255,255,255,0.25)` here — the usual top highlight that
+   makes a control look raised — and on a swatch it is the one decoration that
+   cannot be afforded: this element's whole job is to report a colour, and a
+   white line over its first row reports a different one. It stayed unnoticed
+   while these were 38x24 pills in the menu and became obvious the moment the
+   export dialog made them full-width bars, where the top of a dark red swatch
+   read as a lighter stripe rather than as shading.
+
+   The same applies twice over to `.cp-preview`, which is the picker's readout
+   of the colour you are choosing — the place where "what does this actually
+   look like" is the entire question being asked.
+
+   Definition comes from the border on `.color-swatch` instead, which is outside
+   the colour rather than over it, and the hover and active states are both
+   rings for the same reason. */
 .color-swatch::after,
 .cp-preview::after {
   content: '';
   position: absolute;
   inset: 0;
   background: var(--swatch, #60acff);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
   pointer-events: none;
 }
 
