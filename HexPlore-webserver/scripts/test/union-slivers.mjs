@@ -27,7 +27,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRegions, mergeRegions } from '../../src/regions.js';
 import { loadCountries, allCountries, mergeCountries } from '../../src/countries.js';
-import { ringAreaM2 } from '../../src/polygon.js';
+import { ringAreaM2, asMulti } from '../../src/polygon.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const json = async (name) => JSON.parse(await readFile(path.join(ROOT, 'src', name), 'utf8'));
@@ -141,6 +141,36 @@ console.log('\nan outer ring may be as thin as it likes');
   const slivers = fill.filter((poly) => poly[0].length <= 6);
   check(slivers.length > 0 || fill.length > 100,
     'thin and tiny outer rings survive the dissolve', `${fill.length} polygons, ${slivers.length} of them ≤6 points`);
+}
+
+console.log('\nnothing that exists is small enough to be taken for a gap');
+
+// A hole under 0.2 km² is dropped as a gap the dissolve opened. That number is
+// only defensible while it stays below the smallest thing either dataset calls a
+// place — so check, rather than trust the note in polygon.js. If a future
+// boundary set adds something smaller, this fails and the threshold has to be
+// argued again rather than quietly swallowing it.
+{
+  const FLOOR_KM2 = 0.2;
+  const sizeOf = (g) => {
+    let km2 = 0;
+    for (const poly of asMulti(g)) km2 += ringAreaM2(poly[0]) / 1e6;
+    return km2;
+  };
+  let smallest = Infinity;
+  let what = '';
+  for (const c of allCountries()) {
+    if (!c.geometry) continue;
+    const km2 = sizeOf(c.geometry);
+    if (km2 < smallest) [smallest, what] = [km2, c.id];
+  }
+  for (const r of regionList) {
+    if (!r.geometry) continue;
+    const km2 = sizeOf(r.geometry);
+    if (km2 < smallest) [smallest, what] = [km2, r.id];
+  }
+  check(smallest > FLOOR_KM2, `the smallest real unit is above the ${FLOOR_KM2} km² floor`,
+    `${what} at ${smallest.toFixed(3)} km²`);
 }
 
 console.log('\nno ring is handed over longer than a draw segment can hold');

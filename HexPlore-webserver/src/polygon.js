@@ -87,6 +87,28 @@ export function inPolygon(lng, lat, rings) {
 // per-region simplification in ARCHITECTURE.md. This is the guard, not the fix.
 const SLIVER_MIN_COMPACTNESS = 0.1;
 
+// …and the same guard on the other axis, because degeneracy was not the whole
+// of it.
+//
+// Small *round* gaps survive the test above by design, and they are harmless one
+// at a time. A hundred of them are not. Measured on a real map of northern
+// Italy, one dissolved polygon carried 102 holes: Trentino-Alto Adige at
+// 13,611 km² — a real region, correctly cut out — and 101 gaps, every one of
+// them under 0.4 km² and most under 0.1. Earcut bridges each hole to the outer
+// ring in turn, and at that count the tessellation stops being reliable: the
+// region came out *filled*, with a narrow unfilled stripe down the middle of it,
+// and which parts were filled changed with the zoom because the ring is clipped
+// per tile. Dropping the hundred put it right immediately.
+//
+// The threshold is set by what the datasets contain rather than by what looks
+// small: the smallest real unit in either of them is Mdina at 0.246 km² (Malta
+// has several under 0.4, and the Vatican is 0.922), so at 0.2 km² nothing that
+// exists is ever mistaken for a gap. It deliberately does not catch every gap —
+// the largest here is 0.397 km², bigger than Mdina, and no threshold can have
+// both — but it does not have to. It has to get the count down to where earcut
+// is dependable, and 98 of 102 does that.
+const SLIVER_MAX_M2 = 200_000;
+
 /** Ring perimeter in metres — only ever compared against the ring's own area. */
 function ringPerimeterM(ring) {
   let m = 0;
@@ -111,7 +133,9 @@ function isSliverHole(ring) {
   if (ring.length < 4) return true; // not an area at all
   const p = ringPerimeterM(ring);
   if (!p) return true;
-  return (4 * Math.PI * ringAreaM2(ring)) / (p * p) < SLIVER_MIN_COMPACTNESS;
+  const a = ringAreaM2(ring);
+  if (a < SLIVER_MAX_M2) return true; // too small to be anywhere — see above
+  return (4 * Math.PI * a) / (p * p) < SLIVER_MIN_COMPACTNESS;
 }
 
 // Longest ring the outline may be handed in one piece.
