@@ -131,6 +131,18 @@
               </svg>
             </button>
             <div class="routes-options" id="routes-options" hidden></div>
+            <!-- Your photographs as points on the map, and the picture itself
+                 when you tap one.
+
+                 Hidden here and unhidden by main.js only inside the iOS app,
+                 which is the one place it can work: a photo library is on a
+                 phone, a page cannot open one, and the server has never held
+                 anything but the coordinates. A switch that could never be
+                 anything but off is worse than no switch — see src/photos.js. -->
+            <label class="menu-row" id="photos-row" hidden>
+              <span>Photos<small id="photos-note">Where your pictures were taken</small></span>
+              <input type="checkbox" id="photos-toggle" />
+            </label>
             <!-- Gap: above it is what's drawn on the map, below it the panels
                  that open over it. -->
             <button type="button" class="menu-action menu-gap" id="stats-open">
@@ -265,6 +277,33 @@
         <button type="button" class="modal-btn" id="route-only">Only this</button>
         <button type="button" class="modal-btn primary" id="route-more">More info</button>
       </div>
+    </div>
+
+    <!-- Tapping a photo point. The same glass as the two cards above it, with a
+         picture in the middle: the strip is the rest of the group, and it is
+         there far more often than not — forty photographs of one dinner are one
+         point on the map at every zoom there is. -->
+    <div class="cell-info photo-info" id="photo-info" hidden>
+      <div class="cell-info-head">
+        <div>
+          <div class="cell-info-title" id="photo-info-title">Photo</div>
+          <div class="cell-info-coord" id="photo-info-when"></div>
+        </div>
+        <button class="cell-info-close" id="photo-info-close" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <div class="photo-figure" id="photo-info-figure">
+        <!-- Alt text is deliberately empty: nothing here knows what is in the
+             picture, and "Photo" read out beside a heading that already says
+             Photo is noise rather than a description. -->
+        <img id="photo-info-img" alt="" />
+      </div>
+      <div class="photo-note" id="photo-info-note"></div>
+      <div class="photo-strip" id="photo-info-strip" hidden></div>
+      <button type="button" class="modal-btn primary photo-open" id="photo-info-open" hidden>Open in Photos</button>
     </div>
 
     <!-- What the map is currently narrowed to, and the way back out. Both

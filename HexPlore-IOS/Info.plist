@@ -33,11 +33,20 @@
 	     Always without saying what it does with it is an app people say no to. -->
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Hexplore fills in your map with the places you go, and can keep doing it while it is in your pocket. Everything it records is sent to the server you run, and nowhere else.</string>
-	<!-- Read-only, and only the metadata: the coordinate a photo carries and the
-	     date it was taken. No image is ever opened, so nothing is downloaded
-	     from iCloud either. -->
+	<!-- Read-only. The scan reads metadata alone — the coordinate a photo
+	     carries and the date it was taken — and an image is opened only when you
+	     tap one on the map, to show it to you here. Nothing is written, and no
+	     image is ever uploaded. -->
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Hexplore reads the location a photo was taken at, so the places you have photographed appear on your map. It never opens the photographs themselves, and no image leaves this phone.</string>
+	<string>Hexplore reads the location a photo was taken at, so the places you have photographed appear on your map. Tapping one of those places shows the photo itself, on this phone — no image is ever uploaded.</string>
+	<!-- So `canOpenURL` can answer honestly about the Photos app, which is what
+	     decides whether the photo card offers "Open in Photos" at all. Without
+	     the scheme listed here iOS answers false for it and the button would
+	     never appear on a phone that can perfectly well open Photos. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>photos-redirect</string>
+	</array>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Hexplore reads workouts that recorded a route — a ride, a walk, a run outdoors — and draws them on your map. Workouts with no route are ignored, and nothing is ever written back to Health.</string>
 </dict>

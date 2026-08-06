@@ -30,6 +30,10 @@ number of approaches that were tried and abandoned.
   somewhere — and brings in the Apple Health workouts that carry a route.
 - **Saved routes.** Tracks from your imports are kept as lines, named after
   where they went and what sport they look like.
+- **Your photos on the map** (iPhone app only). A point wherever you have taken
+  one; tap it for the picture and the time it was taken. No photo is ever
+  uploaded — the app reads them off the phone it is running on, which is also
+  why this switch is not in the menu in a browser.
 - **Four basemaps** — dark, terrain, light, satellite. Colour the map with a
   single accent, or shade each cell by **visits**, by **first seen**, or by
   **type** (a colour per app the data came from).
@@ -175,6 +179,21 @@ of their own shape, which is how you actually recognise one. Tap a line on the
 map for its card. The list sorts by **newest or longest** and groups by **app or
 activity**, and the two are independent — so "the longest ride, and the longest
 hike" is one question you can ask.
+
+**Your photographs, on the map.** In the iPhone app, *Photos* in the layers menu
+puts a point wherever you have taken one. Where they pile up they gather into a
+group with a count on it — tap it and the map zooms in, or, when they were all
+taken in the same spot and no amount of zooming would separate them, the card
+opens with the whole lot: one picture at a time, with the rest as a strip along
+the bottom, oldest first. It says when each was taken, and offers **Open in
+Photos** for everything the card cannot do.
+
+Nothing is uploaded and nothing is shared. The app reads the photographs off the
+phone it is running on, one at a time, only when you tap one, and only to show it
+to you — which is exactly why the switch is not there in a browser. (Note that
+iOS gives no app a way to open one *particular* photo in Photos, so that button
+lands in your library rather than on the picture. The card is showing you the
+picture anyway.)
 
 **An image of a place.** *Export & settings → Export an image* makes a picture
 rather than a screenshot: pick any number of regions, countries or continents and

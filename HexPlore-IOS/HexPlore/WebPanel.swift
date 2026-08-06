@@ -59,6 +59,22 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         // ARCHITECTURE.md.
         configuration.websiteDataStore = .default()
         configuration.allowsInlineMediaPlayback = true
+        // The one thing the page can ask this app *for*, rather than be told.
+        //
+        // Everything else the host offers is pushed at the page (the safe area)
+        // or happens beside it (the uploader). The photo overlay is the other
+        // direction: a library cannot be reached from a page or from the server,
+        // so the page asks over this channel and `PhotoBridge` answers. Its
+        // absence in a browser is what takes the switch out of the menu — see
+        // `photoHost()` in src/photos.js.
+        //
+        // `addScriptMessageHandler(_:contentWorld:name:)` rather than the older
+        // `add(_:name:)`: this one replies, so the page awaits a promise instead
+        // of posting a message and waiting to be called back on some other
+        // channel it has to correlate by hand.
+        configuration.userContentController.addScriptMessageHandler(
+            PhotoBridge.shared, contentWorld: .page, name: PhotoBridge.name
+        )
         // How the server tells this app apart from a browser: it lands at the
         // end of the User-Agent, so `server/index.js` can key a layout on it.
         //

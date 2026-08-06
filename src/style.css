@@ -14,6 +14,11 @@
      amount and they line up down the panel. */
   /* Vertical rhythm between the menu's rows, segmented controls and buttons. */
   --menu-row-gap: 10px;
+  /* The photo overlay's violet, which the map draws its points in and the card
+     ties its selection to. `PHOTO_COLOR` in src/photos.js is the same value —
+     one is on the map and one is in the chrome, they are the same mark, and
+     scripts/test/photos.mjs keeps them equal. */
+  --photo: #c07bff;
 }
 
 html,
@@ -1047,6 +1052,136 @@ body {
 
 .modal-btn.danger:hover {
   background: rgba(255, 122, 105, 1);
+}
+
+/* Tap-a-photo card: the same glass again, built around a picture rather than a
+   list of rows. Wider than its two siblings because at 320px a landscape
+   photograph is 320×213 — a thumbnail with a heading over it. */
+.photo-info {
+  width: min(360px, calc(100vw - 32px));
+}
+
+.photo-figure {
+  display: grid;
+  place-items: center;
+  /* A floor, not a height. The picture decides the shape, and the card must not
+     jump from square to landscape as the bytes arrive — which is why the image
+     is given its aspect ratio before it is given its src. */
+  min-height: 116px;
+  margin-top: 2px;
+  border-radius: 14px;
+  overflow: hidden;
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.photo-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* Never much taller than half the screen: a portrait photograph would
+     otherwise push the strip and the button off the bottom of a phone. */
+  max-height: 46vh;
+  object-fit: contain;
+}
+
+/* Waiting for the phone to hand a picture over. The box pulses rather than
+   holding a spinner: it is already the shape of the answer, and a spinner
+   inside it would be a second thing to watch. */
+.photo-figure.loading {
+  animation: photo-wait 1.1s ease-in-out infinite;
+}
+
+@keyframes photo-wait {
+  0%,
+  100% {
+    background-color: rgba(255, 255, 255, 0.06);
+  }
+
+  50% {
+    background-color: rgba(255, 255, 255, 0.14);
+  }
+}
+
+/* The one animation here that repeats forever, so it is the one that has to be
+   able to stop. */
+@media (prefers-reduced-motion: reduce) {
+  .photo-figure.loading {
+    animation: none;
+  }
+}
+
+.photo-note {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* Nothing to say is not a gap to leave. */
+.photo-note:empty {
+  display: none;
+}
+
+/* The rest of the group, oldest first. It scrolls sideways inside a card that
+   does not scroll at all, so there is no hand-off to arrange — only
+   `overscroll-behavior-x`, which keeps a swipe that runs off the end of the
+   strip from being read as "go back" by the browser around it. */
+.photo-strip {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.photo-strip::-webkit-scrollbar {
+  display: none;
+}
+
+/* After the `display: flex` above, or a hidden strip is a visible empty row. */
+.photo-strip[hidden] {
+  display: none;
+}
+
+.photo-thumb {
+  flex: none;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s ease;
+}
+
+.photo-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Cropped, not letterboxed: a strip of squares reads as a strip, and a
+     mixture of portrait and landscape boxed into one is a picket fence. */
+  object-fit: cover;
+}
+
+.photo-thumb.chosen {
+  border-color: var(--photo);
+  box-shadow: 0 0 0 1px var(--photo);
+}
+
+/* One the phone could not produce — usually an original still in iCloud. Dimmed
+   rather than dropped: the strip is a group of photographs and leaving one out
+   would misstate how many there were. */
+.photo-thumb.missing {
+  opacity: 0.4;
+}
+
+.photo-open {
+  width: 100%;
+  margin-top: 10px;
 }
 
 /* Modal (import dialog) */
@@ -2907,6 +3042,37 @@ body {
 
 [data-theme='light'] .route-info-actions {
   border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+/* The photo card's own surfaces. The white-on-glass values above disappear
+   against a light card — a picture that has not arrived yet would be an
+   invisible box rather than a waiting one. */
+[data-theme='light'] .photo-figure {
+  background-color: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='light'] .photo-figure.loading {
+  animation-name: photo-wait-light;
+}
+
+@keyframes photo-wait-light {
+  0%,
+  100% {
+    background-color: rgba(15, 23, 42, 0.08);
+  }
+
+  50% {
+    background-color: rgba(15, 23, 42, 0.16);
+  }
+}
+
+[data-theme='light'] .photo-note {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+[data-theme='light'] .photo-thumb {
+  border-color: rgba(15, 23, 42, 0.16);
+  background: rgba(15, 23, 42, 0.08);
 }
 
 [data-theme='light'] .modal-btn.danger {

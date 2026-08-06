@@ -194,6 +194,12 @@ glass look. Click hexagons to mark places you've visited.
   [The airports, from a file rather than an API](#the-airports-from-a-file-rather-than-an-api).
 - **Saved routes**: track files can keep the line they drew, not just the ground
   it covered — see [Saved routes](#saved-routes) below.
+- **Photographs**: a point wherever you have taken one, grouped where they pile
+  up, and the picture itself when you tap it. The only layer that draws
+  something the server has never seen — the pictures come from the phone the
+  page is running on, so the switch is in the menu **only inside the iOS app**.
+  See [The photographs themselves, from the phone in your
+  hand](#the-photographs-themselves-from-the-phone-in-your-hand).
 - **Region borders**: `SHOW_REGION_BORDERS` in `src/main.js` toggles the crisp
   outline and glow around visited regions. It defaults to `false` for a
   fill-only appearance; edit-mode tile guides are unaffected.
@@ -716,6 +722,14 @@ no longer mentions" was knowable. 200,000 coordinates is about 6 MB.
 scan that failed halfway, a phone still indexing after a restore: all three
 arrive as an empty list, and taking one at its word would wipe a decade of
 geotags on the strength of it.
+
+**Seeing them is a separate feature, and a separate decision.** The same library
+is read again by the map's photo overlay — a point per photograph, and the
+picture when you tap one. It is switched on in the layers menu rather than here,
+it asks for permission on its own account rather than leaning on the switch
+above, and no image it opens is ever uploaded. See [The photographs themselves,
+from the phone in your
+hand](#the-photographs-themselves-from-the-phone-in-your-hand).
 
 **The file import is deprecated.** `apple-photos` is gone from `IMPORT_SOURCES`
 — the only source ever removed from it — because a file relabelled *Apple Photos*
@@ -3096,6 +3110,120 @@ else's tile server and 2.25 MB of sprite atlas, which should be asked for rather
 than assumed. This is a file the app already ships, cached by the service worker,
 drawn from one GeoJSON source — there is nothing to spare anyone by forgetting
 the answer overnight.
+
+## The photographs themselves, from the phone in your hand
+
+[Photographs](#photographs) covers what the library does to the *map*: it
+colours in the ground a camera has been over, as the `apple-photos` source, and
+nothing but `[lat, lng, t]` ever leaves the phone. This is the other half of the
+same fact — not "you have been here" but "there is a picture here, and here is
+what it was". A point per photograph, grouped where they pile up, and the
+picture itself when you tap one.
+
+**It exists only inside the iOS app, and cannot be made to work anywhere else.**
+A photo library is on a phone. A page cannot open one, and the server has never
+held anything but the coordinates — which is the whole design of the sync, not an
+omission to be fixed. So the picture comes from the host the page is running
+inside, over a `WKScriptMessageHandlerWithReply` channel that `PhotoBridge.swift`
+answers, and `src/photos.js` detects the app by asking whether that channel is
+there. In a browser it is not, and the row is **absent from the menu** rather
+than present and disabled: a control whose precondition is "be a different
+application" is not a control.
+
+### A photograph is named by its index, never by its identity
+
+The bridge replies with `[lat, lng, t]` per photo and keeps every
+`localIdentifier` on its own side. Afterwards the page names a photograph by
+where it sat in that array — `{ask: 'photo', scan, i, px}` — and the app looks
+the identifier back up.
+
+That is not ceremony. A page is reloaded from a server, keeps storage a browser
+hands around, and runs scripts this app did not write; handing it durable names
+for eighty thousand photographs would build an index of somebody's library in the
+one place here that is not private by construction. An index is meaningless
+without the list that produced it, so every scan is numbered and every later
+question quotes the number. A question against a replaced scan is answered
+`stale` rather than answered about a different picture — which is exactly what
+would otherwise happen the moment a screenshot landed at the top of the library.
+
+### The picture crosses as base64, and that is the CSP's doing
+
+The tidier shape would be a custom URL scheme — `WKURLSchemeHandler`, and an
+`<img src="hexplore-photo://…">` the browser could fetch, cache and lazy-load on
+its own. It does not survive contact with this app's own security headers:
+`img-src` lists `'self' data: blob: https:`, and widening a real
+Content-Security-Policy to make a nicer-looking image URL is the wrong way round.
+So a picture is a JPEG the app base64-encodes into a `data:` URL, at the size the
+card asks for and no larger. The card asks in device pixels of its own width,
+which is why the photograph is sharp on a phone and why it is not 12 MB.
+
+### Grouping, and the group that cannot be broken up
+
+The source clusters, with one deliberate departure from the convention:
+`clusterMaxZoom` sits at the **top** of the map's range rather than one below it.
+The usual setting exists so the last zoom shows individual points, which is right
+for shops and wrong for photographs — forty pictures of one dinner are forty
+points at one coordinate, and separating them at z17 replaces a group you can
+open with a pile you cannot count.
+
+So a tap on a group asks supercluster where it would break apart, and does one of
+two things:
+
+| | |
+| --- | --- |
+| a zoom exists | fly there — the ordinary case, and what a map is expected to do |
+| none does | open the card, with the whole group in it |
+
+Both halves are needed and neither is enough on its own. Always zooming fails on
+the case this overlay is full of: the map drifts to its ceiling and the tap stops
+doing anything. Always opening puts forty-eight unrelated pictures in front of
+you because you tapped a cluster that meant "this half of Italy".
+
+The card shows one picture with the rest as a strip along the bottom, oldest
+first, capped at 48 — past four dozen this stops being a glance at what is here,
+and the way through to the whole lot is the Photos app. The strip fills **one
+thumbnail at a time**: fifty parallel requests would each decode a JPEG on the
+phone's main thread and arrive in a heap, where in order the ones you can see
+arrive first and closing the card stops the rest.
+
+### "Open in Photos" opens Photos, and not the photograph
+
+iOS has no public way to open one particular asset. `photos-redirect://` opens
+the Photos app and is undocumented but universal; the schemes that look like they
+should take an identifier are private and do not answer one. So the button lands
+in the library rather than on the picture, which is why the card shows the
+picture itself — that is usually what the button was going to be pressed for.
+
+It appears only when `canOpenURL` says the app is there, which in turn only
+answers honestly because `photos-redirect` is listed in
+`LSApplicationQueriesSchemes`. Without that entry iOS returns false for every
+scheme it has not been told about, and the button would never appear on a phone
+that can perfectly well open Photos.
+
+### Where it sits, and what it takes precedence over
+
+Above the saved routes — the only overlay that goes there. The rule that keeps
+the railways and the airports underneath is that a line you actually travelled
+beats reference geometry about what exists; a photograph is not reference
+geometry, it is the same kind of fact as the route, and it is a dot. A 7 px dot
+under a 12 px glow is a dot you can neither see nor tap. The click handler agrees
+and asks about photographs *first*, before the routes: smallest target wins,
+because it is the one you must have been aiming at.
+
+### Looking is not uploading
+
+The overlay does not consult the sync switch in the app's Settings tab, and asks
+for photo permission on its own account. Wanting to see where your photographs
+were taken and wanting those places to become part of your map are two different
+decisions, and only the second one is what that switch means.
+
+The scan happens when the overlay is switched on, and not again — a basemap
+switch rebuilds the whole style and lands back in `syncPhotoLayer` with the same
+library already in hand, where re-reading it would be a second walk over eighty
+thousand assets to arrive at the list we are holding. Switching the row off and
+on again is the refresh, and switching it off drops the list: keeping a copy of
+where somebody has photographed eighty thousand times after they have turned the
+layer off is not a cache, it is a leftover.
 
 ## How sharp a region is
 

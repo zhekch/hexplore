@@ -123,6 +123,9 @@ HexPlore/
     TrackingSettings.swift  how often to record, and this phone's identity
     LocationLogger.swift    CoreLocation, with the screen off
     HealthSync.swift        workouts that carry a route
+    PhotoLibrary.swift      reading the photo library — the only file that does
+    PhotoSync.swift         sending where the photographs were taken
+    PhotoBridge.swift       answering the map when it asks for the photographs
     FixQueue.swift          what has been recorded but not yet accepted
     SyncClient.swift        the uploads, and the session they borrow
   HexploreCore/             a local Swift package: the maths, with tests
@@ -138,8 +141,8 @@ HexPlore/
     test-core.sh            runs the package tests
 ```
 
-Five files are the web view and its settings. The other five are the logger, and
-they are the whole of what a browser could not have done.
+Five files are the web view and its settings. The rest are the logger and the
+photo library, and they are the whole of what a browser could not have done.
 
 ## The core package
 
@@ -559,6 +562,30 @@ cleanly from the old file-derived import, which is now deprecated.
 **"Limited" access is called out**, because a library you have picked twenty
 photos from is not a smaller map, it is a wrong one, and nothing else on the
 screen would tell you.
+
+### And seeing them, which is the other half
+
+Map tab → the layers menu → **Photos**. A point wherever you have taken one,
+gathered into a counted group where they pile up, and the picture itself when you
+tap it.
+
+This is the one thing the app does *for* the page rather than beside it, and the
+only reason it is native is that it has to be: a web view cannot open a photo
+library, and the server has never held anything but the coordinates. So the page
+asks over a `WKScriptMessageHandlerWithReply` channel (`PhotoBridge`), gets back
+`[lat, lng, t]` per photograph, and afterwards names one by its index into that
+list — the `localIdentifier`s stay on this side, and every answer is stamped with
+a scan number so an index can never be resolved against a library that has moved
+on. A picture is fetched one at a time, only when tapped, and crosses as a
+`data:` URL sized to the card. The switch does not appear in a browser, because
+`window.webkit.messageHandlers.hexplorePhotos` is not there to answer.
+
+It is deliberately **not** gated on *Sync photo locations* above. Looking at
+where your photographs were taken and uploading those places are two different
+decisions, and this one asks for photo permission on its own account.
+
+"Open in Photos" opens the Photos app and not the photograph, because iOS has no
+public way to open a particular asset — see the note on `PhotoLibrary.openInPhotos`.
 
 ## What is not here yet
 

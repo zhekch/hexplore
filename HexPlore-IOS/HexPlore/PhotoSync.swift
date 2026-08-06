@@ -1,7 +1,6 @@
 // `Combine` explicitly — this target turns on MemberImportVisibility, so a
 // transitive import does not lend its members, and `@Published` is Combine's.
 import Combine
-import CoreLocation
 import Foundation
 import Photos
 
@@ -22,7 +21,9 @@ import Photos
 /// download anything. A library of eighty thousand photographs is read in a
 /// second or two because it is a database query, not a file walk. What leaves
 /// the phone is a list of `[lat, lng, t]` — the same shape a location fix takes,
-/// folded by the same code on the other side.
+/// folded by the same code on the other side. That is as true as it ever was:
+/// the overlay that shows a photograph opens it on this phone, for the card in
+/// front of you, and no image is uploaded by anything here.
 ///
 /// ## It replaces rather than adds
 ///
@@ -31,14 +32,17 @@ import Photos
 /// taken a picture", and a photo deleted from it is a claim withdrawn. So a scan
 /// sends the library entire and the server replaces what it held — which is also
 /// what lets this take over cleanly from the old file-derived import.
+///
+/// ## Uploading is not the same decision as looking
+///
+/// The map's photo overlay reads the same library through ``PhotoBridge``, and
+/// it does not consult the switch below. Wanting to see where your photographs
+/// were taken and wanting the places they were taken to become part of your map
+/// are two different questions, and only one of them is asked here.
 @MainActor
 final class PhotoSync: NSObject, ObservableObject {
 
     static let shared = PhotoSync()
-
-    /// Matches `MAX_PHOTO_FIXES` on the server. Past this the library is sent
-    /// truncated rather than refused, newest first — see `scan`.
-    private static let maxPhotos = 200_000
 
     /// A rescan is cheap to *read* and not cheap to send, and a library does not
     /// change much in an hour. The observer below is the real trigger.
@@ -52,18 +56,18 @@ final class PhotoSync: NSObject, ObservableObject {
     private override init() { super.init() }
 
     var isAuthorized: Bool {
-        PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized
+        PhotoLibrary.authorization == .authorized
     }
 
     /// Whether the answer is "only some of them" — worth saying out loud, because
     /// a limited library is not a smaller map, it is a wrong one, and nothing
     /// else about the screen would tell you.
     var isLimited: Bool {
-        PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited
+        PhotoLibrary.authorization == .limited
     }
 
     var isDenied: Bool {
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        let status = PhotoLibrary.authorization
         return status == .denied || status == .restricted
     }
 
@@ -126,38 +130,18 @@ final class PhotoSync: NSObject, ObservableObject {
     }
 
     /// Every asset that knows where it was, as `[lat, lng, t]`.
+    ///
+    /// The reading itself is ``PhotoLibrary/located(limit:)``, shared with the
+    /// map overlay so that what counts as a geotagged photograph is decided in
+    /// one place. What is left here is the wire shape and the order.
     private func geotagged() -> [[Double]] {
-        let options = PHFetchOptions()
-        // Newest first, so a library over the ceiling loses its oldest corner
-        // rather than its most recent decade. There is no predicate for "has a
-        // location" — `PHAsset.location` is not a queryable property — so the
-        // filter is the loop below.
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        options.includeHiddenAssets = false
-        let assets = PHAsset.fetchAssets(with: options)
-
-        var out: [[Double]] = []
-        out.reserveCapacity(min(assets.count, 4096))
-        assets.enumerateObjects { asset, _, stop in
-            guard let where_ = asset.location else { return }
-            let c = where_.coordinate
-            guard CLLocationCoordinate2DIsValid(c), c.latitude != 0 || c.longitude != 0 else { return }
-            // A photo with no date is a photo that could have been taken any
-            // time, and a visit with no date is not a visit — the server counts
-            // stays by the clock. `modificationDate` is not a fallback: it is
-            // when the file was edited, which is a fact about the file.
-            guard let taken = asset.creationDate else { return }
-            out.append([
-                (c.latitude * 1e5).rounded() / 1e5,
-                (c.longitude * 1e5).rounded() / 1e5,
-                Double(Int(taken.timeIntervalSince1970)),
-            ])
-            if out.count >= Self.maxPhotos { stop.pointee = true }
-        }
         // Sent oldest first: `pointsToCells` reads its input as one timeline, and
-        // a stay is a run of fixes in the same cell.
-        out.sort { $0[2] < $1[2] }
-        return out
+        // a stay is a run of fixes in the same cell. The library comes back
+        // newest first, which is how the ceiling drops the oldest corner rather
+        // than the most recent decade.
+        PhotoLibrary.located()
+            .sorted { $0.t < $1.t }
+            .map { [$0.lat, $0.lng, Double($0.t)] }
     }
 }
 

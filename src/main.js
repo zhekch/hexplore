@@ -53,6 +53,15 @@ import {
   airportGroupsOn, airportLayerIds, describeAirportFeature,
   installAirports, loadAirports, removeAirports,
 } from './airports.js';
+// Your photographs as points, which only the iOS app can draw: a photo library
+// is on a phone, and the server has never held anything but the coordinates. In
+// a browser `photosAvailable()` is false and the switch is not in the menu at
+// all — see the note at the top of src/photos.js.
+import {
+  forgetPhotos, installPhotos, loadPhotos, photoCount, photoExpansion,
+  photoLayerIds, photoLeaves, photosAvailable, photosLimited, removePhotos,
+} from './photos.js';
+import { mountPhotoInfo } from './photo-info.js';
 import { mountKomoot } from './komoot-ui.js';
 import { mountDevices, whenAgo } from './device-ui.js';
 import { mountSources } from './sources-ui.js';
@@ -584,6 +593,14 @@ let railOn = false;
 // nothing to spare anyone by forgetting the answer overnight.
 const AIRPORTS_KEY = 'visited-map:airports:v1';
 let airportsOn = localStorage.getItem(AIRPORTS_KEY) === 'on';
+
+// And the photographs, remembered for the same reason as the airports: the cost
+// of switching them on is a metadata query against a library that is already on
+// this phone, so there is nothing to spare anyone by forgetting the answer
+// overnight. The key is read on a laptop too and simply never used — the row
+// that would set it is not in the menu there.
+const PHOTOS_KEY = 'visited-map:photos:v1';
+let photosOn = localStorage.getItem(PHOTOS_KEY) === 'on';
 // Whether the home marker is drawn. A way of looking at the map rather than a
 // fact about it, so it lives beside `railOn` in localStorage and not in the
 // account preferences — where *home is* follows the account, whether you are
@@ -2475,7 +2492,8 @@ function showAreaInfoAt(lngLat) {
   const area = areaAt(lngLat);
   if (!area) return false;
   const ids = storedInArea(area.kind, area.id);
-  closeRouteInfo(); // the two cards share the same spot on screen
+  closeRouteInfo(); // the cards all share the same spot on screen
+  closePhotoInfo();
   lastInfoLngLat = lngLat;
   const covered = groundKm2(ids);
   const whole = areaKm2(area);
@@ -2535,7 +2553,8 @@ function showInfoAt(lngLat) {
 
 function showCellInfoAt(lngLat) {
   if (currentLevel == null) return;
-  closeRouteInfo(); // the two cards share the same spot on screen
+  closeRouteInfo(); // the cards all share the same spot on screen
+  closePhotoInfo();
   lastInfoLngLat = lngLat; // remembered so a zoom can re-resolve the same spot
   // At the country level there are no hexes to inspect — fall back to the
   // coarsest hex level, which is what the country fill is derived from.
@@ -2583,6 +2602,7 @@ function refoldRoutes() {
 }
 let routeGeom = false; // whether the lines themselves have been fetched
 let routeInfo = null; // set by mountRouteInfo() once the DOM is wired
+let photoInfo = null; // set by mountPhotoInfo(), and only used inside the app
 let homeAssistant = null; // set by mountHomeAssistant()
 let colorPicker = null; // set by mountColorPicker()
 let stravaUi = null; // set by mountStrava()
@@ -3063,6 +3083,7 @@ function routeAt(point) {
 // A tap on a route wins over the cell underneath it: you aimed at the line.
 function showRouteInfo(route) {
   closeCellInfo();
+  closePhotoInfo();
   setSelectedRoute(route.id);
   routeInfo?.show(route);
 }
@@ -4676,6 +4697,7 @@ function setMode(next) {
   setHover(null);
   closeCellInfo(); // the cards belong to view mode; clicks now paint
   closeRouteInfo();
+  closePhotoInfo();
   updateModeUi();
   // Re-lock the region level: edit mode pins to level 0 (smallest cells),
   // view mode returns to the zoom-appropriate level. Crossfades either way.
@@ -4782,6 +4804,8 @@ const layersBtn = document.getElementById('layers-btn');
 const layersMenu = document.getElementById('layers-menu');
 const railToggle = document.getElementById('rail-toggle');
 const airportsToggle = document.getElementById('airports-toggle');
+const photosRow = document.getElementById('photos-row');
+const photosToggle = document.getElementById('photos-toggle');
 // `setStyle()` rebuilds MapLibre's entire style asynchronously. Keep the
 // checkbox as the source of truth while that happens, then reconcile the
 // actual layer once our custom sources/layers are ready again.
@@ -5061,6 +5085,177 @@ function showAirportInfo(e) {
   return true;
 }
 
+// --- Photographs -------------------------------------------------------------------
+//
+// The one overlay that draws something the server has never seen. Everything
+// else on this map arrives over HTTP; this arrives over a message channel to the
+// app hosting the page, because a photo library is on a phone. Outside the app
+// there is no channel, `photosAvailable()` is false, and the row is left out of
+// the menu — see the note at the top of src/photos.js.
+
+function setPhotos(on) {
+  photosOn = on;
+  try {
+    localStorage.setItem(PHOTOS_KEY, on ? 'on' : 'off');
+  } catch {
+    /* fine */
+  }
+  updateLayersUi();
+  syncPhotoLayer();
+}
+
+// Which install this is: `loadPhotos` awaits the phone, and the world moves
+// while it does. The same guard as the airports', for the same reason.
+let photoInstall = 0;
+// Whether the library has been read since the switch was last turned on, whether
+// a read is in the air, and what the last one had to say for itself. The last
+// two are only ever shown in the menu row — a layer waiting on a permission
+// dialog looks exactly like one that is broken, unless it says so.
+let photoScanned = false;
+let photoScanning = false;
+let photoTrouble = null;
+
+/** Draw the photographs, reading the library first if we have not already. */
+function syncPhotoLayer() {
+  // A switch during initial load or a basemap switch is intentionally deferred;
+  // installGrid() calls this again for the newly loaded style.
+  if (!styleReady) return;
+  const mine = ++photoInstall;
+  if (!photosOn) {
+    removePhotos(map);
+    // The list goes with the layer. It is the phone's, not ours, and holding a
+    // copy of where somebody has taken eighty thousand photographs after they
+    // have switched the overlay off is not a cache, it is a leftover.
+    forgetPhotos();
+    closePhotoInfo();
+    photoScanned = false;
+    photoScanning = false;
+    photoTrouble = null;
+    pointerOnPhoto = false;
+    syncPointer();
+    return;
+  }
+
+  // Installed even when the last answer was a refusal: the call is idempotent,
+  // an empty source draws nothing, and the layer then exists and is empty
+  // rather than half-existing in a way the next basemap switch has to reason
+  // about.
+  const draw = () => {
+    installPhotos(map, {
+      before: PHOTO_BEFORE(),
+      theme: STYLES[styleKey].theme,
+      font: styleFont(),
+    });
+    updateLayersUi();
+  };
+
+  // A basemap switch rebuilds the style and lands here again with the same
+  // library already in hand, and re-reading it would be a second walk over
+  // eighty thousand assets to arrive at the list we are holding. The scan
+  // belongs to the switch being turned on, not to the style being rebuilt —
+  // which is also the moment somebody would expect this afternoon's photographs
+  // to appear.
+  if (photoScanned) {
+    draw();
+    return;
+  }
+  photoScanning = true;
+  updateLayersUi();
+  loadPhotos().then((report) => {
+    // The basemap may have changed underneath, or the switch may have been
+    // turned off again while the library was being read. Asked on the far side
+    // of the await rather than trusted from before it.
+    if (mine !== photoInstall || !styleReady || !photosOn) return;
+    photoScanning = false;
+    photoScanned = report.ok;
+    photoTrouble = report.ok ? null : report.error;
+    draw();
+  }).catch((e) => {
+    if (mine !== photoInstall) return;
+    photoScanning = false;
+    photoTrouble = 'bridge';
+    updateLayersUi();
+    console.warn('The photo library could not be read.', e);
+  });
+}
+
+/** What the menu row says under "Photos". */
+function photoNote() {
+  if (!photosOn) return 'Where your pictures were taken';
+  if (photoScanning) return 'Reading your library…';
+  switch (photoTrouble) {
+    case 'denied':
+    case 'unasked':
+      // The way out is in iOS Settings, not here — nothing in this page can
+      // reopen a permission that has been refused.
+      return 'Allow photo access in iOS Settings';
+    case null:
+      break;
+    default:
+      return 'Your photos could not be read';
+  }
+  if (!photoCount()) return 'No photos with a location';
+  const n = `${photoCount().toLocaleString()} ${photoCount() === 1 ? 'photo' : 'photos'}`;
+  // A limited library is not a smaller map, it is a wrong one, and this is the
+  // only place that would ever say so.
+  return photosLimited() ? `${n} · only the ones you picked` : n;
+}
+
+/** Scoped to our own layer ids, and padded: a dot is small and a finger is not. */
+function photoFeatureAt(point) {
+  const ids = photoLayerIds().filter((id) => map.getLayer(id));
+  if (!ids.length) return null;
+  const pad = 8;
+  const box = [[point.x - pad, point.y - pad], [point.x + pad, point.y + pad]];
+  return map.queryRenderedFeatures(box, { layers: ids })[0] ?? null;
+}
+
+/** Open a card about whatever photograph was tapped, and say whether there was one. */
+function showPhotoInfo(e) {
+  const hit = photoFeatureAt(e.point);
+  if (!hit) return false;
+  const p = hit.properties ?? {};
+  if (p.cluster) {
+    openPhotoCluster(p.cluster_id, hit.geometry.coordinates.slice(0, 2));
+    return true;
+  }
+  showPhotos([{ i: p.i, t: p.t }]);
+  return true;
+}
+
+/**
+ * A tap on a group: zoom into it if that would break it up, open it if it would
+ * not.
+ *
+ * Both halves are needed and neither is enough. Always zooming is the usual
+ * behaviour and it fails on the case this overlay is full of — forty
+ * photographs of one dinner have no zoom at which they separate, so the map
+ * would drift to its ceiling and the tap would stop doing anything. Always
+ * opening would put a card of forty-eight unrelated pictures in front of you
+ * because you tapped a cluster that meant "this half of Italy".
+ */
+async function openPhotoCluster(clusterId, at) {
+  const zoom = await photoExpansion(map, clusterId);
+  if (zoom != null) {
+    releaseCameraLock();
+    map.easeTo({ center: at, zoom, duration: 450 });
+    return;
+  }
+  const items = await photoLeaves(map, clusterId);
+  if (items.length) showPhotos(items);
+}
+
+/** The card, and the two it shares the bottom of the screen with. */
+function showPhotos(items) {
+  closeCellInfo();
+  closeRouteInfo();
+  photoInfo?.show(items);
+}
+
+function closePhotoInfo() {
+  photoInfo?.hide();
+}
+
 // --- What a railway says about itself ------------------------------------------
 // The reason the overlay is vector rather than pixels. Everything shown here is
 // already in the tile that drew the line: OpenRailwayMap's own app answers this
@@ -5236,9 +5431,13 @@ let pointerOnRail = false;
 // source, not 288 layers of somebody else's style, so there is nothing here to
 // throttle away.
 let pointerOnAirport = false;
+// And a photograph, on the same terms — three layers over one point source. It
+// only ever matters on a laptop pointed at a phone's server, which is to say
+// almost never, and costing nothing is what makes that fine.
+let pointerOnPhoto = false;
 const syncPointer = () => {
   map.getCanvas().style.cursor =
-    pointerOnRoute || pointerOnRail || pointerOnAirport ? 'pointer' : '';
+    pointerOnRoute || pointerOnRail || pointerOnAirport || pointerOnPhoto ? 'pointer' : '';
 };
 
 function railHoverAt(point) {
@@ -5283,6 +5482,13 @@ function updateLayersUi() {
   railToggle.checked = railOn;
   airportsToggle.checked = airportsOn;
   updateRoutesUi();
+  // Absent rather than disabled anywhere the host cannot answer, which is every
+  // browser — see the note at the top of src/photos.js.
+  photosRow.hidden = !photosAvailable();
+  if (!photosRow.hidden) {
+    photosToggle.checked = photosOn;
+    document.getElementById('photos-note').textContent = photoNote();
+  }
 
   // The picker only means anything in single-color mode, and nothing at all
   // while the cells are hidden — the note takes that slot instead.
@@ -5474,6 +5680,7 @@ function wireLayersControl() {
   });
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
   airportsToggle.addEventListener('change', () => setAirports(airportsToggle.checked));
+  photosToggle.addEventListener('change', () => setPhotos(photosToggle.checked));
   document.getElementById('home-pick-cancel').addEventListener('click', () => endHomePick(false));
   document.getElementById('home-pick-ok').addEventListener('click', () => endHomePick(true));
   document.getElementById('route-solo-clear').addEventListener('click', () => {
@@ -5536,6 +5743,28 @@ const RAIL_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStar
 // still go under the saved routes, for the reason the railways do — a line you
 // actually travelled beats reference geometry about what exists.
 const AIRPORT_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStart());
+
+// The photographs, on the other hand, go *above* the saved routes — the only
+// overlay that does. The reasoning that keeps the other two underneath is that a
+// line you actually travelled beats reference geometry about what exists; a
+// photograph is not reference geometry, it is the same kind of fact as the
+// route, and it is a dot. A 7 px dot under a 12 px glow is a dot you cannot see
+// and cannot tap, and the tap order in the click handler agrees: smallest target
+// first.
+//
+// Anchored on the **place pin** rather than on `labelStart()`, which is what
+// everything else here anchors on and is the wrong question by the time this
+// runs. `labelStart()` finds the bottom of the topmost run of symbol layers, and
+// by now the style also holds the place pin, the home marker and the selection
+// ring — the topmost of which is a line — so it answers `undefined`, which
+// `addLayer` reads as "the very top". Measured, not reasoned about: every
+// photograph was drawn over the marker you navigate by and over the ring around
+// the cell you had just clicked.
+//
+// Those three markers are precisely what this has to stay under, so naming the
+// first of them says it directly and cannot drift. It lands immediately above
+// the saved routes, which is where it was always meant to be.
+const PHOTO_BEFORE = () => (map.getLayer('place-pin') ? 'place-pin' : labelStart());
 let firstInstall = true;
 
 // How deep the server says each of OpenRailwayMap's sources can currently be
@@ -5990,6 +6219,9 @@ function installGrid() {
   // After the railways, which is what puts the airports above them — see
   // AIRPORT_BEFORE.
   syncAirportLayer();
+  // And the photographs above the routes, which is a different anchor rather
+  // than a matter of order — see PHOTO_BEFORE.
+  syncPhotoLayer();
   syncHomeMarker();
   // A style rebuild dropped the sources above and re-created them empty, so
   // anything the page was already showing has to be put back. The chip never
@@ -6070,10 +6302,16 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     }
     if (currentLevel == null) return;
     if (mode !== 'edit') {
+      // Photographs first, ahead of even the routes: this is the smallest target
+      // on the map and the only one drawn *over* them, so a dot sitting on a
+      // line you rode is a dot you aimed at. Guarded by the switch so a tap on a
+      // map with no photographs on it does no work at all.
+      const photo = photosOn && styleReady && showPhotoInfo(e);
       // A tap that landed on a saved route is about the route, not the ground
       // under it; otherwise view mode inspects the cell.
-      const route = routeAt(e.point);
-      if (route) showRouteInfo(route);
+      const route = photo ? null : routeAt(e.point);
+      if (photo) { /* the card is the whole of the tap */ }
+      else if (route) showRouteInfo(route);
       // Then the train tracks, in the same order they are drawn in: a line you
       // travelled beats reference geometry about where a line exists, and both
       // beat the ground underneath. Only when the overlay is on *and* has been
@@ -6115,6 +6353,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // the same order of work as the route test above it, not the railway's.
       if (airportsOn && styleReady) {
         pointerOnAirport = !!airportFeatureAt(e.point);
+        syncPointer();
+      }
+      // And a photograph, on the same terms and for the same money.
+      if (photosOn && styleReady) {
+        pointerOnPhoto = !!photoFeatureAt(e.point);
         syncPointer();
       }
     }
@@ -6230,6 +6473,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     },
     isSolo: (route) => soloRoute === route.id,
   });
+  // Mounted whether or not this is the app: the markup is in the page either
+  // way, and a card nothing can open costs one query per element. Making it
+  // conditional would mean every call site asking first.
+  photoInfo = mountPhotoInfo({ onClose: () => closePhotoInfo() });
 
   // The file importer, first entry behind "Import & sync": parses the file in
   // the browser, previews what it found, then merges the cells server-side.
@@ -6742,6 +6989,10 @@ const authState = mountAuth({
     pendingRemove.clear();
     closeCellInfo();
     closeRouteInfo();
+    // The overlay itself is left alone: your photo library belongs to the phone,
+    // not to the account that has just been signed out of. The card goes because
+    // it is a card, and nothing else on screen survived.
+    closePhotoInfo();
     routeList = [];
     refoldRoutes();
     routeGeom = false;
