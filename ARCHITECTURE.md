@@ -3218,20 +3218,42 @@ The reasoning is kept in `PhotoLibrary.swift`, where the button would go back.
 Without it somebody re-derives the idea from the same first principles in a year
 and ships the same lie.
 
-### Videos are counted, and not drawn
+### Videos, which are played rather than transferred
 
-A video knows where it was taken exactly as a photograph does, so the **uploader**
-counts it: you were there, and what the camera happened to be recording is beside
-the point. Nothing about the `apple-photos` cells changes.
+A video knows where it was taken exactly as a photograph does, so it is a point
+for the same reason and evidence for the uploader for the same reason. What
+differs is only what tapping it does.
 
-The **overlay** leaves them out, and this is the one place the two callers of
-`PhotoLibrary.located` deliberately disagree. `requestImage` on a video hands
-back its poster frame, so a video arrived as a photograph that would not play — a
-point you can tap and be misled by. Playing one is not a small addition: a video
-is tens of megabytes and cannot cross the bridge as a data URL at all. So the map
-asks for stills — `stillsOnly`, a `mediaType` predicate the Photos database
-answers for free, unlike the location filter beside it — and says how many
-photographs it has, which is then true.
+For one release it did nothing useful: `requestImage` on a video returns its
+poster frame, so a video was a photograph that would not play, and they were cut
+from the overlay rather than left lying about what they were. They are back
+because there is a right way to show one — and it is not to get the video into
+the page.
+
+**Every way of transferring it is worse than not transferring it.** A minute of
+4K is about 350 MB; base64 makes that 470 MB of JavaScript string, and no amount
+of chunking makes that a good idea on a phone. A `WKURLSchemeHandler` could
+stream it properly, range requests and all, and would then be refused by the
+site's own Content-Security-Policy — so it also means widening `media-src` for
+the app's benefit. A local HTTP server inside the app has the same policy problem
+plus mixed content, because the page is https and `127.0.0.1` is not.
+Transcoding to something small enough to inline spends seconds and disk to arrive
+at a worse copy of a file that is already on the device.
+
+So the video is not transferred at all. The card's play button sends one message
+and the app puts an `AVPlayerViewController` in front of the web view with the
+asset's own player item — which is what a native app would have done in the first
+place. Full quality, no copy, the system's own controls, scrubbing, AirPlay and
+picture-in-picture for free, and an iCloud original fetched by Photos itself
+rather than by us. The player is *presented*, so dismissing it puts the map back
+exactly as it was, card and all.
+
+The page's part is one message. It has no URL for the video, never sees a byte of
+it, and cannot save one — the same bargain the rest of this bridge strikes.
+A fourth field on each row says which points move, so the card knows where to put
+a play button, and the menu row counts photographs and videos separately: with
+both on the map, "12,481 photos" is a number that is not true of what you are
+looking at.
 
 ### Where it sits, and what it takes precedence over
 

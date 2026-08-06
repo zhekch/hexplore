@@ -29,7 +29,7 @@
 // queued simply never happens.
 
 import { formatTime } from './clock.js';
-import { STRIP_CHUNK, photoImage } from './photos.js';
+import { STRIP_CHUNK, photoImage, playVideo } from './photos.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
@@ -50,9 +50,19 @@ const THUMB_PX = 120;
 // is never blank; scrolling does the rest.
 const EAGER_THUMBS = 12;
 
-/** "12 photos", or the one thing it is. */
+/**
+ * "12 photos", or the one thing it is — and it says "video" when it is one.
+ *
+ * A group that is half videos is called neither, because calling forty videos
+ * "40 photos" is the small lie that made them feel broken in the first place.
+ */
 export function groupTitle(items) {
-  return items.length === 1 ? 'Photo' : `${items.length.toLocaleString()} photos`;
+  const videos = items.reduce((n, item) => n + (item.v ? 1 : 0), 0);
+  if (items.length === 1) return videos ? 'Video' : 'Photo';
+  const n = items.length.toLocaleString();
+  if (!videos) return `${n} photos`;
+  if (videos === items.length) return `${n} videos`;
+  return `${n} photos and videos`;
 }
 
 /**
@@ -77,6 +87,8 @@ function trouble(error) {
   switch (error) {
     case 'unavailable':
       return 'This one is still in iCloud and could not be fetched just now.';
+    case 'noplayer':
+      return 'This video could not be played.';
     case 'stale':
       return 'The library changed. Switch Photos off and on again to catch up.';
     case 'denied':
@@ -109,6 +121,7 @@ export function mountPhotoInfo({ onClose } = {}) {
   const noteEl = $('photo-info-note');
   const stripEl = $('photo-info-strip');
   const sentinel = $('photo-info-more');
+  const playBtn = $('photo-info-play');
 
   let items = [];
   let chosen = 0;
@@ -146,6 +159,7 @@ export function mountPhotoInfo({ onClose } = {}) {
     imgEl.removeAttribute('src');
     imgEl.style.aspectRatio = '';
     figure.classList.remove('loaded');
+    playBtn.hidden = true;
     stripEl.replaceChildren(sentinel);
     stripEl.hidden = true;
   }
@@ -156,6 +170,7 @@ export function mountPhotoInfo({ onClose } = {}) {
     const item = items[chosen];
     if (!item) return;
     noteEl.textContent = '';
+    playBtn.hidden = true;
     figure.classList.add('loading');
     // `loaded` is what takes the waiting panel away, so it goes now rather than
     // when the next picture arrives — otherwise the old photograph's frame sits
@@ -182,6 +197,10 @@ export function mountPhotoInfo({ onClose } = {}) {
     if (reply.w && reply.h) imgEl.style.aspectRatio = `${reply.w} / ${reply.h}`;
     imgEl.src = reply.src;
     figure.classList.add('loaded');
+    // A video's picture is its poster frame, so without the button it is a
+    // photograph that happens to be of the first moment of something. The button
+    // is what says otherwise, and pressing it hands over to the app.
+    playBtn.hidden = !item.v;
   }
 
   /** One thumbnail, once its button is somewhere you could see it. */
@@ -209,6 +228,9 @@ export function mountPhotoInfo({ onClose } = {}) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = at === chosen ? 'photo-thumb chosen' : 'photo-thumb';
+      // Marked in the strip as well as in the figure: picking through a holiday
+      // you should be able to see which of them move before you pick one.
+      if (items[at].v) b.classList.add('video');
       b.title = groupWhen([items[at]]);
       // Its own index, on the element. The observer needs it per callback, and
       // reading it back out of the DOM order would be a walk over every button
@@ -286,6 +308,16 @@ export function mountPhotoInfo({ onClose } = {}) {
   closeBtn.addEventListener('click', () => {
     hide();
     onClose?.();
+  });
+
+  // Handing over to the app. The card stays exactly as it is behind the player,
+  // because dismissing the player should put you back where you were rather than
+  // somewhere you have to find again.
+  playBtn.addEventListener('click', async () => {
+    const item = items[chosen];
+    if (!item) return;
+    const reply = await playVideo(item.i);
+    if (!reply.ok) noteEl.textContent = trouble(reply.error);
   });
 
   return { show, hide, visible: () => !card.hidden };

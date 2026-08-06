@@ -1,5 +1,6 @@
-// `UIKit` for the JPEG encoder and the one door out to the Photos app; `Photos`
-// for everything else here.
+// `AVKit` for the video player, `UIKit` for the JPEG encoder and for the window
+// the player is put in front of, `Photos` for everything else here.
+import AVKit
 import CoreLocation
 import Foundation
 import Photos
@@ -61,6 +62,10 @@ nonisolated enum PhotoLibrary {
         let lng: Double
         /// Unix seconds. A photo with no date is dropped rather than dated now.
         let t: Int
+        /// Whether it moves. The map draws it the same either way; the card
+        /// offers it a play button, and playing it happens over here — see
+        /// ``play(id:)``.
+        let isVideo: Bool
     }
 
     /// The most photographs either caller will look at.
@@ -113,29 +118,14 @@ nonisolated enum PhotoLibrary {
     /// thousand photographs take a second or two because this is a database
     /// query rather than a file walk.
     ///
-    /// ## `stillsOnly`, and why the two callers disagree
-    ///
-    /// A video knows where it was taken exactly as a photograph does, so for the
-    /// **uploader** it is the same evidence and is counted: you were there, and
-    /// what the camera was recording at the time is beside the point.
-    ///
-    /// For the **overlay** it is not, and the difference is the whole of what the
-    /// overlay does. `requestImage` on a video hands back its poster frame, so a
-    /// video appeared as a photograph that could not be played — a point you can
-    /// tap and be misled by. Playing it is not a small thing to add: a video is
-    /// tens of megabytes and cannot cross the bridge as a data URL at all. So the
-    /// map leaves them out and says how many photographs it has, which is true,
-    /// rather than showing stills that lie about what they are.
-    ///
-    /// `mediaType` *is* a queryable property, so this costs nothing — unlike the
-    /// location filter above it, the database does it.
-    static func located(limit: Int = ceiling, stillsOnly: Bool = false) -> [Located] {
+    /// Videos are in it, marked. A video knows where it was taken exactly as a
+    /// photograph does, so it is a point on the map for the same reason and
+    /// evidence for the uploader for the same reason. What differs is only what
+    /// tapping it does — see ``play(id:)``.
+    static func located(limit: Int = ceiling) -> [Located] {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         options.includeHiddenAssets = false
-        if stillsOnly {
-            options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
-        }
         let assets = PHAsset.fetchAssets(with: options)
 
         var out: [Located] = []
@@ -157,7 +147,8 @@ nonisolated enum PhotoLibrary {
                 // reason: it is the precision the number actually has.
                 lat: (c.latitude * 1e5).rounded() / 1e5,
                 lng: (c.longitude * 1e5).rounded() / 1e5,
-                t: Int(taken.timeIntervalSince1970)
+                t: Int(taken.timeIntervalSince1970),
+                isVideo: asset.mediaType == .video
             ))
             if out.count >= limit { stop.pointee = true }
         }
@@ -212,6 +203,78 @@ nonisolated enum PhotoLibrary {
         // this to give the picture its shape before the bytes have decoded.
         let cg = image.cgImage
         return (data, cg?.width ?? Int(image.size.width), cg?.height ?? Int(image.size.height))
+    }
+
+    // MARK: - Playing a video
+
+    /// Play one, over the web view.
+    ///
+    /// ## Why the video does not go to the page
+    ///
+    /// Everything else the overlay shows crosses the bridge as bytes, and for a
+    /// video that is the wrong shape of answer at every size. A minute of 4K is
+    /// ~350 MB; base64 makes it 470 MB of JavaScript string, and there is no
+    /// chunking clever enough to make that a good idea on a phone. The
+    /// alternatives are worse than they look:
+    ///
+    /// - **A `WKURLSchemeHandler`** could stream it properly, range requests and
+    ///   all — and the site's own Content-Security-Policy would refuse to load
+    ///   it, so it would also mean widening `media-src` for the app's benefit.
+    /// - **A local HTTP server** in the app has the same policy problem plus
+    ///   mixed content, because the page is https and `127.0.0.1` is not.
+    /// - **Transcoding** to something small enough to inline spends seconds and
+    ///   disk to arrive at a worse copy of a file that is already on the device.
+    ///
+    /// So the video is not transferred at all. `AVPlayerViewController` is put in
+    /// front of the web view with the asset's own player item, which is what a
+    /// native app would have done in the first place: full quality, no copy, the
+    /// system's own controls, scrubbing, AirPlay and picture-in-picture for free,
+    /// and iCloud originals fetched by Photos itself rather than by us.
+    ///
+    /// The page's part is one message. It has no URL for the video, never sees a
+    /// byte of it, and cannot save one — which is the same bargain the rest of
+    /// this bridge strikes.
+    @MainActor
+    static func play(id: String) async -> Bool {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
+              asset.mediaType == .video,
+              let top = topViewController
+        else { return false }
+
+        let options = PHVideoRequestOptions()
+        // An original that lives in iCloud is the common case for anything more
+        // than a few months old, and Photos does the fetching.
+        options.isNetworkAccessAllowed = true
+        options.deliveryMode = .automatic
+
+        let once = Latch()
+        let item: AVPlayerItem? = await withCheckedContinuation { continuation in
+            PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in
+                if once.close() { continuation.resume(returning: item) }
+            }
+        }
+        guard let item else { return false }
+
+        let controller = AVPlayerViewController()
+        controller.player = AVPlayer(playerItem: item)
+        // Presented rather than pushed, over whatever is on screen, so dismissing
+        // it puts the map back exactly as it was — including the card that was
+        // open, which is the thing you were reading when you pressed play.
+        top.present(controller, animated: true) {
+            controller.player?.play()
+        }
+        return true
+    }
+
+    /// Whatever is frontmost, which is what a modal has to be presented from.
+    @MainActor
+    private static var topViewController: UIViewController? {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+        var top = (windows.first(where: \.isKeyWindow) ?? windows.first)?.rootViewController
+        while let next = top?.presentedViewController { top = next }
+        return top
     }
 
     // MARK: - There is no way out to Photos, and there was never going to be

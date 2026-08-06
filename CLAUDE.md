@@ -43,6 +43,19 @@ sessions sharing the worktree would tread on each other.
 - **Comments explain why, not what.** The existing ones are written to be read
   in a year; match that register rather than annotating the obvious.
 - **`npm test`** before you call something done.
+- **Move the version, every time.** Two numbers are shown in Settings and both
+  exist to answer *which build am I actually looking at* — the question every
+  confusing hour on this project has turned out to be. A number that does not
+  move is worse than none, because it rules out the very thing that is wrong.
+  - `SERVER_VERSION` in `server/index.js` — patch bump for a fix, minor for
+    anything a user would notice.
+  - `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
+    `HexPlore-IOS/HexPlore.xcodeproj/project.pbxproj` — whenever anything under
+    `HexPlore-IOS/` changes. The build number goes up every time; the marketing
+    version follows the same patch/minor rule.
+
+    Both configurations, Debug and Release, carry each setting: change one and
+    the app reports a different version depending on how it was built.
 - **Never commit personal data.** `data.db`, `import/*` and
   `src/imported-cells.json` are real location history and are gitignored —
   check `git status` before staging.

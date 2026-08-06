@@ -20,9 +20,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  CLUSTER_MAX_ZOOM, PHOTO_COLOR, STRIP_CHUNK, forgetPhotos, installPhotos, loadPhotos,
-  photoCount, photoGeoJson, photoLayerIds, photoLayers, photoLeaves,
-  photosAvailable, photosLimited,
+  CLUSTER_MAX_ZOOM, PHOTO_COLOR, STRIP_CHUNK, forgetPhotos, installPhotos, isVideo,
+  loadPhotos, photoCount, photoGeoJson, photoLayerIds, photoLayers, photoLeaves,
+  photosAvailable, photosLimited, videoCount,
 } from '../../src/photos.js';
 import { groupTitle, groupWhen } from '../../src/photo-info.js';
 
@@ -248,20 +248,45 @@ console.log('\nOutside the app there is nothing to switch on');
   check(photoCount() === 0, 'forgetting an empty library is fine too');
 }
 
-console.log('\nVideos are counted where they are evidence and left out where they are not');
+console.log('\nA video is a point you can play, and never a photograph that will not');
 {
-  // A video knows where it was taken, so the uploader counts it: you were
-  // there. The overlay cannot show it — `requestImage` hands back a poster
-  // frame, which on a real library looked like a photograph that would not
-  // play — so it asks for stills only. The two callers disagreeing is the point
-  // here, which is why both halves are pinned.
-  check(/stillsOnly: Bool = false/.test(librarySwift),
-    'the reader takes stills-only as an option, off by default');
-  check(/mediaType == %d/.test(librarySwift) && /PHAssetMediaType\.image/.test(librarySwift),
-    'and filters on the media type the database can answer');
-  check(/located\(stillsOnly: true\)/.test(bridgeSwift), 'the map asks for stills');
-  check(/PhotoLibrary\.located\(\)\s*$/m.test(syncSwift) || /PhotoLibrary\.located\(\)/.test(syncSwift),
-    'and the uploader asks for everything');
+  // The first cut left videos off the map, because `requestImage` gives a poster
+  // frame and a video that looks like a photograph and will not play is worse
+  // than one that is absent. They are back because there turned out to be a
+  // right way to show one — not by moving it into the page, which is impossible
+  // at any size, but by putting a native player in front of the page.
+  check(/isVideo: Bool/.test(librarySwift), 'the reader says which assets move');
+  check(/mediaType == \.video/.test(librarySwift), 'read from the asset rather than guessed');
+  check(/requestPlayerItem/.test(librarySwift) && /AVPlayerViewController/.test(librarySwift),
+    'and playing one is the system player, not a download');
+  check(/\$0\.isVideo \? 1 : 0/.test(bridgeSwift), 'the flag travels with each point');
+  check(/case "play"/.test(bridgeSwift), 'and the bridge answers a play message');
+  // The reason this is not streamed into the page is the expensive thing to
+  // re-derive, so it is pinned where the next person will look.
+  check(/Content-Security-Policy|CSP/i.test(librarySwift) && /base64/.test(librarySwift),
+    'why it is not handed to the page is written down');
+
+  // The page's half: the flag has to survive into the features and back out of
+  // a cluster, or the play button never appears on a grouped video.
+  const fc = photoGeoJson([[47.37, 8.54, 1_693_742_400, 1], [47.37, 8.54, 1_693_742_401, 0]]);
+  check(fc.features[0].properties.v === 1 && fc.features[1].properties.v === 0,
+    'a feature knows whether it moves', JSON.stringify(fc.features.map((f) => f.properties.v)));
+  check(!isVideo(0), 'and nothing is a video before a library has been read');
+  check(videoCount() === 0, 'nor counted as one');
+}
+
+console.log('\nThe card calls things what they are');
+{
+  const still = [{ i: 0, t: 1_693_731_600, v: false }];
+  const video = [{ i: 1, t: 1_693_731_600, v: true }];
+  check(groupTitle(still) === 'Photo', 'one photograph is a photo', groupTitle(still));
+  check(groupTitle(video) === 'Video', 'and one video is a video', groupTitle(video));
+  check(groupTitle([...video, { i: 2, t: 1, v: true }]) === '2 videos', 'two videos are videos');
+  check(groupTitle([...still, { i: 2, t: 1, v: false }]) === '2 photos', 'two photos are photos');
+  // Calling forty videos "40 photos" is the small lie that made them feel broken
+  // in the first place.
+  check(groupTitle([...still, ...video]) === '2 photos and videos', 'and a mixture is neither',
+    groupTitle([...still, ...video]));
 }
 
 console.log('\nThere is no "Open in Photos", and nothing left of it');

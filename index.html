@@ -300,6 +300,15 @@
              picture, and "Photo" read out beside a heading that already says
              Photo is noise rather than a description. -->
         <img id="photo-info-img" alt="" />
+        <!-- Only on the ones that move. What it shows is the poster frame either
+             way, so without this a video is a photograph of the first moment of
+             something; pressing it hands over to the app, which puts a real
+             player in front of the page — see PhotoLibrary.play. -->
+        <button type="button" class="photo-play" id="photo-info-play" hidden aria-label="Play video">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+            <path d="M8 5.2v13.6a.6.6 0 0 0 .92.5l10.7-6.8a.6.6 0 0 0 0-1l-10.7-6.8a.6.6 0 0 0-.92.5Z" />
+          </svg>
+        </button>
       </div>
       <div class="photo-note" id="photo-info-note"></div>
       <!-- The strip holds the whole group, however big it is: the marker at the

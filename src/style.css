@@ -1084,6 +1084,45 @@ body {
   min-height: 0;
 }
 
+/* The grid has one cell and both children are in it, so the button lands over
+   the middle of the picture whatever shape the picture turns out to be. */
+.photo-figure img,
+.photo-figure .photo-play {
+  grid-area: 1 / 1;
+}
+
+/* Deliberately the system's own vocabulary — a white triangle on a dark disc —
+   because that is what a video looks like everywhere else on the phone, and
+   because the accent belongs to the map rather than to a control. */
+.photo-play {
+  place-self: center;
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(12, 14, 20, 0.5);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  cursor: pointer;
+  /* The triangle is optically left-heavy; nudge it back to the middle. */
+  padding-left: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.photo-play:hover {
+  background: rgba(12, 14, 20, 0.68);
+  transform: scale(1.06);
+}
+
+.photo-play[hidden] {
+  display: none;
+}
+
 .photo-figure img {
   display: block;
   /* Sized by the picture rather than stretched to the box, which is what makes
@@ -1198,6 +1237,26 @@ body {
 .photo-thumb.chosen {
   border-color: var(--photo);
   box-shadow: 0 0 0 1px var(--photo);
+}
+
+/* A video in the strip. One small triangle in the corner rather than a disc over
+   the middle: at 54 px the disc is most of the thumbnail, and the strip is for
+   telling them apart rather than for playing them. */
+.photo-thumb.video {
+  position: relative;
+}
+
+.photo-thumb.video::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 7px;
+  border-color: transparent transparent transparent #fff;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
 }
 
 /* One the phone could not produce — usually an original still in iCloud. Dimmed

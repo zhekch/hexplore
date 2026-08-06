@@ -191,12 +191,14 @@ Nothing is uploaded and nothing is shared. The app reads the photographs off the
 phone it is running on, one at a time, only when you tap one, and only to show it
 to you — which is exactly why the switch is not there in a browser.
 
-Two things it does not do. There is **no "Open in Photos"**: iOS gives no app a
+**Videos are there too**, marked with a play button. Pressing it opens the
+phone's own player over the map — full quality, with scrubbing and AirPlay, and
+nothing copied or uploaded to make it happen. Closing the player puts you back on
+the map exactly where you were.
+
+One thing it does not do: there is **no "Open in Photos"**. iOS gives no app a
 way to open one particular photo, so such a button would open the Photos app at
-something else entirely, and the card is showing you the picture anyway.
-**Videos are not drawn** — the phone can only offer a still frame of one, which
-would sit on the map looking like a photograph that refuses to play. Where a
-video was taken still counts towards your map's coverage, exactly as it did.
+something else entirely — and the card is showing you the picture anyway.
 
 **An image of a place.** *Export & settings → Export an image* makes a picture
 rather than a screenshot: pick any number of regions, countries or continents and

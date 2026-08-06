@@ -73,6 +73,8 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
             Task { replyHandler(await points(), nil) }
         case "photo":
             Task { replyHandler(await photo(body), nil) }
+        case "play":
+            Task { replyHandler(await play(body), nil) }
         default:
             // A reply rather than an error: the page asking something this build
             // has never heard of is an old app and a new site, which is a
@@ -94,18 +96,18 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
         // runs while the map is on screen — a second of a frozen map is a second
         // in which the overlay looks broken rather than busy.
         //
-        // `stillsOnly` because this is the list a *picture* is asked for, and a
-        // video cannot answer that. The uploader reads the same library without
-        // the filter — see the note on `located`.
-        let located = await Task.detached { PhotoLibrary.located(stillsOnly: true) }.value
+        let located = await Task.detached { PhotoLibrary.located() }.value
         snapshot = located
         scan += 1
         return [
             "ok": true,
             "scan": scan,
             // The triple `pointsToCells` reads on the other side of the sync, in
-            // the same order, because a photograph is a photograph.
-            "photos": located.map { [$0.lat, $0.lng, Double($0.t)] },
+            // the same order, because a photograph is a photograph — with a
+            // fourth field saying whether it moves. Always four rather than three
+            // for a still and four for a video: rows of two different lengths are
+            // a footgun for a few bytes.
+            "photos": located.map { [$0.lat, $0.lng, Double($0.t), $0.isVideo ? 1 : 0] },
             // "Only some of them" is worth saying out loud: a limited library is
             // not a smaller map, it is a wrong one, and nothing else on screen
             // would tell you.
@@ -141,4 +143,19 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
         ]
     }
 
+    /// Play one, natively, in front of the page.
+    ///
+    /// The only message that answers with something other than data: nothing
+    /// crosses the bridge here but the word "yes". See ``PhotoLibrary/play(id:)``
+    /// for why a video is shown this way rather than handed to the page.
+    private func play(_ body: [String: Any]) async -> [String: Any] {
+        guard (body["scan"] as? Int) == scan else { return ["ok": false, "error": "stale"] }
+        guard let i = body["i"] as? Int, snapshot.indices.contains(i) else {
+            return ["ok": false, "error": "missing"]
+        }
+        guard await PhotoLibrary.play(id: snapshot[i].id) else {
+            return ["ok": false, "error": "unavailable"]
+        }
+        return ["ok": true]
+    }
 }

@@ -571,10 +571,14 @@ tap it. A tap on a group opens the group — all of it, however big — rather t
 zooming in: photographs re-cluster as fast as you can separate them, and zooming
 is what the map's own gestures are for.
 
-**Stills only.** A video knows where it was taken and the uploader above counts
-it, but `requestImage` can only offer its poster frame, which on the map is a
-photograph that will not play. The overlay asks for stills and says how many
-photographs it has.
+**Videos are points too, and they play.** Not by being handed to the page — a
+minute of 4K is 350 MB, base64 makes it 470 MB of string, a `WKURLSchemeHandler`
+would be refused by the site's own CSP, and transcoding spends seconds to make a
+worse copy of a file already on the device. So nothing is transferred: the card's
+play button sends one message and `PhotoLibrary.play` puts an
+`AVPlayerViewController` in front of the web view with the asset's own player
+item. Full quality, system controls, AirPlay, and iCloud originals fetched by
+Photos itself. The page never sees a byte of it.
 
 This is the one thing the app does *for* the page rather than beside it, and the
 only reason it is native is that it has to be: a web view cannot open a photo

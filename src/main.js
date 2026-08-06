@@ -58,8 +58,8 @@ import {
 // a browser `photosAvailable()` is false and the switch is not in the menu at
 // all — see the note at the top of src/photos.js.
 import {
-  forgetPhotos, installPhotos, loadPhotos, photoCount,
-  photoLayerIds, photoLeaves, photosAvailable, photosLimited, removePhotos,
+  forgetPhotos, installPhotos, loadPhotos, photoCount, photoLayerIds, photoLeaves,
+  photosAvailable, photosLimited, removePhotos, videoCount,
 } from './photos.js';
 import { mountPhotoInfo } from './photo-info.js';
 import { mountKomoot } from './komoot-ui.js';
@@ -5201,10 +5201,17 @@ function photoNote() {
       return 'Your photos could not be read';
   }
   if (!photoCount()) return 'No photos with a location';
-  const n = `${photoCount().toLocaleString()} ${photoCount() === 1 ? 'photo' : 'photos'}`;
+  // Videos counted apart from photographs, because with both on the map
+  // "12,481 photos" is a number that is not true of what you are looking at.
+  const videos = videoCount();
+  const stills = photoCount() - videos;
+  const parts = [];
+  if (stills) parts.push(`${stills.toLocaleString()} ${stills === 1 ? 'photo' : 'photos'}`);
+  if (videos) parts.push(`${videos.toLocaleString()} ${videos === 1 ? 'video' : 'videos'}`);
   // A limited library is not a smaller map, it is a wrong one, and this is the
   // only place that would ever say so.
-  return photosLimited() ? `${n} · only the ones you picked` : n;
+  if (photosLimited()) parts.push('only the ones you picked');
+  return parts.join(' · ');
 }
 
 /** Scoped to our own layer ids, and padded: a dot is small and a finger is not. */
@@ -5225,7 +5232,7 @@ function showPhotoInfo(e) {
     openPhotoCluster(p.cluster_id, p.point_count);
     return true;
   }
-  showPhotos([{ i: p.i, t: p.t }]);
+  showPhotos([{ i: p.i, t: p.t, v: !!p.v }]);
   return true;
 }
 

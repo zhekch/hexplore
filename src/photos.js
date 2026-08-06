@@ -86,10 +86,14 @@ let limited = false;
 
 export const photoPoints = () => points;
 export const photoCount = () => points.length;
+/** How many of them move. Said separately in the menu, because "photos" is then a lie. */
+export const videoCount = () => points.reduce((n, p) => n + (p[3] ? 1 : 0), 0);
 /** Whether iOS is only letting the app see *some* of the library. */
 export const photosLimited = () => limited;
 /** When one photograph was taken, in unix seconds. */
 export const photoTime = (i) => points[i]?.[2] ?? null;
+/** Whether one of them is a video. */
+export const isVideo = (i) => !!points[i]?.[3];
 
 /**
  * Read the library.
@@ -128,16 +132,29 @@ export function forgetPhotos() {
  */
 export const photoImage = (i, px) => ask({ ask: 'photo', scan, i, px: Math.round(px) });
 
+/**
+ * Play a video, natively, in front of the page.
+ *
+ * The one call here that moves no data at all. A video is hundreds of megabytes
+ * and every way of getting it *into* the page is worse than not — see the note
+ * on `PhotoLibrary.play`. So the app puts a player over the web view, and this
+ * asks it to.
+ */
+export const playVideo = (i) => ask({ ask: 'play', scan, i });
+
 // --- The layer -------------------------------------------------------------------
 
 /**
- * The features, from the triples the bridge sent.
+ * The features, from the rows the bridge sent.
  *
- * Note the swap: the wire order is `[lat, lng, t]`, because that is the shape a
- * location fix takes everywhere else in this app and a photograph is not worth
- * a second convention — and GeoJSON is `[lng, lat]`. Getting this backwards puts
- * a summer in Zürich somewhere off the coast of Somalia, which is a bug that
- * looks like a data problem.
+ * A row is `[lat, lng, t, video]` — the first three because that is the shape a
+ * location fix takes everywhere else in this app and a photograph is not worth a
+ * second convention, and the fourth because the card needs a play button on the
+ * ones that move.
+ *
+ * Note the swap: GeoJSON is `[lng, lat]`. Getting this backwards puts a summer
+ * in Zürich somewhere off the coast of Somalia, which is a bug that looks like a
+ * data problem.
  *
  * `i` travels as a property rather than as the feature id: with clustering on,
  * the id belongs to the cluster index, and a leaf's is not ours to rely on.
@@ -148,7 +165,7 @@ export function photoGeoJson(photos) {
     features: photos.map((p, i) => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [p[1], p[0]] },
-      properties: { i, t: p[2] },
+      properties: { i, t: p[2], v: p[3] ? 1 : 0 },
     })),
   };
 }
@@ -308,7 +325,7 @@ export async function photoLeaves(map, clusterId, limit) {
   try {
     const leaves = await source.getClusterLeaves(clusterId, limit, 0);
     return leaves
-      .map((f) => ({ i: f.properties.i, t: f.properties.t }))
+      .map((f) => ({ i: f.properties.i, t: f.properties.t, v: !!f.properties.v }))
       .sort((a, b) => a.t - b.t);
   } catch {
     return [];
