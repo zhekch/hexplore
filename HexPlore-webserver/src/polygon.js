@@ -114,6 +114,46 @@ function isSliverHole(ring) {
   return (4 * Math.PI * ringAreaM2(ring)) / (p * p) < SLIVER_MIN_COMPACTNESS;
 }
 
+// Longest ring the outline may be handed in one piece.
+//
+// MapLibre's line bucket asks its segment for ten vertices per point of a line
+// (`prepareSegment(len * 10)`), and a segment addresses a 16-bit index array —
+// 65,535 vertices. Past that it says so on the console and carries on, and what
+// it draws is no longer the line: the indices wrap, and the triangles join
+// vertices that were never neighbours, so the "outline" becomes wedges lying
+// across whatever is nearby. They come and go with the zoom and with the tile,
+// because the ring is clipped per tile and each piece overflows by a different
+// amount — which is what makes it look like a region deciding for itself
+// whether it is filled in.
+//
+// Only the dissolved outline ever gets near this, and only at the detailed
+// resolution: measured on a real map of 82 lit regions, the overview geometry's
+// longest ring is 1,041 points and the detailed one's is 20,598 — 205,980
+// vertices, three times over the limit. Below REGION_FINE_ZOOM nothing was ever
+// wrong, which is exactly how it presented.
+//
+// So a long ring is handed over in consecutive pieces instead. Each piece
+// repeats the last point of the one before it, so the pieces draw the same
+// unbroken line the ring did — this is a packaging change, not a geometry one,
+// and the fill is untouched either way (earcut indexes triangles, not a line
+// strip, and has its own EARCUT_MAX_RINGS for its own reasons).
+//
+// 4,000 rather than the 6,553 the arithmetic allows: the limit is on the
+// *clipped* ring a tile ends up with, which is not something this side can
+// measure, and a margin costs nothing but a few more draw segments.
+const MAX_RING_POINTS = 4000;
+
+function pushRing(rings, ring) {
+  if (ring.length <= MAX_RING_POINTS) {
+    rings.push(ring);
+    return;
+  }
+  // Step one short of the chunk so consecutive pieces share an end point.
+  for (let i = 0; i < ring.length - 1; i += MAX_RING_POINTS - 1) {
+    rings.push(ring.slice(i, i + MAX_RING_POINTS));
+  }
+}
+
 /** Dissolve a list of geometries into one shape, and hand back every boundary
  *  ring with it. Both boundary datasets merge their lit shapes exactly this
  *  way — touching areas join with no border between them. */
@@ -132,7 +172,7 @@ export function unionGeometries(geoms) {
     fill.push(kept);
     // The outline is drawn from these, so a dropped hole must not leave a
     // border ringing a gap that is no longer there.
-    for (const ring of kept) rings.push(ring);
+    for (const ring of kept) pushRing(rings, ring);
   }
   return { fill, rings };
 }

@@ -143,5 +143,45 @@ console.log('\nan outer ring may be as thin as it likes');
     'thin and tiny outer rings survive the dissolve', `${fill.length} polygons, ${slivers.length} of them ≤6 points`);
 }
 
+console.log('\nno ring is handed over longer than a draw segment can hold');
+
+// MapLibre's line bucket asks for ten vertices per point and a segment addresses
+// 65,535 of them, so a ring over ~6,553 points overflows and the mesh it draws
+// stops being the line — wedges across the map that come and go with the zoom,
+// because the ring is clipped per tile. The dissolved outline is the only thing
+// that gets near it: on a real map the detailed geometry's longest ring is
+// 20,598 points. So `unionGeometries` hands a long ring over in pieces.
+//
+// The fill keeps the ring whole, which is what makes this checkable from
+// outside: reassembling the pieces must give back exactly the ring the fill
+// still has.
+{
+  const LIMIT = 6553;
+  // Every country there is: the biggest dissolve this code can be asked for.
+  const { fill, rings } = mergeCountries(new Set(allCountries().map((c) => c.id)));
+  const longest = Math.max(...rings.map((r) => r.length));
+  check(longest <= LIMIT, 'no ring exceeds what one draw segment can address', `longest ${longest} points`);
+
+  const whole = fill.flat();
+  const wasSplit = rings.length > whole.length;
+  check(wasSplit, 'and the ring that needed it really was split', `${whole.length} rings in, ${rings.length} out`);
+
+  // Walk the output back into whole rings: a piece that starts where the last
+  // one ended is a continuation of it.
+  const rejoined = [];
+  for (const piece of rings) {
+    const open = rejoined[rejoined.length - 1];
+    const end = open && open[open.length - 1];
+    if (end && end[0] === piece[0][0] && end[1] === piece[0][1]) open.push(...piece.slice(1));
+    else rejoined.push([...piece]);
+  }
+  const same =
+    rejoined.length === whole.length &&
+    rejoined.every((r, i) => r.length === whole[i].length &&
+      r.every((p, j) => p[0] === whole[i][j][0] && p[1] === whole[i][j][1]));
+  check(same, 'the pieces rejoin into exactly the rings the fill kept whole',
+    `${rejoined.length} rejoined vs ${whole.length} kept`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
