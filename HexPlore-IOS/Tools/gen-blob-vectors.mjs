@@ -26,7 +26,7 @@ import {
   BLOB_LEVEL,
   BLOB_ROUNDS,
   alphaLut,
-} from '../../src/blob-canvas.js';
+} from '../../HexPlore-webserver/src/blob-canvas.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 

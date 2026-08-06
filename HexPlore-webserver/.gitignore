@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Database — accounts, sessions, saved routes and every visited cell.
+# Created on first run at DB_PATH (defaults to ./data.db).
+#
+# Globbed rather than named: a copy made to trim or inspect it (data2.db,
+# data-old.db) is the same real location history as the original, and the one
+# that gets committed is always the one nobody thought to list.
+data*.db
+data*.db-shm
+data*.db-wal
+data*.db-journal
+*.sqlite
+*.sqlite3
+
+# Snapshots written by the server to BACKUP_DIR (defaults to ./backups)
+backups/
+
+# Detailed boundaries the server fetched and cached (REGION_CACHE_DIR).
+# Re-fetched on demand; nothing here is authored.
+cache/
+
+# Personal location exports dropped here for `npm run import`
+# (Google, Snapchat, Apple Photos, Strava, Komoot, GPX/KML/TCX …)
+import/*
+!import/.gitkeep
+
+# Visited cells built from those exports by `npm run import` —
+# derived from raw GPS points, so it is personal data too.
+src/imported-cells.json
+
+# Environment / secrets: REGISTRATION_CODE, HA_ALLOWED_HOSTS, ports, DB paths
+.env
+.env.*
+!.env.example
+
+# Generated map data. Committed by default so a clone runs without network:
+#   npm run build:countries  → src/countries.json  (Natural Earth, public domain)
+#   npm run build:places     → src/places.json     (GeoNames CC BY 4.0 + Natural Earth)
+#   npm run build:regions    → src/regions.json    (Natural Earth admin-1)
+# Uncomment to keep them out of the repo and rebuild locally instead. Detailed
+# region boundaries are not here at all: they are fetched per country at view
+# time from geoBoundaries — see src/regions.js.
+# src/countries.json
+# src/places.json
+# src/regions.json
+
+# Editor state, logs, .DS_Store, iCloud conflict copies and the Claude Code
+# worktree are ignored repo-wide rather than here: see ../.gitignore. This file
+# is for what is specific to the server — its database, its dependencies, and
+# the personal data that feeds it.

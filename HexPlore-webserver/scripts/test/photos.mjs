@@ -34,13 +34,17 @@ const check = (ok, label, detail) => {
 };
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+// The other half of this layer is in a sibling of the webserver, not inside it:
+// the two apps and the server are three folders under one repo root.
+const REPO = path.resolve(ROOT, '..');
 const read = (rel) => readFileSync(path.join(ROOT, rel), 'utf8');
+const readApp = (rel) => readFileSync(path.join(REPO, rel), 'utf8');
 
-const bridgeSwift = read('HexPlore-IOS/HexPlore/PhotoBridge.swift');
-const librarySwift = read('HexPlore-IOS/HexPlore/PhotoLibrary.swift');
-const syncSwift = read('HexPlore-IOS/HexPlore/PhotoSync.swift');
-const webPanelSwift = read('HexPlore-IOS/HexPlore/WebPanel.swift');
-const plist = read('HexPlore-IOS/Info.plist');
+const bridgeSwift = readApp('HexPlore-IOS/HexPlore/PhotoBridge.swift');
+const librarySwift = readApp('HexPlore-IOS/HexPlore/PhotoLibrary.swift');
+const syncSwift = readApp('HexPlore-IOS/HexPlore/PhotoSync.swift');
+const webPanelSwift = readApp('HexPlore-IOS/HexPlore/WebPanel.swift');
+const plist = readApp('HexPlore-IOS/Info.plist');
 const photosJs = read('src/photos.js');
 const photoInfoJs = read('src/photo-info.js');
 const html = read('index.html');

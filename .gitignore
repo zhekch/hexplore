@@ -1,61 +1,18 @@
-# Dependencies
-node_modules/
-
-# Build output
-dist/
-
-# Database — accounts, sessions, saved routes and every visited cell.
-# Created on first run at DB_PATH (defaults to ./data.db).
-#
-# Globbed rather than named: a copy made to trim or inspect it (data2.db,
-# data-old.db) is the same real location history as the original, and the one
-# that gets committed is always the one nobody thought to list.
-data*.db
-data*.db-shm
-data*.db-wal
-data*.db-journal
-*.sqlite
-*.sqlite3
-
-# Snapshots written by the server to BACKUP_DIR (defaults to ./backups)
-backups/
-
-# Detailed boundaries the server fetched and cached (REGION_CACHE_DIR).
-# Re-fetched on demand; nothing here is authored.
-cache/
-
-# Personal location exports dropped here for `npm run import`
-# (Google, Snapchat, Apple Photos, Strava, Komoot, GPX/KML/TCX …)
-import/*
-!import/.gitkeep
-
-# Visited cells built from those exports by `npm run import` —
-# derived from raw GPS points, so it is personal data too.
-src/imported-cells.json
-
-# Environment / secrets: REGISTRATION_CODE, HA_ALLOWED_HOSTS, ports, DB paths
-.env
-.env.*
-!.env.example
-
-# Generated map data. Committed by default so a clone runs without network:
-#   npm run build:countries  → src/countries.json  (Natural Earth, public domain)
-#   npm run build:places     → src/places.json     (GeoNames CC BY 4.0 + Natural Earth)
-#   npm run build:regions    → src/regions.json    (Natural Earth admin-1)
-# Uncomment to keep them out of the repo and rebuild locally instead. Detailed
-# region boundaries are not here at all: they are fetched per country at view
-# time from geoBoundaries — see src/regions.js.
-# src/countries.json
-# src/places.json
-# src/regions.json
+# Rules that apply to the whole repo. Anything true of only one of the three
+# folders belongs in that folder's own .gitignore, where its paths stay
+# relative to the thing they describe — see HexPlore-webserver/.gitignore for
+# the database and the map data, and the two app folders for Xcode's leavings.
 
 # Local Claude Code settings (personal permissions); .claude/ itself is shared
 .claude/settings.local.json
+
+# The nightly worktree lives here. It is a second checkout of this same repo,
+# so committing it would commit the repo into itself.
 .claude/worktrees/
 
-# iCloud conflict copies ("main 2.js") — this project sits under a synced ~/Documents
+# iCloud conflict copies ("main 2.js") — this project sits under a synced
+# ~/Documents, and a conflicted duplicate of a source file is never wanted.
 * [0-9].*
-
 
 # Logs
 *.log
@@ -71,6 +28,3 @@ yarn-error.log*
 .vscode/
 .idea/
 *.swp
-
-# Worktrees created by Claude Code sessions
-.claude/worktrees/

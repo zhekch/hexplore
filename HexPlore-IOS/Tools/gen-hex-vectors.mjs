@@ -33,7 +33,7 @@ import {
   parentOf,
   pointToCell,
   radiusOf,
-} from '../../src/hexgrid.js';
+} from '../../HexPlore-webserver/src/hexgrid.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
