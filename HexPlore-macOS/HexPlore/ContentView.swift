@@ -30,6 +30,23 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 480)
+        // The map asks for location the first time it is opened, which is what
+        // anyone expects a map to do — and the page's own locate button cannot
+        // raise the prompt itself.
+        //
+        // Here *as well as* in `WebViewController.viewDidAppear`, because a view
+        // controller inside an `NSViewControllerRepresentable` is not guaranteed
+        // to be sent the appearance callbacks — SwiftUI owns the containment,
+        // and a request that silently never runs is indistinguishable from a
+        // permission that was silently refused. Both paths are idempotent: the
+        // request returns immediately unless the answer is still unknown.
+        //
+        // Only once there is a server, though. A dialog on a launch that has
+        // nothing to show yet is a question about nothing.
+        .onAppear {
+            guard settings.isConfigured else { return }
+            LocationLogger.shared.requestAuthorizationIfNeeded()
+        }
         // Resigning active is the Mac's version of the moment the phone app
         // pushes on: you have gone somewhere else, and whatever is queued may as
         // well go now. Quitting is caught separately, in `AppDelegate`.
