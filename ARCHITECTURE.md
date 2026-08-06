@@ -2689,10 +2689,23 @@ the list in when it arrives.
 used to list nothing. A station has no `route_count` in its tile either, so
 unlike a line it cannot know to leave the room: it asks on spec, and the section
 is built only if the answer has something in it. The same request brings back
-what else their API knows — the operator, the UIC number and the operating code
-for a station; the platform numbers, the surface and what is on it for a platform
-— appended to the same `dl` the tile's rows are in, so the card grows rather than
+what else their API knows — the operator, the network and what stops there for a
+station; the platform numbers, the surface and what is on it for a platform —
+appended to the same `dl` the tile's rows are in, so the card grows rather than
 sprouting a second table under the first.
+
+Their `references` block is deliberately not read. The UIC number and the
+operating code — "8507483" and "SP" for Spiez — are both real and neither is
+anything anyone does with a station: one is a booking system's primary key and
+the other is on an operating diagram, and between them they filled two of the
+card's five rows with numbers nobody looks up.
+
+Every enum in their schema is lower case, because that is how an enum is spelled.
+A card that reads "State present" over "Serves train" is printing the column
+rather than the answer, so values go through `humanValue` — the same
+underscore-stripping `featureLabel` the headings use, plus a capital. The label
+beside it is already a capitalised phrase and a row where only one half is
+formatted reads as a bug.
 
 **A junction station is on twenty services**, which is a list taller than the
 phone it is on — and it pushed the name, the operator and the platform number off

@@ -205,6 +205,31 @@ function asList(value) {
   return text ? [text] : [];
 }
 
+/**
+ * A database word as words.
+ *
+ * Theirs are enum spellings and one of them is a sprite path: `level_crossing`,
+ * `spur_junction`, `narrow_gauge`, `general/level-crossing`.
+ */
+function featureLabel(value) {
+  if (!value) return null;
+  const words = String(value).split('/').pop().replace(/[_-]+/g, ' ').trim();
+  return words || null;
+}
+
+/**
+ * The same, as something to print in a card.
+ *
+ * Every enum in their schema is lower case because that is how an enum is
+ * spelled, and a card that reads "State present" over "Serves train" is printing
+ * the column rather than the answer. The label beside it is already a capitalised
+ * phrase, so the value has to be one too or the row reads as half-formatted.
+ */
+const humanValue = (value) => {
+  const words = featureLabel(value);
+  return words ? words[0].toUpperCase() + words.slice(1) : '';
+};
+
 // Which properties are worth putting in a popup, in the order they read best,
 // and how to say each one. The tiles carry thirty-odd keys and most of them are
 // rendering hints — `rank`, `way_length`, `operator_color`, `speed_label` — so
@@ -224,9 +249,9 @@ const POPUP_FIELDS = [
   // braces either way.
   ['operator', 'Operator', (v) => asList(v).join(', ')],
   ['primary_operator', 'Operator', String],
-  ['railway', 'Type', String],
-  ['service', 'Service', String],
-  ['state', 'State', String],
+  ['railway', 'Type', humanValue],
+  ['service', 'Service', humanValue],
+  ['state', 'State', humanValue],
   // 15000 → "15 kV", 1500 → "1.5 kV", 750 → "750 V".
   ['voltage', 'Voltage', (v) => (Number(v) >= 1000 ? `${round(Number(v) / 1000, 2)} kV` : `${round(v, 0)} V`)],
   // 16.700000762939453 → "16.7 Hz"; 0 means direct current, not "0 Hz".
@@ -296,18 +321,6 @@ function railKind(sourceLayer) {
   if (STATION_SOURCE_LAYERS.has(sourceLayer)) return 'station';
   if (TRACK_SOURCE_LAYERS.has(sourceLayer)) return 'line';
   return 'other';
-}
-
-/**
- * A `feature` value as a heading.
- *
- * Theirs are database spellings and one of them is a sprite path:
- * `level_crossing`, `spur_junction`, `general/level-crossing`.
- */
-function featureLabel(value) {
-  if (!value) return null;
-  const words = String(value).split('/').pop().replace(/[_-]+/g, ' ').trim();
-  return words || null;
 }
 
 // The one feature word that is thinner as a heading than the thing it names.
@@ -826,16 +839,15 @@ const STATION_DETAIL = [
   ['network', 'Network', (v) => asList(v).join(', ')],
   // "train", "tram", "light_rail", "subway" — what stops here, which for a
   // station shared between two of them is the distinction that matters.
-  ['station', 'Serves', (v) => featureLabel(v)],
+  ['station', 'Serves', humanValue],
   ['description', 'Description', String],
 ];
 
-/**
- * The codes a station is known by. `uic` is the number on a timetable and in
- * every booking system; `railway-ref` is the two-or-three-letter code on the
- * operating diagrams — "SP" for Spiez — which is the one a railwayman reads.
- */
-const STATION_REFS = [['uic', 'UIC'], ['railway-ref', 'Code']];
+// `references` — the UIC number and the operating code, "8507483" and "SP" — is
+// deliberately not read. Both are real and neither is anything you do with a
+// station: one is a booking system's primary key and the other is on an
+// operating diagram, and they filled two of the card's five rows with numbers
+// nobody looks up. The API still returns them if a use ever turns up.
 
 /**
  * What their feature API adds to a platform.
@@ -847,7 +859,7 @@ const STATION_REFS = [['uic', 'UIC'], ['railway-ref', 'Code']];
 const PLATFORM_DETAIL = [
   ['ref', 'Platform', (v) => asList(v).join(', ')],
   ['height', 'Height', (v) => `${round(v, 2)} m`],
-  ['surface', 'Surface', (v) => featureLabel(v)],
+  ['surface', 'Surface', humanValue],
 ];
 
 /**
@@ -885,13 +897,7 @@ function detailRows(body, kind) {
       rows.push([label, text]);
     }
   };
-  if (kind === 'station') {
-    add(STATION_DETAIL);
-    for (const [key, label] of STATION_REFS) {
-      const value = body.references?.[key];
-      if (value) rows.push([label, String(value)]);
-    }
-  }
+  if (kind === 'station') add(STATION_DETAIL);
   if (kind === 'platform') {
     add(PLATFORM_DETAIL);
     const has = PLATFORM_FACILITIES.filter(([key]) => body[key] === true).map(([, label]) => label);
