@@ -31,9 +31,9 @@ number of approaches that were tried and abandoned.
 - **Saved routes.** Tracks from your imports are kept as lines, named after
   where they went and what sport they look like.
 - **Your photos on the map** (iPhone app only). A point wherever you have taken
-  one; tap it for the picture and the time it was taken. No photo is ever
-  uploaded — the app reads them off the phone it is running on, which is also
-  why this switch is not in the menu in a browser.
+  one, grouped where they pile up; tap for the picture and the time it was
+  taken. No photo is ever uploaded — the app reads them off the phone it is
+  running on, which is also why this switch is not in the menu in a browser.
 - **Four basemaps** — dark, terrain, light, satellite. Colour the map with a
   single accent, or shade each cell by **visits**, by **first seen**, or by
   **type** (a colour per app the data came from).
@@ -182,18 +182,21 @@ hike" is one question you can ask.
 
 **Your photographs, on the map.** In the iPhone app, *Photos* in the layers menu
 puts a point wherever you have taken one. Where they pile up they gather into a
-group with a count on it — tap it and the map zooms in, or, when they were all
-taken in the same spot and no amount of zooming would separate them, the card
-opens with the whole lot: one picture at a time, with the rest as a strip along
-the bottom, oldest first. It says when each was taken, and offers **Open in
-Photos** for everything the card cannot do.
+group with a count on it, and tapping one opens it — however many are in there.
+One picture at a time, with the rest as a strip along the bottom, oldest first,
+and it says when each was taken. Zooming is still the map's own gestures; a tap
+is always about the photographs.
 
 Nothing is uploaded and nothing is shared. The app reads the photographs off the
 phone it is running on, one at a time, only when you tap one, and only to show it
-to you — which is exactly why the switch is not there in a browser. (Note that
-iOS gives no app a way to open one *particular* photo in Photos, so that button
-lands in your library rather than on the picture. The card is showing you the
-picture anyway.)
+to you — which is exactly why the switch is not there in a browser.
+
+Two things it does not do. There is **no "Open in Photos"**: iOS gives no app a
+way to open one particular photo, so such a button would open the Photos app at
+something else entirely, and the card is showing you the picture anyway.
+**Videos are not drawn** — the phone can only offer a still frame of one, which
+would sit on the map looking like a photograph that refuses to play. Where a
+video was taken still counts towards your map's coverage, exactly as it did.
 
 **An image of a place.** *Export & settings → Export an image* makes a picture
 rather than a screenshot: pick any number of regions, countries or continents and

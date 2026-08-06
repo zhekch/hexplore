@@ -567,7 +567,14 @@ screen would tell you.
 
 Map tab → the layers menu → **Photos**. A point wherever you have taken one,
 gathered into a counted group where they pile up, and the picture itself when you
-tap it.
+tap it. A tap on a group opens the group — all of it, however big — rather than
+zooming in: photographs re-cluster as fast as you can separate them, and zooming
+is what the map's own gestures are for.
+
+**Stills only.** A video knows where it was taken and the uploader above counts
+it, but `requestImage` can only offer its poster frame, which on the map is a
+photograph that will not play. The overlay asks for stills and says how many
+photographs it has.
 
 This is the one thing the app does *for* the page rather than beside it, and the
 only reason it is native is that it has to be: a web view cannot open a photo
@@ -584,8 +591,11 @@ It is deliberately **not** gated on *Sync photo locations* above. Looking at
 where your photographs were taken and uploading those places are two different
 decisions, and this one asks for photo permission on its own account.
 
-"Open in Photos" opens the Photos app and not the photograph, because iOS has no
-public way to open a particular asset — see the note on `PhotoLibrary.openInPhotos`.
+**There is no "Open in Photos", and the note in `PhotoLibrary.swift` says why so
+that it does not come back.** It shipped once and a real phone settled it: iOS
+has no public way to open a particular asset, so the button opened the Photos app
+at whatever was last on screen — a control that lies about what it does, at
+exactly the moment you pressed it because you wanted that photograph.
 
 ## What is not here yet
 

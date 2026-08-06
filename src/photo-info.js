@@ -11,18 +11,44 @@
 // usually lands on: forty pictures of one dinner are one point on the map at
 // every zoom there is. The strip along the bottom is the group, oldest first,
 // and picking one swaps the picture above it.
+//
+// ## The whole group, however big it is
+//
+// The strip used to stop at 48 and that was a card lying about what you had
+// tapped. It now holds all of them, and pays for that in two ways rather than
+// one, because a group of four thousand is two different problems:
+//
+// - **Elements.** Buttons are appended `STRIP_CHUNK` at a time, when a sentinel
+//   at the end of the strip scrolls into view. Nothing below the fold exists.
+// - **Requests.** A thumbnail is fetched when its button appears, not when it is
+//   created. Scrolling the strip is what asks for pictures; a group you open and
+//   glance at costs the dozen you can see.
+//
+// Both hang off one `IntersectionObserver` rooted on the strip, which is also
+// what makes them stop: closing the card disconnects it, and whatever was
+// queued simply never happens.
 
 import { formatTime } from './clock.js';
-import { GROUP_MAX, canOpenPhotos, openPhotosApp, photoImage } from './photos.js';
+import { STRIP_CHUNK, photoImage } from './photos.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
 
-// How big a picture to ask for, in CSS pixels of the card's own width — the
-// bridge multiplies nothing and returns what it is asked for, so the device
-// pixel ratio is applied here or the photograph is soft on every phone made
+// How big a thumbnail to ask for, in CSS pixels of the square it goes in. The
+// device pixel ratio is applied on top, or the strip is soft on every phone made
 // since 2012.
 const THUMB_PX = 120;
+
+// How many are fetched without being asked for.
+//
+// The observer below is what fills the strip, and it is the right mechanism for
+// everything past the fold. It is the wrong thing to depend on for the pictures
+// that are already on screen: it cannot fire until the page has been laid out
+// and painted, so a card opened in a tab that is not being rendered — or on any
+// browser that decides the strip's scroller has no size yet — is a row of empty
+// boxes with nothing to nudge it. A screenful, fetched outright, means the strip
+// is never blank; scrolling does the rest.
+const EAGER_THUMBS = 12;
 
 /** "12 photos", or the one thing it is. */
 export function groupTitle(items) {
@@ -64,6 +90,10 @@ function trouble(error) {
 /**
  * Wires the card (markup lives in index.html).
  *
+ * The chrome that has to move out of this card's way is not told about it from
+ * here — src/card-lift.js watches all three cards instead, which is what keeps
+ * the three of them behaving the same.
+ *
  * @param {object} opts
  * @param {() => void} [opts.onClose]
  * @returns {{show:(items:{i:number,t:number}[])=>void, hide:()=>void, visible:()=>boolean}}
@@ -78,14 +108,12 @@ export function mountPhotoInfo({ onClose } = {}) {
   const imgEl = $('photo-info-img');
   const noteEl = $('photo-info-note');
   const stripEl = $('photo-info-strip');
-  const openBtn = $('photo-info-open');
+  const sentinel = $('photo-info-more');
 
   let items = [];
   let chosen = 0;
-  // "showing 48", for a group bigger than the strip. Kept apart from the line it
-  // is appended to, because that line is rewritten every time you pick another
-  // photograph and the caveat is still true afterwards.
-  let capNote = '';
+  // How many of them have buttons so far.
+  let rendered = 0;
   // Which showing this is. The strip checks it on the far side of every await:
   // a card reopened on another point while thumbnails were arriving must not go
   // on being filled by the group that was on its way to the last one.
@@ -94,17 +122,31 @@ export function mountPhotoInfo({ onClose } = {}) {
   // second thumbnail while the first is still in flight happens inside one
   // showing, and without this the slower of the two wins whichever it was.
   let picking = 0;
+  let watcher = null;
+  // The button currently outlined, held rather than searched for: a group can
+  // have thousands and only one of them changes.
+  let chosenBtn = null;
+
+  const setWhen = (text) => {
+    whenEl.textContent = text;
+  };
 
   function hide() {
     card.hidden = true;
     // Bumped rather than left: whatever was in flight has nowhere to land now,
     // and a strip that goes on filling itself behind a closed card is a phone
-    // decoding fifty JPEGs for nobody.
+    // decoding JPEGs for nobody.
     showing++;
     picking++;
+    watcher?.disconnect();
+    watcher = null;
+    chosenBtn = null;
     items = [];
+    rendered = 0;
     imgEl.removeAttribute('src');
-    stripEl.replaceChildren();
+    imgEl.style.aspectRatio = '';
+    figure.classList.remove('loaded');
+    stripEl.replaceChildren(sentinel);
     stripEl.hidden = true;
   }
 
@@ -115,6 +157,10 @@ export function mountPhotoInfo({ onClose } = {}) {
     if (!item) return;
     noteEl.textContent = '';
     figure.classList.add('loading');
+    // `loaded` is what takes the waiting panel away, so it goes now rather than
+    // when the next picture arrives — otherwise the old photograph's frame sits
+    // behind the new one's loading state.
+    figure.classList.remove('loaded');
     imgEl.removeAttribute('src');
     // Cleared rather than left to be overwritten: a reply that carries no
     // dimensions would otherwise leave the last photograph's shape around this
@@ -135,34 +181,50 @@ export function mountPhotoInfo({ onClose } = {}) {
     // finger that opened it.
     if (reply.w && reply.h) imgEl.style.aspectRatio = `${reply.w} / ${reply.h}`;
     imgEl.src = reply.src;
+    figure.classList.add('loaded');
   }
 
-  /**
-   * The strip, filled one at a time.
-   *
-   * Sequential on purpose. Fifty parallel requests would each decode a JPEG on
-   * the phone's main thread and arrive in a heap; in order, the ones you can see
-   * arrive first, and closing the card stops the rest.
-   */
-  async function fillStrip(mine, buttons) {
+  /** One thumbnail, once its button is somewhere you could see it. */
+  async function fillThumb(button, at, mine) {
+    if (button.dataset.filled) return;
+    button.dataset.filled = '1';
     const px = Math.round(THUMB_PX * (globalThis.devicePixelRatio || 1));
-    for (const [at, button] of buttons.entries()) {
-      const reply = await photoImage(items[at].i, px);
-      if (mine !== showing) return;
-      if (!reply.ok) {
-        button.classList.add('missing');
-        continue;
-      }
-      const img = document.createElement('img');
-      img.src = reply.src;
-      img.alt = '';
-      button.replaceChildren(img);
+    const reply = await photoImage(items[at].i, px);
+    if (mine !== showing) return;
+    if (!reply.ok) {
+      button.classList.add('missing');
+      return;
     }
+    const img = document.createElement('img');
+    img.src = reply.src;
+    img.alt = '';
+    button.replaceChildren(img);
   }
 
-  const setWhen = (text) => {
-    whenEl.textContent = capNote ? `${text} · ${capNote}` : text;
-  };
+  /** The next `STRIP_CHUNK` buttons, empty — the observer fills them. */
+  function renderChunk() {
+    const upto = Math.min(items.length, rendered + STRIP_CHUNK);
+    for (; rendered < upto; rendered++) {
+      const at = rendered;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = at === chosen ? 'photo-thumb chosen' : 'photo-thumb';
+      b.title = groupWhen([items[at]]);
+      // Its own index, on the element. The observer needs it per callback, and
+      // reading it back out of the DOM order would be a walk over every button
+      // in the strip each time one scrolls into view — which for a group of four
+      // thousand is the whole cost this chunking exists to avoid.
+      b.dataset.at = String(at);
+      if (at === chosen) chosenBtn = b;
+      b.addEventListener('click', () => choose(at, b));
+      // Before the sentinel, which has to stay at the end for the next chunk.
+      stripEl.insertBefore(b, sentinel);
+      watcher?.observe(b);
+    }
+    // Nothing left to append: stop watching for the end of the strip, or the
+    // observer goes on firing on a sentinel that can never load anything.
+    if (rendered >= items.length) watcher?.unobserve(sentinel);
+  }
 
   /**
    * Pick one out of the strip.
@@ -171,44 +233,48 @@ export function mountPhotoInfo({ onClose } = {}) {
    * group's span: once you have chosen a picture, when *it* was taken is the
    * question, and the span is what the strip is showing you.
    */
-  function choose(at) {
+  function choose(at, button) {
     if (at === chosen) return;
     chosen = at;
-    for (const [n, b] of [...stripEl.children].entries()) b.classList.toggle('chosen', n === chosen);
+    chosenBtn?.classList.remove('chosen');
+    chosenBtn = button;
+    button.classList.add('chosen');
     setWhen(groupWhen([items[chosen]]));
     showChosen();
   }
 
   function show(all) {
-    // Capped rather than paged: past four dozen this stops being a glance at
-    // what is here, and the way through to the whole lot is the Photos app.
-    items = all.slice(0, GROUP_MAX);
+    items = all;
     chosen = 0;
+    rendered = 0;
     const mine = ++showing;
 
-    titleEl.textContent = groupTitle(all);
-    // Said only when there is something the count does not cover: a group of
-    // sixty says which forty-eight of them you are looking at.
-    capNote = all.length > items.length ? `showing ${items.length}` : '';
-    // The whole span on opening, from every photograph in the group and not just
-    // the ones the strip kept.
-    setWhen(groupWhen(all));
+    titleEl.textContent = groupTitle(items);
+    // The whole span on opening; picking one narrows it to that photograph.
+    setWhen(groupWhen(items));
     noteEl.textContent = '';
-    openBtn.hidden = !canOpenPhotos();
 
-    stripEl.replaceChildren();
+    watcher?.disconnect();
+    stripEl.replaceChildren(sentinel);
     stripEl.hidden = items.length < 2;
     if (items.length > 1) {
-      const buttons = items.map((item, at) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = at === 0 ? 'photo-thumb chosen' : 'photo-thumb';
-        b.title = groupWhen([item]);
-        b.addEventListener('click', () => choose(at));
-        stripEl.append(b);
-        return b;
-      });
-      fillStrip(mine, buttons);
+      // Rooted on the strip and generous about "nearly visible", so a thumbnail
+      // is usually there by the time it is scrolled to rather than starting to
+      // load once it arrives.
+      watcher = new IntersectionObserver((entries) => {
+        if (mine !== showing) return;
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          if (entry.target === sentinel) renderChunk();
+          else fillThumb(entry.target, Number(entry.target.dataset.at), mine);
+        }
+      }, { root: stripEl, rootMargin: '0px 240px' });
+      watcher.observe(sentinel);
+      renderChunk();
+      // The first screenful, without waiting to be told they are visible.
+      for (const b of [...stripEl.querySelectorAll('.photo-thumb')].slice(0, EAGER_THUMBS)) {
+        fillThumb(b, Number(b.dataset.at), mine);
+      }
     }
 
     // Shown before the picture is asked for, and that order matters: the size to
@@ -220,11 +286,6 @@ export function mountPhotoInfo({ onClose } = {}) {
   closeBtn.addEventListener('click', () => {
     hide();
     onClose?.();
-  });
-
-  openBtn.addEventListener('click', async () => {
-    const reply = await openPhotosApp();
-    if (!reply.ok) noteEl.textContent = 'The Photos app could not be opened.';
   });
 
   return { show, hide, visible: () => !card.hidden };

@@ -39,14 +39,6 @@
 	     image is ever uploaded. -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Hexplore reads the location a photo was taken at, so the places you have photographed appear on your map. Tapping one of those places shows the photo itself, on this phone — no image is ever uploaded.</string>
-	<!-- So `canOpenURL` can answer honestly about the Photos app, which is what
-	     decides whether the photo card offers "Open in Photos" at all. Without
-	     the scheme listed here iOS answers false for it and the button would
-	     never appear on a phone that can perfectly well open Photos. -->
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>photos-redirect</string>
-	</array>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Hexplore reads workouts that recorded a route — a ride, a walk, a run outdoors — and draws them on your map. Workouts with no route are ignored, and nothing is ever written back to Health.</string>
 </dict>

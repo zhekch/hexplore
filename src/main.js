@@ -58,7 +58,7 @@ import {
 // a browser `photosAvailable()` is false and the switch is not in the menu at
 // all — see the note at the top of src/photos.js.
 import {
-  forgetPhotos, installPhotos, loadPhotos, photoCount, photoExpansion,
+  forgetPhotos, installPhotos, loadPhotos, photoCount,
   photoLayerIds, photoLeaves, photosAvailable, photosLimited, removePhotos,
 } from './photos.js';
 import { mountPhotoInfo } from './photo-info.js';
@@ -97,11 +97,17 @@ import { reconcilePrefs } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
 import { installScrollChain } from './scroll-chain.js';
+import { installCardLift } from './card-lift.js';
 
 // Every panel in the app is a scrolling column with scrolling lists inside it,
 // and on a phone the inner list is a dead end unless the hand-off is written by
 // hand. Installed once, for the whole document.
 installScrollChain();
+
+// And on a phone an open card covers the button cluster in the corner, so the
+// cluster moves above it — by however tall the card actually is. Installed once
+// too, and it watches the cards rather than being told about them.
+installCardLift();
 
 // Past the finest hex levels (0..MAX_LEVEL), one more zoom-out step swaps the
 // hex regions for whole-country fills — and one more after that dissolves those
@@ -5216,7 +5222,7 @@ function showPhotoInfo(e) {
   if (!hit) return false;
   const p = hit.properties ?? {};
   if (p.cluster) {
-    openPhotoCluster(p.cluster_id, hit.geometry.coordinates.slice(0, 2));
+    openPhotoCluster(p.cluster_id, p.point_count);
     return true;
   }
   showPhotos([{ i: p.i, t: p.t }]);
@@ -5224,24 +5230,22 @@ function showPhotoInfo(e) {
 }
 
 /**
- * A tap on a group: zoom into it if that would break it up, open it if it would
- * not.
+ * A tap on a group opens it. Always, whatever size it is.
  *
- * Both halves are needed and neither is enough. Always zooming is the usual
- * behaviour and it fails on the case this overlay is full of — forty
- * photographs of one dinner have no zoom at which they separate, so the map
- * would drift to its ceiling and the tap would stop doing anything. Always
- * opening would put a card of forty-eight unrelated pictures in front of you
- * because you tapped a cluster that meant "this half of Italy".
+ * It used to zoom in whenever zooming would break the group up, which is what a
+ * map conventionally does and is wrong here. Photographs cluster again as fast
+ * as you can separate them — a handful taken a few metres apart re-forms at
+ * every zoom on the way in, so getting to the pictures took ten taps and each
+ * one moved the map somewhere you had not asked to go. And the case it was
+ * meant to serve is not real: nobody taps a group of photographs wanting a
+ * different camera position, they tap it wanting the photographs.
+ *
+ * Zooming is what the map's own gestures are for, and they are still there.
  */
-async function openPhotoCluster(clusterId, at) {
-  const zoom = await photoExpansion(map, clusterId);
-  if (zoom != null) {
-    releaseCameraLock();
-    map.easeTo({ center: at, zoom, duration: 450 });
-    return;
-  }
-  const items = await photoLeaves(map, clusterId);
+async function openPhotoCluster(clusterId, count) {
+  // `getClusterLeaves` insists on a limit, so it is given the group's own size
+  // — the card holds all of them and renders the strip in chunks.
+  const items = await photoLeaves(map, clusterId, count);
   if (items.length) showPhotos(items);
 }
 

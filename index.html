@@ -302,8 +302,12 @@
         <img id="photo-info-img" alt="" />
       </div>
       <div class="photo-note" id="photo-info-note"></div>
-      <div class="photo-strip" id="photo-info-strip" hidden></div>
-      <button type="button" class="modal-btn primary photo-open" id="photo-info-open" hidden>Open in Photos</button>
+      <!-- The strip holds the whole group, however big it is: the marker at the
+           end is what asks for the next handful of thumbnails as you reach it,
+           so a group of four thousand costs the dozen you can actually see. -->
+      <div class="photo-strip" id="photo-info-strip" hidden>
+        <i class="photo-more" id="photo-info-more" aria-hidden="true"></i>
+      </div>
     </div>
 
     <!-- What the map is currently narrowed to, and the way back out. Both

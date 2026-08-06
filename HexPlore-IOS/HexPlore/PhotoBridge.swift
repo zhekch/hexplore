@@ -73,8 +73,6 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
             Task { replyHandler(await points(), nil) }
         case "photo":
             Task { replyHandler(await photo(body), nil) }
-        case "open":
-            Task { replyHandler(await open(), nil) }
         default:
             // A reply rather than an error: the page asking something this build
             // has never heard of is an old app and a new site, which is a
@@ -95,7 +93,11 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
         // Off the main actor: this is the one part that is not instant, and it
         // runs while the map is on screen — a second of a frozen map is a second
         // in which the overlay looks broken rather than busy.
-        let located = await Task.detached { PhotoLibrary.located() }.value
+        //
+        // `stillsOnly` because this is the list a *picture* is asked for, and a
+        // video cannot answer that. The uploader reads the same library without
+        // the filter — see the note on `located`.
+        let located = await Task.detached { PhotoLibrary.located(stillsOnly: true) }.value
         snapshot = located
         scan += 1
         return [
@@ -108,7 +110,6 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
             // not a smaller map, it is a wrong one, and nothing else on screen
             // would tell you.
             "limited": PhotoLibrary.authorization == .limited,
-            "canOpen": PhotoLibrary.canOpenInPhotos,
         ]
     }
 
@@ -140,14 +141,4 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
         ]
     }
 
-    /// Open the Photos app.
-    ///
-    /// Deliberately takes no index. iOS has no public way to open a *particular*
-    /// asset — see ``PhotoLibrary/openInPhotos()`` — so an argument naming one
-    /// would be an argument nothing could use, and an API that accepts a
-    /// photograph and then ignores it is worse than one that never claimed to.
-    private func open() async -> [String: Any] {
-        guard await PhotoLibrary.openInPhotos() else { return ["ok": false, "error": "unavailable"] }
-        return ["ok": true]
-    }
 }

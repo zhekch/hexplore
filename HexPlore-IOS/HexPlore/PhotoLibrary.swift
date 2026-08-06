@@ -112,10 +112,30 @@ nonisolated enum PhotoLibrary {
     /// here opens an image, asks for image data or touches iCloud. Eighty
     /// thousand photographs take a second or two because this is a database
     /// query rather than a file walk.
-    static func located(limit: Int = ceiling) -> [Located] {
+    ///
+    /// ## `stillsOnly`, and why the two callers disagree
+    ///
+    /// A video knows where it was taken exactly as a photograph does, so for the
+    /// **uploader** it is the same evidence and is counted: you were there, and
+    /// what the camera was recording at the time is beside the point.
+    ///
+    /// For the **overlay** it is not, and the difference is the whole of what the
+    /// overlay does. `requestImage` on a video hands back its poster frame, so a
+    /// video appeared as a photograph that could not be played — a point you can
+    /// tap and be misled by. Playing it is not a small thing to add: a video is
+    /// tens of megabytes and cannot cross the bridge as a data URL at all. So the
+    /// map leaves them out and says how many photographs it has, which is true,
+    /// rather than showing stills that lie about what they are.
+    ///
+    /// `mediaType` *is* a queryable property, so this costs nothing — unlike the
+    /// location filter above it, the database does it.
+    static func located(limit: Int = ceiling, stillsOnly: Bool = false) -> [Located] {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         options.includeHiddenAssets = false
+        if stillsOnly {
+            options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        }
         let assets = PHAsset.fetchAssets(with: options)
 
         var out: [Located] = []
@@ -194,35 +214,21 @@ nonisolated enum PhotoLibrary {
         return (data, cg?.width ?? Int(image.size.width), cg?.height ?? Int(image.size.height))
     }
 
-    // MARK: - The way out to Photos
-
-    /// The only door iOS has.
-    ///
-    /// `photos-redirect://` opens the Photos app and is the scheme every app
-    /// that offers this uses. It is undocumented, and there is **no public way
-    /// to open one particular asset** — the identifier this app holds means
-    /// nothing to a URL, and the schemes that look like they should take one
-    /// (`photos-navigation://…?assetUuid=`) are private and do not answer. So
-    /// this lands in the library rather than on the photograph, and the card
-    /// that offers it shows the picture itself for the case where that is all
-    /// you wanted.
-    private static let photosURL = URL(string: "photos-redirect://")
-
-    /// Whether the button should be offered at all.
-    ///
-    /// `canOpenURL` answers honestly only because `photos-redirect` is listed in
-    /// `LSApplicationQueriesSchemes`; without that entry iOS returns false for
-    /// every scheme it has not been told about, and the button would never
-    /// appear on a phone that can perfectly well open Photos.
-    @MainActor
-    static var canOpenInPhotos: Bool {
-        guard let photosURL else { return false }
-        return UIApplication.shared.canOpenURL(photosURL)
-    }
-
-    @MainActor
-    static func openInPhotos() async -> Bool {
-        guard let photosURL else { return false }
-        return await UIApplication.shared.open(photosURL)
-    }
+    // MARK: - There is no way out to Photos, and there was never going to be
+    //
+    // This briefly offered an "Open in Photos" button. It is gone, and the note
+    // is here so it does not come back.
+    //
+    // iOS has no public way to open one particular asset. `photos-redirect://`
+    // opens the Photos app — undocumented, but it works — and that is all it
+    // does: it lands wherever Photos was last, not on the photograph you tapped.
+    // The schemes that look like they take an identifier
+    // (`photos-navigation://…?assetUuid=`) are private and do not answer one.
+    //
+    // A button labelled "Open in Photos" that opens Photos at something else is
+    // a button that lies about what it does, and on a real library that is worse
+    // than no button: you tap it *because* you want that picture in the Photos
+    // app, and you arrive somewhere unrelated with your place on the map gone.
+    // The card shows the picture, which is what the button was mostly wanted
+    // for. If Apple ever ships a real deep link, this is the place for it.
 }

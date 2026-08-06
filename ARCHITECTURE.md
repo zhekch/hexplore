@@ -3157,7 +3157,7 @@ So a picture is a JPEG the app base64-encodes into a `data:` URL, at the size th
 card asks for and no larger. The card asks in device pixels of its own width,
 which is why the photograph is sharp on a phone and why it is not 12 MB.
 
-### Grouping, and the group that cannot be broken up
+### Grouping, and why a tap never zooms
 
 The source clusters, with one deliberate departure from the convention:
 `clusterMaxZoom` sits at the **top** of the map's range rather than one below it.
@@ -3166,39 +3166,72 @@ for shops and wrong for photographs — forty pictures of one dinner are forty
 points at one coordinate, and separating them at z17 replaces a group you can
 open with a pile you cannot count.
 
-So a tap on a group asks supercluster where it would break apart, and does one of
-two things:
-
-| | |
-| --- | --- |
-| a zoom exists | fly there — the ordinary case, and what a map is expected to do |
-| none does | open the card, with the whole group in it |
-
-Both halves are needed and neither is enough on its own. Always zooming fails on
-the case this overlay is full of: the map drifts to its ceiling and the tap stops
-doing anything. Always opening puts forty-eight unrelated pictures in front of
-you because you tapped a cluster that meant "this half of Italy".
+**A tap on a group opens it, whatever size it is.** This first shipped the other
+way round — zoom in when zooming would break the group up, open the card only
+when it would not — which is what a map conventionally does and was wrong twice
+over on a real library. Photographs re-cluster as fast as you can separate them:
+a handful taken a few metres apart re-forms at every zoom on the way in, so
+reaching the pictures took up to ten taps, each of which moved the map somewhere
+nobody had asked to go. And the case the zoom was serving is not a real one —
+nobody taps a group of photographs wanting a different camera position. They want
+the photographs. Zooming is what the map's own gestures are for, and they are
+still there.
 
 The card shows one picture with the rest as a strip along the bottom, oldest
-first, capped at 48 — past four dozen this stops being a glance at what is here,
-and the way through to the whole lot is the Photos app. The strip fills **one
-thumbnail at a time**: fifty parallel requests would each decode a JPEG on the
-phone's main thread and arrive in a heap, where in order the ones you can see
-arrive first and closing the card stops the rest.
+first, and it holds **all of them**. It was capped at 48, which made a tap on
+four thousand photographs quietly a card of forty-eight: the group is the answer
+to the tap, and keeping most of it back is a card misreporting what is there.
 
-### "Open in Photos" opens Photos, and not the photograph
+Four thousand is two problems, and the strip pays for each separately.
+**Elements**: buttons are appended `STRIP_CHUNK` at a time, when a sentinel at
+the end of the strip scrolls into view, so nothing below the fold exists.
+**Requests**: a thumbnail is fetched when its button appears, not when it is
+created, so a group you open and glance at costs the dozen you can see. Both hang
+off one `IntersectionObserver` rooted on the strip, which is also what makes them
+stop — closing the card disconnects it and whatever was queued never happens.
 
-iOS has no public way to open one particular asset. `photos-redirect://` opens
-the Photos app and is undocumented but universal; the schemes that look like they
-should take an identifier are private and do not answer one. So the button lands
-in the library rather than on the picture, which is why the card shows the
-picture itself — that is usually what the button was going to be pressed for.
+The first dozen are fetched outright rather than waiting to be told they are
+visible. An `IntersectionObserver` cannot fire before the page has been laid out
+and painted, so a card opened in a tab that is not being rendered is a row of
+empty boxes with nothing to nudge it. That is measured rather than theorised, and
+a screenful is cheap insurance against every other reason layout might not have
+happened yet.
 
-It appears only when `canOpenURL` says the app is there, which in turn only
-answers honestly because `photos-redirect` is listed in
-`LSApplicationQueriesSchemes`. Without that entry iOS returns false for every
-scheme it has not been told about, and the button would never appear on a phone
-that can perfectly well open Photos.
+### There is no way through to Photos, and there cannot be
+
+This shipped with an **Open in Photos** button, and a real phone settled it: iOS
+has no public way to open one particular asset. `photos-redirect://` opens the
+Photos app — undocumented, but it works — and that is the whole of what it does,
+landing wherever Photos was last rather than on the photograph you tapped. The
+schemes that look like they take an identifier (`photos-navigation://…?assetUuid=`)
+are private and do not answer one.
+
+A button labelled "Open in Photos" that opens Photos at something else is a
+button that lies about what it does, and on a real library that is worse than no
+button: you press it *because* you want that picture in the Photos app, and you
+arrive somewhere unrelated having lost your place on the map. So it is gone,
+along with the `LSApplicationQueriesSchemes` entry that let `canOpenURL` answer
+for it. The card shows the picture, which is what the button was mostly wanted
+for.
+
+The reasoning is kept in `PhotoLibrary.swift`, where the button would go back.
+Without it somebody re-derives the idea from the same first principles in a year
+and ships the same lie.
+
+### Videos are counted, and not drawn
+
+A video knows where it was taken exactly as a photograph does, so the **uploader**
+counts it: you were there, and what the camera happened to be recording is beside
+the point. Nothing about the `apple-photos` cells changes.
+
+The **overlay** leaves them out, and this is the one place the two callers of
+`PhotoLibrary.located` deliberately disagree. `requestImage` on a video hands
+back its poster frame, so a video arrived as a photograph that would not play — a
+point you can tap and be misled by. Playing one is not a small addition: a video
+is tens of megabytes and cannot cross the bridge as a data URL at all. So the map
+asks for stills — `stillsOnly`, a `mediaType` predicate the Photos database
+answers for free, unlike the location filter beside it — and says how many
+photographs it has, which is then true.
 
 ### Where it sits, and what it takes precedence over
 
@@ -3224,6 +3257,38 @@ thousand assets to arrive at the list we are holding. Switching the row off and
 on again is the refresh, and switching it off drops the list: keeping a copy of
 where somebody has photographed eighty thousand times after they have turned the
 layer off is not a cache, it is a leftover.
+
+## The cards, and the buttons behind them
+
+On a phone an info card is a sheet across the bottom of the screen, and the
+button cluster — search, the layers menu, "my location" — is in the corner
+underneath it. Open any card and those three are behind it: still there, still
+tappable in the few pixels that stick out, and to anyone using the app simply
+gone. So while a card is open they step above it, and `src/card-lift.js` is what
+makes that possible.
+
+**The distance cannot be a constant**, which is the whole reason this is script
+rather than three more lines of CSS. A cell card is a title and five rows; a
+route card adds three buttons; a photo card is a photograph — and a photograph's
+card *changes height while you are looking at it*, from a 116 px waiting frame to
+whatever shape the picture turns out to be. One hardcoded offset would be wrong
+for two of the three cards and wrong twice for the third.
+
+So the height is measured and published as `--card-h`, with `body.card-open`
+beside it, and the lifting itself is one rule in the phone media query. The rule
+carries a `min()`: whatever is open, the cluster stays on screen rather than
+being pushed off the top, because a control that has left the building is not an
+improvement on one that is behind a card.
+
+**Nothing calls it per card.** A dozen places open or close one — `showCellInfoAt`,
+`closeRouteInfo`, the mode switch, signing out — and a notification hooked into
+each is a notification somebody forgets to add to the thirteenth. It watches the
+cards instead: a `ResizeObserver` for the height, a `MutationObserver` on
+`hidden` for a card reopened at exactly the size it had before, and a capturing
+`load` listener for the case that caught this out in testing. `ResizeObserver`
+reports a picture arriving only when the browser next runs its rendering steps,
+which in a tab that was not being painted left the published height 350 px stale;
+an image saying it has loaded is not subject to that.
 
 ## How sharp a region is
 

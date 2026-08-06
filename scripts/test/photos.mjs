@@ -20,8 +20,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  CLUSTER_MAX_ZOOM, GROUP_MAX, PHOTO_COLOR, forgetPhotos, installPhotos, loadPhotos,
-  photoCount, photoExpansion, photoGeoJson, photoLayerIds, photoLayers, photoLeaves,
+  CLUSTER_MAX_ZOOM, PHOTO_COLOR, STRIP_CHUNK, forgetPhotos, installPhotos, loadPhotos,
+  photoCount, photoGeoJson, photoLayerIds, photoLayers, photoLeaves,
   photosAvailable, photosLimited,
 } from '../../src/photos.js';
 import { groupTitle, groupWhen } from '../../src/photo-info.js';
@@ -38,6 +38,7 @@ const read = (rel) => readFileSync(path.join(ROOT, rel), 'utf8');
 
 const bridgeSwift = read('HexPlore-IOS/HexPlore/PhotoBridge.swift');
 const librarySwift = read('HexPlore-IOS/HexPlore/PhotoLibrary.swift');
+const syncSwift = read('HexPlore-IOS/HexPlore/PhotoSync.swift');
 const webPanelSwift = read('HexPlore-IOS/HexPlore/WebPanel.swift');
 const plist = read('HexPlore-IOS/Info.plist');
 const photosJs = read('src/photos.js');
@@ -61,14 +62,14 @@ console.log('\nThe page and the app agree about what to call each other');
   const asked = [...photosJs.matchAll(/ask: '([a-z]+)'/g)].map((m) => m[1]);
   const answered = [...bridgeSwift.matchAll(/case "([a-z]+)":/g)].map((m) => m[1]);
   const unanswered = asked.filter((a) => !answered.includes(a));
-  check(asked.length >= 3, 'the page asks for points, a photo and a way out', asked.join(', '));
+  check(asked.length >= 2, 'the page asks for the points and for a photo', asked.join(', '));
   check(!unanswered.length, 'and the app answers every one of them', unanswered.join(', '));
   const unasked = answered.filter((a) => !asked.includes(a));
   check(!unasked.length, 'with nothing left over that nobody asks', unasked.join(', '));
 
   // The reply's own keys. `photos` carrying the wrong name is an overlay that
   // draws nothing while every other part of the exchange looks healthy.
-  for (const key of ['scan', 'photos', 'limited', 'canOpen']) {
+  for (const key of ['scan', 'photos', 'limited']) {
     check(bridgeSwift.includes(`"${key}"`) && photosJs.includes(`reply.${key}`),
       `the scan's \`${key}\` is written on one side and read on the other`);
   }
@@ -184,28 +185,28 @@ console.log('\nInstalling is idempotent, and clusters to the bottom of the map')
   check(setData === 1, 'it hands the existing source new data instead', String(setData));
 }
 
-console.log('\nA group that cannot be broken up is opened rather than zoomed into');
+console.log('\nA tap on a group opens all of it');
 {
-  const map = (zoom) => ({
-    getMaxZoom: () => 17.5,
+  const map = (held) => ({
     getSource: () => ({
-      getClusterExpansionZoom: async () => zoom,
-      getClusterLeaves: async (id, limit) => Array.from({ length: Math.min(limit, 60) }, (_, n) => ({
+      getClusterLeaves: async (id, limit) => Array.from({ length: Math.min(limit, held) }, (_, n) => ({
         // Deliberately out of order: supercluster answers in index order, and
         // the strip in the card is a morning rather than a shuffle.
-        properties: { i: n, t: 1_700_000_000 + ((n * 37) % 60) },
+        properties: { i: n, t: 1_700_000_000 + ((n * 37) % 900) },
       })),
     }),
   });
-  check(await photoExpansion(map(12), 1) === 12, 'a cluster that would split names the zoom');
-  check(await photoExpansion(map(18), 1) === null,
-    'and one past the end of the map names nothing, which is what opens the card');
 
-  const leaves = await photoLeaves(map(18), 1);
-  check(leaves.length === GROUP_MAX, 'a group is capped at what the strip can show', String(leaves.length));
-  check(leaves.every((l, n) => n === 0 || leaves[n - 1].t <= l.t), 'and comes back oldest first');
-  check(await photoExpansion({ getMaxZoom: () => 17.5, getSource: () => undefined }, 1) === null,
-    'a cluster asked for after the layer went away is not an error');
+  // The cap used to be 48, which made a card of 4,000 photographs quietly a card
+  // of 48 — the group is the answer to the tap, and keeping most of it back is
+  // the card misreporting what is there.
+  const big = await photoLeaves(map(4000), 1, 4000);
+  check(big.length === 4000, 'a group of four thousand comes back whole', String(big.length));
+  check(big.every((l, n) => n === 0 || big[n - 1].t <= l.t), 'and comes back oldest first');
+  check(STRIP_CHUNK > 0 && STRIP_CHUNK < 4000,
+    'the strip renders it in chunks rather than all at once', String(STRIP_CHUNK));
+  check((await photoLeaves({ getSource: () => undefined }, 1, 10)).length === 0,
+    'a group asked for after the layer went away is not an error');
 }
 
 console.log('\nThe card says when, whether it is one photograph or forty');
@@ -247,15 +248,39 @@ console.log('\nOutside the app there is nothing to switch on');
   check(photoCount() === 0, 'forgetting an empty library is fine too');
 }
 
-console.log('\nThe app asks iOS for what it needs, and says why');
+console.log('\nVideos are counted where they are evidence and left out where they are not');
 {
-  check(plist.includes('<string>photos-redirect</string>') && plist.includes('LSApplicationQueriesSchemes'),
-    'the Photos scheme is declared, or canOpenURL always answers no');
-  check(librarySwift.includes('photos-redirect://'), 'and that is the scheme the app opens');
-  // The usage string used to promise that no photograph is ever opened, which
-  // stopped being true the moment tapping a point showed you one.
+  // A video knows where it was taken, so the uploader counts it: you were
+  // there. The overlay cannot show it — `requestImage` hands back a poster
+  // frame, which on a real library looked like a photograph that would not
+  // play — so it asks for stills only. The two callers disagreeing is the point
+  // here, which is why both halves are pinned.
+  check(/stillsOnly: Bool = false/.test(librarySwift),
+    'the reader takes stills-only as an option, off by default');
+  check(/mediaType == %d/.test(librarySwift) && /PHAssetMediaType\.image/.test(librarySwift),
+    'and filters on the media type the database can answer');
+  check(/located\(stillsOnly: true\)/.test(bridgeSwift), 'the map asks for stills');
+  check(/PhotoLibrary\.located\(\)\s*$/m.test(syncSwift) || /PhotoLibrary\.located\(\)/.test(syncSwift),
+    'and the uploader asks for everything');
+}
+
+console.log('\nThere is no "Open in Photos", and nothing left of it');
+{
+  // Removed after a real phone showed what it did: iOS has no public way to
+  // open one asset, so the button opened the Photos app at whatever was last on
+  // screen — a control that lies about what it does, exactly when you pressed it
+  // because you wanted that photograph.
+  check(!plist.includes('LSApplicationQueriesSchemes'), 'the query scheme is gone from Info.plist');
+  check(!/UIApplication\.shared\.open|canOpenURL/.test(librarySwift), 'and nothing opens a URL any more');
+  check(!/"open"/.test(bridgeSwift), 'the bridge no longer answers an open message');
+  check(!/openPhotosApp|canOpenPhotos/.test(photosJs + photoInfoJs), 'and the page no longer asks');
+  check(!/Open in Photos/.test(html), 'the button is out of the markup');
+  // The reasoning is worth more than the button was: without it somebody adds it
+  // back in a year, from the same first principles, and ships the same lie.
+  check(/no public way/i.test(librarySwift), 'the reason it cannot exist is written where it would go back');
+
   const usage = plist.match(/<key>NSPhotoLibraryUsageDescription<\/key>\s*<string>([^<]*)</)?.[1] ?? '';
-  check(!/never opens the photographs/i.test(usage), 'the permission text no longer promises otherwise');
+  check(!/never opens the photographs/i.test(usage), 'the permission text does not promise otherwise');
   check(/no image is ever uploaded/i.test(usage), 'and still promises the thing that is true', usage);
 }
 

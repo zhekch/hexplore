@@ -38,11 +38,17 @@ const SOURCE = `${NS}-src`;
 // the one thing a photograph is guaranteed to contain.
 export const PHOTO_COLOR = '#c07bff';
 
-// How many photographs one card will show. A cluster can hold thousands, and a
-// card that tried to be a photo library would be a worse photo library than the
-// one already on the phone — this is a glance at what is here, with a way
-// through to Photos for the rest.
-export const GROUP_MAX = 48;
+// How many thumbnails the card puts in the strip at a time. **Not a cap on the
+// group**: a tap on a cluster of four thousand opens a card with four thousand
+// in it, and the strip appends the next chunk as you reach the end of it. This
+// used to be a hard ceiling of 48 and that was simply wrong — the group is the
+// answer to the tap, and silently keeping nine tenths of it back is a card that
+// misreports what is there.
+//
+// Chunked rather than rendered whole because a strip of forty thousand buttons
+// is forty thousand elements on a phone, and because a thumbnail costs a request
+// each. See `mountPhotoInfo`.
+export const STRIP_CHUNK = 60;
 
 // --- Talking to the app ----------------------------------------------------------
 
@@ -77,14 +83,11 @@ async function ask(body) {
 let scan = 0;
 let points = [];
 let limited = false;
-let canOpen = false;
 
 export const photoPoints = () => points;
 export const photoCount = () => points.length;
 /** Whether iOS is only letting the app see *some* of the library. */
 export const photosLimited = () => limited;
-/** Whether the card should offer a way through to the Photos app. */
-export const canOpenPhotos = () => canOpen;
 /** When one photograph was taken, in unix seconds. */
 export const photoTime = (i) => points[i]?.[2] ?? null;
 
@@ -106,7 +109,6 @@ export async function loadPhotos() {
   scan = reply.scan;
   points = Array.isArray(reply.photos) ? reply.photos : [];
   limited = !!reply.limited;
-  canOpen = !!reply.canOpen;
   return { ok: true, count: points.length };
 }
 
@@ -125,9 +127,6 @@ export function forgetPhotos() {
  * @returns {Promise<{ok: boolean, src?: string, w?: number, h?: number, error?: string}>}
  */
 export const photoImage = (i, px) => ask({ ask: 'photo', scan, i, px: Math.round(px) });
-
-/** Open the Photos app. It has no way to be told which photograph — see PhotoLibrary.swift. */
-export const openPhotosApp = () => ask({ ask: 'open' });
 
 // --- The layer -------------------------------------------------------------------
 
@@ -169,8 +168,7 @@ export const photoLayerIds = () => [POINT, CLUSTER, COUNT];
  * shows individual points, which is right for shops and wrong for photographs:
  * forty pictures of one dinner are forty points at the same coordinate, and
  * un-clustering them at z17 replaces a group you can open with a pile you cannot
- * count. So a group that cannot be broken up stays a group, and tapping it opens
- * the card instead of zooming — see `photoExpansion`.
+ * count. So a group stays a group all the way in, and a tap on one opens it.
  */
 export const CLUSTER_MAX_ZOOM = 17;
 const CLUSTER_RADIUS = 44;
@@ -293,33 +291,18 @@ export function removePhotos(map) {
 }
 
 /**
- * The zoom at which a cluster would break apart, or null if nothing would.
+ * Everything inside a cluster, oldest first.
  *
- * Null is the interesting answer and the reason this is not called inline: a
- * group of photographs taken in one room has no zoom at which it separates, and
- * supercluster says so by naming a zoom past the end of its index. Flying there
- * would land at the map's own ceiling with the same cluster still under the
- * finger, twice, which is how a map teaches somebody that tapping does nothing.
- */
-export async function photoExpansion(map, clusterId) {
-  const source = map.getSource(SOURCE);
-  if (!source) return null;
-  try {
-    const zoom = await source.getClusterExpansionZoom(clusterId);
-    return zoom > map.getMaxZoom() ? null : zoom;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * What is inside a cluster, oldest first, capped at `limit`.
+ * All of it, however much there is: the card renders the strip in chunks, so a
+ * group of four thousand costs four thousand small objects rather than four
+ * thousand requests. `limit` exists because `getClusterLeaves` demands one —
+ * pass the cluster's own `point_count`.
  *
  * Sorted here rather than left in supercluster's order, which is the order the
  * index happens to hold them in. A group of photographs is a stretch of time and
- * reads as one — the strip in the card is a morning, not a shuffle.
+ * reads as one — the strip is a morning, not a shuffle.
  */
-export async function photoLeaves(map, clusterId, limit = GROUP_MAX) {
+export async function photoLeaves(map, clusterId, limit) {
   const source = map.getSource(SOURCE);
   if (!source) return [];
   try {

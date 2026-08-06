@@ -1070,18 +1070,32 @@ body {
   min-height: 116px;
   margin-top: 2px;
   border-radius: 14px;
-  overflow: hidden;
   background-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Once the photograph is there, the panel behind it goes.
+
+   It used to stay, and a portrait picture on a card as wide as the screen left a
+   pale bar down each side of it — a frame nobody asked for around a photograph
+   that was already the right shape. The panel is only ever meant to say "a
+   picture is coming"; the moment one has, the card is the background. */
+.photo-figure.loaded {
+  background-color: transparent;
+  min-height: 0;
 }
 
 .photo-figure img {
   display: block;
-  width: 100%;
-  height: auto;
+  /* Sized by the picture rather than stretched to the box, which is what makes
+     the letterbox impossible rather than merely hidden: the element is exactly
+     the photograph, so there are no edges left over to fill. */
+  max-width: 100%;
   /* Never much taller than half the screen: a portrait photograph would
-     otherwise push the strip and the button off the bottom of a phone. */
-  max-height: 46vh;
-  object-fit: contain;
+     otherwise push the strip off the bottom of a phone. */
+  max-height: 52vh;
+  width: auto;
+  height: auto;
+  border-radius: 14px;
 }
 
 /* Waiting for the phone to hand a picture over. The box pulses rather than
@@ -1129,7 +1143,13 @@ body {
 .photo-strip {
   display: flex;
   gap: 6px;
-  margin-top: 9px;
+  /* The padding is not spacing, it is room for the selected thumbnail's ring.
+     A scroller clips at its own edge, so with the buttons flush against it the
+     ring was sliced off top and bottom — visible as a selection that looked
+     broken rather than selected. The margin above is reduced by the same amount
+     so the strip sits where it did. */
+  padding: 3px;
+  margin-top: 6px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
@@ -1137,6 +1157,14 @@ body {
 
 .photo-strip::-webkit-scrollbar {
   display: none;
+}
+
+/* The end of the strip. Not a spacer and not decoration: it is what the
+   observer watches to know the next chunk of thumbnails is wanted, so it has to
+   have a size and cannot be `display: none`. */
+.photo-more {
+  flex: none;
+  width: 1px;
 }
 
 /* After the `display: flex` above, or a hidden strip is a visible empty row. */
@@ -1177,11 +1205,6 @@ body {
    would misstate how many there were. */
 .photo-thumb.missing {
   opacity: 0.4;
-}
-
-.photo-open {
-  width: 100%;
-  margin-top: 10px;
 }
 
 /* Modal (import dialog) */
@@ -2565,6 +2588,25 @@ body {
     right: calc(12px + var(--safe-r));
     bottom: calc(12px + var(--safe-b));
     align-items: flex-end;
+    transition: bottom 0.18s ease;
+  }
+
+  /* An open card is a sheet across the bottom of the screen and these three
+     buttons are in the corner beneath it, which on a phone means gone. So they
+     step over it — by the card's real height, because the three cards are
+     different sizes and the photo card changes size as its picture arrives.
+     `--card-h` is measured and published by src/card-lift.js.
+
+     The card sits at `20px + safe-b`, so clearing it is that plus its height
+     plus a gap. The `min()` is a floor for the tallest possible card: whatever
+     is open, the cluster stays on screen rather than being pushed off the top,
+     because a control that has left the building is not an improvement on one
+     that is behind a card. */
+  body.card-open .layers {
+    bottom: min(
+      calc(30px + var(--safe-b) + var(--card-h, 0px)),
+      calc(100dvh - var(--safe-t) - 124px)
+    );
   }
 
   .maplibregl-ctrl-top-right .maplibregl-ctrl-attrib {
@@ -3049,6 +3091,15 @@ body {
    invisible box rather than a waiting one. */
 [data-theme='light'] .photo-figure {
   background-color: rgba(15, 23, 42, 0.08);
+}
+
+/* Said again for the light card, and it has to be: the rule above it and
+   `.photo-figure.loaded` carry the same specificity, so the later one wins —
+   and this file's theme block is the later one. Without this the pale bars
+   beside a portrait photograph survive on exactly the basemap where they show
+   up most. */
+[data-theme='light'] .photo-figure.loaded {
+  background-color: transparent;
 }
 
 [data-theme='light'] .photo-figure.loading {
