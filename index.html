@@ -634,6 +634,9 @@
           </svg>
           <span class="sync-option-text">
             <b>Reload cached data</b>
+            <!-- The handler writes progress here, and without it the button
+                 threw on the first line and so never cleared anything at all. -->
+            <small id="settings-cache-note">Boundaries, tiles and the offline copy</small>
           </span>
         </button>
         </div>

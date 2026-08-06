@@ -107,11 +107,17 @@ export function mountPersonal({
   // everything it drops is derived, so the cost is one slower load.
   const clearCacheBtn = $('settings-clear-cache');
   const cacheNote = $('settings-cache-note');
+  // The note is optional and the clearing is not. It used to be written to
+  // without the `?`, and the line above the clearing at that: the markup had no
+  // such element, so every press threw on the first statement and the button —
+  // whose whole job is to get you out of a stale copy of the map — silently did
+  // nothing, in the one place where nothing looks exactly like something.
+  const say = (text) => { if (cacheNote) cacheNote.textContent = text; };
   clearCacheBtn?.addEventListener('click', async () => {
     clearCacheBtn.disabled = true;
-    cacheNote.textContent = 'Clearing…';
+    say('Clearing…');
     const ok = await onClearCache?.();
-    cacheNote.textContent = ok ? 'Cleared — reloading…' : 'Partly cleared — reloading…';
+    say(ok ? 'Cleared — reloading…' : 'Partly cleared — reloading…');
     // A plain reload: the caches are gone, so there is nothing left to bypass,
     // and the page has to come back to pick up whatever it was holding stale.
     setTimeout(() => location.reload(), 400);
