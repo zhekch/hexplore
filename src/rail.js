@@ -25,6 +25,140 @@
 // rail-style.json by the build, not repeated here: one place decides it, and it
 // is the place that writes the ids.
 
+// --- What is drawn before anybody chooses --------------------------------------
+
+/**
+ * Which groups are on for someone who has never opened the list.
+ *
+ * Not "all of them", which is what an absent key used to mean. The overlay draws
+ * six kinds of thing over a map that already has a map on it, and three of them
+ * are for reading a railway rather than seeing where one is: the line-number
+ * shields are the densest labels on the whole map, the kilometre posts are a
+ * number every few hundred metres, and the signals are both dense and the only
+ * reason the 1.5 MB full-colour sprite atlas is ever fetched. Someone who
+ * switches the overlay on wants to see where the tracks are; the rest is there
+ * for when they ask.
+ */
+export const RAIL_GROUP_DEFAULTS = {
+  linenumbers: false,
+  tracks: true,
+  stations: true,
+  symbols: false,
+  platforms: true,
+  milestones: false,
+};
+
+/** Whether a group is on, given what has been chosen and what defaults to. */
+export const railGroupOn = (chosen, key) => chosen?.[key] ?? RAIL_GROUP_DEFAULTS[key] ?? true;
+
+// --- Technical infrastructure --------------------------------------------------
+//
+// One switch over the parts of a railway that are not a railway you could travel
+// on: the sidings and yard roads a train is only ever shunted along, the line
+// that was lifted in 1974, and the "stations" that are a junction, a site or a
+// point where two tracks cross. All of it is real and correctly mapped, and all
+// of it doubles the amount of ink on the screen around any station of any size.
+//
+// **The switch is a filter, not a visibility.** These are properties of features
+// rather than whole layers — a single track layer draws both the through line and
+// the siding beside it — so a group toggle cannot express it.
+//
+// **And it is one global-state key rather than 253 setFilter calls.** MapLibre
+// re-parses a source's tiles when a filter changes, so flipping this layer by
+// layer would do that work 253 times over. The filters are written once at
+// install in terms of a key of ours, exactly the way their own style is written
+// in terms of theirs, and the switch sets the key.
+
+/** Ours, and namespaced so an upstream `state` key can never collide with it. */
+const TECHNICAL_STATE = 'hexploreTechnical';
+
+/**
+ * Their own four switches for infrastructure that is not running railway.
+ *
+ * Free configuration rather than filters of our own — the style consults these
+ * itself. Their defaults disagree with each other (construction and proposed
+ * are on out of the box, abandoned and razed are off), which is a fine answer
+ * for a map *of* railways and the wrong one for an overlay on a map of
+ * somewhere. All four follow the one switch instead.
+ */
+const ORM_STATE_SWITCHES = [
+  'showConstructionInfrastructure',
+  'showProposedInfrastructure',
+  'showAbandonedInfrastructure',
+  'showRazedInfrastructure',
+];
+
+/**
+ * The states their switches do not cover. `disused` is track that is still there
+ * and no longer used, which has no switch of theirs; the other four are listed
+ * as well so that the filter reads as the whole rule rather than half of it.
+ */
+const TECHNICAL_LINE_STATES = ['disused', 'construction', 'proposed', 'abandoned', 'razed'];
+
+/**
+ * Station features that are operational furniture rather than somewhere to catch
+ * a train. `halt` is in the list because it is: their `halt` is `railway=halt`,
+ * an unstaffed stopping point, and it is the value that most often turns a
+ * junction-dense area into a wall of labels. Move it out of here if the small
+ * stops are what you are looking at.
+ */
+const TECHNICAL_STATION_FEATURES = [
+  'service_station', 'yard', 'crossover', 'junction', 'spur_junction', 'site', 'halt',
+];
+
+// Which rule each source layer answers to. A track carries `service` and `state`;
+// a station carries `feature`. Everything else — platforms, signals, kilometre
+// posts — has its own group and is left alone.
+const TRACK_SOURCE_LAYERS = new Set(['railway_line_high', 'standard_railway_line_low']);
+const STATION_SOURCE_LAYERS = new Set([
+  'standard_railway_text_stations',
+  'standard_railway_text_stations_low',
+  'standard_railway_text_stations_med',
+  'standard_railway_grouped_stations',
+  'standard_railway_grouped_station_areas',
+]);
+
+/**
+ * The extra filter one source layer's features have to pass, or null.
+ *
+ * `coalesce` to the empty string rather than testing the property directly:
+ * `match` on a missing property evaluates its input to null, and null is not one
+ * of the labels *or* the fallback — it is a type error, which in a filter means
+ * the layer draws nothing at all.
+ */
+export function technicalFilter(sourceLayer) {
+  const ordinary = TRACK_SOURCE_LAYERS.has(sourceLayer)
+    ? ['all',
+      // Any `service` value at all — spur, yard, siding, crossover — is a track
+      // a service moves over rather than one it runs on.
+      ['==', ['coalesce', ['get', 'service'], ''], ''],
+      ['match', ['coalesce', ['get', 'state'], ''], TECHNICAL_LINE_STATES, false, true]]
+    : STATION_SOURCE_LAYERS.has(sourceLayer)
+      ? ['match', ['coalesce', ['get', 'feature'], ''], TECHNICAL_STATION_FEATURES, false, true]
+      : null;
+  // `to-boolean` around the switch, and it is not decoration. `global-state`
+  // evaluates to **null** for a key nobody has set, `any` wants booleans, and a
+  // filter that throws does not fail loudly — it draws nothing. Every track and
+  // every station in the overlay reads this expression, so one ordering mistake
+  // that left the key unset would empty the map of railways with no error worth
+  // the name. Coerced, an unset key reads as "off", which is the default anyway.
+  return ordinary && ['any', ['to-boolean', ['global-state', TECHNICAL_STATE]], ordinary];
+}
+
+/**
+ * Show the technical infrastructure, or take it back off.
+ *
+ * Five properties and therefore five source reloads, where a batch would be one:
+ * MapLibre re-parses a source whose filters read a key that changed, and only
+ * `Style.setGlobalState` applies several at once — which is not on `Map`. Not
+ * worth reaching past `Map` for. This is a switch somebody flips when they sit
+ * down to read a station, not one anything flips in a loop.
+ */
+export function setRailTechnical(map, on) {
+  map.setGlobalStateProperty(TECHNICAL_STATE, !!on);
+  for (const key of ORM_STATE_SWITCHES) map.setGlobalStateProperty(key, !!on);
+}
+
 /**
  * A path from the built style, as a URL MapLibre will accept.
  *
@@ -79,6 +213,12 @@ function asList(value) {
 // weight is already saying and is jargon besides.
 const POPUP_FIELDS = [
   ['name', 'Name', String],
+  // The number painted on the post at the end of the platform. Inside a station
+  // it is the one property that says *which* of the twenty parallel lines under
+  // the cursor was clicked, and without it every one of them describes itself
+  // identically. Distinct from `ref`, which is the number of the *line* the
+  // track belongs to and is deliberately absent — see the note below.
+  ['track_ref', 'Track', String],
   // `primary_operator` is the plain string; `operator` is the array of all of
   // them. Preferring the array keeps a shared line honest, and asList strips the
   // braces either way.
@@ -97,6 +237,86 @@ const POPUP_FIELDS = [
 
 // How OpenRailwayMap spells the three OSM element types in its tiles.
 const OSM_TYPES = { N: 'node', W: 'way', R: 'relation' };
+
+// --- Which OSM element a tile feature is ---------------------------------------
+//
+// Their **tiles carry no `osm_id` at all** — that pair of keys is their feature
+// API's, and reading it off a tile was a link that could never appear. What a
+// tile carries is the feature's own `id`, which is the OSM identity spelled two
+// ways: `relation-9068328` or `node-3080728389-train-train-station` where the
+// element type is not implied, and a bare `988282659-0` on the track layers,
+// where the suffix is the segment a long way was cut into and the element is
+// always a way.
+//
+// This is worth more than a link. `describeRailFeature` opens no card for a
+// feature with nothing to say, and a platform whose relation carries no `name`
+// and no `ref` — which is most of them, since the number is usually on the
+// platform *edge* — has nothing else. Thun's platforms are named "Thun" and
+// opened a card; Spiez's are named nothing and the tap fell through to the
+// ground underneath, which read as platforms being clickable in one station and
+// not in the next.
+const OSM_ID_PREFIXED = /^(node|way|relation)-(\d+)/;
+const OSM_ID_SEGMENTED = /^(\d+)-\d+$/;
+
+const osmLink = (type, id) => ({
+  type,
+  id: String(id),
+  url: `https://www.openstreetmap.org/${type}/${id}`,
+});
+
+function osmRef(p, sourceLayer, geometry) {
+  // Their feature API does answer with these, and a caller that has been there
+  // hands them over rather than parsing the id again.
+  const explicit = Array.isArray(p.osm_id) ? p.osm_id[0] : p.osm_id;
+  if (explicit) {
+    const type = OSM_TYPES[Array.isArray(p.osm_type) ? p.osm_type[0] : p.osm_type]
+      // Their tiles leave the type off when it is implied by the geometry.
+      ?? (geometry?.type === 'Point' ? 'node' : 'way');
+    return osmLink(type, explicit);
+  }
+  const id = String(p.id ?? '');
+  const prefixed = OSM_ID_PREFIXED.exec(id);
+  if (prefixed) return osmLink(prefixed[1], prefixed[2]);
+  const segmented = TRACK_SOURCE_LAYERS.has(sourceLayer) && OSM_ID_SEGMENTED.exec(id);
+  // Only where the element type is a fact about the layer. A kilometre post's id
+  // has the same shape and is a node, so guessing from the shape alone would
+  // link a third of them to somebody else's way.
+  return segmented ? osmLink('way', segmented[1]) : null;
+}
+
+// Which of the three things with more to say was clicked. Their feature API
+// answers a different key for each — `line_routes`, `station_routes`,
+// `platform_routes` — and the card asks for different rows.
+const PLATFORM_SOURCE_LAYERS = new Set([
+  'standard_railway_platforms', 'standard_railway_platform_edges',
+]);
+
+function railKind(sourceLayer) {
+  if (PLATFORM_SOURCE_LAYERS.has(sourceLayer)) return 'platform';
+  if (STATION_SOURCE_LAYERS.has(sourceLayer)) return 'station';
+  if (TRACK_SOURCE_LAYERS.has(sourceLayer)) return 'line';
+  return 'other';
+}
+
+/**
+ * A `feature` value as a heading.
+ *
+ * Theirs are database spellings and one of them is a sprite path:
+ * `level_crossing`, `spur_junction`, `general/level-crossing`.
+ */
+function featureLabel(value) {
+  if (!value) return null;
+  const words = String(value).split('/').pop().replace(/[_-]+/g, ' ').trim();
+  return words || null;
+}
+
+// The one feature word that is thinner as a heading than the thing it names.
+// "Light rail" and "Narrow gauge" read perfectly well; a card headed "Rail" over
+// a voltage and a gauge does not.
+const FEATURE_TITLES = { rail: 'Railway' };
+
+const featureTitle = (words) =>
+  (words ? FEATURE_TITLES[words] ?? words[0].toUpperCase() + words.slice(1) : null);
 
 let STYLE = null;
 let loading = null;
@@ -212,10 +432,12 @@ function withFont(layer, font) {
  *   own `theme` switch so the railways recolour with the map under them
  * @param {string|undefined} opts.before the layer to insert beneath
  * @param {Record<string, boolean>} opts.groups which groups are switched on
+ * @param {boolean} [opts.technical] whether sidings, yards, disused track and
+ *   the junction-and-site "stations" are drawn
  * @param {Record<string, number>} [opts.detail] the deepest zoom worth asking
  *   each Martin source list for, from `/api/rail/detail`
  */
-export function installRail(map, { font, theme, before, groups, detail = {} }) {
+export function installRail(map, { font, theme, before, groups, technical = false, detail = {} }) {
   if (!STYLE || map.getLayer(STYLE.layers[0].id)) return;
 
   // Their sprites, under our namespace. Images resolve as `spriteId:name`
@@ -238,7 +460,7 @@ export function installRail(map, { font, theme, before, groups, detail = {} }) {
   const have = new Set((map.getSprite() ?? []).map((s) => s.id));
   for (const sprite of STYLE.sprites) {
     if (have.has(sprite.id)) continue;
-    if (!sprite.groups?.some((g) => groups[g] !== false)) continue;
+    if (!sprite.groups?.some((g) => railGroupOn(groups, g))) continue;
     map.addSprite(sprite.id, railUrl(sprite.url));
   }
 
@@ -270,15 +492,25 @@ export function installRail(map, { font, theme, before, groups, detail = {} }) {
     map.setGlobalStateProperty(key, value);
   }
   map.setGlobalStateProperty('theme', theme);
+  // After their defaults, not among them: four of the keys just set are the four
+  // this owns, and their answer for a map of railways is not ours for an overlay.
+  setRailTechnical(map, technical);
 
   // In their order, each beneath the same anchor, so the 288 layers keep the
   // relative order their style put them in.
   addLayers(map, STYLE.layers.map((layer) => {
-    const on = groups[layer.metadata['hexplore:group']] !== false;
+    const on = railGroupOn(groups, layer.metadata['hexplore:group']);
     const withVisibility = on
       ? layer
       : { ...layer, layout: { ...layer.layout, visibility: 'none' } };
-    return withFont(withVisibility, font);
+    // The technical filter is written into the layer once, in terms of a
+    // global-state key, so the switch is one property rather than a re-parse of
+    // every tile per layer. See technicalFilter.
+    const extra = technicalFilter(layer['source-layer']);
+    const filtered = extra
+      ? { ...withVisibility, filter: withVisibility.filter ? ['all', withVisibility.filter, extra] : extra }
+      : withVisibility;
+    return withFont(filtered, font);
   }), before);
 }
 
@@ -337,16 +569,68 @@ export function setRailGroup(map, key, on) {
   }
 }
 
+// --- Which one is under the cursor ---------------------------------------------
+//
+// **The highlight is theirs, not ours.** 171 of the 288 layers already paint
+// themselves differently for `["boolean", ["feature-state", "hover"], false]` —
+// a red platform edge, a red outline round a station, a yellow track number —
+// because their own app is a map you point at. Grafting the layers brought the
+// styling with them and it had simply never been switched on. So this is not a
+// highlight layer of ours drawn over theirs; it is one feature-state write, and
+// every one of those 171 answers it in the colour its designer chose.
+//
+// `promoteId` on every source is what makes it possible at all: without a stable
+// id there is nothing to hang a feature state on.
+
+let hovered = null;
+
+/**
+ * Mark one feature as hovered, and unmark whatever was.
+ *
+ * `null` clears. Sources and layers survive a basemap switch by being re-added,
+ * so a state set against the old one is written to nothing and forgotten, which
+ * is the correct outcome and needs no teardown of its own.
+ */
+export function setRailHover(map, feature) {
+  const next = feature?.id == null || !feature.source
+    ? null
+    : { source: feature.source, sourceLayer: feature.sourceLayer, id: feature.id };
+  if (next && hovered
+    && next.source === hovered.source
+    && next.sourceLayer === hovered.sourceLayer
+    && String(next.id) === String(hovered.id)) return;
+  // Guarded: a source that has since been removed — a basemap switch, the
+  // overlay switched off — throws rather than shrugging.
+  if (hovered) {
+    try {
+      map.removeFeatureState(hovered, 'hover');
+    } catch { /* the source it belonged to is gone */ }
+  }
+  hovered = next;
+  if (next) {
+    try {
+      map.setFeatureState(next, { hover: true });
+    } catch {
+      hovered = null;
+    }
+  }
+}
+
+/** Forget what was hovered without touching a map that may no longer hold it. */
+export function forgetRailHover() {
+  hovered = null;
+}
+
 /**
  * What a clicked railway feature says about itself, as plain data.
  *
  * Everything here is already in the tile that drew the line. The services that
- * run over it are not — see `railRoutes` — so they arrive separately and later.
+ * run over it are not — see `railFeature` — so they arrive separately and later.
  *
  * @returns {{title: string, subtitle: string|null, rows: [string, string][],
- *   osm: {type: string, id: string, url: string}|null,
- *   routeCount: number, source: string|null, sourceLayer: string|null,
- *   id: string|null}|null}
+ *   osm: {type: string, id: string, url: string}|null, kind: string,
+ *   routeCount: number, mayHaveRoutes: boolean, source: string|null,
+ *   sourceLayer: string|null, id: string|null}|null}
  */
 export function describeRailFeature(feature) {
   const p = feature?.properties;
@@ -375,34 +659,42 @@ export function describeRailFeature(feature) {
   const named = rows.findIndex(([label]) => label === 'Name');
   const title = named >= 0 ? rows.splice(named, 1)[0][1] : (p.localized_name ?? null);
 
+  const sourceLayer = feature.sourceLayer ?? null;
+  const kind = railKind(sourceLayer);
+
   // On a platform, `ref` is the platform number — "4", "12A" — which is the one
   // thing anybody standing on one wants to read. It is the same OSM key that
   // carries a line's route number, and that one was asked to go, so this is
   // keyed off what was clicked rather than off the key alone.
-  if (/platform/.test(feature.sourceLayer ?? '') && p.ref) {
-    rows.unshift([/edges/.test(feature.sourceLayer) ? 'Platform edge' : 'Platform', String(p.ref)]);
+  if (kind === 'platform' && p.ref) {
+    rows.unshift([/edges/.test(sourceLayer) ? 'Platform edge' : 'Platform', String(p.ref)]);
   }
 
-  const osmId = Array.isArray(p.osm_id) ? p.osm_id[0] : p.osm_id;
-  const osmType = OSM_TYPES[Array.isArray(p.osm_type) ? p.osm_type[0] : p.osm_type]
-    // Their tiles leave the type off when it is implied by the geometry.
-    ?? (feature.geometry?.type === 'Point' ? 'node' : 'way');
-  const osm = osmId
-    ? { type: osmType, id: String(osmId), url: `https://www.openstreetmap.org/${osmType}/${osmId}` }
-    : null;
+  const osm = osmRef(p, sourceLayer, feature.geometry);
 
-  if (!title && !rows.length && !osm) return null;
+  // What the feature calls itself when nobody has named it. A card headed
+  // "Railway" over a subtitle reading "platform" spends its heading on the word
+  // that is true of everything in the overlay; "Platform" says the same thing in
+  // the place a reader looks first.
+  const kindWords = featureLabel(p.feature);
+
+  if (!title && !rows.length && !osm && !kindWords) return null;
   return {
-    title: title || 'Railway',
-    subtitle: p.feature ? String(p.feature).replace(/_/g, ' ') : null,
+    title: title || featureTitle(kindWords) || 'Railway',
+    subtitle: title ? kindWords : null,
     rows,
     osm,
+    kind,
     // How many route relations run over this line. The tile knows the count but
     // not the names, which is what makes the request below worth making.
     routeCount: Number(p.route_count) || 0,
-    // What `railRoutes` needs to ask for them.
+    // Stations and platforms carry no count — their tiles have no equivalent of
+    // `route_count` — so for those the only way to find out is to ask, and the
+    // card asks rather than showing nothing where there are twenty services.
+    mayHaveRoutes: kind === 'station' || kind === 'platform',
+    // What `railFeature` needs to ask for the rest.
     source: feature.source ? String(feature.source).replace(/^hexplore-orm-/, '') : null,
-    sourceLayer: feature.sourceLayer ?? null,
+    sourceLayer,
     id: feature.id != null ? String(feature.id) : null,
   };
 }
@@ -451,16 +743,30 @@ export function splitRouteLabel(label) {
 }
 
 /**
+ * How a relation name spells "and then".
+ *
+ * `=>` is the convention their API documents and it is nothing like universal:
+ * "TGV 511: Paris -- Toulon -- Hyères" and "TER Morez - Saint-Claude - (Lyon)"
+ * are both real, and a separator this did not know about was a journey printed
+ * as one undivided run of text with no arrows in it at all.
+ *
+ * **Every dash form requires whitespace on both sides**, and that is the whole
+ * of what keeps Saint-Claude, Aix-en-Provence and Baden-Baden in one piece. The
+ * arrow forms do not, because nothing is spelled `A=>B` by accident.
+ */
+const STOP_SEPARATOR = /\s*(?:<=>|<->|=>|->)\s*|\s+[-–—↔→]{1,2}\s+/;
+
+/**
  * A route label as a service name and the places it calls at.
  *
- * Split on every `=>`, not just the first: plenty of relations name their
+ * Split on every separator, not just the first: plenty of relations name their
  * via-points, and treating "Grandson => Lausanne => Bex" as a pair would both
  * read wrong and stop it matching its own return working, whose stops are the
  * same list backwards.
  */
 export function parseRouteLabel(label) {
   const { name, ends } = splitRouteLabel(label);
-  return { name, stops: ends.split(/\s*=>\s*/).map((s) => s.trim()).filter(Boolean) };
+  return { name, stops: ends.split(STOP_SEPARATOR).map((s) => s.trim()).filter(Boolean) };
 }
 
 /**
@@ -504,19 +810,135 @@ export function mergeRouteDirections(routes) {
   });
 }
 
-export async function railRoutes({ source, sourceLayer, id }) {
-  if (!source || !sourceLayer || !id) return [];
+// --- The half of the answer that is not in the tile ----------------------------
+
+/**
+ * What their feature API adds to a station, in the order it reads best.
+ *
+ * A station node in a tile carries its name, its size and the colour of whoever
+ * runs it, because that is everything the *drawing* needs. Who runs it, what it
+ * is called in the timetable and which services call there are none of them a
+ * rendering concern, so they live behind one request.
+ */
+const STATION_DETAIL = [
+  ['operator', 'Operator', (v) => asList(v).join(', ')],
+  ['owner', 'Owner', (v) => asList(v).join(', ')],
+  ['network', 'Network', (v) => asList(v).join(', ')],
+  // "train", "tram", "light_rail", "subway" — what stops here, which for a
+  // station shared between two of them is the distinction that matters.
+  ['station', 'Serves', (v) => featureLabel(v)],
+  ['description', 'Description', String],
+];
+
+/**
+ * The codes a station is known by. `uic` is the number on a timetable and in
+ * every booking system; `railway-ref` is the two-or-three-letter code on the
+ * operating diagrams — "SP" for Spiez — which is the one a railwayman reads.
+ */
+const STATION_REFS = [['uic', 'UIC'], ['railway-ref', 'Code']];
+
+/**
+ * What their feature API adds to a platform.
+ *
+ * The number first, because a platform whose relation carries no `name` and no
+ * `ref` in the tile is exactly the case that used to open no card at all — the
+ * API has the `ref` the tile left out.
+ */
+const PLATFORM_DETAIL = [
+  ['ref', 'Platform', (v) => asList(v).join(', ')],
+  ['height', 'Height', (v) => `${round(v, 2)} m`],
+  ['surface', 'Surface', (v) => featureLabel(v)],
+];
+
+/**
+ * The yes/no tags, as one line rather than eight rows of "yes".
+ *
+ * Standing on a platform, "Shelter · Benches · Step-free" is a sentence; the
+ * same thing as a `dl` is a form. Only the true ones are listed, because a
+ * platform that has not been surveyed and a platform with no bench are the same
+ * missing tag and printing "no" would claim to know which.
+ */
+const PLATFORM_FACILITIES = [
+  ['shelter', 'Shelter'],
+  ['bench', 'Benches'],
+  ['lit', 'Lit'],
+  ['departures_board', 'Departures board'],
+  ['tactile_paving', 'Tactile paving'],
+  ['elevator', 'Lift'],
+  ['wheelchair', 'Step-free'],
+];
+
+/** Their API's answer, as the rows a card can print. */
+function detailRows(body, kind) {
+  const rows = [];
+  const add = (fields) => {
+    for (const [key, label, format] of fields) {
+      const value = body[key];
+      if (value === undefined || value === null || value === '') continue;
+      let text;
+      try {
+        text = format(value);
+      } catch {
+        text = String(value);
+      }
+      if (!text || text === 'NaN' || /^\s*$/.test(text)) continue;
+      rows.push([label, text]);
+    }
+  };
+  if (kind === 'station') {
+    add(STATION_DETAIL);
+    for (const [key, label] of STATION_REFS) {
+      const value = body.references?.[key];
+      if (value) rows.push([label, String(value)]);
+    }
+  }
+  if (kind === 'platform') {
+    add(PLATFORM_DETAIL);
+    const has = PLATFORM_FACILITIES.filter(([key]) => body[key] === true).map(([, label]) => label);
+    if (has.length) rows.push(['Facilities', has.join(' · ')]);
+  }
+  return rows;
+}
+
+/**
+ * Everything about a clicked feature that the tile could not say.
+ *
+ * The services that run over it are the reason this exists. Route membership is
+ * a relation, and a vector tile carries `route_count` but not the relations
+ * themselves, so this is a request — one per click, on something the person just
+ * asked about, which is a very different thing from one per tile. It goes
+ * through the same cache as everything else, and it is answered by their `api`
+ * container rather than their tile server, which is why it kept working through
+ * the outage that took the tiles down.
+ *
+ * Their answer keys the routes by what was clicked — `line_routes` for a track,
+ * `station_routes` for a station, `platform_routes` for a platform — and reading
+ * only the first of the three is why a station used to list nothing at all.
+ *
+ * Never fatal: nothing shown is the same card without the extra lines in it.
+ */
+export async function railFeature({ source, sourceLayer, id, kind }) {
+  const empty = { rows: [], routes: [], osm: null };
+  if (!source || !sourceLayer || !id) return empty;
   const path = [source, sourceLayer, id].map(encodeURIComponent).join('/');
   try {
     const res = await fetch(`/api/rail/feature/${path}`, { credentials: 'same-origin' });
-    if (!res.ok) return [];
+    if (!res.ok) return empty;
     const body = await res.json();
-    return mergeRouteDirections(
-      (body.line_routes ?? [])
-        .map((r) => ({ label: String(r.label ?? '').trim(), color: r.color || null }))
-        .filter((r) => r.label),
-    );
+    const routes = body.line_routes ?? body.station_routes ?? body.platform_routes ?? [];
+    return {
+      rows: detailRows(body, kind),
+      routes: mergeRouteDirections(
+        routes
+          .map((r) => ({ label: String(r.label ?? '').trim(), color: r.color || null }))
+          .filter((r) => r.label),
+      ),
+      // Their API does carry the pair the tiles do not, so anything whose id was
+      // too ambiguous to link from — a kilometre post, a signal — gets its link
+      // when this arrives.
+      osm: osmRef(body, sourceLayer, null),
+    };
   } catch {
-    return [];
+    return empty;
   }
 }

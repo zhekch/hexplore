@@ -36,9 +36,13 @@ number of approaches that were tried and abandoned.
 - **Ask any area what it knows.** Tap a blob for when you were there, how many
   visits, and which app it came from.
 - **Train tracks.** Every line, siding and yard OpenRailwayMap knows about, laid
-  over the map in the basemap's own light or dark. Choose which parts you want —
-  tracks, stations, signals and crossings, platforms, kilometre posts — and tap
-  any of them for its name, reference, operator and a link to OpenStreetMap.
+  over the map in the basemap's own light or dark. Switch it on in the layers
+  menu; choose what it draws in Settings → Train tracks — tracks, stations,
+  platforms, line numbers, signals and crossings, kilometre posts, and the
+  sidings, yards and disused track that are off until you ask for them. Turn on
+  **Interactable** and the railway answers the pointer: whatever is under it
+  lights up, and a tap opens a card with the track number, the operator, the
+  voltage, the platform, and every service that calls there.
 - **Export a picture.** A place cut out of the world — one canton, three
   countries, a whole continent — with your ground inside it and a caption saying
   how much of it you have covered. Drag the preview to frame it, click it to pick

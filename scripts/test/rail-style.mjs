@@ -16,7 +16,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  describeRailFeature, loadRailStyle, mergeRouteDirections, railGroups, railLayerIds, railUrl, splitRouteLabel,
+  describeRailFeature, loadRailStyle, mergeRouteDirections, railGroupOn, railGroups, railLayerIds,
+  railUrl, splitRouteLabel, technicalFilter, RAIL_GROUP_DEFAULTS,
 } from '../../src/rail.js';
 
 let pass = 0;
@@ -259,6 +260,7 @@ console.log('\nWhat a clicked feature says');
   check(!line.rows.some(([l]) => l === 'Name'), 'and is not repeated as a row');
   check(!line.rows.some(([l]) => /length|rank|colour|color|label/i.test(l)), 'the rendering hints do not come through');
   check(line.osm?.url === 'https://www.openstreetmap.org/way/12345', 'the OSM link is built from osm_id/osm_type', line.osm?.url);
+  check(row('Track') === '712', 'the track number in a station is the row that says which line was clicked', row('Track'));
 
   console.log('\n  …and says it in units a person reads');
   // Their tiles hand these over as a float32, a Postgres array literal and bare
@@ -272,7 +274,7 @@ console.log('\nWhat a clicked feature says');
   check(line.source === 'high' && line.sourceLayer === 'railway_line_high', 'and what to ask the feature API with', `${line.source}/${line.sourceLayer}`);
 
   console.log('\n  …and leaves out what was asked to be left out');
-  for (const gone of ['Usage', 'Reference', 'Track', 'Loading gauge', 'Electrification']) {
+  for (const gone of ['Usage', 'Reference', 'Loading gauge', 'Electrification']) {
     check(row(gone) === undefined, `no ${gone} row`, row(gone));
   }
 
@@ -309,12 +311,53 @@ console.log('\nWhat a clicked feature says');
     geometry: { type: 'Point' },
     properties: { feature: 'level_crossing', osm_id: 7, osm_type: 'N' },
   });
-  check(node.title === 'Railway', 'something unnamed still gets a heading', node.title);
-  check(node.subtitle === 'level crossing', 'the feature kind is readable', node.subtitle);
+  check(node.title === 'Level crossing', 'something unnamed is headed by what it is', node.title);
+  check(node.subtitle === null, 'and does not then repeat it underneath', node.subtitle);
   check(node.osm.type === 'node', 'a node links as a node');
+  const named = describeRailFeature({
+    geometry: { type: 'Point' },
+    properties: { name: 'Spiez', feature: 'station', osm_id: 7, osm_type: 'N' },
+  });
+  check(named.title === 'Spiez' && named.subtitle === 'station', 'a named one keeps both', `${named.title} / ${named.subtitle}`);
 
   const implied = describeRailFeature({ geometry: { type: 'Point' }, properties: { osm_id: 9 } });
   check(implied.osm.type === 'node', 'a missing osm_type falls back to the geometry', implied.osm?.type);
+
+  console.log('\n  …and their tiles carry no osm_id at all');
+  // The pair above is their *feature API's*; a tile carries the feature's own
+  // `id`, which is the same fact spelled two ways. Reading only osm_id meant the
+  // link could never appear — and, far worse, that a platform whose relation is
+  // unnamed and unnumbered had nothing to say and so opened no card. Thun's
+  // platforms are named "Thun" and opened one; Spiez's are named nothing and the
+  // tap fell straight through to the ground.
+  const spiez = describeRailFeature({
+    source: 'hexplore-orm-openrailwaymap_standard',
+    sourceLayer: 'standard_railway_platforms',
+    id: 'relation-9068328',
+    geometry: { type: 'Polygon' },
+    properties: { id: 'relation-9068328', feature: 'platform' },
+  });
+  check(!!spiez, 'an unnamed, unnumbered platform still opens a card');
+  check(spiez?.title === 'Platform', 'headed by what it is', spiez?.title);
+  check(spiez?.osm?.url === 'https://www.openstreetmap.org/relation/9068328', 'and linked from its own id', spiez?.osm?.url);
+  check(spiez?.mayHaveRoutes === true, 'and asks their API which services call there');
+  const segmented = describeRailFeature({
+    source: 'hexplore-orm-high',
+    sourceLayer: 'railway_line_high',
+    id: '988282659-0',
+    geometry: { type: 'LineString' },
+    properties: { id: '988282659-0', feature: 'rail' },
+  });
+  check(segmented?.osm?.url === 'https://www.openstreetmap.org/way/988282659', 'a track drops the segment suffix and links to its way', segmented?.osm?.url);
+  check(segmented?.title === 'Railway', 'and "rail" is still called a railway', segmented?.title);
+  // A kilometre post's id has exactly the same shape and is a node, so the bare
+  // form is only read where the element type is a fact about the source layer.
+  const post = describeRailFeature({
+    sourceLayer: 'railway_text_km',
+    geometry: { type: 'Point' },
+    properties: { id: '12572209414-1', feature: 'milestone' },
+  });
+  check(post?.osm == null, 'a kilometre post is not guessed to be a way', JSON.stringify(post?.osm));
 
   const arrays = describeRailFeature({
     geometry: { type: 'LineString' },
@@ -387,6 +430,142 @@ console.log('\nA route and its return working are one line');
     { label: 'RE: B => A', color: '#abc123' },
   ]);
   check(colourless[0].color === '#abc123', 'a colour on either direction is kept', colourless[0].color);
+}
+
+console.log('\nAnd "and then" is not always spelled `=>`');
+{
+  // Both real, and both used to print as one undivided run of text with no
+  // arrows in it at all, because `=>` was the only separator this knew.
+  const dashed = mergeRouteDirections([{ label: 'TGV 511: Paris -- Toulon -- Hyères', color: null }]);
+  check(dashed[0].label === 'TGV 511: Paris → Toulon → Hyères', 'a double dash is a journey', dashed[0].label);
+  const single = mergeRouteDirections([{ label: 'TER Morez - Saint-Claude - (Lyon)', color: null }]);
+  check(single[0].label === 'TER Morez → Saint-Claude → (Lyon)', 'and so is a single one', single[0].label);
+
+  // The whole of what keeps that from cutting place names in half is the
+  // whitespace either side, so this is the check that matters most here.
+  check(
+    single[0].label.includes('Saint-Claude'),
+    'a hyphen inside a name is not a separator',
+    single[0].label,
+  );
+  for (const name of ['Baden-Baden', 'Aix-en-Provence', 'Villeneuve-Saint-Georges']) {
+    const kept = mergeRouteDirections([{ label: `TER: ${name} - Paris`, color: null }]);
+    check(kept[0].label === `TER: ${name} → Paris`, `${name} survives intact`, kept[0].label);
+  }
+
+  const arrowed = mergeRouteDirections([{ label: 'S1: Bern -> Thun', color: null }]);
+  check(arrowed[0].label === 'S1: Bern → Thun', 'an ASCII arrow is one too', arrowed[0].label);
+  // A dash and its return working still fold, which is the point of doing this
+  // in the parser rather than in the renderer.
+  const both = mergeRouteDirections([
+    { label: 'TER: Morez - Saint-Claude', color: null },
+    { label: 'TER: Saint-Claude - Morez', color: null },
+  ]);
+  check(both.length === 1 && both[0].label === 'TER: Morez ↔ Saint-Claude', 'and fold with their return working', JSON.stringify(both));
+}
+
+console.log('\nWhat is drawn before anybody chooses');
+{
+  // The overlay draws six kinds of thing over a map that already has a map on
+  // it, and three of them are for reading a railway rather than seeing where one
+  // is. An absent key used to mean "on", which meant switching the overlay on
+  // for the first time buried the basemap under labels.
+  for (const group of style.groups) {
+    check(group.key in RAIL_GROUP_DEFAULTS, `${group.key} has a stated default`, JSON.stringify(RAIL_GROUP_DEFAULTS));
+  }
+  check(railGroupOn({}, 'linenumbers') === false, 'the line numbers stay off until asked for');
+  check(railGroupOn({}, 'milestones') === false, 'and so do the kilometre posts');
+  // The 1.5 MB full-colour sprite atlas is read by a single expression in this
+  // group and nothing else, so its default is also two thirds of the first load.
+  check(railGroupOn({}, 'symbols') === false, 'and the signals, which are what the big sprite atlas is for');
+  check(railGroupOn({}, 'tracks') && railGroupOn({}, 'stations') && railGroupOn({}, 'platforms'), 'where the railways are is on');
+  check(railGroupOn({ tracks: false }, 'tracks') === false, 'a choice beats the default');
+  check(railGroupOn({ linenumbers: true }, 'linenumbers') === true, 'in both directions');
+}
+
+console.log('\nThe technical infrastructure is a filter, not a group');
+{
+  // A siding and the through line beside it are drawn by the same layer off the
+  // same source, so "hide the sidings" cannot be a visibility. It is one
+  // global-state key written into the filters at install — the way their own
+  // style is written — so the switch is one property rather than a re-parse of
+  // every tile, once per layer, 253 times over.
+  const track = technicalFilter('railway_line_high');
+  const station = technicalFilter('standard_railway_text_stations');
+  check(!!track && !!station, 'tracks and stations each get one');
+  check(technicalFilter('standard_railway_platforms') === null, 'and a platform is left alone — it has a group of its own');
+  check(technicalFilter('railway_text_km') === null, 'as is a kilometre post');
+  const reads = JSON.stringify(track);
+  check(reads.includes('hexploreTechnical'), 'the switch is a global-state key', reads.slice(0, 60));
+  check(reads.startsWith('["any",["to-boolean",["global-state"'), 'and switching it on lets everything through', reads.slice(0, 48));
+  // `match` on an absent property evaluates its input to null, which is neither
+  // a label nor the fallback — it is a type error, and a filter that throws
+  // draws nothing at all. Every property read here goes through coalesce.
+  for (const [what, filter] of [['track', track], ['station', station]]) {
+    const bare = JSON.stringify(filter).match(/\["get","[a-z_]+"\]/g) ?? [];
+    const coalesced = JSON.stringify(filter).match(/\["coalesce",\["get","[a-z_]+"\],""\]/g) ?? [];
+    check(bare.length === coalesced.length, `every ${what} property is read through coalesce`, `${bare.length} reads, ${coalesced.length} coalesced`);
+  }
+  check(JSON.stringify(station).includes('junction'), 'a junction is not somewhere to catch a train');
+  check(JSON.stringify(track).includes('disused'), 'and disused track is not track you can travel on');
+}
+
+console.log('\nAnd it is put through MapLibre\'s own parser, not eyeballed');
+{
+  // Everything above checks the shape of the expression. This checks that
+  // MapLibre agrees, using the same expression compiler the map does — which is
+  // the only way to know, because the failure mode of a filter it dislikes is
+  // not an error. It is a layer that silently draws nothing, and these are the
+  // filters on every track and every station in the overlay.
+  //
+  // `@maplibre/maplibre-gl-style-spec` is maplibre-gl's own dependency rather
+  // than one of ours, so it is asked for rather than assumed: no compiler, no
+  // checks, and the rest of the file still runs.
+  let featureFilter = null;
+  try {
+    ({ featureFilter } = await import('@maplibre/maplibre-gl-style-spec'));
+  } catch {
+    console.log('  --   @maplibre/maplibre-gl-style-spec not resolvable; skipped');
+  }
+  if (featureFilter) {
+    const evaluate = (filter, properties, globalState) =>
+      featureFilter(filter).filter({ zoom: 16, globalState }, { type: 2, properties });
+    const track = technicalFilter('railway_line_high');
+    const station = technicalFilter('standard_railway_text_stations');
+    const off = { hexploreTechnical: false };
+    const on = { hexploreTechnical: true };
+
+    check(evaluate(track, { state: 'present' }, off) === true, 'a through line is drawn with the switch off');
+    check(evaluate(track, { state: 'present', service: 'yard' }, off) === false, 'a yard road is not');
+    check(evaluate(track, { state: 'present', service: 'siding' }, off) === false, 'nor a siding');
+    check(evaluate(track, { state: 'disused' }, off) === false, 'nor track nobody uses any more');
+    check(evaluate(track, { state: 'present', service: 'yard' }, on) === true, 'and with the switch on, all of it is');
+    check(evaluate(track, {}, off) === true, 'a feature with neither property is not a type error');
+    check(evaluate(station, { feature: 'station' }, off) === true, 'a station is drawn with the switch off');
+    check(evaluate(station, { feature: 'halt' }, off) === false, 'a halt is not');
+    check(evaluate(station, { feature: 'junction' }, off) === false, 'nor a junction');
+    check(evaluate(station, { feature: 'junction' }, on) === true, 'and with the switch on, both are');
+
+    // The sharp edge: `global-state` evaluates to null for a key nobody set, and
+    // an `any` given null throws — which does not show up as an error, it shows
+    // up as every railway on the map disappearing. Coerced, it reads as "off".
+    check(evaluate(track, { state: 'present' }, {}) === true, 'and an unset switch reads as off rather than emptying the map');
+    check(evaluate(station, { feature: 'station' }, undefined) === true, 'however unset it is');
+
+    // Ours is ANDed onto theirs, and theirs is 288 generated expressions.
+    const broken = [];
+    for (const layer of style.layers) {
+      const extra = technicalFilter(layer['source-layer']);
+      if (!extra) continue;
+      const combined = layer.filter ? ['all', layer.filter, extra] : extra;
+      try {
+        featureFilter(combined).filter({ zoom: 16, globalState: off }, { type: 2, properties: { state: 'present' } });
+      } catch (e) {
+        broken.push(`${layer.id}: ${e.message}`);
+      }
+    }
+    check(!broken.length, 'and every layer it lands on still compiles', broken.slice(0, 2).join(' | '));
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

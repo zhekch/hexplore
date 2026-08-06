@@ -41,8 +41,9 @@ import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
 // The theme is not handed over separately: it only ever changes by switching
 // basemap, which replaces the style and rebuilds the overlay from scratch.
 import {
-  describeRailFeature, installRail, loadRailStyle, railDetail, railDetailChanged,
-  railGroups, railLayerIds, railRoutes, removeRail, setRailGroup, splitRouteLabel,
+  describeRailFeature, forgetRailHover, installRail, loadRailStyle, railDetail, railDetailChanged,
+  railFeature, railLayerIds, removeRail, setRailGroup, setRailHover, setRailTechnical,
+  splitRouteLabel,
 } from './rail.js';
 import { mountKomoot } from './komoot-ui.js';
 import { mountDevices, whenAgo } from './device-ui.js';
@@ -53,6 +54,7 @@ import { mountSync } from './sync-ui.js';
 import { mountSettings } from './settings-ui.js';
 import { mountExport } from './export-ui.js';
 import { mountPersonal } from './personal-ui.js';
+import { mountRail } from './rail-ui.js';
 import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
 import { activeDays, findHome } from './trips.js';
@@ -509,7 +511,7 @@ const STYLE_KEY = 'visited-map:style:v1';
 // is session-only (see `railOn` below) but these are a shape of the thing rather
 // than a state of this visit: someone who never wants the kilometre posts never
 // wants them, and having to switch them off again each morning would be its own
-// small annoyance. Anything not named here defaults to on.
+// small annoyance. Anything not named here falls back to RAIL_GROUP_DEFAULTS.
 const RAIL_GROUPS_KEY = 'visited-map:rail-groups:v1';
 let railGroupsOn = (() => {
   try {
@@ -518,6 +520,22 @@ let railGroupsOn = (() => {
     return {};
   }
 })();
+
+// Whether the sidings, the yard roads, the lifted line and the junction-and-site
+// "stations" are drawn. Off, because they are the difference between a station
+// you can read and a knot of grey.
+const RAIL_TECHNICAL_KEY = 'visited-map:rail-technical:v1';
+let railTechnicalOn = localStorage.getItem(RAIL_TECHNICAL_KEY) === 'on';
+
+// Whether a tap on a railway does anything.
+//
+// Off, and that is the point of it: the overlay's first job is to show where the
+// railways are, and while it is on, every tap on the map has to go through a hit
+// test across 288 layers before it can be about the ground. Someone reading the
+// tracks over their own map wants the second thing; someone reading the railway
+// wants the first, and says so once.
+const RAIL_INTERACTIVE_KEY = 'visited-map:rail-interactive:v1';
+let railInteractive = localStorage.getItem(RAIL_INTERACTIVE_KEY) === 'on';
 
 let styleKey = localStorage.getItem(STYLE_KEY) ?? 'dark';
 if (!STYLES[styleKey]) styleKey = 'dark';
@@ -4681,52 +4699,13 @@ function setRail(on) {
   syncRailLayer();
 }
 
-// Whether the group list is unfolded. Session-only, like every other disclosure
-// in this menu: it is where you are in the menu, not a fact about the map.
-let railOptionsOpen = false;
-
 /**
- * The per-group checkboxes, once there is a loaded style to name the groups.
+ * One group of the overlay — the kilometre posts, the platforms — on or off.
  *
- * Rebuilt from scratch each time rather than patched: it is five rows, and the
- * list only changes when the overlay is switched on for the first time in a
- * session or a rebuilt style changes what the groups are.
+ * Deliberately does not redraw the list it was called from: re-rendering would
+ * replace the checkbox whose own change event we are inside, which works but
+ * throws away the focus a keyboard user was holding.
  */
-function renderRailOptions() {
-  const toggle = document.getElementById('rail-options-toggle');
-  const box = document.getElementById('rail-options');
-  if (!toggle || !box) return;
-
-  const groups = railOn ? railGroups() : [];
-  toggle.hidden = !groups.length;
-  if (!groups.length) {
-    box.replaceChildren();
-    box.hidden = true;
-    railOptionsOpen = false;
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.classList.remove('open');
-    return;
-  }
-  toggle.setAttribute('aria-expanded', railOptionsOpen ? 'true' : 'false');
-  toggle.classList.toggle('open', railOptionsOpen);
-  box.hidden = !railOptionsOpen;
-  if (!railOptionsOpen) return;
-
-  box.replaceChildren(...groups.map((group) => {
-    const row = document.createElement('label');
-    row.className = 'menu-row rail-option';
-    const name = document.createElement('span');
-    name.textContent = group.label;
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.checked = railGroupsOn[group.key] !== false;
-    input.addEventListener('change', () => setRailGroupOn(group.key, input.checked));
-    row.append(name, input);
-    return row;
-  }));
-}
-
-/** One group of the overlay — the kilometre posts, the platforms — on or off. */
 function setRailGroupOn(key, on) {
   railGroupsOn = { ...railGroupsOn, [key]: on };
   try {
@@ -4734,10 +4713,33 @@ function setRailGroupOn(key, on) {
   } catch {
     /* fine */
   }
-  // Deliberately not updateLayersUi(): re-rendering the list would replace the
-  // checkbox whose own change event we are inside, which works but throws away
-  // the focus a keyboard user was holding. The box already shows the new state.
   if (styleReady && railOn) setRailGroup(map, key, on);
+}
+
+/** The sidings, the yards, the lifted lines and the junctions, or none of them. */
+function setRailTechnicalOn(on) {
+  railTechnicalOn = on;
+  try {
+    localStorage.setItem(RAIL_TECHNICAL_KEY, on ? 'on' : 'off');
+  } catch {
+    /* fine */
+  }
+  if (styleReady && railOn) setRailTechnical(map, on);
+}
+
+/** Whether a tap on a railway opens a card, and the cursor says it would. */
+function setRailInteractive(on) {
+  railInteractive = on;
+  try {
+    localStorage.setItem(RAIL_INTERACTIVE_KEY, on ? 'on' : 'off');
+  } catch {
+    /* fine */
+  }
+  if (on) return;
+  // Everything interaction put on screen goes with it, or an overlay that no
+  // longer answers a tap is left holding the last card it opened.
+  railPopup?.remove();
+  clearRailHover();
 }
 
 function syncRailLayer() {
@@ -4747,6 +4749,7 @@ function syncRailLayer() {
   if (!railOn) {
     removeRail(map);
     railPopup?.remove();
+    clearRailHover();
     stopRailDetailPolling();
     showRailTrouble(null);
     return;
@@ -4781,16 +4784,36 @@ function syncRailLayer() {
 let railPopup = null;
 
 /**
- * Open a card about whatever railway was clicked, and say whether there was one.
+ * The way back to the original.
+ *
+ * Built with textContent and an href, never innerHTML: these are OSM tag values,
+ * which is to say strings anyone on the internet can edit.
+ */
+function addOsmLink(card, osm) {
+  const a = document.createElement('a');
+  a.href = osm.url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.textContent = `View this ${osm.type} on OpenStreetMap`;
+  card.append(a);
+}
+
+/**
+ * The topmost thing the overlay drew under a point, or nothing.
  *
  * Scoped to our own layer ids: the basemap draws railways too, and reporting
  * CARTO's idea of a line when the overlay is showing OpenRailwayMap's is the
  * same mistake the layer ordering was fixed for.
  */
-function showRailInfo(e) {
+function railFeatureAt(point) {
   const ids = railLayerIds().filter((id) => map.getLayer(id));
-  if (!ids.length) return false;
-  const hit = map.queryRenderedFeatures(e.point, { layers: ids })[0];
+  if (!ids.length) return null;
+  return map.queryRenderedFeatures(point, { layers: ids })[0] ?? null;
+}
+
+/** Open a card about whatever railway was clicked, and say whether there was one. */
+function showRailInfo(e) {
+  const hit = railFeatureAt(e.point);
   const info = hit && describeRailFeature(hit);
   if (!info) return false;
 
@@ -4805,23 +4828,34 @@ function showRailInfo(e) {
     sub.textContent = info.subtitle;
     card.append(sub);
   }
-  if (info.rows.length) {
-    const dl = document.createElement('dl');
-    for (const [label, value] of info.rows) {
+  // One `dl` for both halves. What the tile knew is written now; what their
+  // feature API adds — who runs the station, the code in the timetable, what is
+  // on the platform — is appended to the same list when it arrives, so the card
+  // grows rather than sprouting a second table under the first.
+  const dl = document.createElement('dl');
+  const addRows = (rows) => {
+    for (const [label, value] of rows) {
       const dt = document.createElement('dt');
       dt.textContent = label;
       const dd = document.createElement('dd');
       dd.textContent = value;
       dl.append(dt, dd);
     }
-    card.append(dl);
-  }
+    dl.hidden = !dl.childElementCount;
+  };
+  addRows(info.rows);
+  card.append(dl);
+
   // The services that run over it. Not in the tile, so the card opens without
   // them and fills the list in when the answer arrives — a click should not wait
   // on a network round trip to show what it already knows. Guarded by the popup
   // it was opened for, so a fast second click cannot land its routes in the
   // first one's card.
-  if (info.routeCount) {
+  //
+  // A line's tile carries `route_count` and so knows to leave the room; a
+  // station's and a platform's do not, so those ask on spec and the section is
+  // built only if the answer has something in it.
+  if (info.routeCount || info.mayHaveRoutes) {
     const routes = document.createElement('div');
     routes.className = 'rail-popup-routes';
     const heading = document.createElement('h5');
@@ -4829,14 +4863,24 @@ function showRailInfo(e) {
     // The tile's own count until the names arrive, then the count of what is
     // actually listed — the two differ because a there-and-back pair is two
     // relations and one line.
-    heading.textContent = plural(info.routeCount);
+    heading.textContent = info.routeCount ? plural(info.routeCount) : 'Routes';
     routes.append(heading);
+    // A station in a city centre is on twenty services and the list is taller
+    // than the map. Its own scroller, so the card stays the size of a card and
+    // everything above it — the name, the operator, the code — stays on screen.
+    const list = document.createElement('div');
+    list.className = 'rail-popup-route-list';
+    routes.append(list);
+    routes.hidden = !info.routeCount;
     card.append(routes);
     const mine = card;
-    railRoutes(info).then((list) => {
+    railFeature(info).then(({ rows, routes: found, osm }) => {
       if (railPopup?.getElement()?.contains(mine) !== true) return;
-      if (list.length) heading.textContent = plural(list.length);
-      for (const route of list) {
+      addRows(rows);
+      if (osm && !info.osm) addOsmLink(card, osm);
+      routes.hidden = !found.length;
+      if (found.length) heading.textContent = plural(found.length);
+      for (const route of found) {
         const line = document.createElement('div');
         line.className = 'rail-popup-route';
         // The dot is always there, coloured or not. Plenty of OSM route
@@ -4863,20 +4907,11 @@ function showRailInfo(e) {
         label.textContent = ends;
         text.append(label);
         line.append(text);
-        routes.append(line);
+        list.append(line);
       }
     });
   }
-  if (info.osm) {
-    // Built with textContent and an href, never innerHTML: these are OSM tag
-    // values, which is to say strings anyone on the internet can edit.
-    const a = document.createElement('a');
-    a.href = info.osm.url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.textContent = `View this ${info.osm.type} on OpenStreetMap`;
-    card.append(a);
-  }
+  if (info.osm) addOsmLink(card, info.osm);
 
   railPopup?.remove();
   railPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
@@ -4884,6 +4919,58 @@ function showRailInfo(e) {
     .setDOMContent(card)
     .addTo(map);
   return true;
+}
+
+// --- Which railway the cursor is on --------------------------------------------
+//
+// This used not to exist, and the reason it did not is still the reason it is
+// shaped the way it is: a `queryRenderedFeatures` across 288 layers on every
+// mousemove is a real cost to pay for an affordance. What changed is that the
+// cost is now opted into. Interaction is off by default, so a session that is
+// reading the tracks over its own map never runs a single one of these; a
+// session that has asked for the railways to answer questions gets an answer to
+// "which of these twenty parallel lines am I about to click".
+//
+// Throttled to one query per frame, and skipped mid-gesture, where the answer
+// would be both wasted and wrong by the time it was drawn.
+//
+// **The highlight itself costs nothing of ours.** 171 of the 288 layers already
+// paint a hovered feature differently — that styling came with them and had
+// never been switched on — so what this does is write one feature state and let
+// their style answer it. See setRailHover.
+let railHoverPending = false;
+let railHoverPoint = null;
+
+// Two things can make the cursor a pointer and they do not know about each
+// other: a saved route answers synchronously on the mousemove, a railway a frame
+// later. One place decides, so the later answer cannot clear the earlier one's.
+let pointerOnRoute = false;
+let pointerOnRail = false;
+const syncPointer = () => {
+  map.getCanvas().style.cursor = pointerOnRoute || pointerOnRail ? 'pointer' : '';
+};
+
+function railHoverAt(point) {
+  if (!railInteractive || !railOn || !styleReady || map.isMoving()) return;
+  railHoverPoint = point;
+  if (railHoverPending) return;
+  railHoverPending = true;
+  requestAnimationFrame(() => {
+    railHoverPending = false;
+    if (!railInteractive || !railOn || !styleReady) return;
+    const hit = railFeatureAt(railHoverPoint);
+    setRailHover(map, hit);
+    pointerOnRail = !!hit;
+    syncPointer();
+  });
+}
+
+/** Whatever is lit, unlit — and without asking a map that may no longer hold it. */
+function clearRailHover() {
+  if (styleReady && railOn) setRailHover(map, null);
+  else forgetRailHover();
+  pointerOnRail = false;
+  syncPointer();
 }
 
 const dateShort = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
@@ -4903,7 +4990,6 @@ function updateLayersUi() {
   }
   updateDetailNow();
   railToggle.checked = railOn;
-  renderRailOptions();
   updateRoutesUi();
 
   // The picker only means anything in single-color mode, and nothing at all
@@ -5077,10 +5163,6 @@ function wireLayersControl() {
     routeOptionsOpen = !routeOptionsOpen;
     renderRouteOptions();
   });
-  document.getElementById('rail-options-toggle').addEventListener('click', () => {
-    railOptionsOpen = !railOptionsOpen;
-    renderRailOptions();
-  });
   document.getElementById('rail-bar-dismiss').addEventListener('click', () => {
     railTroubleDismissed = true;
     showRailTrouble(null);
@@ -5182,6 +5264,7 @@ function addRailLayer() {
     theme: STYLES[styleKey].theme,
     before: RAIL_BEFORE(),
     groups: railGroupsOn,
+    technical: railTechnicalOn,
     detail: railDetailCeilings,
   });
 }
@@ -5647,9 +5730,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       if (route) showRouteInfo(route);
       // Then the train tracks, in the same order they are drawn in: a line you
       // travelled beats reference geometry about where a line exists, and both
-      // beat the ground underneath. Only when the overlay is actually on — a
-      // hit test across 288 layers is not worth running otherwise.
-      else if (railOn && showRailInfo(e)) { /* the card is the whole of the tap */ }
+      // beat the ground underneath. Only when the overlay is on *and* has been
+      // asked to answer — a hit test across 288 layers is not worth running
+      // otherwise, and an overlay switched on to look at should not be quietly
+      // taking taps away from the ground it is drawn over.
+      else if (railOn && railInteractive && showRailInfo(e)) { /* the card is the whole of the tap */ }
       // At the three vector levels there are no hexes on screen, so a tap is
       // about the shape it landed on — whether or not you have been to it — and
       // where there is no shape, about nothing. See showInfoAt.
@@ -5666,8 +5751,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     lastLngLat = e.lngLat;
     // View mode: show that the line under the cursor is tappable. Skipped
     // mid-gesture, where a hit test would be both wasted and misleading.
-    if (mode !== 'edit' && routesOn && routeGeom && !map.isMoving()) {
-      map.getCanvas().style.cursor = routeAt(e.point) ? 'pointer' : '';
+    if (mode !== 'edit' && !map.isMoving()) {
+      if (routesOn && routeGeom) {
+        pointerOnRoute = !!routeAt(e.point);
+        syncPointer();
+      }
+      // And the railway under it, if the overlay has been asked to answer. A
+      // frame behind, and its own half of the cursor — see railHoverAt.
+      railHoverAt(e.point);
     }
     if (mode !== 'edit' || currentLevel == null) return;
     // Keep the paint gesture in sync with the live modifier state (covers the
@@ -5692,7 +5783,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       updateTiles();
     });
   });
-  map.getCanvas().addEventListener('mouseleave', () => setHover(null));
+  map.getCanvas().addEventListener('mouseleave', () => {
+    setHover(null);
+    clearRailHover();
+  });
 
   // The modifier state carried on the button-press itself, checked before
   // MapLibre sees it.
@@ -5894,6 +5988,15 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       updateLayersUi();
     },
   });
+  const railUi = mountRail({
+    onClose: () => personalUi?.open(),
+    groups: () => railGroupsOn,
+    onGroup: (key, on) => setRailGroupOn(key, on),
+    technical: () => railTechnicalOn,
+    onTechnical: (on) => setRailTechnicalOn(on),
+    interactive: () => railInteractive,
+    onInteractive: (on) => setRailInteractive(on),
+  });
   personalUi = mountPersonal({
     onClose: () => settings?.open(),
     home: () => homePlace,
@@ -5908,6 +6011,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       pushPrefs();
     },
     sources: sourcesUi,
+    rail: railUi,
     onClearCache: () => clearOfflineCaches(),
     version: () => serverBuild(),
     username: () => username,

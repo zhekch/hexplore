@@ -3472,30 +3472,13 @@ body {
   display: none;
 }
 
-/* The train-tracks groups. Same disclosure as the activity rows above, and
-   deliberately the same shape: both answer "which parts of this layer do I want
-   drawn". Indented, because they are parts of the row above them rather than
-   siblings of it. */
-.rail-options {
-  margin-top: 2px;
-  padding: 2px 0 2px 10px;
-}
-
-.rail-options[hidden] {
-  display: none;
-}
-
-/* No top border: inside the disclosure these are a list, and the rule that
-   separates one menu row from the next reads as five separate settings. */
-.rail-option {
-  border-top: 0;
-  margin-top: 2px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.78);
-}
-
-[data-theme='light'] .rail-option {
-  color: rgba(15, 23, 42, 0.72);
+/* Set apart from the group list above it, because it is a different kind of
+   answer: those are "draw this part or don't", this one changes which features
+   any of them draw. */
+.rail-technical-row {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* --- The card a clicked railway opens ---------------------------------------
@@ -3574,6 +3557,14 @@ body {
   font-size: 12px;
 }
 
+/* The grid wins over the UA stylesheet's `display: none`, so the attribute has
+   to be honoured explicitly. It matters: the list starts empty on a station,
+   whose rows all arrive from the feature API, and an empty grid still has its
+   top margin. */
+.rail-popup dl[hidden] {
+  display: none;
+}
+
 .rail-popup dt {
   color: rgba(255, 255, 255, 0.55);
   white-space: nowrap;
@@ -3593,6 +3584,10 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+.rail-popup-routes[hidden] {
+  display: none;
+}
+
 .rail-popup-routes h5 {
   margin: 0 0 5px;
   font-size: 10.5px;
@@ -3600,6 +3595,40 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.5);
+}
+
+/* A junction station is on twenty services, and twenty of these is a card
+   taller than the phone it is on — which pushes the name, the operator and the
+   platform number off the top of the screen to make room for a list you have to
+   scroll the *map* to read. The list scrolls instead, so the card stays the size
+   of a card. The height is in `em` so it tracks the type: about eight lines,
+   which is enough to read as a list that continues rather than as a clipped one.
+   `overscroll-behavior` stops a flick that reaches the bottom of the list from
+   carrying on into the page behind the popup. */
+.rail-popup-route-list {
+  max-height: 13em;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Room for the scrollbar so the last word of a long journey is not under it,
+     and a hair of padding at the top so a scrolled line does not touch the
+     heading. */
+  padding-right: 4px;
+  margin-right: -4px;
+}
+
+/* Faint, and only there while the list is scrollable — a permanent groove down
+   the side of a two-route list would read as a divider. */
+.rail-popup-route-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.rail-popup-route-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+}
+
+[data-theme='light'] .rail-popup-route-list::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.22);
 }
 
 .rail-popup-route {

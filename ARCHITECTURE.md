@@ -2380,13 +2380,72 @@ unset key evaluates to null, so all fourteen defaults are set on the map at
 install. For the 748 that consult `theme`, forgetting that is the difference
 between railways and nothing at all.
 
-The five **groups** in the layers menu — tracks, stations, signals and crossings,
+The six **groups** — line numbers, tracks, stations, signals and crossings,
 platforms, kilometre posts — are ours, assigned per source layer in `GROUPS` at
 the top of the build script. The build fails rather than ships if upstream grows
 a source layer that none of them claims: content with no way to switch it off is
 exactly what this overlay was rebuilt to avoid. Switching a group off sets
 `visibility` rather than removing layers, so switching it back on costs nothing
 and cannot reorder the stack.
+
+Three of them are **off to begin with**, which an absent key did not used to
+mean. `RAIL_GROUP_DEFAULTS` in src/rail.js is the list. The overlay draws six
+kinds of thing over a map that already has a map on it, and three of them are for
+reading a railway rather than seeing where one is: the line-number shields are
+the densest labels anything here puts on the screen, the kilometre posts are a
+number every few hundred metres, and the signals are both dense and the only
+reason the 1.5 MB full-colour sprite atlas is ever fetched. Switching the overlay
+on for the first time should show where the tracks are.
+
+### Technical infrastructure is a filter, not a group
+
+The sidings and yard roads a train is only ever shunted along, the line that was
+lifted in 1974, and the "stations" that are a junction, a site or a point where
+two tracks cross. All of it is real and correctly mapped, and all of it roughly
+doubles the ink around any station of any size — at Spiez, 38 of the 63 tracks in
+one z16 tile carry a `service` tag. Off by default, and one switch.
+
+It **cannot be a group**, because a siding and the through line beside it are
+drawn by the same layer off the same source: it is a property of features, not of
+layers. So it is a filter, and `technicalFilter()` builds it per source layer —
+`service` and `state` on the two track layers, `feature` on the five station
+ones, nothing anywhere else.
+
+**One global-state key, not 253 `setFilter` calls.** MapLibre re-parses a
+source's tiles when a filter that reads a changed global-state key changes
+(`getLayoutAffectingGlobalStateRefs` includes the feature filter), and a
+`setFilter` per layer would do that work once per layer. The filters are written
+into the layers at install as `["any", ["global-state", "hexploreTechnical"], …]`
+— exactly the shape their own style is written in — so the switch is one property
+set. It is still five properties and so five reloads, because their four
+`showXInfrastructure` switches follow the same toggle; only `Style.setGlobalState`
+applies several at once and that is not on `Map`, which is not worth reaching
+past `Map` for on a switch nobody flips twice.
+
+Their four are used rather than reimplemented: the style consults them itself,
+in 1,529 places. Their defaults disagree with each other — construction and
+proposed are on out of the box, abandoned and razed are off — which is a fine
+answer for a map *of* railways and the wrong one for an overlay on a map of
+somewhere else. `disused` is the one state with no switch of theirs, and is the
+only one filtered here directly.
+
+**A filter that throws does not fail loudly — it draws nothing**, and these are
+the filters on every track and every station in the overlay, so both places a
+null can get in are closed. Every property read goes through `coalesce`, because
+`match` on an absent property evaluates its input to null, which is neither a
+label nor the fallback. And the switch itself is read through `to-boolean`,
+because `global-state` evaluates to null for a key nobody has set and `any` wants
+booleans: one ordering mistake that left the key unset would otherwise empty the
+map of railways with no error worth the name. Coerced, it reads as "off", which
+is the default anyway.
+
+The test compiles all of it with `featureFilter` from
+`@maplibre/maplibre-gl-style-spec` — the same expression compiler the map uses,
+which is the only way to know, since eyeballing an expression is exactly what
+this class of bug survives. It evaluates the switch in both positions, with the
+key unset, and ANDed onto each of the 288 generated filters it lands on. The
+package is maplibre-gl's own dependency rather than one of ours, so it is asked
+for rather than assumed: no compiler, no checks, and the rest of the file runs.
 
 ### Asking their server as little as possible
 
@@ -2589,24 +2648,77 @@ speeds and gauges carry their units, and `{BLS}` — a PostgreSQL array literal,
 which is what put braces on screen — becomes BLS. Their feature API returns the
 same fields as real JSON arrays, so `asList` answers both doors.
 
-**The routes are the one exception.** Which services run over a line is a
-relation, and a vector tile carries `route_count` but not the relations, so that
-is a request — one per click, on a line somebody just asked about, which is a
-very different thing from one per tile. It is answered by their `api` container
-rather than their tile server, which is why it kept working right through the
-outage that took the tiles down. The card opens without it and fills the list in
-when it arrives.
+**The track number is what says which line was clicked.** A station is twenty
+parallel lines and, without `track_ref`, twenty cards that describe themselves
+identically — same operator, same voltage, same gauge. It is distinct from `ref`,
+which is the number of the *line* the track belongs to and stays out.
+
+**Their tiles carry no `osm_id` at all.** That pair of keys is their feature
+API's; reading it off a tile was a link that could never appear, and the cost of
+that was much higher than a missing link. `describeRailFeature` opens no card for
+a feature with nothing to say, and a platform whose relation carries no `name`
+and no `ref` — which is most of them, since the number is usually on the platform
+*edge* — had nothing else. Thun's platform relations happen to be named "Thun"
+and opened a card; Spiez's are named nothing, so the tap fell through to the
+ground underneath. That read exactly as "platforms are clickable in Thun and not
+in Spiez", and no amount of looking at the platform code would have found it.
+
+What a tile does carry is the feature's own `id`, which is the same fact spelled
+two ways: `relation-9068328` and `node-3080728389-train-train-station` where the
+element type is not implied, and a bare `988282659-0` on the track layers, where
+the suffix is the segment a long way was cut into and the element is always a way.
+`osmRef()` reads the prefixed form anywhere and the bare form **only on the track
+layers**, because a kilometre post's id has precisely the same shape and is a
+node — guessing from the shape alone would link a third of them to somebody
+else's way.
+
+And a feature with a `feature` value now has a heading: "Platform" rather than
+"Railway" over a subtitle reading "platform", which spent the heading on the one
+word that is true of everything in the overlay.
+
+**The routes are the one exception to "already in the tile".** Which services run
+over something is a relation, and a vector tile carries `route_count` but not the
+relations, so that is a request — one per click, on something somebody just asked
+about, which is a very different thing from one per tile. It is answered by their
+`api` container rather than their tile server, which is why it kept working right
+through the outage that took the tiles down. The card opens without it and fills
+the list in when it arrives.
+
+**Their answer keys the routes by what was clicked** — `line_routes`,
+`station_routes`, `platform_routes` — and reading only the first is why a station
+used to list nothing. A station has no `route_count` in its tile either, so
+unlike a line it cannot know to leave the room: it asks on spec, and the section
+is built only if the answer has something in it. The same request brings back
+what else their API knows — the operator, the UIC number and the operating code
+for a station; the platform numbers, the surface and what is on it for a platform
+— appended to the same `dl` the tile's rows are in, so the card grows rather than
+sprouting a second table under the first.
+
+**A junction station is on twenty services**, which is a list taller than the
+phone it is on — and it pushed the name, the operator and the platform number off
+the top of the screen to make room for something you then had to scroll the *map*
+to read. The list has its own scroller at about eight lines, so the card stays the
+size of a card.
 
 OSM models each direction as its own relation, so six of them are three services;
 `mergeRouteDirections` folds a route and its return working into one line, keyed
 on the service name plus the stop list taken whichever way round sorts first. Two
 different services between the same towns keep their own lines. The label is
-split on **every** `=>` rather than the first, because relations name their
+split on **every** separator rather than the first, because relations name their
 via-points: "Grandson => Lausanne => Bex" is a journey, and treating it as a pair
 would both read wrong and stop it matching its return working, whose stops are
 the same list backwards. It is set with real arrows — `→` one way, `↔` when both
 directions were found — since `=>` is how the tag is written, not how it should
 be read.
+
+**`=>` is nothing like universal.** "TGV 511: Paris -- Toulon -- Hyères" and "TER
+Morez - Saint-Claude - (Lyon)" are both real relation names, and a separator the
+parser did not know about printed as one undivided run of text with no arrows in
+it at all. `STOP_SEPARATOR` takes `=>`, `<=>`, `->`, `<->` and the dashes — and
+**every dash form requires whitespace on both sides**, which is the whole of what
+keeps Saint-Claude, Aix-en-Provence and Baden-Baden in one piece. The test names
+those three, because the failure is a place cut in half and it would look like a
+data problem.
 
 Plenty of relations carry no `colour` tag — their API returns an empty string —
 so the dot is drawn hollow rather than omitted, because a missing dot puts the
@@ -2617,7 +2729,7 @@ moves down whole instead of stranding "Zweisimmen" on a line of its own.
 
 **Platform numbers need z15 and are not always reachable.** `ref` means the route
 number on a line and the platform number on a platform, so it is shown only for
-the latter, keyed off the source layer. Their platform geometry only exists from
+the latter, keyed off what was clicked. Their platform geometry only exists from
 z15, which during the outage was the one range with nothing in the CDN at all —
 so the row is correct and simply has no data to show until their origin is back.
 
@@ -2625,9 +2737,55 @@ The hit test is scoped to our own layer ids: the basemap draws railways too, and
 reporting CARTO's idea of a line while the overlay is showing OpenRailwayMap's
 would be the same mistake the layer ordering was fixed for. In the click handler
 a railway comes after a saved route and before the ground — the same order the
-three are drawn in, and for the same reason. There is deliberately no hover
-cursor: a `queryRenderedFeatures` across 288 layers on every mousemove is not
-worth an affordance.
+three are drawn in, and for the same reason.
+
+### Whether a tap on a railway does anything at all
+
+It used to always. That is the wrong default for an overlay whose first job is to
+show *where* the railways are: every tap on the map then went through a hit test
+across 288 layers before it could be about the ground, and the overlay quietly
+took taps away from the map it was drawn over. **Interaction is a switch now, and
+it is off** — someone reading the tracks over their own map never pays for it,
+and someone reading the railway says so once.
+
+That switch is also what paid for the hover, which this file used to argue
+against: "there is deliberately no hover cursor: a `queryRenderedFeatures` across
+288 layers on every mousemove is not worth an affordance". The cost was real and
+the conclusion followed from it being unconditional. Opted into, it is a
+different trade, and the hover is worth a great deal in a station where twenty
+lines are three pixels apart.
+
+**The highlight itself costs nothing of ours.** 171 of the 288 layers already
+paint a hovered feature differently — a red platform edge, a red outline round a
+station, a yellow track number — because their app is a map you point at, and
+that styling came across with the layers and had simply never been switched on.
+So `setRailHover` writes one `feature-state` and their own style answers it in
+the colour its designer chose; there is no highlight layer of ours. `promoteId`
+on every source, which was already there to make a clicked feature identifiable,
+is what makes a feature state possible at all.
+
+The query is throttled to one per animation frame and skipped while the map is
+moving. The cursor is the one thing two things compete for — a saved route
+answers synchronously on the mousemove, a railway a frame later — so one function
+owns it and reads both, or the later answer would clear the earlier one's.
+
+### Where the switches live
+
+All of it except the on/off is in **Settings → Train tracks**. They were a
+disclosure inside the layers menu, folded under the switch that turns the overlay
+on, which was right for two checkboxes and wrong for eight: the layers menu is
+something you flick through while looking at the map, and a column of railway
+sub-options in the middle of it pushed everything below out of reach on a phone.
+They are settings — set once, then read the map.
+
+The overlay's own switch deliberately stays in the layers menu: "is this layer
+drawn" is the same question as "is the heatmap drawn" and belongs beside it.
+
+Opening the dialog **fetches the style**, because the group list is named from it
+and the overlay may never have been switched on. It is a 315 KB lazy chunk and
+opening this dialog is a clear enough statement of intent; the alternative was an
+empty box until you had switched the overlay on first, which is a dialog that
+looks broken for the one reason nobody could guess.
 
 ## How sharp a region is
 

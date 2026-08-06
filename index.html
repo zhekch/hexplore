@@ -95,22 +95,14 @@
               <div class="menu-note" id="cells-off" hidden>Visited areas hidden.</div>
             </div>
 
+            <!-- Just the switch. What the overlay draws, and whether it answers
+                 a tap, is eight controls that you set once and then read the map
+                 — so they are in Settings, and this stays beside the other
+                 "is this layer drawn" questions. -->
             <label class="menu-row">
               <span>Train tracks<small>OpenRailwayMap</small></span>
               <input type="checkbox" id="rail-toggle" />
             </label>
-            <!-- Only offered once the overlay is on: the groups are parts of a
-                 thing that isn't on the map yet, and the style they come from is
-                 a lazy chunk that hasn't been fetched to name them. -->
-            <button type="button" class="menu-expand" id="rail-options-toggle"
-              aria-expanded="false" aria-controls="rail-options" hidden>
-              <span>Choose what to show</span>
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
-                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-            <div class="rail-options" id="rail-options" hidden></div>
           </section>
 
           <section class="menu-section">
@@ -565,6 +557,25 @@
              the hub uses, which is where a row of this shape gets its spacing
              from — on their own they sit flush against each other. -->
         <div class="sync-options">
+        <!-- The overlay's own settings. The switch that draws it is in the
+             layers menu with the other layers; everything about what it draws
+             and whether it answers a tap is behind here. -->
+        <button type="button" class="sync-option" data-personal="rail">
+          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 20 20 4" />
+            <path d="m8 8 8 8" />
+            <path d="M6 6h2M16 16h2" />
+            <path d="M6 10h2M16 12h2" />
+          </svg>
+          <span class="sync-option-text">
+            <b>Train tracks</b>
+            <small>What the railway overlay draws</small>
+          </span>
+          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m9 5 7 7-7 7" />
+          </svg>
+        </button>
+
         <button type="button" class="sync-option" data-personal="sources">
           <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 7h16" />
@@ -641,6 +652,48 @@
         <div class="modal-actions">
           <button type="button" class="modal-btn" id="personal-back">Back</button>
           <button type="button" class="modal-btn primary" id="personal-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- What the train-tracks overlay draws. The group rows are built in
+         src/rail-ui.js from the built style, so the list cannot fall out of step
+         with what is actually on the map. -->
+    <div class="modal-overlay" id="rail-overlay" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">Train tracks</div>
+            <div class="modal-sub">What the railway overlay draws, and whether it answers a tap. Switch the overlay itself on from the layers menu.</div>
+          </div>
+          <button class="cell-info-close" id="rail-close" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="ha-scroll">
+          <label class="import-row">
+            <span>Interactable<small>A tap on a railway opens a card about it, and the cursor says so</small></span>
+            <input type="checkbox" id="rail-interactive" />
+          </label>
+
+          <div class="menu-subhead"><span>Show</span></div>
+          <div id="rail-groups"></div>
+
+          <!-- Last, and outside the list above, because it is not a group: a
+               siding and the through line beside it are drawn by the same layer,
+               so this one is a filter. -->
+          <label class="import-row rail-technical-row">
+            <span>Technical infrastructure<small>Sidings, yard roads and crossovers; track that is disused, under construction, proposed or lifted; and the halts, junctions, yards and sites a timetable would not call a station</small></span>
+            <input type="checkbox" id="rail-technical" />
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="modal-btn" id="rail-back">Back</button>
+          <button type="button" class="modal-btn primary" id="rail-done">Done</button>
         </div>
       </div>
     </div>
