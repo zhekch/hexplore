@@ -668,9 +668,20 @@ export function describeRailFeature(feature) {
     rows.push([label, text]);
   }
 
-  // `name` is the heading rather than a row when it is there at all.
+  // The name is the heading rather than a row when it is there at all — and the
+  // heading is the one the map drew. `localized_name` is the station's name in
+  // the overlay's language (see TILE_LANG in server/rail-tiles.js) and is only
+  // ever different where a place has a name in it, so a card headed "Tokyo" over
+  // a map labelled Tokyo is the whole of this. Where the two differ the local
+  // spelling stays as a row, because it is what is written on the platform.
   const named = rows.findIndex(([label]) => label === 'Name');
-  const title = named >= 0 ? rows.splice(named, 1)[0][1] : (p.localized_name ?? null);
+  const local = p.localized_name || null;
+  const own = named >= 0 ? rows[named][1] : null;
+  if (named >= 0) {
+    if (!local || own === local) rows.splice(named, 1);
+    else rows[named][0] = 'Local name';
+  }
+  const title = local ?? own;
 
   const sourceLayer = feature.sourceLayer ?? null;
   const kind = railKind(sourceLayer);

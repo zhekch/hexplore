@@ -93,6 +93,26 @@ console.log('\nWhat reaches their server');
   check(req.referer === `${REF}/`, 'the Referer is our own origin', req.referer);
   check(!/openrailwaymap/i.test(req.referer), 'the Referer does not claim to be theirs');
   check(/HexPlore/.test(req.ua) && /github/.test(req.ua), 'the User-Agent names the project and links to it', req.ua);
+  // Without this their style labels a station in whatever language the platform
+  // sign is in, over a basemap that is already labelling it in English. See
+  // TILE_LANG.
+  check(/[?&]lang=en\b/.test(req.url), 'the tile is asked for in English', req.url);
+}
+
+console.log('\nThe language is part of what a cached entry is');
+{
+  // Two caches over the same directory, one asking in a language the other did
+  // not, must not read each other's answers back. Anything less and switching
+  // TILE_LANG would go on serving the old labels for as long as a week.
+  const dir2 = await mkdtemp(path.join(tmpdir(), 'hexplore-rail-lang-'));
+  const en = createRailTiles({ dir: dir2, sources: SOURCES, origin: up.origin });
+  const de = createRailTiles({ dir: dir2, sources: SOURCES, origin: up.origin, lang: 'de' });
+  const before = up.seen.length;
+  await en.tile('railway_line_high', 11, 1072, 718, REF);
+  await de.tile('railway_line_high', 11, 1072, 718, REF);
+  check(up.seen.length - before === 2, 'the same tile in two languages is two requests', `${up.seen.length - before}`);
+  check(/[?&]lang=de\b/.test(up.seen.at(-1).url), 'and the second asks for the second one', up.seen.at(-1).url);
+  await rm(dir2, { recursive: true, force: true });
 }
 
 console.log('\nA repeat costs them nothing');

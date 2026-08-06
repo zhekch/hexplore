@@ -2457,6 +2457,40 @@ number every few hundred metres, and the signals are both dense and the only
 reason the 1.5 MB full-colour sprite atlas is ever fetched. Switching the overlay
 on for the first time should show where the tracks are.
 
+### The stations are labelled in English
+
+Their tiles carry two names for a station: `name`, which is what is written on
+the platform, and `localized_name`, the name in a language you have to ask for.
+Without asking, `localized_name` is simply absent — so their style, which reads
+it, labelled a Tokyo suburban line in Japanese and a Greek branch in Greek, on
+top of a basemap that had already labelled both in English.
+
+The ask is `?lang=` on the tile, added upstream by the proxy (`TILE_LANG` in
+`server/rail-tiles.js`). Being a query parameter it is part of *what a cached
+entry is*, so it is in the cache key too: without that, changing it would go on
+serving what was fetched under the old one until the last of it aged out, which
+for a tile is a week. It is one value for the whole map rather than something
+read off the browser, because a cache multiplied by however many languages
+happened to visit is not a cache.
+
+The URL the *browser* asks for is unchanged by any of this, which is the one
+rough edge: a tile already in a browser's HTTP cache keeps the labels it was
+fetched with until its `max-age` runs out, up to a week. Ground nobody has
+looked at yet arrives in the new language immediately, and a hard reload settles
+the rest. Putting the language in that URL as well was considered and dropped —
+the client would then hold a second copy of the value whose only job is to
+invalidate a cache, and a copy that had drifted would fail silently at exactly
+that job.
+
+Nothing is lost by it. Their own style puts `name` on a second line wherever the
+two differ, so the sign at the station is still on the map; where a place has no
+name in the language asked for, `localized_name` is what `name` was and the
+label is one line as before. The feature card follows the same rule — the
+heading is the name the map drew, with the local spelling kept as a row — and
+their feature API, which is where the card's list of services comes from,
+ignores the parameter entirely: an OSM route relation is named once, in the
+language it is named in.
+
 ### Technical infrastructure is a filter, not a group
 
 The sidings and yard roads a train is only ever shunted along, the line that was

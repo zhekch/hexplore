@@ -71,6 +71,29 @@ const ORM_ORIGIN = process.env.RAIL_ORIGIN || 'https://openrailwaymap.app';
 // Not faked, and not a browser. See the policy note above.
 const USER_AGENT = 'HexPlore/0.1 (+https://github.com/zhekch/hexplore; personal map, server-side tile cache)';
 
+// **What language the railways are labelled in.**
+//
+// Their tiles carry two names for a station: `name`, which is whatever is
+// written on the platform, and `localized_name`, which is the name in a language
+// you ask for. Without asking, `localized_name` is simply absent — so their
+// style, which reads it, labels a Tokyo suburban line in Japanese and a Greek
+// branch in Greek, on top of a basemap that is already labelling both in English.
+//
+// `?lang=` is the whole ask, and it is a **query parameter on the tile**, which
+// makes it part of what a cached entry *is*. It is in the key below for that
+// reason: without it, switching this would go on serving what was fetched under
+// the old one until the last of it aged out, which for a tile is a week.
+//
+// Not per-request and not read off the browser: this is one map with one set of
+// labels on it, and a per-language cache would multiply every tile by however
+// many languages happened to visit. `name` is still in the tile, and their style
+// puts it under the English one wherever the two differ, so nothing is lost —
+// what is on the sign is still on the map.
+//
+// The default rather than the value, only so that a test can hold two of them
+// over one cache directory and watch them stay apart.
+const TILE_LANG = 'en';
+
 // How long a stored tile is served without asking. OpenStreetMap edits reach
 // their tiles on the order of days, and a siding that appeared this morning is
 // not worth a round trip per tile per week to catch. Upstream's own `max-age`
@@ -218,11 +241,13 @@ const isEmptyBody = (buf) => !buf || buf.length === 0;
  *   actually draws, the same allowlist idea for their feature API.
  * @param {string} [opts.origin] upstream to fetch from; the tests point this at
  *   a local stand-in, since the real one cannot be asked for a 304 on demand.
+ * @param {string} [opts.lang] what language to ask for the labels in; see
+ *   TILE_LANG, which is what this defaults to and the only value in use.
  * @param {number} [opts.healthWindowMs] how long zoom evidence counts for; only
  *   shortened by the tests, which cannot wait ten minutes to watch a cap lift.
  * @param {(msg: string) => void} [opts.log]
  */
-export function createRailTiles({ dir, sources, featureViews = new Set(), origin: upstreamOrigin = ORM_ORIGIN, healthWindowMs = HEALTH_WINDOW_MS, log = () => {} }) {
+export function createRailTiles({ dir, sources, featureViews = new Set(), origin: upstreamOrigin = ORM_ORIGIN, lang = TILE_LANG, healthWindowMs = HEALTH_WINDOW_MS, log = () => {} }) {
   const inFlight = new Map();
   const sprites = spritePaths();
   let upstreamBusy = 0;
@@ -553,8 +578,10 @@ export function createRailTiles({ dir, sources, featureViews = new Set(), origin
       if (!sources.has(sourceList)) return null;
       const at = validTileCoords(z, x, y);
       if (!at) return null;
-      const key = `tile:${sourceList}/${at.z}/${at.x}/${at.y}`;
-      return fetchCached(sourceList, key, `${sourceList}/${at.z}/${at.x}/${at.y}`, TILE_TTL_MS, origin, at.z);
+      // The language is part of the answer, so it is part of the key. See TILE_LANG.
+      const key = `tile:${sourceList}/${at.z}/${at.x}/${at.y}@${lang}`;
+      const upstreamPath = `${sourceList}/${at.z}/${at.x}/${at.y}?lang=${lang}`;
+      return fetchCached(sourceList, key, upstreamPath, TILE_TTL_MS, origin, at.z);
     },
 
     /**

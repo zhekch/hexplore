@@ -320,6 +320,23 @@ console.log('\nWhat a clicked feature says');
   });
   check(named.title === 'Spiez' && named.subtitle === 'station', 'a named one keeps both', `${named.title} / ${named.subtitle}`);
 
+  // The tiles are asked for in English (see TILE_LANG in server/rail-tiles.js),
+  // so a station in Tokyo is labelled "Tokyo" on the map — and a card headed
+  // 東京 over it would be the two disagreeing about the same station.
+  const rowOf = (card, label) => card.rows.find(([l]) => l === label)?.[1];
+  const tokyo = describeRailFeature({
+    geometry: { type: 'Point' },
+    properties: { name: '東京', localized_name: 'Tokyo', feature: 'station', osm_id: 7, osm_type: 'N' },
+  });
+  check(tokyo.title === 'Tokyo', 'a card is headed by the name the map drew', tokyo.title);
+  check(rowOf(tokyo, 'Local name') === '東京', 'and keeps what is written on the platform', rowOf(tokyo, 'Local name'));
+  const bern = describeRailFeature({
+    geometry: { type: 'Point' },
+    properties: { name: 'Bern', localized_name: 'Bern', feature: 'station', osm_id: 7, osm_type: 'N' },
+  });
+  check(bern.title === 'Bern', 'a place with one name is headed by it', bern.title);
+  check(!rowOf(bern, 'Local name') && !rowOf(bern, 'Name'), 'and does not print it twice');
+
   const implied = describeRailFeature({ geometry: { type: 'Point' }, properties: { osm_id: 9 } });
   check(implied.osm.type === 'node', 'a missing osm_type falls back to the geometry', implied.osm?.type);
 
