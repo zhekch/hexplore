@@ -551,6 +551,38 @@ than a particular handset — two phones both say "iPhone", and which one it was
 in the device list. That matches how every other source works and is the reason
 `device_links` is a separate table from `cell_sources` rather than a column on it.
 
+#### And a Mac, pushing through the same door
+
+`HexPlore-macOS/` is the same client for a machine that is not a phone, and it
+posts to the same `/api/device/fixes` with the same `{device, fixes}` body. The
+server does not distinguish them and should not: the contract above — FIFO
+queue, forward-only cursor, retries that are no-ops — is about how a *pushing*
+client behaves, not about what it is running on.
+
+What is genuinely different is what the client can promise, and it is worth
+recording because it is invisible from this side. **macOS does not relaunch an
+app for a location event and does not wake a sleeping machine to take a fix.**
+The significant-change monitor exists there, but the job it does on iOS — being
+the one service that resurrects a terminated app — it cannot do. So a Mac
+records while HexPlore is running and not otherwise, which makes it a real
+source for a laptop that travels and close to a dead weight on a desktop. The
+setting therefore starts *off*, and the sparse days that result are honest in
+the same way every other gap here is honest.
+
+Two consequences worth knowing:
+
+- **`allowsBackgroundLocationUpdates` is not set on the Mac, and must not be.**
+  CoreLocation documents setting it without `UIBackgroundModes` as *a fatal
+  error*, and there is no such key on macOS. It is the one line of the phone's
+  logger that would crash the port.
+- **Its cells are still filed as `iphone`**, because `DEVICE_SOURCE` is a
+  constant on the shared endpoint. The device list is right — it carries the
+  machine's name and `platform: "macOS …"` — so this is a label on the cells and
+  nothing more. Making it its own source means teaching this endpoint to choose
+  one from the platform and giving it a name in `src/locations.js`; that is a
+  change to the path the phone's logger runs through, and it is worth making
+  deliberately rather than as a side effect.
+
 ### Workouts out of Apple Health
 
 Health is where everything ends up. A ride recorded on a Watch, a walk from

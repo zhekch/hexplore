@@ -28,12 +28,16 @@ number of approaches that were tried and abandoned.
 - **Or let your phone do it.** The iOS app records where you have been with the
   screen off — you pick how often, from every minute to only-when-you-go-
   somewhere — and brings in the Apple Health workouts that carry a route.
+- **There is a Mac app too.** The same site in a window, with the same photo
+  import. It records where a laptop has been if you ask it to — off by default,
+  because unlike a phone a Mac only records while the app is running. No Apple
+  Health, because macOS has none.
 - **Saved routes.** Tracks from your imports are kept as lines, named after
   where they went and what sport they look like.
-- **Your photos on the map** (iPhone app only). A point wherever you have taken
-  one, grouped where they pile up; tap for the picture and the time it was
-  taken. No photo is ever uploaded — the app reads them off the phone it is
-  running on, which is also why this switch is not in the menu in a browser.
+- **Your photos on the map** (in the apps, not a browser). A point wherever you
+  have taken one, grouped where they pile up; tap for the picture and the time
+  it was taken. No photo is ever uploaded — the app reads them off the device it
+  is running on, which is also why this switch is not in the menu in a browser.
 - **Four basemaps** — dark, terrain, light, satellite. Colour the map with a
   single accent, or shade each cell by **visits**, by **first seen**, or by
   **type** (a colour per app the data came from).
@@ -182,16 +186,16 @@ map for its card. The list sorts by **newest or longest** and groups by **app or
 activity**, and the two are independent — so "the longest ride, and the longest
 hike" is one question you can ask.
 
-**Your photographs, on the map.** In the iPhone app, *Photos* in the layers menu
-puts a point wherever you have taken one. Where they pile up they gather into a
+**Your photographs, on the map.** In the iPhone and Mac apps, *Photos* in the
+layers menu puts a point wherever you have taken one. Where they pile up they gather into a
 group with a count on it, and tapping one opens it — however many are in there.
 One picture at a time — the most recent first, with the rest as a strip along
 the bottom — and it says when each was taken. Zooming is still the map's own gestures; a tap
 is always about the photographs.
 
 Nothing is uploaded and nothing is shared. The app reads the photographs off the
-phone it is running on, one at a time, only when you tap one, and only to show it
-to you — which is exactly why the switch is not there in a browser.
+device it is running on, one at a time, only when you tap one, and only to show
+it to you — which is exactly why the switch is not there in a browser.
 
 **Tap the picture** and it opens full screen at its original size, where you can
 pinch and double-tap to zoom. **Videos are there too**, marked with a play
@@ -316,8 +320,8 @@ save. Basemap and railway tiles aren't kept there (they're someone else's to
 serve), so offline your map sits on an empty background. Signing out throws the
 whole cached copy away.
 
-The iOS app gets this for free: its Map tab is the same site in a web view, and
-web views have run service workers since iOS 14.
+Both apps get this for free: each is the same site in a web view, and web views
+have run service workers since iOS 14.
 
 **Zooming out** goes from hexagons to shapes you recognise: at about z5 the grid
 gives way to **regions** — cantons, states, départements — one step further out

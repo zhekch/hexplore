@@ -7,6 +7,12 @@ worktree this project keeps. Never call it with a `name`; that makes the
 per-task worktrees this setup exists to avoid. See [Where work
 happens](#where-work-happens).
 
+There are two native apps, `HexPlore-IOS/` and `HexPlore-macOS/`, and they are
+deliberately the same program either side of what the platforms actually differ
+about. Each has a README; the macOS one is written as a diff against the iOS one
+and is the place that explains what a Mac cannot promise. **A change to the
+shared shape of the app usually belongs in both.**
+
 **Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing anything non-trivial.**
 It is long, and it is the reason most of this code looks the way it does — the
 hex grid maths, the blob rendering pipeline, the level crossfades, the security
@@ -57,6 +63,14 @@ sessions sharing the worktree would tread on each other.
 
     Both configurations, Debug and Release, carry each setting: change one and
     the app reports a different version depending on how it was built.
+  - The same two settings in
+    `HexPlore-macOS/HexPlore.xcodeproj/project.pbxproj` — whenever anything
+    under `HexPlore-macOS/` changes, by the same rules and in both
+    configurations. **The two apps version independently.** They ship
+    separately, they are built separately, and the number is there to answer
+    *which build am I looking at* — a Mac that borrowed the phone's number
+    would answer a question nobody asked. A change to only one project moves
+    only that project's version.
 - **Never commit personal data.** `data.db`, `import/*` and
   `src/imported-cells.json` are real location history and are gitignored —
   check `git status` before staging.

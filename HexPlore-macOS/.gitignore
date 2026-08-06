@@ -1,0 +1,18 @@
+# Xcode build products and per-user state.
+
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.moved-aside
+*.hmap
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager's local checkout cache, not the resolved versions.
+.swiftpm/
+.build/
+
+# macOS
+.DS_Store

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sandboxed, which the iPhone app does not have to ask for because iOS
+	     gives it no choice. A Mac app is trusted with the whole home directory
+	     unless it says otherwise, and this one wants a web view, a photo
+	     library and one outbound connection — so it says otherwise, and the
+	     three keys below are the whole of what it asks back.
+
+	     The practical consequence worth knowing: `FixQueue` writes into this
+	     app's container rather than the shared ~/Library/Application Support.
+	     Deleting the container is the same as "Clean cache" plus forgetting
+	     anything recorded and not yet sent. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Outbound only. The app talks to one server — yours — and nothing
+	     listens. `network.server` is deliberately absent: a sandboxed app that
+	     cannot accept a connection is one fewer thing to reason about. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Reading the photo library, for the coordinates a photo carries and for
+	     showing one when a point on the map is clicked. `NSPhotoLibraryUsageDescription`
+	     in Info.plist is the sentence; this is the permission. -->
+	<key>com.apple.security.personal-information.photos-library</key>
+	<true/>
+	<!-- The map's own "where am I" button, and the logger when it is switched
+	     on. Off by default — see TrackingSettings. -->
+	<key>com.apple.security.personal-information.location</key>
+	<true/>
+</dict>
+</plist>
