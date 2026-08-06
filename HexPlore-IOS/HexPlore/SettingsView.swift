@@ -178,9 +178,6 @@ struct SettingsView: View {
                         .autocorrectionDisabled()
                         .multilineTextAlignment(.trailing)
                 }
-                Text("How this phone is listed on the site, under Import & sync → Your phone.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
 
             if let warning = permissionWarning {
@@ -216,9 +213,9 @@ struct SettingsView: View {
         guard tracking.isTracking else { return nil }
         switch logger.authorization {
         case .denied, .restricted:
-            return "Location is turned off for Hexplore. Open Settings to allow it."
+            return "Location is turned off for the app. Open Settings to allow it."
         case .authorizedWhenInUse:
-            return "Set to “While Using the App”. Recording stops when you leave it — choose “Always” in Settings to keep it going."
+            return "Set to “While Using the App”. Change to “Always” to keep recording in background."
         default:
             return nil
         }
@@ -241,14 +238,10 @@ struct SettingsView: View {
             .disabled(syncing)
 
             if tracking.status.signedOut {
-                Text("Signed out. Open the Map tab and sign in — this phone has been holding on to what it recorded in the meantime.")
+                Text("Signed out. Open the Map tab and sign in to sync all the data.")
                     .font(.footnote)
                     .foregroundStyle(.orange)
-            } else if let error = tracking.status.lastError {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            } 
         } footer: {
             Text("The records are cached until there is a connection to the server.")
         }
@@ -308,10 +301,10 @@ struct SettingsView: View {
 
     private var photosSection: some View {
         Section {
-            Toggle("Sync photo locations", isOn: $tracking.syncPhotos)
+            Toggle("Sync photos", isOn: $tracking.syncPhotos)
 
             if tracking.syncPhotos {
-                LabeledContent("Last read", value: Self.when(tracking.status.lastPhotoScan))
+                LabeledContent("Last checked", value: Self.when(tracking.status.lastPhotoScan))
                 if tracking.status.photosSent > 0 {
                     LabeledContent("Geotagged", value: "\(tracking.status.photosSent)")
                 }
@@ -340,7 +333,7 @@ struct SettingsView: View {
         } header: {
             Text("Photos")
         } footer: {
-            Text("Import the geolocation of every photo from your library.")
+            Text("Import the geolocation of every photo from your library. Also allows to view your photos on the map from the phone.")
         }
     }
 

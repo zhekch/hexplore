@@ -167,9 +167,6 @@ struct SettingsView: View {
                         .autocorrectionDisabled()
                         .multilineTextAlignment(.trailing)
                 }
-                Text("How this Mac is listed on the site, under Import & sync → Your devices.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
 
             if let warning = permissionWarning {
@@ -197,11 +194,11 @@ struct SettingsView: View {
     private var locationFooter: String {
         switch tracking.cadence {
         case .off:
-            return "Off by default: unlike a phone, a Mac only records while HexPlore is running, and a desktop that never moves has nothing to add. Worth turning on for a laptop you travel with."
+            return "Mac only records while the app is running."
         case .significant:
-            return "Uses the least power, but with the lowest accuracy. Recording stops when you quit HexPlore."
+            return "Uses the least power, but with the lowest accuracy. Recording stops when you quit the app."
         default:
-            return "The higher the update frequency, the higher the power consumption. Recording stops when you quit HexPlore — closing the window is enough to keep it going."
+            return "The higher the update frequency, the higher the power consumption. Recording stops when you quit the app."
         }
     }
 
@@ -219,7 +216,7 @@ struct SettingsView: View {
     private var permissionWarning: String? {
         switch logger.authorization {
         case .denied, .restricted:
-            return "Location is turned off for HexPlore. Open System Settings to allow it."
+            return "Location is turned off for the app. Open System Settings to allow it."
         default:
             return nil
         }
@@ -241,7 +238,7 @@ struct SettingsView: View {
             .disabled(syncing)
 
             if tracking.status.signedOut {
-                Text("Signed out. Open the map window and sign in — this Mac has been holding on to what it recorded in the meantime.")
+                Text("Signed out. Open the map window and sign in to sync the cached location data.")
                     .font(.footnote)
                     .foregroundStyle(.orange)
             } else if let error = tracking.status.lastError {
@@ -260,10 +257,10 @@ struct SettingsView: View {
 
     private var photosSection: some View {
         Section {
-            Toggle("Sync photo locations", isOn: $tracking.syncPhotos)
+            Toggle("Sync photos", isOn: $tracking.syncPhotos)
 
             if tracking.syncPhotos {
-                LabeledContent("Last read", value: Self.when(tracking.status.lastPhotoScan))
+                LabeledContent("Last checked", value: Self.when(tracking.status.lastPhotoScan))
                 if tracking.status.photosSent > 0 {
                     LabeledContent("Geotagged", value: "\(tracking.status.photosSent)")
                 }
@@ -291,7 +288,7 @@ struct SettingsView: View {
         } header: {
             Text("Photos")
         } footer: {
-            Text("Import the geolocation of every photo from this Mac's library. Sends the whole library each time and replaces what the server held for this Mac.")
+            Text("Import every photo from this Mac's photo library.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
