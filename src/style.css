@@ -5754,14 +5754,31 @@ html[data-client='ios'] .hud {
    of a preview, a place list and a caption editor that is not cramped in that
    much room. It fills what the overlay gives it and caps out at a size where
    the preview stops gaining anything. */
+/* One explicit track each way, so the card's percentages have something
+   definite to resolve against. The overlay's rows are `auto` by default, and
+   `height: min(960px, 100%)` against an auto row makes the row size to the
+   card's own content and the card size to the row — Chrome settled that circle
+   at an 1813px row inside an 853px window. With a real track, `100%` is the
+   space the overlay actually has, *after* its padding, which is what lets the
+   padding carry the safe-area insets and have the card respect them.
+
+   The insets are the whole point on a phone: without them the title sits under
+   the dynamic island and the buttons under the app's own tab bar. */
+#export-overlay {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  padding:
+    calc(24px + var(--safe-t))
+    calc(24px + var(--safe-r))
+    calc(24px + var(--safe-b))
+    calc(24px + var(--safe-l));
+}
+
 .export-card {
-  /* Viewport units, not `100%`. The overlay is a grid whose rows are `auto`, so
-     there is no definite size for a percentage to resolve against — asking for
-     `height: min(960px, 100%)` made the row size to the card's own content and
-     the card size to the row, and the answer Chrome settled on was an 1813px
-     row inside an 853px window. The overlay's padding is 24px a side. */
-  width: min(1460px, calc(100vw - 48px));
-  height: min(960px, calc(100vh - 48px));
+  width: min(1460px, 100%);
+  height: min(960px, 100%);
+  justify-self: center;
+  align-self: center;
   display: flex;
   flex-direction: column;
 }
@@ -6219,10 +6236,31 @@ html[data-client='ios'] .hud {
 }
 
 @media (max-width: 980px) {
-  /* The overlay's padding drops to 12px a side down here. */
+  /* Less of everything at the edges, because on a phone the margin *is* the
+     map: 24px of overlay padding and 22px of card padding either side is a
+     fifth of the screen spent on nothing, and the picture is what the pixels
+     are for. */
+  #export-overlay {
+    padding:
+      calc(10px + var(--safe-t))
+      calc(10px + var(--safe-r))
+      calc(10px + var(--safe-b))
+      calc(10px + var(--safe-l));
+  }
+
   .export-card {
-    width: calc(100vw - 24px);
-    height: calc(100vh - 24px);
+    padding: 14px 12px 12px;
+    border-radius: 20px;
+  }
+
+  /* One line of subtitle costs a twentieth of a phone screen, and it says the
+     same thing every time. */
+  .export-card .modal-sub {
+    display: none;
+  }
+
+  .export-card .modal-actions {
+    margin-top: 12px;
   }
 
   /* Stacked, and the picture gets a definite share rather than an `auto` row.
@@ -6231,8 +6269,9 @@ html[data-client='ios'] .hud {
      came out 70px tall. */
   .export-body {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 44vh) minmax(0, 1fr);
-    gap: 16px;
+    grid-template-rows: minmax(0, 46vh) minmax(0, 1fr);
+    gap: 12px;
+    margin-top: 12px;
   }
 
   .export-stage {
@@ -6243,10 +6282,13 @@ html[data-client='ios'] .hud {
     max-height: none;
   }
 
+  /* Scrolls inside its own row, exactly as it does on a desktop. Letting it
+     grow instead put the rest of the controls past the bottom of a
+     fixed-height card with nothing able to scroll to them — the list simply
+     ended, halfway through the caption settings. */
   .export-controls {
-    height: auto;
-    max-height: none;
-    overflow: visible;
+    height: 100%;
+    overflow-y: auto;
   }
 }
 

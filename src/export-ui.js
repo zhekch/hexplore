@@ -59,9 +59,12 @@ const ALIGNS = [
 // letting go feels like it landed.
 const REDRAW_MS = 90;
 
-// Room left around the picture inside its column, in CSS pixels — enough for
-// the drop shadow it casts to run out rather than being cropped.
-const FRAME_MARGIN = 16;
+// Room left around the picture inside its column — enough for the drop shadow it
+// casts to run out rather than being cropped. A share of the column rather than
+// a constant, because 16px is a comfortable margin on a desktop and a twentieth
+// of a phone screen.
+const FRAME_MARGIN_MAX = 16;
+const frameMargin = (box) => Math.min(FRAME_MARGIN_MAX, Math.round(box.width * 0.025));
 
 // A pointer that moved less than this between down and up was a click, not a
 // drag. Generous enough to survive the hand-wobble of a real tap on a phone.
@@ -71,7 +74,12 @@ const CLICK_SLOP_PX = 4;
 // side of what would fit. Wide, because a poster of a valley inside a country
 // is a reasonable thing to want, and so is pulling back to show where it is.
 const ZOOM_STEP = 0.0016;
-const ZOOM_RANGE = [0.15, 60];
+// The lower bound has to reach "the whole globe", and the frame it is a multiple
+// of may be one canton — so it is far below 1. Mercator's full height is a whole
+// world, so fitting the planet vertically inside a frame fitted to Europe is
+// already a factor of twenty, and inside a frame fitted to a valley very much
+// more.
+const ZOOM_RANGE = [0.005, 80];
 
 const clampSide = (v) => Math.max(120, Math.min(MAX_SIDE_PX, Math.round(Number(v) || 0)));
 
@@ -832,8 +840,9 @@ export function mountExport({ onClose, data }) {
     // Inset by the room the picture's own drop shadow needs. Without it the
     // shadow is cropped flat against the edge of the box, which reads as the
     // picture being cut off rather than as a shadow running out.
-    const availW = Math.max(80, box.width - FRAME_MARGIN * 2);
-    const availH = Math.max(80, box.height - FRAME_MARGIN * 2);
+    const m = frameMargin(box);
+    const availW = Math.max(80, box.width - m * 2);
+    const availH = Math.max(80, box.height - m * 2);
     const ratio = full.w / full.h;
     let w = availW;
     let h = w / ratio;

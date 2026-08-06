@@ -878,6 +878,16 @@ Two rules that are not symmetrical, on purpose:
   `ResizeObserver` on the column re-fits it, so nothing that changes the space —
   the window, the card, a section folding open — has to remember to.
 
+**On a phone it takes the screen including the parts that are not rectangular.**
+The overlay's padding carries the `--safe-*` insets, so the title clears the
+dynamic island and the buttons clear the app's own tab bar; the card's `100%`
+then resolves against what is left. The controls scroll inside their own row
+rather than growing — letting them grow put the rest of them past the bottom of a
+fixed-height card with nothing able to scroll to them, so the list simply ended
+halfway through the caption settings. And the margins shrink, because on a phone
+the margin *is* the map: 24px of overlay padding and 22px of card padding either
+side is a fifth of the screen spent on nothing.
+
 **The dialog takes the screen.** It was 940px wide, which is the right size for a
 form and the wrong one for something you *look* at: the picture came out a
 postcard beside a column of controls and the two were fighting over the same 400
@@ -912,9 +922,18 @@ the widest hole, and the frame is everything else. One hole nobody selected is
 the difference between "New Zealand" and "a planet". Rings are put back together
 by `unwrapRing`, which follows the ±180° jumps and accumulates a whole-world
 offset, so a ring stored as +179, −179 comes back as +179, +181 — past the line
-rather than snapped back across the world. Everything is then drawn in **world
-copies**: each polygon is emitted once per whole-world offset that can reach the
-frame, so a frame straddling the line gets both halves and neither is cut.
+rather than snapped back across the world. Everything is then drawn in the **world copy** nearest the middle of the frame,
+so a frame straddling the line gets its shapes on the side they belong to and
+neither half is cut.
+
+**Exactly one copy, which is where a picture parts company with a map.** A map
+draws every repeat that reaches the screen, because you can pan into them. Zoom a
+16:9 export out far enough to fit the globe vertically and the frame is 1.8
+worlds wide — so the Americas appeared twice, with New Zealand tucked in beside
+Alaska. A picture of the Earth has one Earth in it; past that the frame is empty,
+which is the honest answer. For any frame narrower than the world this is the
+same copy the old loop found, seam-straddling frames included: there was only
+ever one candidate.
 
 That leaves `circularSpan` free to answer with an origin anywhere on the circle —
 a frame over France legitimately comes back as 358°…375°, and every path here
