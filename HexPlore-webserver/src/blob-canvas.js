@@ -67,6 +67,22 @@ const MAX_SIDE = 2800; // hard cap on either canvas dimension
 // it can have (see `maxPixels` in paintBlobSheet).
 const JS_BLUR_MAX_PX = 300_000;
 
+// ...and what the sheet may have while the camera is still moving.
+//
+// A zoom that crosses a level boundary has to paint the new level *during* the
+// gesture — that is the one repaint the "never mid-gesture" rule above cannot
+// refuse, because the dissolve has nothing to dissolve into without it. It then
+// recomposites a sheet of this size on every frame of a 620 ms crossfade, while
+// the map is still rendering the basemap under a moving camera.
+//
+// So the gesture gets a smaller sheet: measured in a WKWebView, 300k px is a
+// 23 ms paint and 120k is 9 ms, and every frame of the crossfade that follows
+// carries the same ratio through the canvas composite and the texture upload.
+// Nothing is given up permanently — main.js repaints at the full budget once the
+// camera has settled and the dissolve has landed, and until then the difference
+// is the sharpness of a soft-edged wash that is sliding across the screen.
+const MOVING_MAX_PX = 120_000;
+
 // Blur sigma as a fraction of a cell's on-screen radius. Everything narrower
 // than this — dents between cells, corners, kinks along a road — is smoothed
 // away, so this is the knob that decides "cells with soft corners" vs "one
@@ -185,7 +201,10 @@ function boxPass(src, dst, w, h, r, vertical) {
   const inner = vertical ? h : w;
   const stepIn = (vertical ? w : 1) * 4;
   const stepOut = (vertical ? 1 : w) * 4;
-  const span = r * 2 + 1;
+  // Reciprocal rather than a divide in the inner loop: this runs four times per
+  // pixel per pass and there are six passes, so it is the most-executed
+  // arithmetic in the file.
+  const span = 1 / (r * 2 + 1);
   for (let o = 0; o < outer; o++) {
     const base = o * stepOut;
     let r0 = 0;
@@ -202,10 +221,10 @@ function boxPass(src, dst, w, h, r, vertical) {
     }
     for (let i = 0; i < inner; i++) {
       const at = base + i * stepIn;
-      dst[at] = r0 / span;
-      dst[at + 1] = g0 / span;
-      dst[at + 2] = b0 / span;
-      dst[at + 3] = a0 / span;
+      dst[at] = r0 * span;
+      dst[at + 1] = g0 * span;
+      dst[at + 2] = b0 * span;
+      dst[at + 3] = a0 * span;
       const add = base + Math.min(inner - 1, i + r + 1) * stepIn;
       const drop = base + Math.max(0, i - r) * stepIn;
       r0 += src[add] - src[drop];
@@ -216,12 +235,35 @@ function boxPass(src, dst, w, h, r, vertical) {
   }
 }
 
+// The two float planes the box passes bounce between, kept between calls.
+//
+// They are the size of the sheet — at the map's cap, two 4.8 MB arrays — and a
+// paint runs the blur three times, so allocating them per call asks the
+// collector for ~29 MB per repaint and pays to zero every byte of it. Measured
+// in a WKWebView that alone is the difference between a 24 ms paint and the
+// occasional 107 ms one, which is what a level change felt like: not slow so
+// much as intermittently stuck. Grown, never shrunk — the sheet's size is
+// bounded by the caps above, so this settles after the first few repaints.
+let planeA = new Float32Array(0);
+let planeB = new Float32Array(0);
+
+// Radius whose three box passes come out at the given standard deviation, and
+// the range of sigmas the passes are actually run over. Shared with the ink box
+// below, which has to know exactly how far each round can spread the paint.
+const clampSigma = (sigma) => Math.min(90, Math.max(0.5, sigma));
+const boxRadius = (sigma) => Math.max(1, Math.round((Math.sqrt(4 * sigma * sigma + 1) - 1) / 2));
+
+/** Blur `data` in place. `w`/`h` describe `data`, which may be a sub-rectangle
+ *  of the canvas it came from — see the ink box in paintBlobSheet. */
 function blurRgba(data, w, h, sigma) {
-  // Radius whose three box passes come out at this standard deviation.
-  const r = Math.max(1, Math.round((Math.sqrt(4 * sigma * sigma + 1) - 1) / 2));
+  const r = boxRadius(sigma);
   const n = w * h * 4;
-  const a = new Float32Array(n);
-  const b = new Float32Array(n);
+  if (planeA.length < n) {
+    planeA = new Float32Array(n);
+    planeB = new Float32Array(n);
+  }
+  const a = planeA;
+  const b = planeB;
   for (let i = 0; i < n; i += 4) {
     const al = data[i + 3] / 255;
     a[i] = data[i] * al;
@@ -287,9 +329,15 @@ const LE = (() => {
 // Blur `src` into `context`, then optionally re-cut the result. Both halves are
 // done in one getImageData round trip when the blur is ours, which is fewer
 // passes over the pixels than the native path needs.
-function blurInto(context, src, w, h, sigma, edge) {
+//
+// `box` is the only part of the sheet that can hold ink: outside it every pixel
+// is transparent, blurring transparent pixels leaves them transparent, and the
+// re-cut maps alpha 0 to alpha 0. So the JS blur reads and writes that
+// rectangle alone. The native path ignores it — there an extra pixel is one GPU
+// pass, and the clip would cost more to set up than it saves.
+function blurInto(context, src, w, h, sigma, edge, box) {
   context.clearRect(0, 0, w, h);
-  const blur = Math.min(90, Math.max(0.5, sigma));
+  const blur = clampSigma(sigma);
   if (nativeBlur()) {
     context.filter = `blur(${blur.toFixed(2)}px)`;
     context.drawImage(src, 0, 0);
@@ -298,10 +346,10 @@ function blurInto(context, src, w, h, sigma, edge) {
     return;
   }
   context.drawImage(src, 0, 0);
-  const img = context.getImageData(0, 0, w, h);
-  blurRgba(img.data, w, h, blur);
+  const img = context.getImageData(box.x, box.y, box.w, box.h);
+  blurRgba(img.data, box.w, box.h, blur);
   if (edge !== null) applyLut(img.data, alphaLut(edge));
-  context.putImageData(img, 0, 0);
+  context.putImageData(img, box.x, box.y);
 }
 
 // Re-cut a blurred layer at BLOB_LEVEL, in place. Only the alpha channel is
@@ -438,12 +486,31 @@ export function paintBlobSheet({
   const h = Math.max(1, Math.round(mercH * k));
   const xMax = bb.xMin + w / k;
 
-  sheet.width = w;
-  sheet.height = h;
-  latest.width = w;
-  latest.height = h;
-  work.width = w;
-  work.height = h;
+  // Assigning a dimension clears the canvas, which is why it was written this
+  // way — but it also throws the backing store away and builds a new one, three
+  // times over, on a canvas that is very nearly always the size it already was.
+  //
+  // Nearly always, because the sheet's size does not actually depend on the
+  // camera: mercW·pxPerMerc is the padded viewport measured in canvas pixels,
+  // and the zoom cancels out of it. A window that is not being resized paints
+  // the same w×h every time, at every level and every zoom, until one of the
+  // caps starts binding. So resize when it really is a new size, and clear in
+  // place when it is not.
+  //
+  // Each canvas is asked separately: clear() empties `latest` and leaves the
+  // other two at their old size, so one shared test would decide from the wrong
+  // canvas and hand the pipeline a 1×1 sheet.
+  const resize = (c, ctx) => {
+    if (c.width !== w || c.height !== h) {
+      c.width = w;
+      c.height = h;
+    } else if (ctx) {
+      ctx.clearRect(0, 0, w, h);
+    }
+  };
+  resize(sheet, sheetCtx);
+  resize(latest, latestCtx); // cleared for the early-out below; blurInto clears it otherwise
+  resize(work, null); // never read before something clears and writes it
 
   const R = radiusOf(level);
   const colSp = 1.5 * R;
@@ -474,6 +541,15 @@ export function paintBlobSheet({
   const margin = rPx + 2;
   const colMin = Math.floor((bb.xMin - R) / colSp);
   const colMax = Math.ceil((xMax + R) / colSp);
+  // Bounds of the disc centres actually drawn. The sheet covers the padded
+  // viewport, which is nearly three times the area of what is on screen, and a
+  // window at the top of a country or the edge of a coastline lights a fraction
+  // of it. Blur cost is flatly linear in pixels, so knowing where the paint
+  // stops is worth the four comparisons per cell it takes to find out.
+  let inkX0 = Infinity;
+  let inkY0 = Infinity;
+  let inkX1 = -Infinity;
+  let inkY1 = -Infinity;
 
   for (const [key, stat] of cells) {
     const sep = key.indexOf('/');
@@ -495,13 +571,43 @@ export function paintBlobSheet({
       if (!path) paths.set(color, (path = new Path2D()));
       path.moveTo(cx + rPx, cy);
       path.arc(cx, cy, rPx, 0, Math.PI * 2);
+      if (cx < inkX0) inkX0 = cx;
+      if (cx > inkX1) inkX1 = cx;
+      if (cy < inkY0) inkY0 = cy;
+      if (cy > inkY1) inkY1 = cy;
     }
   }
+
+  // Nothing lit in this window: the buffers were cleared by the resize above and
+  // three blurs of an empty sheet would only confirm it.
+  if (!paths.size) return { w, h, xMax };
 
   for (const [color, path] of paths) {
     sheetCtx.fillStyle = color;
     sheetCtx.fill(path);
   }
+
+  // How far the paint can travel from a disc's centre before the pipeline is
+  // done with it: the disc's own radius, plus three box passes of every round
+  // that follows. Anything beyond this is transparent in every buffer, so the
+  // rectangle below is the whole of what the JS blur has to touch.
+  //
+  // Deliberately the sum of all the rounds rather than each round's own reach.
+  // One rectangle for the whole pipeline costs a little more work per round than
+  // a shrinking one would save, and it removes the question of whether round two
+  // can see everything round one wrote.
+  const feather = Math.min(featherPx * featherScale, unit * maxFeatherCells);
+  let reach = rPx + 2;
+  for (let round = 0; round < BLOB_ROUNDS; round++) {
+    reach += 3 * boxRadius(clampSigma(unit * BLOB_BLUR * (round === 0 ? 1 : 0.62)));
+  }
+  if (feather > 0.5) reach += 3 * boxRadius(clampSigma(feather));
+  const box = {
+    x: Math.max(0, Math.floor(inkX0 - reach)),
+    y: Math.max(0, Math.floor(inkY0 - reach)),
+  };
+  box.w = Math.min(w, Math.ceil(inkX1 + reach)) - box.x;
+  box.h = Math.min(h, Math.ceil(inkY1 + reach)) - box.y;
 
   // Blur, then re-cut the shape at a fixed alpha level — a level-set smoothing
   // step. The blur is what merges cells and blends their colors; taking the
@@ -521,7 +627,7 @@ export function paintBlobSheet({
     // definition the next round needs. Only the last cut is the visible rim,
     // which is why the edge knob means "how gradually the blob dissolves into
     // the map" and nothing else.
-    blurInto(dctx, src, w, h, sigma, round === BLOB_ROUNDS - 1 ? edge : SHAPE_EDGE);
+    blurInto(dctx, src, w, h, sigma, round === BLOB_ROUNDS - 1 ? edge : SHAPE_EDGE, box);
     src = dst;
     dst = dst === latest ? work : latest;
   }
@@ -534,9 +640,8 @@ export function paintBlobSheet({
   // dissolve looks the same at every zoom instead of tracking cell size.
   // Deliberately no cut afterwards: the tail is left as the blur made it, so it
   // fades out with correct colors all the way down to nothing.
-  const feather = Math.min(featherPx * featherScale, unit * maxFeatherCells);
   if (feather > 0.5) {
-    blurInto(workCtx, latest, w, h, feather, null);
+    blurInto(workCtx, latest, w, h, feather, null, box);
     latestCtx.clearRect(0, 0, w, h);
     latestCtx.drawImage(work, 0, 0);
   }
@@ -579,6 +684,9 @@ export function createBlobLayer(map, id) {
   const layerId = `${id}-layer`;
 
   function install(beforeId, opacity = 0) {
+    // A basemap switch rebuilds the style and lands here with a fresh source.
+    // Whatever the old one was doing is over, and the new one starts paused.
+    stopUpload?.();
     map.addSource(id, { type: 'canvas', canvas, animate: false, coordinates: coords });
     map.addLayer(
       {
@@ -598,29 +706,47 @@ export function createBlobLayer(map, id) {
 
   // The canvas source only re-reads the canvas while it is "playing", so a
   // repaint has to happen between play() and pause() for the new pixels to
-  // reach the GPU. Two things make that easy to get wrong: the upload runs
-  // it happens inside the render pass and is skipped entirely until the source
-  // has a tile to draw into, so "one animation frame" is not enough. Playing
-  // until the map goes idle covers both, with a cap in case it never does.
+  // reach the GPU. That upload runs inside the render pass, and is skipped
+  // entirely until the source has a tile to draw into, so "one animation frame"
+  // is not enough. Playing until the map goes idle covers both, with a cap in
+  // case it never does.
+  //
+  // Started once and left running until the pixels stop changing, rather than
+  // stopped and restarted per repaint. A crossfade calls this on every frame,
+  // and `pause()` is not free: it runs the source's `prepare()`, which uploads
+  // the whole canvas to the GPU — so pausing and replaying around each frame
+  // uploaded the texture twice, once on the way out and again in the render
+  // that followed.
   let pauseTimer = null;
   let stopUpload = null;
   function upload() {
-    const src = map.getSource(id);
-    if (!src) return;
-    if (stopUpload) stopUpload();
-    src.play();
+    if (!map.getSource(id)) return;
+    if (!stopUpload) {
+      stopUpload = () => {
+        clearTimeout(pauseTimer);
+        map.off('idle', stopUpload);
+        stopUpload = null;
+        // Looked up now rather than captured: a basemap switch rebuilds the
+        // source under us, and pausing the one that has been thrown away would
+        // leave the live one playing for ever.
+        map.getSource(id)?.pause();
+      };
+      map.once('idle', stopUpload);
+      map.getSource(id).play();
+    } else {
+      clearTimeout(pauseTimer); // still changing — push the deadline back
+    }
     map.triggerRepaint();
-    stopUpload = () => {
-      clearTimeout(pauseTimer);
-      map.off('idle', stopUpload);
-      stopUpload = null;
-      src.pause();
-    };
-    map.once('idle', stopUpload);
     pauseTimer = setTimeout(() => stopUpload?.(), 2500);
   }
 
   function setCoords(next) {
+    // The rectangle is unchanged for every frame of a dissolve, and
+    // `setCoordinates` is not a setter: it recomputes the source's tile, walks
+    // every zoom level to find the ones it overlaps, and fires a source
+    // `content` event — which makes MapLibre reload and re-evaluate the whole
+    // tile cache. Sixty times a second, for a rectangle that did not move.
+    if (coords.every((c, i) => c[0] === next[i][0] && c[1] === next[i][1])) return;
     coords = next;
     map.getSource(id)?.setCoordinates(next);
   }
@@ -635,12 +761,19 @@ export function createBlobLayer(map, id) {
    * @param {(stat:object)=>string} o.colorOf  css color for a cell
    * @param {boolean} [o.heat]    a heat map rather than the single-color wash;
    *                              picks which pair of edge knobs applies
+   * @param {boolean} [o.moving]  the camera is still under the gesture, so paint
+   *                              to MOVING_MAX_PX and expect to be called again
+   * @returns {boolean} whether the sheet was painted to the reduced budget, and
+   *   therefore still owes a full-resolution repaint
    */
-  function paint({ bb, level, cells, colorOf, heat = false }) {
+  function paint({ bb, level, cells, colorOf, heat = false, moving = false }) {
     // Screen scale straight from the zoom (MapLibre's world is 512·2^z px).
     // The feather takes the same scale, so a width measured in CSS pixels stays
     // the same on screen whatever the display density.
     const scale = displayScale();
+    // Only where the blur is ours. A browser with a native blur pays one GPU
+    // pass per pixel and was never the browser that stuttered.
+    const coarse = moving && !nativeBlur();
     const out = paintBlobSheet({
       buffers,
       bb,
@@ -650,11 +783,13 @@ export function createBlobLayer(map, id) {
       heat,
       pxPerMerc: ((512 * 2 ** map.getZoom()) / WORLD) * scale,
       featherScale: scale,
+      maxPixels: coarse ? MOVING_MAX_PX : undefined,
     });
-    if (!out) return;
+    if (!out) return false;
 
     latestRect = { xMin: bb.xMin, xMax: out.xMax, yMin: bb.yMin, yMax: bb.yMax };
     compose();
+    return coarse;
   }
 
   // Draw what the map actually samples: the outgoing level underneath, the
@@ -672,8 +807,17 @@ export function createBlobLayer(map, id) {
     // rectangle. The extra pixel is paid back by widening the mapped rectangle
     // to match, so the projection stays exact either way.
     const nudge = fadeT >= 1 && canvas.width === w ? 1 : 0;
-    canvas.width = w + nudge; // also clears
-    canvas.height = h;
+    // Assigning a dimension is what clears the canvas, but it also throws the
+    // backing store away and builds a new one — which is the wrong trade on the
+    // frames of a dissolve, where the size never changes and only the contents
+    // do. Clear those in place and let the size path stand for the settled
+    // repaint it was written for.
+    if (canvas.width === w + nudge && canvas.height === h) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    } else {
+      canvas.width = w + nudge; // also clears
+      canvas.height = h;
+    }
 
     if (fadeT < 1 && outRect && outgoing.width > 1) {
       const k = w / (latestRect.xMax - latestRect.xMin);

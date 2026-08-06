@@ -120,6 +120,29 @@ glass look. Click hexagons to mark places you've visited.
   The cap never binds on a phone or a small window, and is lifted entirely for
   the image export (`maxPixels: Infinity` in `paintBlobSheet`), which paints
   once and wants every pixel.
+  Four more things keep that path off the critical one, all of them measured in
+  a real `WKWebView` against the previous code and all producing byte-identical
+  sheets. **The blur only runs over the ink**: the sheet covers the padded
+  viewport — nearly three times the area on screen — while the lit cells often
+  occupy a corner of it, so `paintBlobSheet` tracks the bounds of the discs it
+  drew, grows them by every round's box reach, and hands that one rectangle to
+  each pass. A window with a single cluster in it went from ~150 ms a paint to
+  ~15 ms; a window lit corner to corner is unchanged, which is the right shape
+  for the trade. A sheet with nothing lit at all returns before the first blur.
+  **The float planes are kept between calls** rather than allocated per blur —
+  at the cap that is two 4.8 MB arrays three times a paint, ~29 MB of garbage
+  per repaint, and removing it is what took the occasional 107 ms paint back
+  down to the median. **The three canvases are only resized when the size really
+  changed**, which is almost never: `mercW · pxPerMerc` is the padded viewport
+  measured in canvas pixels and the zoom cancels out of it, so a window that
+  isn't being resized paints the same `w×h` at every level and every zoom.
+  Assigning `canvas.width` was being used to clear, and it also discards the
+  backing store. And a level change **during** a gesture paints to
+  **`MOVING_MAX_PX`** (120k) instead — the one repaint the never-mid-gesture
+  rule can't refuse, since the dissolve has nothing to dissolve into without it
+  — with `main.js` repainting at the full budget once the camera has stopped
+  *and* the dissolve has landed. A 620 ms crossfade of a smaller sheet is
+  cheaper on every frame, not just at the paint.
   The canvas is pinned to the padded viewport as a MapLibre canvas source (the
   map never rotates or pitches, so the rectangle maps linearly and stays
   registered while panning) and repaints on level changes, zoom drift and
@@ -138,7 +161,17 @@ glass look. Click hexagons to mark places you've visited.
   ramped independently (two linear ramps sag to ~0.51 of a 0.6 alpha halfway
   across, which reads as a flash). A canvas dissolve still running when the
   gesture reaches that boundary is landed first, so the blob can't keep morphing
-  between two old levels while it fades out. The country geometry is also
+  between two old levels while it fades out.
+  Each frame of that dissolve recomposites the sheet, so what the frame does
+  *not* do matters as much: the mapped rectangle is only pushed to MapLibre when
+  it has actually changed (`setCoordinates` recomputes the source's tile, walks
+  every zoom for overlaps and fires a `content` event, which makes MapLibre
+  reload and re-evaluate the tile cache — and the rectangle is fixed for the
+  whole dissolve), the canvas source is played once and paused when the pixels
+  stop changing rather than paused and replayed per frame (`pause()` runs
+  `prepare()`, so the old shape uploaded the whole texture twice a frame), and
+  the composite canvas is cleared in place instead of being resized to the size
+  it already was. The country geometry is also
   **pre-warmed**: ~800 KB of boundaries takes a MapLibre worker ~60 ms to parse
   and tile, and feeding it to the source at the moment the fade starts means the
   countries simply aren't drawable for the first chunk of it — the blob is

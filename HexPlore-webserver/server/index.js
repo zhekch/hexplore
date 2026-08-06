@@ -98,7 +98,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.8.1';
+export const SERVER_VERSION = '0.9.0';
 
 const scrypt = promisify(scryptCb);
 // The same folding the browser importer uses, so a fix from Home Assistant and

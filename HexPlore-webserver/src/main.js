@@ -4297,6 +4297,11 @@ function dissolveBlob(duration = 320) {
   const finish = () => {
     blobFade.raf = null;
     blobCur.setFade(1);
+    // The sheet this dissolve landed on was painted mid-gesture and is probably
+    // the reduced one. Nothing else will ask again — moveend has usually already
+    // been and gone by now — so ask here, and let updateGrid decide whether
+    // anything is actually owed.
+    updateGrid();
   };
   const tick = (now) => {
     const t = Math.min(1, Math.max(0, (now - t0) / duration));
@@ -4400,6 +4405,9 @@ function animateFade(curFrom, curTo, prevFrom, prevTo, duration = 480, cross = f
 let currentLevel = null;
 let currentAsBlob = false; // whether the live level is on the canvas or vector
 let paintedZoom = 0; // zoom the blob canvas was last rasterized at
+// Whether that rasterization was the reduced one a moving camera gets, and so
+// still owes a full-resolution repaint once everything is still.
+let blobCoarse = false;
 let coverage = null;
 
 const WORLD_COVERAGE = { xMin: -Infinity, xMax: Infinity, yMin: -Infinity, yMax: Infinity };
@@ -4647,19 +4655,38 @@ function updateGrid(force = false) {
   // belongs in the same test.
   const wantFine = level === REGION_LEVEL && useFineRegions();
   const resolutionChanged = level === REGION_LEVEL && wantFine !== fedFine;
-  if (!force && !levelChanged && !resolutionChanged && !zoomDrift && coverageContainsView()) return;
-  if (!force && !levelChanged && !resolutionChanged && zoomDrift && coverageContainsView() && map.isMoving()) return;
+  // A level change during a gesture paints a reduced sheet (see MOVING_MAX_PX),
+  // so the map owes itself a sharp one. It is a difference between what is on
+  // screen and what should be, exactly like a drifted zoom, and it waits for the
+  // same quiet: not while the camera is moving, and not while the dissolve that
+  // asked for it is still running, because a repaint mid-dissolve would put the
+  // full-size sheet back into every remaining frame of it.
+  const owedSharp = currentAsBlob && blobCoarse;
+  const settled = !map.isMoving() && !blobCur.inTransition();
+  if (!force && !levelChanged && !resolutionChanged && !zoomDrift && !owedSharp && coverageContainsView())
+    return;
+  if (
+    !force &&
+    !levelChanged &&
+    !resolutionChanged &&
+    (zoomDrift || owedSharp) &&
+    coverageContainsView() &&
+    !settled
+  )
+    return;
 
   const fc = asBlob ? EMPTY : buildGrid(bb, level);
 
-  const paintBlob = () =>
-    blobCur.paint({
+  const paintBlob = () => {
+    blobCoarse = blobCur.paint({
       bb,
       level,
       cells: litSets[level],
       colorOf: blobColorOf(level),
       heat: isHeatMode(),
+      moving: map.isMoving(),
     });
+  };
 
   if (DEBUG_LEVELS && levelChanged && currentLevel !== null) {
     const how = asBlob && currentAsBlob ? 'canvas dissolve' : 'layer crossfade';
