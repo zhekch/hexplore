@@ -75,6 +75,18 @@ const geom = [
 try {
   if (!(await waitForServer())) throw new Error(`server never came up:\n${serverErr}`);
 
+  // The one route that answers before anybody has signed in. The iOS app pings
+  // it to tell "wrong address" from "signed out", and it has to keep answering
+  // *without a session* — this test runs it before the register call below, so a
+  // future auth guard in front of the whole API breaks here rather than on a
+  // phone. It also has to keep saying `hexplore`: the app treats a 200 whose
+  // body says anything else as "that is not your map", which is a different
+  // colour and a different mistake.
+  const health = await api('GET', '/api/health');
+  check(health.status === 200, 'GET /api/health with no session', `got ${health.status}`);
+  check(health.body?.app === 'hexplore', 'says which app it is', JSON.stringify(health.body));
+  check(typeof health.body?.version === 'string', 'and which build', JSON.stringify(health.body));
+
   const reg = await api('POST', '/api/register', { username: 'routetest', password: 'a-long-enough-pw' });
   check(reg.status === 200, 'register', `got ${reg.status} ${JSON.stringify(reg.body)}`);
 

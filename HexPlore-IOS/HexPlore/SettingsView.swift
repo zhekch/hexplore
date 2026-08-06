@@ -23,9 +23,9 @@ struct SettingsView: View {
     @EnvironmentObject private var tracking: TrackingSettings
     @StateObject private var logger = LocationLogger.shared
     @StateObject private var photos = PhotoSync.shared
+    @StateObject private var server = ServerCheck.shared
 
     @State private var draft = ""
-    @State private var confirmingSignOut = false
     @State private var confirmingReread = false
     @State private var syncing = false
 
@@ -40,12 +40,7 @@ struct SettingsView: View {
                     healthSection
                     photosSection
 
-                    Section {
-                        Button("Reload map") { settings.reload() }
-                        Button("Clean cache", role: .destructive) { confirmingSignOut = true }
-                    } footer: {
-                        Text("Cleaning the cache forgets the site's cookies and any stored data on this device.")
-                    }
+                    technicalSection
                 }
 
                 Section {
@@ -54,18 +49,40 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .confirmationDialog(
-                "Delete all the local data?",
-                isPresented: $confirmingSignOut,
-                titleVisibility: .visible
-            ) {
-                Button("Yes", role: .destructive) {
-                    Task { await settings.signOut() }
-                }
-                Button("Cancel", role: .cancel) {}
-            }
         }
-        .onAppear { draft = settings.serverURL }
+        .onAppear {
+            draft = settings.serverURL
+            server.check()
+        }
+        // The address changing is the one moment the answer is certainly stale.
+        // The one-argument `onChange` because this app deploys to iOS 16 — the
+        // two-argument one wants 17, and this one is deprecated rather than
+        // gone. Same trade, and same comment, as `ContentView`.
+        .onChange(of: settings.reloadToken) { _ in server.check() }
+    }
+
+    // MARK: - The two buttons that are about this app rather than your map
+    //
+    // Under a heading of their own, because without one they read as part of the
+    // Photos section above them — a form groups by proximity whatever you
+    // intended, and "Clean cache" filed under Photos is a sentence with a
+    // meaning nobody wants.
+
+    private var technicalSection: some View {
+        Section {
+            Button("Reload map") { settings.reload() }
+            Button("Clean cache", role: .destructive) {
+                Task { await settings.signOut() }
+            }
+        } header: {
+            Text("Technical")
+        } footer: {
+            // No confirmation in front of it: nothing here is data. The cache is
+            // the site's cookies and its offline copy, both of which come back
+            // by signing in again, and a dialog in front of a button whose worst
+            // outcome is "log in once more" teaches people to dismiss dialogs.
+            Text("Cleaning the cache forgets the site's cookies and any stored data on this device. You will need to sign in again.")
+        }
     }
 
     // MARK: - Where the map is
@@ -81,11 +98,56 @@ struct SettingsView: View {
             if draft.trimmingCharacters(in: .whitespacesAndNewlines) != settings.serverURL {
                 Button("Connect", action: commit)
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } else if settings.isConfigured {
+                connectionRow
             }
         } header: {
             Text("Server")
         } footer: {
             Text("The address of the server to connect to. Supports both http and https.")
+        }
+    }
+
+    /// Whether that address is a Hexplore server, and whether it is up.
+    ///
+    /// Directly under the field it describes, because it is an answer about the
+    /// thing you just typed. It used to be inferable only from the sync errors
+    /// further down, which are about *uploading* — a phone with nothing queued
+    /// has nothing to fail, so a wrong address said nothing at all until you
+    /// went to the Map tab and found a white rectangle.
+    ///
+    /// Three colours for three different mistakes: green for a Hexplore server,
+    /// orange for something that answered and is not one (a router, a NAS, the
+    /// wrong container), red for no answer — with the status or the URLError
+    /// code, which is the part that can be searched for.
+    private var connectionRow: some View {
+        Button {
+            server.check()
+        } label: {
+            HStack(spacing: 6) {
+                if case .checking = server.state {
+                    ProgressView().controlSize(.small)
+                }
+                Text(server.state.label)
+                    .font(.footnote)
+                    .foregroundStyle(connectionColor)
+                Spacer(minLength: 4)
+                if let symbol = server.state.symbol {
+                    Image(systemName: symbol)
+                        .font(.footnote)
+                        .foregroundStyle(connectionColor)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var connectionColor: Color {
+        switch server.state {
+        case .connected: return .green
+        case .notHexplore: return .orange
+        case .http, .unreachable: return .red
+        case .unset, .checking: return .secondary
         }
     }
 
@@ -105,8 +167,20 @@ struct SettingsView: View {
                         Text(precision.title).tag(precision)
                     }
                 }
-                TextField("This phone", text: $tracking.deviceName)
-                    .autocorrectionDisabled()
+                // Labelled, because on its own it was a text field with a name
+                // already in it and no indication of what the name was *for* —
+                // it looked like the app telling you which phone this is rather
+                // than asking what to call it. It is the only thing on this
+                // screen that other people (well, the other you, on a laptop)
+                // ever see.
+                LabeledContent("Name") {
+                    TextField("This phone", text: $tracking.deviceName)
+                        .autocorrectionDisabled()
+                        .multilineTextAlignment(.trailing)
+                }
+                Text("How this phone is listed on the site, under Import & sync → Your phone.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             if let warning = permissionWarning {

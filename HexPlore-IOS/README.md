@@ -127,6 +127,7 @@ HexPlore/
     PhotoSync.swift         sending where the photographs were taken
     PhotoBridge.swift       answering the map when it asks for the photographs
     PhotoViewer.swift       one photograph, full screen, zoomable
+    ServerCheck.swift       is that address a Hexplore server, and is it up
     FixQueue.swift          what has been recorded but not yet accepted
     SyncClient.swift        the uploads, and the session they borrow
   HexploreCore/             a local Swift package: the maths, with tests
@@ -288,7 +289,12 @@ Nothing is injected and nothing is hidden, which is the point: a bug here is a
 bug there, and a fix there is a fix here.
 
 **Settings** is the little this app knows that the site does not — which server
-to open, how this phone records where it has been, and how to forget both.
+to open, how this phone records where it has been, and how to forget both. Under
+the address is whether that address is actually a Hexplore server and whether it
+is up: `GET /api/health` answers before there is a session, and names itself, so
+"nothing there", "something there that is not this" and "signed out" are three
+different sentences in three different colours instead of one white rectangle on
+the Map tab.
 Everything else about your *map* stays on the Map tab, where a laptop finds it in
 the same place. Duplicating any of it natively would mean two screens that have
 to agree.

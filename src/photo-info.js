@@ -94,6 +94,19 @@ export function groupWhen(items) {
   return a === b ? a : `${a} – ${b}`;
 }
 
+// How long the spinner stays on after the app says yes.
+//
+// The app answers at the moment it *presents* the player, and a presentation is
+// an animation — for a third of a second the card is still the thing on screen,
+// and putting the play triangle back the instant the reply lands made it flash
+// once just before the player covered it. There is nothing to detect here: a
+// native view going up over the web view is not an event the page receives. So
+// the spinner outlives the reply by about as long as the animation takes, and
+// what you see is a spinner until there is a player.
+const SETTLE_MS = 500;
+
+const settle = () => new Promise((r) => setTimeout(r, SETTLE_MS));
+
 /** What a failure means, in a sentence somebody can act on. */
 function trouble(error) {
   switch (error) {
@@ -341,7 +354,11 @@ export function mountPhotoInfo({ onClose } = {}) {
     playBtn.classList.add('fetching');
     try {
       const reply = await playVideo(item.i);
-      if (!reply.ok) noteEl.textContent = trouble(reply.error);
+      if (!reply.ok) {
+        noteEl.textContent = trouble(reply.error);
+        return;
+      }
+      await settle();
     } finally {
       busy = false;
       playBtn.classList.remove('fetching');
@@ -360,7 +377,11 @@ export function mountPhotoInfo({ onClose } = {}) {
     figure.classList.add('fetching');
     try {
       const reply = await viewPhoto(item.i);
-      if (!reply.ok) noteEl.textContent = trouble(reply.error);
+      if (!reply.ok) {
+        noteEl.textContent = trouble(reply.error);
+        return;
+      }
+      await settle();
     } finally {
       busy = false;
       figure.classList.remove('fetching');

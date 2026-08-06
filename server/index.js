@@ -98,7 +98,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.4.1';
+export const SERVER_VERSION = '0.5.0';
 
 const scrypt = promisify(scryptCb);
 // The same folding the browser importer uses, so a fix from Home Assistant and
@@ -2013,6 +2013,26 @@ function readBody(req, limit = 8 * 1024 * 1024) {
 // --- API ---------------------------------------------------------------------
 async function handleApi(req, res, pathname, query = new URLSearchParams()) {
   try {
+    // Is this a Hexplore server, and is it up? Unauthenticated, because the one
+    // asking has not signed in yet — the iOS app checks the address you typed
+    // *before* it will have a session, and "wrong address" and "signed out" are
+    // different problems that used to look identical.
+    //
+    // It answers a name as well as a version, and that is the whole point of it:
+    // a bare 200 proves something is listening, which on a home network is as
+    // likely to be a router as a map. The app treats a 200 whose body does not
+    // say `hexplore` as a *different* answer — reachable, but not this — and
+    // says so in a different colour.
+    //
+    // Deliberately empty of anything else. It is the one route anybody on the
+    // network can reach, so it says nothing about who has an account, how much
+    // is on the map, or whether registration is open; the version is already
+    // public to every signed-in page and is what makes "which build am I looking
+    // at" answerable from the phone.
+    if (req.method === 'GET' && pathname === '/api/health') {
+      return send(res, 200, { app: 'hexplore', version: SERVER_VERSION });
+    }
+
     if (req.method === 'POST' && pathname === '/api/register') {
       const ip = clientIp(req);
       const gate = registrationRefusal();

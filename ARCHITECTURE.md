@@ -523,6 +523,29 @@ it there and a visit means the same thing either way — see
   fortnight ago. Forgetting a phone drops that row and leaves its cells, which
   came from real fixes.
 
+**Is that address a Hexplore server?** `GET /api/health` is the only route that
+answers before anybody has signed in, and it exists for the Settings tab: you
+type an address there and, until now, the only way to find out whether it was
+right was to open the Map tab and see whether a web view stayed white. A typo, a
+server that is down, a tailnet you are not on and something else answering on
+that port all looked identical, and none of them looked different from being
+signed out.
+
+A 200 is not enough to say yes. On a home network an address with the *wrong*
+thing behind it is commoner than one with nothing — a router's admin page, a NAS,
+another container on the same box — and all of them answer 200 to something. So
+the route names itself, `{app: 'hexplore', version}`, and the phone reports three
+different states in three colours: green for a Hexplore server and its build,
+**orange** for something that answered and is not one, red for no answer, with
+the HTTP status or the `URLError` code, which is the part that can be searched
+for.
+
+It says nothing else, deliberately. It is the one route anybody who can reach the
+port can call, so it reveals nothing about who has an account, what is on the map
+or whether registration is open. The version is already public to every
+signed-in page and is what makes "which build am I looking at" answerable from
+the phone.
+
 Cells arrive under the source **`iphone`**, which is a *kind* of source rather
 than a particular handset — two phones both say "iPhone", and which one it was is
 in the device list. That matches how every other source works and is the reason
@@ -3271,11 +3294,23 @@ pinch, double-tap and drag for nothing — is presented over the page.
 `QLPreviewController` would give the same for free and wants a file URL, which
 for a `PHAsset` means exporting a copy to disk first.
 
-Two things about it were wrong on a real phone and are worth keeping written
-down. It was presented **`.fullScreen`**, which cannot be swiped down to dismiss
-— and swiping down is how every photograph on this device is closed, and what the
-video player beside it already gave. It is a sheet now, which is the system's own
-gesture rather than an imitation of it. And it asked for
+Getting it to feel native took three goes, and the two failures are the
+interesting part. **`.fullScreen`** filled the screen and could not be swiped
+away — and swiping down is how every photograph on this device is closed, which
+the video player beside it was already giving. A **page sheet** swiped away and
+was not full screen: inset at the top, rounded at the corners, with the map
+showing through them, which around a photograph is a frame around a frame.
+
+So it is both, which the system does not hand over: `.overFullScreen` keeps the
+map behind rather than tearing it out, and a pan gesture moves the picture with
+your finger, fades the black as it goes, and either dismisses past 120 pt (or a
+flick) or springs back. It yields to the scroll view once the picture is zoomed
+in, and only claims a drag that is downward and more down than sideways — or
+every attempt to flick sideways would close it. A gesture that follows the finger
+and can be changed of mind about is the whole difference between this and a swipe
+that is really a button.
+
+It also asked for
 **`PHImageManagerMaximumSize`**, which on a recent iPhone is a 48-megapixel
 photograph — a `UIImage` of about 190 MB once decoded, handed to a `UIImageView`
 in the middle of a presentation animation. That was the "small preview at the
@@ -3295,6 +3330,13 @@ first is still fetching used to present a *second* player on top of the first,
 which then had to be dismissed twice. The card refuses the second tap, and the
 app refuses it again on its own side: `alreadyShowing` answers "yes, that is
 done" rather than presenting again, because what was asked for is on screen.
+
+The spinner also **outlives the reply by half a second**. The app answers at the
+moment it presents, and a presentation is an animation: for a third of a second
+the card is still what is on screen, so putting the play triangle back the
+instant the reply landed made it flash once just before the player covered it.
+There is nothing to wait for instead — a native view going up over the web view
+is not an event the page receives.
 
 The class for that state is `fetching`, and the name matters. It was `busy`
 first, which is **already a global class in this stylesheet** — the map's own

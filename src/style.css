@@ -255,7 +255,12 @@ body {
   background-color: currentColor;
   /* The hollow arrow: an outlined paper plane, which is what "not following"
      looks like everywhere else. */
-  --locate-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linejoin='round'%3E%3Cpath d='M21 3 3 10.5l7.5 3 3 7.5L21 3Z'/%3E%3C/svg%3E");
+  /* `stroke-linejoin: round` on all three corners, and a wider join than the
+     line so the tail is a soft point rather than a needle: at 21 px the sharp
+     original read as a shard of glass rather than an arrow. The same rounding
+     is drawn into the filled variant below by stroking it in its own colour —
+     a fill has no joins to round. */
+  --locate-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M20.4 3.6 4.2 10.4a.9.9 0 0 0 .1 1.7l6.1 1.6 1.6 6.1a.9.9 0 0 0 1.7.1l6.8-16.2a.75.75 0 0 0-.1-.1Z'/%3E%3C/svg%3E");
   -webkit-mask-image: var(--locate-mask);
   mask-image: var(--locate-mask);
   -webkit-mask-repeat: no-repeat;
@@ -280,7 +285,7 @@ body {
    amounts of legible. */
 .maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active .maplibregl-ctrl-icon,
 .maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active-error .maplibregl-ctrl-icon {
-  --locate-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M21 3 3 10.5l7.5 3 3 7.5L21 3Z'/%3E%3C/svg%3E");
+  --locate-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' stroke='black' stroke-width='2' stroke-linejoin='round' stroke-linecap='round' d='M20.4 3.6 4.2 10.4a.9.9 0 0 0 .1 1.7l6.1 1.6 1.6 6.1a.9.9 0 0 0 1.7.1l6.8-16.2a.75.75 0 0 0-.1-.1Z'/%3E%3C/svg%3E");
 }
 
 /* Asking. Dimmed rather than spun: MapLibre animates this class itself, and two
@@ -1181,11 +1186,47 @@ body {
   min-height: 0;
 }
 
-/* The grid has one cell and both children are in it, so the button lands over
-   the middle of the picture whatever shape the picture turns out to be. */
+/* The grid has one cell and every child is in it, so the button and the spinner
+   land over the middle of the picture whatever shape it turns out to be. */
 .photo-figure img,
-.photo-figure .photo-play {
+.photo-figure .photo-play,
+.photo-figure .photo-figure-spinner {
   grid-area: 1 / 1;
+}
+
+/* Waiting on the phone — either for the card's own picture, or for the app to
+   take over and show it full screen. The pulsing panel says "something is
+   coming" only while there is nothing on screen yet; over a photograph that is
+   already there it says nothing at all, which is the case this covers. */
+.photo-figure-spinner {
+  display: none;
+  place-self: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #fff;
+  animation: photo-spin 0.8s linear infinite;
+}
+
+.photo-figure.loading .photo-figure-spinner,
+.photo-figure.fetching .photo-figure-spinner {
+  display: block;
+}
+
+/* Over a loaded photograph the ring needs its own ground, or it is a white line
+   on whatever the picture happens to be. */
+.photo-figure.loaded .photo-figure-spinner {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  box-shadow: 0 0 0 12px rgba(12, 14, 20, 0.45);
+  background: rgba(12, 14, 20, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photo-figure-spinner {
+    animation-duration: 2.4s;
+  }
 }
 
 /* Deliberately the system's own vocabulary — a white triangle on a dark disc —

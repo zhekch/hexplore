@@ -8,14 +8,20 @@ import UIKit
 /// only version worth going full screen for is one the page would then be
 /// holding a second copy of.
 ///
-/// ## Presented as a sheet, on purpose
+/// ## Full screen, and still swipe-to-dismiss
 ///
-/// It was `.fullScreen` first, and that was wrong for one reason worth more than
-/// the extra few points of screen: a sheet can be **swiped down to dismiss**,
-/// which is how every photograph on the phone is closed, and which the video
-/// player beside it already gives. `.automatic` is a page sheet on iPhone, so
-/// this is the system's gesture rather than an imitation of it, and the map is
-/// visible behind — you can see where you are while you look.
+/// Two goes at this were wrong in opposite directions. `.fullScreen` filled the
+/// screen and could not be swiped away, which is how every photograph on this
+/// device is closed. A page sheet swiped away and was not full screen: inset at
+/// the top, rounded at the corners, with the map showing through them — for a
+/// photograph, a frame around a frame.
+///
+/// So it is full screen *and* it swipes, which is what Photos itself does and is
+/// not something the system hands over: `.overFullScreen` keeps the map behind
+/// it rather than tearing it out, and `dismissPan` moves the picture with your
+/// finger, fades the black as it goes, and either dismisses or springs back on
+/// release. A gesture that follows the finger and can be changed of mind about
+/// is the whole difference between this and a swipe that is really a button.
 ///
 /// ## It opens before the picture does
 ///
@@ -39,9 +45,12 @@ final class PhotoViewerController: UIViewController {
 
     init() {
         super.init(nibName: nil, bundle: nil)
-        // `.automatic`, which is a page sheet here — see the note above. Set
-        // explicitly so that reading this file tells you what it is.
-        modalPresentationStyle = .automatic
+        // `.overFullScreen` rather than `.fullScreen`: the difference is that the
+        // presenting view — the map — is left in place underneath instead of
+        // being removed, which is what lets the black fade to it while the
+        // picture is being dragged away. Both are edge to edge.
+        modalPresentationStyle = .overFullScreen
+        modalTransitionStyle = .crossDissolve
     }
 
     @available(*, unavailable)
@@ -61,11 +70,15 @@ final class PhotoViewerController: UIViewController {
         // which is the point past which zooming magnifies the compression.
         scroll.maximumZoomScale = 6
         scroll.contentInsetAdjustmentBehavior = .never
-        // Or the sheet's own dismiss gesture and the scroll view fight over
-        // every downward drag, and the picture jitters instead of either
-        // happening. The scroll view only wants the drag once it is zoomed in.
+        // The drag belongs to the dismiss gesture until the picture is zoomed
+        // in; after that it belongs to the picture. Without this the two fight
+        // over every downward swipe and neither happens cleanly.
         scroll.alwaysBounceVertical = false
         view.addSubview(scroll)
+
+        let drag = UIPanGestureRecognizer(target: self, action: #selector(dismissPan))
+        drag.delegate = self
+        view.addGestureRecognizer(drag)
 
         imageView.frame = scroll.bounds
         imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -118,6 +131,46 @@ final class PhotoViewerController: UIViewController {
         dismiss(animated: true)
     }
 
+    // MARK: - Dragging it away
+
+    /// How far down it has to be thrown to let go of it. Either distance or
+    /// speed will do: a slow deliberate drag and a quick flick are both "close
+    /// this", and requiring both makes the gesture feel sticky.
+    private static let dismissDistance: CGFloat = 120
+    private static let dismissSpeed: CGFloat = 900
+
+    @objc private func dismissPan(_ gesture: UIPanGestureRecognizer) {
+        let move = gesture.translation(in: view)
+        switch gesture.state {
+        case .changed:
+            // Sideways travel is followed but not resisted — the picture goes
+            // where the finger goes, or the gesture feels like it is arguing.
+            let down = max(0, move.y)
+            scroll.transform = CGAffineTransform(translationX: move.x, y: move.y)
+            // Both the black behind and the chrome fade with the distance, so
+            // by the time it leaves there is nothing left to animate out.
+            let progress = min(1, down / (view.bounds.height * 0.6))
+            view.backgroundColor = UIColor(white: 0, alpha: 1 - progress * 0.85)
+            close.alpha = 1 - progress * 2
+        case .ended, .cancelled:
+            let thrown = gesture.velocity(in: view).y > Self.dismissSpeed
+            if move.y > Self.dismissDistance || thrown {
+                dismiss(animated: true)
+                return
+            }
+            // Changed your mind: back where it was, with a spring, because a
+            // linear return reads as a snap and a snap reads as a refusal.
+            UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.82,
+                           initialSpringVelocity: 0.4) {
+                self.scroll.transform = .identity
+                self.view.backgroundColor = .black
+                self.close.alpha = 1
+            }
+        default:
+            break
+        }
+    }
+
     /// Double tap zooms in where you tapped, and again to come back.
     @objc private func doubleTapped(_ gesture: UITapGestureRecognizer) {
         guard imageView.image != nil else { return }
@@ -130,6 +183,20 @@ final class PhotoViewerController: UIViewController {
         let size = CGSize(width: scroll.bounds.width / scale, height: scroll.bounds.height / scale)
         scroll.zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2,
                                width: size.width, height: size.height), animated: true)
+    }
+}
+
+extension PhotoViewerController: UIGestureRecognizerDelegate {
+    /// The drag is only a dismissal while the picture is at rest. Once it is
+    /// zoomed in, panning is how you look around it, and taking that away would
+    /// make a zoomed photograph impossible to read.
+    func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        guard let pan = gesture as? UIPanGestureRecognizer else { return true }
+        guard scroll.zoomScale <= scroll.minimumZoomScale else { return false }
+        // Downwards only, and more down than sideways — otherwise every attempt
+        // to flick sideways closes it.
+        let move = pan.velocity(in: view)
+        return move.y > 0 && abs(move.y) > abs(move.x)
     }
 }
 
