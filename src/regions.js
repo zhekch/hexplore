@@ -112,6 +112,7 @@ export function loadRegions(data) {
       REGIONS = m.default;
       idIndex = null;
       recordIndex = null;
+      byIso = null;
       buildIndex();
       return REGIONS;
     });
@@ -164,6 +165,11 @@ export function pointInside(rings) {
   return null;
 }
 
+// Regions by country. Held, because the export's borders slider asks this once
+// per country in the frame on every redraw and the answer is a scan of 4,553
+// records — which is fine once and not fine forty times a second.
+let byIso = null;
+
 /**
  * Every region of one country, found by ISO3 code.
  *
@@ -173,7 +179,17 @@ export function pointInside(rings) {
  * regions", which the region level then drew as one flat country-shaped blob.
  */
 export function regionsOf(iso) {
-  return (REGIONS ?? []).filter((r) => r.iso === iso);
+  if (!REGIONS) return [];
+  if (!byIso) {
+    byIso = new Map();
+    for (const r of REGIONS) {
+      if (!r.iso) continue;
+      const list = byIso.get(r.iso);
+      if (list) list.push(r);
+      else byIso.set(r.iso, [r]);
+    }
+  }
+  return byIso.get(iso) ?? [];
 }
 
 /**
@@ -496,7 +512,11 @@ export function countriesInView(ids, view) {
  */
 export function regionGeometry(id, fine = false) {
   if (fine && FINE.has(id)) return FINE.get(id);
-  return REGIONS?.find((r) => r.id === id)?.geometry ?? null;
+  // Through the index rather than a `find`. The export's borders slider asks
+  // for every region the frame reaches, which at world scale is all 4,553 of
+  // them — a linear scan each makes that twenty million comparisons per redraw,
+  // and the redraw happens while somebody is dragging the slider.
+  return regionById(id)?.geometry ?? null;
 }
 
 // A country's own outline, built from its detailed regions. Keyed by ISO3 and

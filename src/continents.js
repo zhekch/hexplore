@@ -58,6 +58,9 @@ function index() {
   }
 }
 
+/** Every continent there is, named. Seven, from the committed membership file. */
+export const allContinents = () => Object.keys(ISOS_BY_CONTINENT);
+
 /** The continent a country (by the name the rest of the app uses) is in. */
 export function continentOf(countryId) {
   index();

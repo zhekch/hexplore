@@ -45,9 +45,11 @@ import {
 } from './countries.js';
 import {
   countriesInView, fineCountryOutline, loadFineRegions, loadRegions, regionAreaKm2, regionById,
-  regionGeometry,
+  regionGeometry, regionsLoaded, regionsOf,
 } from './regions.js';
-import { continentAreaKm2, continentGeometry, countriesInContinent } from './continents.js';
+import {
+  allContinents, continentAreaKm2, continentGeometry, countriesInContinent,
+} from './continents.js';
 import { asMulti } from './polygon.js';
 import {
   EARTH_LAND_KM2, WHOLE_COUNTRY, areaAtPoint, computeStats, formatKm2, formatPct,
@@ -360,6 +362,10 @@ export const DEFAULT_SPEC = {
   // …and how strongly the borders across it are. Separate, because "which one
   // is Germany" and "is there anything there at all" are separate questions.
   borders: 0,
+  // And the lines *inside* the cut: the seams of whatever Detail is set to, so
+  // a fill covering eleven cantons can still be read as eleven. Off by default
+  // — the silhouette is the picture, and this is a thing you add to it.
+  divisions: 0,
   outline: true,
   caption: {
     on: true,
@@ -1188,6 +1194,10 @@ export function renderExport(canvas, spec, data, numbers, size = sizeOf(spec)) {
   ctx.save();
   ctx.clip(land, 'evenodd');
   drawVisited(ctx, spec, data, cam, size);
+  // …and the lines between the pieces the subject is made of, over the top of
+  // it. Inside the same clip, because these are the subject's own divisions and
+  // not a second map drawn around it.
+  drawDivisions(ctx, spec, cam, size, palette);
   ctx.restore();
 
   if (spec.outline) {
@@ -1314,6 +1324,97 @@ function drawAreas(ctx, spec, data, cam) {
   }
 }
 
+// --- The lines inside the picture ----------------------------------------------
+//
+// **A solid fill is one shape, and one shape says one thing.** Colour a poster
+// by regions and every canton you have been to dissolves into its neighbours —
+// which is exactly right, it is what `mergeAreas` is for and it is how you read
+// "this whole corner of the country" at a glance. It is also the whole of what
+// the picture says. Twenty-six cantons and one flat wash over eleven of them
+// carry the same ink and the same amount of information.
+//
+// So the divisions are a strength of their own, the way *the rest of the world*
+// and *their borders* are: the seams the infill is made of, drawn back over it.
+// A third slider rather than a second colour, because how loud they should be
+// depends entirely on the picture — a hairline that structures a country-sized
+// fill turns a poster of one canton into a diagram of it.
+//
+// **Every unit the frame reaches, not only the lit ones.** The empty half of the
+// subject is part of the composition too, and a picture where the lines stop
+// where the colour stops draws attention to the boundary of your own travel
+// twice over. The clip does the cutting, as it does for everything else here.
+//
+// Which units: whatever *Detail* is set to, because these are the fill's own
+// seams and it would be a different control if they were anything else. Blobs
+// have no seams, so the row is hidden there rather than drawing something that
+// answers a question nobody asked.
+
+/**
+ * The geometries whose edges are the divisions, bounded to what the frame can
+ * reach. Bbox tests before geometry: at world scale this would otherwise be a
+ * path per admin-1 unit on Earth, on every drag of the slider.
+ *
+ * Exported for the test, which is the only way to ask "does a frame around
+ * Switzerland fetch twenty-six cantons or four and a half thousand" — from a
+ * canvas the answer is a picture that looks the same either way.
+ */
+export function divisionGeoms(detail, cam) {
+  if (detail === 'continent') return allContinents().map((n) => continentGeometry(n)).filter(Boolean);
+  // Nothing at all until the admin-1 set is in memory, which is a fetch away
+  // when the detail has only just been switched. Falling through would give
+  // every country no regions and therefore its own outline — a picture of
+  // national borders under a note that says "between regions", which is worse
+  // than a picture that has not finished arriving. `ensureGeography` is already
+  // fetching; the next frame has them.
+  if (detail === 'region' && !regionsLoaded()) return [];
+
+  // The frame in degrees. A frame wider than half the world, or one that has
+  // been slid past the seam, is asked for everything rather than being made to
+  // reason about which copy a bbox is in — at that scale the cull is not what
+  // is expensive and the lines are a fraction of a pixel apart anyway.
+  const box = cameraRect(cam);
+  let reaches = () => true;
+  if (box.xMax - box.xMin < WORLD / 2) {
+    const [w, s] = lngLatAt(cam, 0, cam.h);
+    const [e, n] = lngLatAt(cam, cam.w, 0);
+    if (w < e) reaches = (bb) => bb && bb[2] >= w && bb[0] <= e && bb[3] >= s && bb[1] <= n;
+  }
+
+  const countries = allCountries().filter((c) => reaches(c.bbox));
+  if (detail === 'country') return countries.map((c) => fineCountryGeometry(c.id) ?? c.geometry);
+
+  const out = [];
+  for (const c of countries) {
+    // A country the admin-1 set does not subdivide stands in for itself, which
+    // is the same rule WHOLE_COUNTRY encodes for the level that colours these.
+    // Without it, Luxembourg would be the one shape in the frame with no line
+    // around it — which reads as a gap in the data rather than as a country
+    // that is one region.
+    const regions = c.iso ? regionsOf(c.iso) : [];
+    if (!regions.length) out.push(fineCountryGeometry(c.id) ?? c.geometry);
+    else for (const r of regions) if (reaches(r.bbox)) out.push(regionGeometry(r.id, true) ?? r.geometry);
+  }
+  return out;
+}
+
+function drawDivisions(ctx, spec, cam, size, palette) {
+  const alpha = Math.max(0, Math.min(1, spec.divisions ?? 0));
+  if (alpha <= 0.001 || spec.detail === 'blob') return;
+
+  // One path for all of them rather than one per unit. Nothing here is filled
+  // and every line is the same colour, so there is nothing to tell them apart
+  // with — and a single stroke is one rasterizer pass instead of four thousand.
+  // Shared edges are therefore drawn twice, which at a flat alpha is invisible;
+  // it is `fill` that would show the overlap, and there is no fill.
+  const lines = pathOf(divisionGeoms(spec.detail, cam), cam);
+  ctx.strokeStyle = withAlpha(palette.edge, alpha);
+  // Finer than the outline around the whole subject, which has to stay the
+  // strongest line in the picture: these divide it, they do not bound it.
+  ctx.lineWidth = Math.max(0.5, size.h * 0.0009);
+  ctx.lineJoin = 'round';
+  ctx.stroke(lines);
+}
+
 /** A filename that says what the picture is of. */
 export function exportFilename(spec, numbers) {
   const base = (numbers?.names?.length ? numbers.names.join('-') : 'hexplore')
@@ -1380,7 +1481,12 @@ export async function ensureSharpBoundaries(scope, { spec, data, size } = {}) {
   // way, sharp boundaries against blunt ones do not merely look inconsistent:
   // the blunt ones are simplified *outwards* in places, so a national border
   // cuts visibly across the detailed regions on the other side of it.
+  // The divisions are the third: they trace every unit the frame reaches, which
+  // is the same set and the same mismatch — a blunt canton border beside a sharp
+  // one is more obvious as a line than it ever was as a fill.
+  const linesInside = (spec?.divisions ?? 0) > 0.001 && spec?.detail !== 'blob';
   const wantsNeighbours = spec?.detail === 'region'
+    || linesInside
     || (spec?.surroundings ?? 0) > 0.001
     || (spec?.borders ?? 0) > 0.001;
   if (wantsNeighbours && data && size) {
@@ -1403,7 +1509,7 @@ export async function ensureSharpBoundaries(scope, { spec, data, size } = {}) {
           for (const { iso } of countriesInView(lit, [w, s2, e, n])) isos.add(iso);
         }
         // Whatever the frame touches, when its outline is going to be drawn.
-        if ((spec.surroundings ?? 0) > 0.001 || (spec.borders ?? 0) > 0.001) {
+        if (linesInside || (spec.surroundings ?? 0) > 0.001 || (spec.borders ?? 0) > 0.001) {
           for (const c of allCountries()) {
             const [cw, cs, ce, cn] = c.bbox;
             if (c.iso && ce >= w && cw <= e && cn >= s2 && cs <= n) isos.add(c.iso);

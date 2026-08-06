@@ -3741,6 +3741,7 @@ body {
   color: #ffeccc;
 }
 
+
 @keyframes offline-drop {
   from {
     opacity: 0;
@@ -3834,6 +3835,74 @@ body {
   border-color: rgba(122, 28, 18, 0.28);
   background: rgba(122, 28, 18, 0.1);
   color: #7a1c12;
+}
+
+/* --- "Where do you live?" --------------------------------------------------
+   An offer, in the shape the other two banners use and in neither of their
+   colours. Red says your edits are not being saved and amber says a layer you
+   switched on is incomplete; nothing is wrong here, so this one is the map's own
+   glass. It is shown once ever — see askHomeOnce() in src/main.js — which is
+   what lets it sit in the same prominent spot as an actual alarm.
+
+   Below the light-theme block above rather than beside `.rail-bar`, because
+   `[data-theme='light'] .offline-bar` matches this element too and at the same
+   specificity: written any earlier, every rule here would lose to the red. */
+.home-bar {
+  background: rgba(16, 20, 30, 0.86);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #e6ecf7;
+  /* Under the dialogs (z 90), where the other two banners are deliberately over
+     them. "The server has gone" belongs on top of whatever you have open,
+     because it decides whether anything you do in there is saved. An offer does
+     not: it floated across the title of the export dialog, which is a banner
+     interrupting something you chose to open. It waits. */
+  z-index: 80;
+}
+
+.home-bar svg,
+.home-bar .offline-text small {
+  color: rgba(230, 236, 247, 0.78);
+}
+
+/* The second of two buttons, and the one that means "no". The same size and the
+   same reach as the offer — a dismissal you have to aim at is a dismissal you
+   resent — but without the fill, so which of the pair is the offer is not a
+   question. */
+.offline-quiet {
+  border-color: transparent;
+  background: none;
+  opacity: 0.75;
+}
+
+.offline-quiet:hover {
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
+}
+
+[data-theme='light'] .home-bar {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(15, 23, 42, 0.16);
+  color: #17233a;
+}
+
+[data-theme='light'] .home-bar .offline-text b {
+  color: #17233a;
+}
+
+[data-theme='light'] .home-bar svg,
+[data-theme='light'] .home-bar .offline-text small {
+  color: rgba(23, 35, 58, 0.72);
+}
+
+[data-theme='light'] .home-bar .offline-retry {
+  border-color: rgba(23, 35, 58, 0.24);
+  background: rgba(23, 35, 58, 0.08);
+  color: #17233a;
+}
+
+[data-theme='light'] .home-bar .offline-quiet {
+  border-color: transparent;
+  background: none;
 }
 
 /* --- One route, opened from the Routes list ------------------------------- */

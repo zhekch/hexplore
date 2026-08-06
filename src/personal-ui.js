@@ -12,7 +12,7 @@
 // list you have to read rather than scan — and neither of them is a way of
 // getting your map *out*, which is what the hub is for.
 
-import { localIs24Hour } from './clock.js';
+import { clockSource, localIs24Hour } from './clock.js';
 
 /**
  * @param {object} opts
@@ -56,8 +56,14 @@ export function mountPersonal({
     // Naming what "follow this device" is actually going to do. On its own the
     // word tells you nothing about which of the two you are being given, and
     // the whole reason anyone opens this row is that they disagree with it.
+    //
+    // And *where it read that*, which is the other half of the same question. A
+    // browser cannot see the 24-hour switch on the phone it runs on — only the
+    // app can, and it says so (see src/clock.js). Where nothing said, this is
+    // the browser's language talking, and a row admitting that is a row someone
+    // can act on rather than argue with.
     clockNote.textContent = clockSel.value === 'auto'
-      ? `${localIs24Hour() ? '24-hour' : '12-hour'}`
+      ? `${localIs24Hour() ? '24-hour' : '12-hour'}${clockSource() === 'device' ? '' : ", from your browser's language"}`
       : '';
     // Hidden rather than shown empty or as "unknown": the whole value of this
     // line is that it can be trusted, and a placeholder where a build number

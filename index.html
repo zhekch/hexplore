@@ -986,6 +986,13 @@
                 <span>Their borders<small id="export-borders-note">Off</small></span>
                 <input class="export-range" id="export-borders" type="range" min="0" max="100" step="5" />
               </label>
+              <!-- The lines inside the cut, as opposed to the two above, which
+                   are about the world outside it. Hidden for Blobs: they are the
+                   seams of the fill, and a blob has none. -->
+              <label class="import-row" id="export-divisions-row">
+                <span>Borders inside<small id="export-divisions-note">Off</small></span>
+                <input class="export-range" id="export-divisions" type="range" min="0" max="100" step="5" />
+              </label>
             </div>
 
             <div class="export-section">
@@ -1470,6 +1477,25 @@
         <small id="rail-bar-detail"></small>
       </span>
       <button type="button" class="offline-retry" id="rail-bar-dismiss">Dismiss</button>
+    </div>
+
+    <!-- Asked once, ever. Everything in the Trips tab is measured from home, and
+         until one is set that is a guess off the cells you visit most — right
+         often enough to be the default and wrong in a way nobody could debug.
+         So the offer is made where the answer matters and then never again:
+         being nagged about an optional setting is worse than not knowing it
+         exists. Neither red nor amber — nothing is wrong. -->
+    <div class="offline-bar home-bar" id="home-bar" hidden role="status" aria-live="polite">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 10.6 12 3.5l9 7.1" />
+        <path d="M5.4 12.5V20h13.2v-7.5" />
+      </svg>
+      <span class="offline-text">
+        <b>Where do you live?</b>
+        <small>Your trips are measured from home. Right now that's a guess.</small>
+      </span>
+      <button type="button" class="offline-retry" id="home-bar-set">Set home</button>
+      <button type="button" class="offline-retry offline-quiet" id="home-bar-dismiss">Not now</button>
     </div>
 
     <!-- Shown while something is being fetched that the map is waiting on — the

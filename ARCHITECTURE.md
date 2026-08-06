@@ -1249,6 +1249,36 @@ offline and cannot render half-drawn while a font arrives.
   sharp outline wherever it has been fetched — a blunt national border cuts
   visibly across the detailed regions on the other side of it, which is the same
   mismatch as the fringe above wearing a different hat.
+- **And a third slider, for the lines *inside* the cut.** A solid fill is one
+  shape, and one shape says one thing: colour a poster by regions and every
+  canton you have been to dissolves into its neighbours. That is right — it is
+  what `mergeAreas` is for, and it is how a whole corner of a country reads at a
+  glance — but it is also the whole of what the picture then says. Twenty-six
+  cantons with a flat wash over eleven of them carry the same ink and the same
+  amount of information. *Borders inside* draws the seams the fill is made of
+  back over it, at a strength of its own, because how loud they should be
+  depends entirely on the picture: a hairline that gives a country-sized fill
+  some structure turns a poster of one canton into a diagram of it.
+
+  Which seams is **whatever *Detail* is set to**, because that is what the fill
+  is made of and it would be a different control if it were anything else.
+  *Blobs* have no seams, so the row is hidden there rather than answering a
+  question nobody asked — the same call the *Cell size* row makes in the other
+  direction. Every unit the frame reaches is traced, not only the lit ones: the
+  empty half of the subject is part of the composition too, and lines that stop
+  where the colour stops draw the boundary of your own travel twice over. The
+  clip does the cutting, as it does for everything else here.
+
+  `divisionGeoms` culls on bounding boxes before it touches geometry — a frame
+  over the Alps asks for six countries and 69 regions rather than 250 and 4,553
+  — and it is one `Path2D` for all of them rather than one per unit, since
+  nothing is filled and every line is the same colour. Shared edges are
+  therefore stroked twice, which at a flat alpha is invisible; it is `fill` that
+  would show an overlap, and there is no fill. A country the admin-1 set does
+  not subdivide stands in for itself, the same rule `WHOLE_COUNTRY` encodes for
+  the level that colours these — without it Luxembourg is the one shape in the
+  frame with no line around it, which reads as missing data rather than as a
+  country that is one region.
 - **Nothing leaves the tab.** The dialog reads the cells already in memory and
   writes a PNG the browser saves. There is no server call and no upload; the
   accessors it is handed (`cells()`, `meta()`, `rollUp()`, `areaFC()`) are read-only
@@ -1598,6 +1628,32 @@ row, it's a reading of the rows.
   home *is* follows the account; whether you are currently looking at it is a
   way of looking at the map, so it stays in localStorage beside the rail
   overlay.
+- **That switch has three states, not two.** `visited-map:home-shown:v1` is
+  `on`, `off`, or absent — and absent means *nobody has said*, which is not the
+  same as "no". Left alone, the marker follows whether a home has actually been
+  set: somebody who has just pointed at their own house expects to see it
+  without hunting for a second control, and a map nobody has told anything
+  should not be carrying a pin at a guess it has not explained. Touching the
+  switch writes the answer down and that answer wins from then on, including
+  when it agrees with the default — agreeing with something is not the same as
+  never having looked at it.
+- **And the offer to set one is made once, ever.** Home is the origin of every
+  number in this section and the only one that is guessed, so the guess is worth
+  correcting — but four taps into a settings panel is not where anybody finds
+  that out. A banner in the shape of the offline one, in neither of its colours
+  because nothing is wrong, says what home is for and offers to set it.
+  `askHomeOnce` runs after the preferences have been reconciled, which is the
+  first moment anything knows the answer, and reads it off the **account's own
+  copy** rather than off `homePlace` — the reconcile's `push` branch never fills
+  that in, and a browser whose local copy won would otherwise announce that an
+  account with a home does not have one. It stays quiet on an account with no
+  cells yet, where there are no trips for a home to be the origin of.
+
+  The flag is spent on being *shown*, not on being answered, and it lives in
+  this browser rather than in the account. Both halves are the same judgement:
+  a banner that comes back until it gets the answer it wants is a nag, and "no"
+  is a complete answer. A flag in the preferences would also be a fifth thing
+  for the reconcile to lose.
 - **Home has to be earned.** Somewhere needs `HOME_MIN_HITS` repeat visits
   before it can claim the title. Without that rule, an account holding one
   imported holiday decides the holiday is home, every cell in it is "not away",
@@ -3080,7 +3136,14 @@ The zoom thresholds are the other half of keeping it legible. Much of the
 American Midwest is a grid of small airfields; drawn from z4 they are a texture
 rather than a map. Each threshold is roughly where that kind stops being clutter
 and starts being an answer — large from z3, medium from z5.5, airfields from
-z8.5, closed from z9, helipads from z11.
+z8.5, closed from z9, helipads from z9.5.
+
+Helipads were the exception, at z11, and it was set against the wrong case. The
+worry was a city centre where every other hospital roof has one — and that is
+precisely the case `icon-allow-overlap: false` already answers, by not placing
+what does not fit. What the threshold actually cost was the ordinary case: a
+helipad that is the only aviation on the map for fifty kilometres, invisible
+until you were nearly on top of it.
 
 **The label is two different things at two zooms.** Zoomed out it is the code:
 `ZRH` is shorter and more recognisable than "Zürich Airport", and at the zoom
@@ -3581,8 +3644,8 @@ remembers importing is the failure this dialog exists to avoid.
 
 ## A finger on a panel
 
-Two things a phone does to a panel that a desktop does not, both fixed centrally
-rather than per-dialog.
+Three things a phone does to a panel that a desktop does not, all fixed
+centrally rather than per-dialog.
 
 **A touch scroll belongs to the scroller it started in, for the whole gesture.**
 That is iOS, and it has no `overscroll-behavior` to turn it off — reach the end of
@@ -3617,6 +3680,22 @@ it never triggers the zoom in the first place. All it did was set every picker a
 size larger than the label it answers to, which is what made them shout over the
 rest of the panel. They are sized to their label now; the weight is what makes
 them read as the answer rather than the question.
+
+**The tap that closes the layers menu belongs to the menu.** On a phone the menu
+is a sheet over the map, so tapping the ground beside it means "put this away"
+and never "mark that cell" — the map is told to let that one tap go by. The
+subtlety is *when* that is decided. MapLibre listens for `click` on its own
+canvas container, which is a descendant of the document, so the map's handler
+runs **before** the document-level click-away handler that was raising the flag:
+the dismissing tap marked a cell, and the flag then sat there and swallowed the
+*next* tap instead. One tap did the wrong thing and the one after it did nothing,
+which is why it read as intermittent rather than as always broken.
+
+It is decided on `pointerdown` now, in the same capture-phase listener that
+already records whether the press landed inside the menu — before any of it, and
+before the menu has had a chance to move under the finger. Assigned on every
+press rather than only raised, so a gesture that never becomes a click (a pan, a
+pinch, a tap on the sheet itself) cannot leave it standing for something later.
 
 ## Chrome over a photograph
 
@@ -4176,6 +4255,38 @@ decides, the locale is still the default (that is the `auto` setting), and the
 override is stored in the account's preferences rather than in `localStorage`. A
 clock is a fact about *you*, not about the machine you are sitting at, so
 choosing 24-hour on the laptop means the phone agrees without being told twice.
+
+It is nonetheless mirrored into `localStorage` (`visited-map:clock:v1`) alongside
+the route view and the hidden trips, and that mirror is doing more work than the
+others. Without it a browser boots on `auto` and holds it until `/api/prefs`
+answers — and anything touched in that window stamps the preferences as *newer
+than the account*, so the push that follows sends the default up over the
+24-hour that was chosen on the phone. A setting that reverts itself is the exact
+failure the stamps exist to prevent, and dragging a colour on a slow connection
+was enough to reach it.
+
+**And `auto` cannot mean "this device" in a browser.** `Intl` knows the locale,
+and a locale is a language and a region: `en-US` is 12-hour, `en-GB` is 24-hour,
+and neither of them is the *24-Hour Time* switch in iOS Settings, which is an
+override on top of the locale. WebKit folds that override into the locale it
+hands a page, so mobile Safari is genuinely automatic — and inside the app's web
+view the locale is the **app's**, which is English, so a phone that has written
+13:05 everywhere for years was told 01:05 PM by this one screen. Asking `Intl`
+more carefully does not help; there is nothing else to ask.
+
+So it is a thing the host is asked to say, exactly like the safe-area insets:
+`pushClock()` in `WebPanel.swift` reads the pattern behind the `j` skeleton (the
+one reading that returns the user's *preference* rather than the region's
+convention), writes `data-hour-cycle` on the root element and fires
+`hexplore:clock`. It is injected at document start, so the very first timestamp
+on screen is right, and pushed again on load, so a web view that reloads after
+the switch was flipped is not repeating what was true at launch. In a browser
+nothing writes it and the locale stands, which is what this has always done.
+
+The note under the picker says which of the two `auto` resolved to **and where it
+read it** — "24-hour" from a device that said so, "12-hour, from your browser's
+language" from one that could not. "Automatic" being wrong is much easier to act
+on when the row admits what it was reading.
 
 **Preferences stopped being entirely opaque.** The server stored the preferences
 blob and gave it back without reading it. It now reads one key — `home` — because

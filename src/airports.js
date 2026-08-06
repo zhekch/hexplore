@@ -127,7 +127,15 @@ const LAYERS = [
   { id: 'medium', group: 'airline', kinds: ['M'], minzoom: 5.5, icon: 'plane', scale: 0.82 },
   { id: 'small', group: 'airfields', kinds: ['S'], minzoom: 8.5, icon: 'plane-small', scale: 0.72 },
   { id: 'water', group: 'airfields', kinds: ['W', 'B'], minzoom: 8.5, icon: 'plane-water', scale: 0.72 },
-  { id: 'helipad', group: 'helipads', kinds: ['H'], minzoom: 11, icon: 'helipad', scale: 0.7 },
+  // Helipads start a step and a half further out than the rest of the table
+  // would suggest, which is a correction rather than an inconsistency. z11 was
+  // set against the worst case — a city centre where every other hospital roof
+  // has one — and that case is the one `icon-allow-overlap: false` already
+  // handles: the ones that do not fit are simply not placed. What the high
+  // threshold actually cost was the ordinary case, where a helipad is the only
+  // aviation on the map for fifty kilometres and you had to be nearly on top of
+  // it before it appeared at all.
+  { id: 'helipad', group: 'helipads', kinds: ['H'], minzoom: 9.5, icon: 'helipad', scale: 0.7 },
   { id: 'closed', group: 'closed', kinds: ['X'], minzoom: 9, icon: 'closed', scale: 0.7 },
 ];
 

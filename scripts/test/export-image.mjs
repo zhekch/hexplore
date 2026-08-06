@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CAPTION_FIELDS, CELL_SIZES, MAX_PIXELS, SCALES, SHAPES,
-  blobLevelFor, cameraFor, captionLines, circularSpan, coverageOf, exportFilename, fitCamera,
+  blobLevelFor, cameraFor, captionLines, circularSpan, coverageOf, divisionGeoms, exportFilename, fitCamera,
   fitBox, frameFor, lngLatAt, paletteOf, pickAt, presetOf, scopeAreaKm2, scopeGeometry, scopeName, sizeOf,
   unwrapRing, visitedAreas,
 } from '../../src/export-image.js';
@@ -172,6 +172,39 @@ console.log('\nDragging the picture off its own frame');
     `${lngA.toFixed(4)}, ${latA.toFixed(4)}`);
   check(near(lngA, lngB, 1e-6) && near(latA, latB, 1e-6),
     'and the preview shows the same middle as the file, at half the size');
+}
+
+console.log('\nThe borders inside the picture');
+{
+  // A frame around Switzerland, and one around the planet. The first is the
+  // case the slider is for; the second is the one that has to stay affordable,
+  // because the preview redraws while it is being dragged.
+  const size = { w: 1080, h: 1350 };
+  const swiss = fitCamera({ xMin: mercX(5.9), xMax: mercX(10.5), yMin: mercY(45.8), yMax: mercY(47.8) }, size);
+  const world = fitCamera({ xMin: mercX(-179), xMax: mercX(179), yMin: mercY(-80), yMax: mercY(80) }, size);
+
+  check(divisionGeoms('continent', swiss).length === 7, 'continents divide into seven, wherever you are looking',
+    String(divisionGeoms('continent', swiss).length));
+
+  // Bounded by the frame, which is the whole reason this is not simply "every
+  // shape in the dataset".
+  const nearby = divisionGeoms('country', swiss);
+  check(nearby.length > 3 && nearby.length < 40, 'a frame over the Alps asks for its neighbours, not for 250 countries',
+    `${nearby.length} countries`);
+  check(divisionGeoms('country', world).length > 200, 'and a frame over the world asks for the world');
+
+  // 26 cantons, plus whatever the frame reaches of France, Germany, Austria and
+  // Italy — but nothing like the 4,553 admin-1 units there are in total.
+  const cantons = divisionGeoms('region', swiss);
+  check(cantons.length > 26 && cantons.length < 900, 'regions are the cantons and their neighbours, not all of them',
+    `${cantons.length} regions`);
+  check(cantons.every(Boolean), 'and every one of them is a shape rather than a hole in the list');
+
+  // A country the admin-1 set does not subdivide has to stand in for itself, or
+  // it is the one shape in the frame with no line around it.
+  const tiny = divisionGeoms('region',
+    fitCamera({ xMin: mercX(9.4), xMax: mercX(9.7), yMin: mercY(47.0), yMax: mercY(47.3) }, size));
+  check(tiny.length > 0, 'and a country with no regions in the set still gets an outline');
 }
 
 console.log('\nA country is its mainland, however the shape was arrived at');

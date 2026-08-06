@@ -65,7 +65,7 @@ import { mountPhotoInfo } from './photo-info.js';
 import { mountKomoot } from './komoot-ui.js';
 import { mountDevices, whenAgo } from './device-ui.js';
 import { mountSources } from './sources-ui.js';
-import { setClock, clockMode } from './clock.js';
+import { setClock, clockMode, refreshClock } from './clock.js';
 import { mountStrava } from './strava-ui.js';
 import { mountSync } from './sync-ui.js';
 import { mountSettings } from './settings-ui.js';
@@ -625,8 +625,15 @@ let cellsInteractive = localStorage.getItem(CELLS_TAP_KEY) !== 'off';
 // fact about it, so it lives beside `railOn` in localStorage and not in the
 // account preferences — where *home is* follows the account, whether you are
 // currently looking at it does not.
+//
+// Three states, not two: 'on', 'off', and **never asked**. Left alone, the
+// marker follows whether a home has actually been set — which is the answer
+// somebody who has just pointed at their own house expects, and the one that
+// keeps a map nobody has told anything from carrying a pin at a guess it has
+// not explained. The switch, once touched, wins over both.
 const HOME_SHOWN_KEY = 'visited-map:home-shown:v1';
-let homeShown = localStorage.getItem(HOME_SHOWN_KEY) === 'on';
+let homeShownChoice = localStorage.getItem(HOME_SHOWN_KEY);
+const homeShown = () => (homeShownChoice === null ? !!homePlace : homeShownChoice === 'on');
 
 // Edit-mode glass tiles need a light fill on dark maps and a dark fill on light
 // maps to stay visible.
@@ -2629,6 +2636,7 @@ let stravaUi = null; // set by mountStrava()
 let deviceUi = null; // set by mountDevices()
 let statsUi = null; // set by mountStats()
 let backupUi = null; // set by mountBackup()
+let homeUi = null; // set by mountHome()
 let selectedRoute = null;
 
 function saveRoutesPref() {
@@ -2650,6 +2658,15 @@ function saveRoutesPref() {
 // in a map and a real row in the menu.
 const ROUTE_VIEW_KEY = 'visited-map:route-view:v1';
 const HIDDEN_TRIPS_KEY = 'visited-map:hidden-trips:v1';
+// The clock convention belongs to the account, not to this browser — but it is
+// mirrored here like everything else in the payload, and for a sharper reason
+// than the others. Without a local copy this browser boots on the default
+// ('auto') and holds it until the account answers; anything you touch in that
+// window stamps the preferences as *newer than the account*, and the push that
+// follows sends the default up over the 24-hour you picked on the phone. A
+// setting that quietly reverts itself is the exact failure the stamps exist to
+// prevent, and it was reachable here by dragging a colour on a slow connection.
+const CLOCK_KEY = 'visited-map:clock:v1';
 const ROUTE_NO_SPORT = '\u0000none';
 
 let hiddenSports = new Set(); // activities switched off
@@ -2684,6 +2701,9 @@ function loadRouteView() {
   } catch {
     /* defaults are fine */
   }
+  // Straight in, with no repaint: nothing has been drawn yet. setClock() checks
+  // the value itself and falls back to following the device.
+  setClock(localStorage.getItem(CLOCK_KEY));
 }
 
 const routeViewJson = () => ({ hidden: [...hiddenSports], colors: Object.fromEntries(sportColors) });
@@ -2771,6 +2791,15 @@ function redrawClocks() {
   statsUi?.redraw();
 }
 
+// The host saying what a clock reads on this device — a fact the page cannot
+// work out for itself, pushed the way the safe-area insets are (`pushClock()` in
+// HexPlore-IOS/HexPlore/WebPanel.swift). It arrives before any of this runs on
+// the first load and again once the page has finished, which is the one that
+// needs catching. Nothing fires it in a browser.
+window.addEventListener('hexplore:clock', () => {
+  if (refreshClock()) redrawClocks();
+});
+
 /** Note a local change: stamp it, mirror it locally, and schedule the push. */
 function touchPrefs() {
   prefsStamp = Date.now();
@@ -2779,6 +2808,7 @@ function touchPrefs() {
     localStorage.setItem(PREFS_STAMP_KEY, String(prefsStamp));
     localStorage.setItem(ROUTE_VIEW_KEY, JSON.stringify(routeViewJson()));
     localStorage.setItem(HIDDEN_TRIPS_KEY, JSON.stringify([...hiddenTripIds]));
+    localStorage.setItem(CLOCK_KEY, clockMode());
   } catch {
     /* private mode, quota — the server copy is still attempted */
   }
@@ -2871,6 +2901,7 @@ function adoptPrefs(prefs) {
   try {
     localStorage.setItem(ROUTE_VIEW_KEY, JSON.stringify(routeViewJson()));
     localStorage.setItem(HIDDEN_TRIPS_KEY, JSON.stringify([...hiddenTripIds]));
+    localStorage.setItem(CLOCK_KEY, clockMode());
   } catch {
     /* fine */
   }
@@ -2916,6 +2947,11 @@ async function syncPrefs() {
     prefsDirty = true;
     pushPrefs();
   }
+  // Here rather than on the map's own load, because this is the first moment
+  // anything knows whether a home has been set — and the answer is read off the
+  // account's copy rather than off `homePlace`, which the 'push' branch above
+  // never filled in.
+  askHomeOnce(remote);
 }
 
 const sportKey = (route) => route.sport || ROUTE_NO_SPORT;
@@ -3296,11 +3332,18 @@ function clearTripHighlight() {
 // should be. Choosing borrows the marker, so the pin you are about to confirm
 // looks exactly like the thing it is about to become.
 
-/** Draw the home marker, or don't. Lives beside the home row that sets it. */
+/**
+ * Draw the home marker, or don't. Lives beside the home row that sets it.
+ *
+ * Writing the answer down is what takes this browser out of the "never asked"
+ * state for good — including when the switch is set to what it was already
+ * showing, which is a person agreeing with the default and is not the same thing
+ * as never having looked.
+ */
 function setHomeShown(on) {
-  homeShown = !!on;
+  homeShownChoice = on ? 'on' : 'off';
   try {
-    localStorage.setItem(HOME_SHOWN_KEY, homeShown ? 'on' : 'off');
+    localStorage.setItem(HOME_SHOWN_KEY, homeShownChoice);
   } catch {
     /* fine */
   }
@@ -3321,7 +3364,7 @@ function syncHomeMarker() {
   // on one map is a question, not an answer. Until one is placed the current
   // home stays put if it was showing, which is the useful thing to see while
   // deciding whether to move it.
-  const at = homePick.at ?? (homeShown ? homePoint() : null);
+  const at = homePick.at ?? (homeShown() ? homePoint() : null);
   src.setData(at
     ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [at.lng, at.lat] } }] }
     : EMPTY);
@@ -3329,6 +3372,55 @@ function syncHomeMarker() {
   // without an anchor would otherwise land over it, and this is the one layer
   // whose whole job is to be the thing you can see.
   if (at && map.getLayer('home-icon')) map.moveLayer('home-icon');
+}
+
+// --- Asking where you live, once -----------------------------------------------
+//
+// Everything in the Trips tab is measured from home — what counts as away, how
+// far a trip went, whether a run of days is a trip at all — and until somebody
+// says otherwise that is a guess off the cells visited most. The guess is right
+// often enough to be the default and wrong in a way nobody could debug from the
+// outside, so it is worth offering to correct, and the offer has to be made
+// where it can be seen rather than four taps into a settings panel.
+//
+// **Once, ever, and remembered here rather than in the account.** Being asked
+// again on the laptop about a question answered on the phone is the same nag
+// twice; but so is being asked again on the *same* browser, and a flag in the
+// preferences would be a fifth thing for the reconcile to lose. What is being
+// remembered is "this browser has already made the offer", which is a fact about
+// the browser. Saying no is a whole answer: nothing asks a second time, and
+// Settings ▸ Home is where it lives from then on.
+const HOME_ASKED_KEY = 'visited-map:home-asked:v1';
+
+function closeHomeBar() {
+  const bar = document.getElementById('home-bar');
+  if (bar) bar.hidden = true;
+}
+
+/**
+ * Offer to set a home, if there is any point in offering.
+ *
+ * @param {object|null} prefs the account's own copy — not `homePlace`, which a
+ *   browser whose local preferences won the reconcile never had filled in, and
+ *   which would then read as "no home" on an account that has one.
+ */
+function askHomeOnce(prefs) {
+  const bar = document.getElementById('home-bar');
+  if (!bar || localStorage.getItem(HOME_ASKED_KEY)) return;
+  const set = prefs?.home;
+  if (set && Number.isFinite(+set.lng) && Number.isFinite(+set.lat)) return;
+  // Nothing to measure from and nothing to measure: an account with no history
+  // yet has no trips for a home to be the origin of, and the first thing it
+  // should be asked is not this.
+  if (!visited.size) return;
+  // Spent on being shown, not on being answered. A banner that reappears until
+  // it gets the answer it wants is the thing this is written to avoid.
+  try {
+    localStorage.setItem(HOME_ASKED_KEY, '1');
+  } catch {
+    /* private mode: it may be offered again there, which is the lesser fault */
+  }
+  bar.hidden = false;
 }
 
 // Picking a home by pointing at it. "The middle of the map" was a guess about a
@@ -3472,8 +3564,9 @@ const EYE_OFF_SVG =
 
 // A touch device is where the menu is a full-width sheet on top of the map.
 const coarsePointer = window.matchMedia('(pointer: coarse)');
-// Set when a tap's only job was to dismiss the menu; cleared by the map's click
-// handler on the very next event.
+// Set when a tap's only job was to dismiss the menu, so the map can let the same
+// tap go by. Decided on `pointerdown` and re-decided on every one after it —
+// see wireLayersControl for why it cannot be decided when the click resolves.
 let dismissedMenuOnTap = false;
 
 // --- The per-activity panel --------------------------------------------------
@@ -5691,17 +5784,27 @@ function wireLayersControl() {
     'pointerdown',
     (e) => {
       pressedInsideMenu = layersMenu.contains(e.target) || layersBtn.contains(e.target);
+      // And whether this press is spent closing the menu, which has to be
+      // settled here for a second and less obvious reason: **MapLibre's click
+      // fires first.** It listens on the canvas container, which is a
+      // descendant of the document, so the map had already marked a cell by the
+      // time the handler below could raise the flag — and the flag then ate the
+      // *next* tap instead. One tap did the wrong thing and the one after it did
+      // nothing, which is what "sometimes you can still select a cell" is.
+      //
+      // Assigned rather than only set, so a press that never resolves into a
+      // click — a pan, a pinch, a tap on the sheet itself — cannot leave it
+      // standing for whatever comes later.
+      dismissedMenuOnTap = !layersMenu.hidden
+        && !pressedInsideMenu
+        && coarsePointer.matches
+        && map.getCanvasContainer().contains(e.target);
     },
     true,
   );
   document.addEventListener('click', (e) => {
     if (layersMenu.hidden || pressedInsideMenu) return;
     if (layersMenu.contains(e.target) || layersBtn.contains(e.target)) return;
-    // Remember that this tap was spent closing the menu, so the map's own click
-    // handler can let it go by. Only where the menu covers the map.
-    if (coarsePointer.matches && map.getCanvasContainer().contains(e.target)) {
-      dismissedMenuOnTap = true;
-    }
     setMenuOpen(false);
   });
   for (const btn of layersMenu.querySelectorAll('[data-style]')) {
@@ -5740,6 +5843,15 @@ function wireLayersControl() {
     railTroubleDismissed = true;
     showRailTrouble(null);
   });
+  // Both close it, because it has already been spent — see askHomeOnce. The
+  // offer opens the same dialog Settings does rather than a shortened version
+  // of it: there are three ways to name a place and a banner should not be
+  // deciding which of them you get.
+  document.getElementById('home-bar-set').addEventListener('click', () => {
+    closeHomeBar();
+    homeUi?.open(homePlace);
+  });
+  document.getElementById('home-bar-dismiss').addEventListener('click', closeHomeBar);
   document.getElementById('edit-toggle').addEventListener('change', (e) => setEditUi(e.target.checked));
 
   // The menu used to carry an "i" beside almost every row, each opening a
@@ -6325,6 +6437,9 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // the click-away handler; this only makes sure the map ignores the same tap.
     // Desktop is left alone: there the menu sits beside the map, so a click on
     // the map really is a click on the map.
+    //
+    // This runs *before* the click-away handler, which is why the flag is raised
+    // on pointerdown rather than there — see wireLayersControl.
     if (dismissedMenuOnTap) {
       dismissedMenuOnTap = false;
       return;
@@ -6659,7 +6774,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onClose: () => settings?.open(),
     home: () => homePlace,
     onSetHome: () => homeUi.open(homePlace),
-    homeShown: () => homeShown,
+    homeShown,
     onShowHome: (on) => setHomeShown(on),
     clock: () => clockMode(),
     onClock: (mode) => {
@@ -6770,10 +6885,13 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
 
   // Setting home re-derives every trip, so the panel is reopened on the tab it
   // came from rather than left to go stale behind the dialog.
-  const homeUi = mountHome({
+  homeUi = mountHome({
     onPick: beginHomePick,
     onSet: async (home) => {
       homePlace = home;
+      // However it was reached: the question has been answered, and a banner
+      // still asking it behind the dialog is the app not listening.
+      closeHomeBar();
       syncHomeMarker();
       touchPrefs();
       await pushPrefs();
@@ -7008,6 +7126,8 @@ const authState = mountAuth({
     sportColors = new Map();
     renderedSports = '';
     homePlace = null;
+    // Back to following the device, since whose clock this was has left.
+    if (setClock('auto')) redrawClocks();
     // Preferences belong to the account too, so the next person to sign in on
     // this browser gets their own colours rather than inheriting these — and
     // the stamp has to go with them, or their (older) copy would look stale and
@@ -7023,6 +7143,7 @@ const authState = mountAuth({
     try {
       localStorage.removeItem(ROUTE_VIEW_KEY);
       localStorage.removeItem(PREFS_STAMP_KEY);
+      localStorage.removeItem(CLOCK_KEY);
       localStorage.removeItem(COLOR_KEY);
       localStorage.removeItem(COLORS_KEY);
     } catch {
@@ -7045,6 +7166,10 @@ const authState = mountAuth({
     refoldRoutes();
     routeGeom = false;
     syncRoutes();
+    // Their house, off a map that is no longer theirs — and the marker's own
+    // default reads `homePlace`, which has just gone.
+    syncHomeMarker();
+    closeHomeBar();
     recomputeLit();
     updateGrid(true);
     updateTiles();

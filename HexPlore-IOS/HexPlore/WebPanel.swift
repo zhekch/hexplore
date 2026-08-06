@@ -83,6 +83,14 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         // `webView.configuration` afterwards writes to a copy nobody reads,
         // which is exactly how the first attempt failed silently.
         configuration.applicationNameForUserAgent = Self.userAgentTag
+        // Before the page's first line runs, because `src/clock.js` builds its
+        // formatters the moment it is imported and everything showing a time
+        // reads them. Injected as well as pushed in `didFinish` — that one is a
+        // fresh reading for a web view that reloads mid-session, this one is
+        // what makes the very first timestamp on screen right.
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: Self.clockScript, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        )
 
         webView = WKWebView(frame: view.bounds, configuration: configuration)
         webView.uiDelegate = self
@@ -163,10 +171,49 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         webView.evaluateJavaScript(script)
     }
 
+    // MARK: - Telling the page what a clock says here
+
+    /// Whether this device writes 13:05 or 1:05 PM, as an ECMA-402 hour cycle.
+    ///
+    /// **The page cannot work this out.** `Intl` knows the locale and nothing
+    /// else, and Settings ▸ General ▸ Date & Time ▸ 24-Hour Time is not the
+    /// locale — it is an override on top of it. Mobile Safari gets away with
+    /// ignoring that because WebKit folds the override into the locale it hands
+    /// the page; here the locale is the *app's*, which is English, so a phone
+    /// that has said 13:05 everywhere for years was told 01:05 PM by this one
+    /// screen. `src/clock.js` is the other half of this.
+    ///
+    /// The template trick rather than `Locale.hourCycle`: asking
+    /// `DateFormatter` for the pattern behind the "j" skeleton is what returns
+    /// the user's *preference* rather than the region's convention, and it has
+    /// answered that question correctly since long before this app's deployment
+    /// target. A pattern containing `a` has an AM/PM field; nothing else does.
+    private static var hourCycle: String {
+        let pattern = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? ""
+        return pattern.contains("a") ? "h12" : "h23"
+    }
+
+    /// The one line that says it, and the nudge for a page already running.
+    private static var clockScript: String {
+        """
+        document.documentElement.dataset.hourCycle = '\(hourCycle)';
+        window.dispatchEvent(new Event('hexplore:clock'));
+        """
+    }
+
+    /// Say it again, read again. The injected copy above is baked when this
+    /// controller is built, so a web view that reloads after the switch was
+    /// flipped would otherwise be repeating what was true at launch.
+    private func pushClock() {
+        guard isViewLoaded, let webView else { return }
+        webView.evaluateJavaScript(Self.clockScript)
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // Again on load, because a page that has just replaced itself has none
         // of the properties the last one was given.
         pushSafeArea()
+        pushClock()
 
         // The app's own uploader has no login of its own and should not: a
         // second session to keep in step with this one is the bug, not the

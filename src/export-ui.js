@@ -48,6 +48,15 @@ const DETAILS = [
   { key: 'continent', label: 'Continents' },
 ];
 
+// What "Borders inside" is drawing between, said in the note under it. Lower
+// case and plural rather than reusing the labels above: this reads as the end of
+// a sentence ("35% · between regions"), not as the name of a button.
+const DIVISION_NAMES = {
+  region: 'regions',
+  country: 'countries',
+  continent: 'continents',
+};
+
 const ALIGNS = [
   { key: 'left', label: 'Left' },
   { key: 'center', label: 'Center' },
@@ -149,6 +158,9 @@ function loadSpec() {
   // Before they were separate, the borders came along with the land at 85% of
   // it. A spec from that build keeps the picture it described.
   else if (spec.surroundings > 0) spec.borders = spec.surroundings * 0.85;
+  // No such migration for these: a spec written before they existed described a
+  // picture with no lines in it, and that is what the default draws.
+  if (Number.isFinite(raw.divisions)) spec.divisions = Math.min(1, Math.max(0, raw.divisions));
   if (raw.colors && typeof raw.colors === 'object') {
     for (const key of ['background', 'land', 'edge']) {
       if (typeof raw.colors[key] === 'string') spec.colors[key] = raw.colors[key];
@@ -568,6 +580,11 @@ export function mountExport({ onClose, data }) {
     spec.borders = Number(borders.value) / 100;
   });
 
+  const divisions = $('export-divisions');
+  bind(divisions, 'input', () => {
+    spec.divisions = Number(divisions.value) / 100;
+  });
+
   const captionOn = $('export-caption-on');
   bind(captionOn, 'change', () => {
     spec.caption.on = captionOn.checked;
@@ -753,6 +770,16 @@ export function mountExport({ onClose, data }) {
     borders.value = String(Math.round(spec.borders * 100));
     $('export-borders-note').textContent =
       spec.borders <= 0.001 ? 'Off' : `${Math.round(spec.borders * 100)}%`;
+    // Blobs have no seams to draw, so the row goes rather than sitting there
+    // doing nothing — the same call the Cell size row makes in the other
+    // direction. The note names the units, because "borders inside" is only
+    // half an answer when the control that decides *which* borders is three
+    // sections further up.
+    $('export-divisions-row').hidden = spec.detail === 'blob';
+    divisions.value = String(Math.round(spec.divisions * 100));
+    $('export-divisions-note').textContent = spec.divisions <= 0.001
+      ? 'Off'
+      : `${Math.round(spec.divisions * 100)}% · between ${DIVISION_NAMES[spec.detail] ?? 'areas'}`;
 
     captionOn.checked = spec.caption.on;
     $('export-caption-body').hidden = !spec.caption.on;
