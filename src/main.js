@@ -87,6 +87,12 @@ import { routesToFC, totalLength, formatDistance, canonicalSport, duplicateRoute
 import { reconcilePrefs } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
+import { installScrollChain } from './scroll-chain.js';
+
+// Every panel in the app is a scrolling column with scrolling lists inside it,
+// and on a phone the inner list is a dead end unless the hand-off is written by
+// hand. Installed once, for the whole document.
+installScrollChain();
 
 // Past the finest hex levels (0..MAX_LEVEL), one more zoom-out step swaps the
 // hex regions for whole-country fills — and one more after that dissolves those

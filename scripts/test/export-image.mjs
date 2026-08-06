@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import {
   CAPTION_FIELDS, CELL_SIZES, MAX_PIXELS, SCALES, SHAPES,
   blobLevelFor, cameraFor, captionLines, circularSpan, coverageOf, exportFilename, fitCamera,
-  frameFor, lngLatAt, paletteOf, pickAt, presetOf, scopeAreaKm2, scopeGeometry, scopeName, sizeOf,
+  fitBox, frameFor, lngLatAt, paletteOf, pickAt, presetOf, scopeAreaKm2, scopeGeometry, scopeName, sizeOf,
   unwrapRing, visitedAreas,
 } from '../../src/export-image.js';
 import { loadCountries, countryAreaKm2 } from '../../src/countries.js';
@@ -383,6 +383,38 @@ console.log('\nThe spec resolves to a picture');
   check(scopeName('region', 'Switzerland/Bern') === 'Bern', 'and a region by its own, not by its id');
   check(scopeAreaKm2('country', 'Switzerland') > 39_000, 'a country knows how big it is');
   check(CAPTION_FIELDS.every((f) => f.key && f.label), 'every caption field has something to call itself');
+}
+
+// --- The box the preview is shown in -------------------------------------------
+// The dialog does this itself because CSS gets it wrong (see fitBox). It is also
+// where the phone layout's dead space came from: the picture was fitted into a
+// slab of fixed height, so every shape but one sat in the middle of a hole.
+
+console.log('\nThe preview is fitted to its shape, not to a slab');
+{
+  // Wide inside a tall box: the width binds and the height is whatever is left,
+  // which is the case CSS could not express.
+  const wide = fitBox(16 / 9, 320, 400);
+  check(wide.w === 320 && near(wide.h, 180, 0.01), 'a wide picture takes the width and only the height it needs',
+    `${wide.w}×${wide.h.toFixed(1)}`);
+  check(wide.h < 400, 'leaving the rest of the box to whatever is underneath it');
+
+  // Tall inside the same box: now the height binds instead.
+  const tall = fitBox(9 / 16, 320, 400);
+  check(near(tall.h, 400, 0.01) && near(tall.w, 225, 0.01), 'a tall one is capped by the height and narrows to suit',
+    `${tall.w.toFixed(1)}×${tall.h}`);
+
+  const square = fitBox(1, 320, 400);
+  check(square.w === 320 && square.h === 320, 'a square takes the smaller side');
+
+  // Whatever binds, the shape is never changed — a squashed preview is a lie
+  // about the file it is previewing.
+  for (const [w, h] of [[21, 9], [4, 5], [1, 1], [9, 16], [3, 2]]) {
+    const box = fitBox(w / h, 320, 400);
+    check(near(box.w / box.h, w / h, 1e-9), `${w}:${h} previews at ${w}:${h}`,
+      (box.w / box.h).toFixed(4));
+    check(box.w <= 320.001 && box.h <= 400.001, `and ${w}:${h} stays inside the box it was given`);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

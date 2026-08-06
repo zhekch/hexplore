@@ -649,6 +649,22 @@ export function fitCamera(bb, size, inset = INSET) {
 }
 
 /**
+ * The largest box of a given aspect ratio that fits inside `availW`×`availH`.
+ *
+ * Two lines, and here rather than in CSS because `aspect-ratio` will not do it:
+ * with a definite height and `max-width: 100%` a ratio wider than its container
+ * has its width clamped and its height left alone, which is how a 21:9 export
+ * came out squashed into the height of a 4:5 one. Shared by the dialog's two
+ * layouts — beside the controls both bounds are measurements, stacked above them
+ * the height is a cap (see fitFrame in src/export-ui.js).
+ */
+export function fitBox(ratio, availW, availH) {
+  const w = availW;
+  const h = w / ratio;
+  return h > availH ? { w: availH * ratio, h: availH } : { w, h };
+}
+
+/**
  * The camera the picture is actually drawn with: the fitted one, unless the
  * preview has been dragged or zoomed.
  *

@@ -861,10 +861,24 @@ handed over as an accessor) and lists what comes back, biggest first.
 Fitting the frame to the selection is the right answer often enough to be the
 default and never the right answer for a *composition*: half the reason to export
 a country is to put it off-centre with the caption in the space beside it. So the
-preview can be dragged and wheeled, and the framing is stored as a Mercator
-centre and a **multiple of the fitted scale** rather than an absolute one — which
-is what lets it survive switching from a 4:5 post to a 16:9 slide, and survive
-the preview being drawn at a third of the size of the file.
+preview can be dragged, wheeled and pinched, and the framing is stored as a
+Mercator centre and a **multiple of the fitted scale** rather than an absolute one
+— which is what lets it survive switching from a 4:5 post to a 16:9 slide, and
+survive the preview being drawn at a third of the size of the file.
+
+**Pinch is not an extra; it was the only way to zoom at all on a phone.** The
+picture understood a one-finger pan and a wheel, and a phone has no wheel, so the
+preview was the one map in the app that could not be zoomed on the device most
+likely to be looking at it. Two fingers now pan by their midpoint and zoom by
+their spread, in that order — a pinch that only scales feels pinned to the middle
+of the frame rather than to the fingers doing it — and both share `zoomAbout`
+with the wheel, so whatever is under the anchor stays under it either way.
+
+The second finger landing **drops the drag** rather than joining it, and lifting
+one finger ends the gesture rather than resuming a drag from the other. Both are
+the same bug avoided twice: carrying the gesture across a change in the number of
+fingers jumps the picture by half the span between them. It also means a
+two-finger tap cannot toggle a country, which a one-finger tap deliberately does.
 
 **And it can be clicked.** Pointing at Valais is a far better way of picking it
 than finding "Valais" in a list of twenty-six, and it is the reason this is the
@@ -880,10 +894,11 @@ Two rules that are not symmetrical, on purpose:
 - The picture's box is sized from JS rather than from `aspect-ratio`, because
   CSS will not do it: with a definite height and `max-width: 100%`, a ratio wider
   than its container has its *width* clamped and its height left alone, so a 21:9
-  export came out squashed into the height of a 4:5 one. Two lines of arithmetic
-  are exact for every ratio and leave the line underneath its own room. A
-  `ResizeObserver` on the column re-fits it, so nothing that changes the space —
-  the window, the card, a section folding open — has to remember to.
+  export came out squashed into the height of a 4:5 one. `fitBox` is the two
+  lines of arithmetic that are exact for every ratio; `fitFrame` is the part that
+  knows what space there is to give it. A `ResizeObserver` on the column re-fits
+  it, so nothing that changes the space — the window, the card, a section folding
+  open — has to remember to.
 
 **On a phone it takes the screen including the parts that are not rectangular.**
 The overlay's padding carries the `--safe-*` insets, so the title clears the
@@ -894,6 +909,23 @@ fixed-height card with nothing able to scroll to them, so the list simply ended
 halfway through the caption settings. And the margins shrink, because on a phone
 the margin *is* the map: 24px of overlay padding and 22px of card padding either
 side is a fifth of the screen spent on nothing.
+
+**Stacked, the picture's row is sized to the picture.** It was a flat `46vh`,
+which is the right row for exactly one shape — every other one sat in the middle
+of it. A 16:9 export was a third the height of its own hole, and the two empty
+bars above and below it pushed the controls off the bottom of the phone, so the
+dialog looked like four settings and a lot of nothing. Now `fitFrame` fits to the
+*width*, and tells the shell what height that came to; the row is `auto` and
+follows. An `auto` row on its own is not enough and was tried: the stage's content
+is a shell that says `flex: 1 1 auto; min-height: 0`, which is perfectly happy to
+be nothing, and the preview came out 70px tall. The height has to be stated.
+
+`STAGE_MAX_SHARE` is the other end of the same problem — left alone, a 9:16 poster
+takes the screen and leaves the controls a letterbox. It is a half, and the number
+matters: the `46vh` row it replaced was about 54% of the dialog's body, so
+anything above that would have made the *tall* shapes bigger and the controls
+smaller, which is the opposite of the complaint. At a half, every shape has at
+least as much room to scroll in as it had, and 16:9 has 140px more.
 
 **The dialog takes the screen.** It was 940px wide, which is the right size for a
 form and the wrong one for something you *look* at: the picture came out a
@@ -3124,6 +3156,45 @@ The fold applies to the drawing as well as the list, or the second line would
 still be on the map with nothing admitting to it — and the Routes tab says how
 many are folded and offers them back, because silently dropping a route someone
 remembers importing is the failure this dialog exists to avoid.
+
+## A finger on a panel
+
+Two things a phone does to a panel that a desktop does not, both fixed centrally
+rather than per-dialog.
+
+**A touch scroll belongs to the scroller it started in, for the whole gesture.**
+That is iOS, and it has no `overscroll-behavior` to turn it off — reach the end of
+an inner list and the finger simply stops working, because the panel behind it
+does not take over the way a wheel does on a desktop or the way Android's
+chaining does. Every settings panel here is a scrolling column with scrolling
+lists inside it, so a list of two hundred countries was a wall: you could not get
+past it without lifting your finger and finding one of the few pixels that were
+not the list.
+
+`src/scroll-chain.js` does the hand-off by hand. The inner scroller is left alone
+for as long as it can still move — that is the browser's own gesture and it does
+it better — and the moment it runs out, the same finger travel is applied to the
+first ancestor that *can* move. The decision (`canScroll`, `pickHandoff`) is kept
+out of the DOM so it can be tested without a phone; only the walk up the tree
+needs a real element.
+
+It arms **per gesture**, on `touchstart`, and only when the touch started inside a
+scroller that has another scroller above it. A permanent non-passive `touchmove`
+on the document would opt the whole page out of the browser's fast-path
+scrolling — a real cost on every scroll, paid to fix the few that start inside a
+list. The map is untouched by construction: its canvas has no scrollable
+ancestors, so the chain is empty and nothing arms.
+
+**A `<select>` is not a text field.** iOS zooms the page in when you focus a
+control whose text is smaller than 16px and leaves you there, which is what made
+the login field lurch as you typed; the usual answer, `maximum-scale=1`, kills
+pinch-zoom permanently and on a map that is a much worse trade. So the controls
+are sized at 16px on touch devices instead — but that list had `select` in it,
+and a select opens the system's own picker rather than a keyboard and a caret, so
+it never triggers the zoom in the first place. All it did was set every picker a
+size larger than the label it answers to, which is what made them shout over the
+rest of the panel. They are sized to their label now; the weight is what makes
+them read as the answer rather than the question.
 
 ## Chrome over a photograph
 

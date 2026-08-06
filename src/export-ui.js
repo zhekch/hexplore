@@ -20,7 +20,7 @@
 
 import {
   CAPTION_ANCHORS, CAPTION_FIELDS, CAPTION_FONTS, DEFAULT_SPEC, MAX_SIDE_PX, PALETTES, SCALES,
-  CELL_SIZES, SHAPES, SWATCH_PRESETS, cameraFor, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitCamera,
+  CELL_SIZES, SHAPES, SWATCH_PRESETS, cameraFor, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitBox, fitCamera,
   frameOf, isLightColor, lngLatAt, paletteOf, pickAt, presetOf, renderExport, scopeCountryOf,
   scopeName, sizeOf, visitedAreas,
 } from './export-image.js';
@@ -65,6 +65,23 @@ const REDRAW_MS = 90;
 // of a phone screen.
 const FRAME_MARGIN_MAX = 16;
 const frameMargin = (box) => Math.min(FRAME_MARGIN_MAX, Math.round(box.width * 0.025));
+
+// Below this the dialog stacks the picture above the controls instead of beside
+// them. Kept in step with the media query in src/style.css by hand — there is no
+// way to ask CSS what it decided.
+const STACKED_MAX_PX = 980;
+// Stacked, the picture's row is sized to the picture (see fitFrame) rather than
+// given a fixed share of the screen, so a wide shape does not sit in the middle
+// of a tall hole. This is the most of the dialog's body a *tall* shape may take
+// before it is capped instead — the rest belongs to the controls.
+//
+// Half, and the number matters. The fixed row this replaced was 46vh, about 54%
+// of the body once the line under the picture is counted, and a tall shape was
+// already filling it — there is no dead space to reclaim there. So anything above
+// 54% would have made those pictures *bigger* and their controls smaller, which
+// is the opposite of what was asked for. At a half every shape has at least as
+// much room to scroll in as it had, and 16:9 has 140px more.
+const STAGE_MAX_SHARE = 0.5;
 
 // A pointer that moved less than this between down and up was a click, not a
 // drag. Generous enough to survive the hand-wobble of a real tap on a phone.
@@ -827,31 +844,41 @@ export function mountExport({ onClose, data }) {
   /**
    * Fit the picture's box inside the space the stage has left it.
    *
-   * In JS rather than in CSS because `aspect-ratio` will not do it: with a
-   * definite height and `max-width: 100%`, a ratio wider than its container has
-   * its width clamped and its height left alone, so a 21:9 export came out
-   * squashed into the height of a 4:5 one. Two lines of arithmetic are exact for
-   * every ratio and leave the line underneath its own room.
+   * In JS rather than in CSS — see `fitBox`, which is the arithmetic; this is
+   * the part that knows what space there is to give it.
+   *
+   * Stacked, it also decides how tall the picture's row is. Beside the controls
+   * the row is a column of the card and the height is a measurement; stacked, a
+   * fixed share of the screen is a slab that only one shape fits — a 16:9
+   * picture in a 46vh row was a third the height of its own hole, with the empty
+   * bars above and below it pushing the controls off the bottom of the phone.
+   * So the width decides the height and the shell is told what it came to. The
+   * cap is the other end of the same problem: left alone, 9:16 would take the
+   * screen and leave the controls a letterbox.
    */
   function fitFrame() {
     const full = sizeOf(spec);
     const box = shell.getBoundingClientRect();
-    if (!box.width || !box.height) return;
+    if (!box.width) return;
     // Inset by the room the picture's own drop shadow needs. Without it the
     // shadow is cropped flat against the edge of the box, which reads as the
     // picture being cut off rather than as a shadow running out.
     const m = frameMargin(box);
-    const availW = Math.max(80, box.width - m * 2);
-    const availH = Math.max(80, box.height - m * 2);
-    const ratio = full.w / full.h;
-    let w = availW;
-    let h = w / ratio;
-    if (h > availH) {
-      h = availH;
-      w = h * ratio;
-    }
+    const stacked = window.matchMedia(`(max-width: ${STACKED_MAX_PX}px)`).matches;
+    const room = stacked
+      ? (shell.closest('.export-body')?.clientHeight || box.height) * STAGE_MAX_SHARE
+      : box.height;
+    if (!room) return;
+    const { w, h } = fitBox(
+      full.w / full.h,
+      Math.max(80, box.width - m * 2),
+      Math.max(80, room - m * 2),
+    );
     frame.style.width = `${Math.floor(w)}px`;
     frame.style.height = `${Math.floor(h)}px`;
+    // Only ever grows or shrinks to what was just measured off the width, so the
+    // ResizeObserver below settles after one extra pass rather than oscillating.
+    shell.style.height = stacked ? `${Math.ceil(h + m * 2)}px` : '';
   }
 
   // Whatever changes the space the picture has — the window, the card, a
@@ -938,6 +965,11 @@ export function mountExport({ onClose, data }) {
 
   let drag = null;
   let painting = 0;
+  // Every finger currently on the picture. A phone has no wheel, so without this
+  // there was no way at all to zoom the preview on one — the only gesture the
+  // picture understood was a one-finger pan.
+  const touches = new Map();
+  let pinch = null;
 
   /** Redraw on the next frame rather than on every pointer event. */
   function paintSoon() {
@@ -948,33 +980,116 @@ export function mountExport({ onClose, data }) {
     });
   }
 
+  /** Move the camera by a screen-pixel delta. */
+  function panBy(dxPx, dyPx) {
+    const box = frame.getBoundingClientRect();
+    const view = previewCamera();
+    if (!view || !box.width || !spec.view) return;
+    // Screen pixels → canvas pixels → Mercator metres. Dragging right moves the
+    // world right, so the camera centre moves left.
+    const toCanvas = view.size.w / box.width;
+    spec.view.cx -= (dxPx * toCanvas) / view.cam.k;
+    spec.view.cy += (dyPx * toCanvas) / view.cam.k;
+  }
+
+  /**
+   * Multiply the zoom, keeping whatever is at (px, py) in canvas pixels exactly
+   * where it is. That anchoring is the whole difference between a magnifier and
+   * a slider, and it is what both the wheel and a pinch want.
+   */
+  function zoomAbout(px, py, factor) {
+    const view = previewCamera();
+    if (!view || !spec.view) return;
+    const before = lngLatAt(view.cam, px, py);
+    spec.view.zoom = Math.min(ZOOM_RANGE[1], Math.max(ZOOM_RANGE[0], spec.view.zoom * factor));
+    const after = previewCamera();
+    if (!after) return;
+    const [lng2, lat2] = lngLatAt(after.cam, px, py);
+    spec.view.cx += mercX(before[0]) - mercX(lng2);
+    spec.view.cy += mercY(before[1]) - mercY(lat2);
+  }
+
+  /** Where two fingers are, as one span and one midpoint. */
+  function pinchState() {
+    const [a, b] = [...touches.values()];
+    return {
+      dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+      mx: (a.x + b.x) / 2,
+      my: (a.y + b.y) / 2,
+    };
+  }
+
   canvas.addEventListener('pointerdown', (e) => {
     const view = atPointer(e);
     if (!view) return;
     canvas.setPointerCapture(e.pointerId);
-    drag = { id: e.pointerId, px: e.clientX, py: e.clientY, moved: 0, k: view.cam.k };
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     holdView(view);
+    if (touches.size >= 2) {
+      // Two fingers is a pinch, and dropping the drag here is what stops the
+      // second finger landing and yanking the picture halfway across the frame.
+      drag = null;
+      frame.classList.remove('dragging');
+      pinch = pinchState();
+    } else {
+      drag = { id: e.pointerId, px: e.clientX, py: e.clientY, moved: 0 };
+    }
   });
 
   canvas.addEventListener('pointermove', (e) => {
-    if (!drag || e.pointerId !== drag.id || !spec.view) return;
-    const box = frame.getBoundingClientRect();
-    if (!box.width) return;
-    // Screen pixels → canvas pixels → Mercator metres. Dragging right moves the
-    // world right, so the camera centre moves left.
-    const toCanvas = previewSize().w / box.width;
-    const dx = ((e.clientX - drag.px) * toCanvas) / drag.k;
-    const dy = ((e.clientY - drag.py) * toCanvas) / drag.k;
+    if (!touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!spec.view) return;
+
+    if (pinch && touches.size >= 2) {
+      const now = pinchState();
+      // The midpoint drags the picture exactly as a single finger would, and the
+      // spread zooms about wherever the midpoint has got to. Both, in that
+      // order: a pinch that only scales feels pinned to the middle of the frame
+      // rather than to the two fingers doing it.
+      panBy(now.mx - pinch.mx, now.my - pinch.my);
+      const box = frame.getBoundingClientRect();
+      const size = previewSize();
+      if (box.width && box.height) {
+        zoomAbout(
+          ((now.mx - box.left) / box.width) * size.w,
+          ((now.my - box.top) / box.height) * size.h,
+          now.dist / pinch.dist,
+        );
+      }
+      pinch = now;
+      sync();
+      paintSoon();
+      return;
+    }
+
+    if (!drag || e.pointerId !== drag.id) return;
+    panBy(e.clientX - drag.px, e.clientY - drag.py);
     drag.moved += Math.abs(e.clientX - drag.px) + Math.abs(e.clientY - drag.py);
     drag.px = e.clientX;
     drag.py = e.clientY;
-    spec.view.cx -= dx;
-    spec.view.cy += dy;
     frame.classList.add('dragging');
     paintSoon();
   });
 
   function endDrag(e) {
+    if (!touches.delete(e.pointerId)) return;
+    if (pinch) {
+      if (touches.size >= 2) {
+        pinch = pinchState();
+        return;
+      }
+      // One finger of a pinch lifted. The other is still down, but carrying on
+      // as a drag from it would jump the picture by half the span between them,
+      // and a pinch that ends on a tap must not toggle a country either. So the
+      // gesture is over, and the finger left behind does nothing until it lifts.
+      pinch = null;
+      drag = null;
+      frame.classList.remove('dragging');
+      sync();
+      schedule();
+      return;
+    }
     if (!drag || e.pointerId !== drag.id) return;
     const wasClick = drag.moved <= CLICK_SLOP_PX;
     drag = null;
@@ -1022,17 +1137,8 @@ export function mountExport({ onClose, data }) {
       if (!view) return;
       e.preventDefault();
       holdView(view);
-      const before = lngLatAt(view.cam, view.px, view.py);
-      const factor = Math.exp(-e.deltaY * ZOOM_STEP);
-      spec.view.zoom = Math.min(ZOOM_RANGE[1], Math.max(ZOOM_RANGE[0], spec.view.zoom * factor));
-      // Zoom about the pointer: whatever was under it stays under it, which is
-      // what makes a wheel feel like a magnifier rather than a slider.
-      const after = previewCamera();
-      if (after) {
-        const [lng2, lat2] = lngLatAt(after.cam, view.px, view.py);
-        spec.view.cx += mercX(before[0]) - mercX(lng2);
-        spec.view.cy += mercY(before[1]) - mercY(lat2);
-      }
+      // About the pointer, so whatever was under it stays under it.
+      zoomAbout(view.px, view.py, Math.exp(-e.deltaY * ZOOM_STEP));
       sync();
       paintSoon();
     },

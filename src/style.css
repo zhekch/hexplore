@@ -3145,16 +3145,27 @@ body {
   .auth-input,
   .ha-scroll .auth-input,
   .cp-hex,
-  .import-row select,
   input[type='text'],
   input[type='password'],
   input[type='url'],
   input[type='email'],
   input[type='number'],
   input[type='search'],
-  select,
   textarea {
     font-size: 16px;
+  }
+
+  /* A select is not a text field. Tapping one opens the system's own picker
+     rather than a keyboard and a caret, so it never triggers the zoom the rule
+     above is dodging — and 16px inside a 13px row costs the proportions for
+     nothing. A value set a size larger than the label it answers to is what made
+     every picker in the export dialog shout over the rest of the panel.
+
+     Sized to its label instead. It still reads as the answer rather than the
+     question, because it is the one in bold. */
+  .import-row select,
+  select {
+    font-size: 13px;
   }
 }
 
@@ -6269,23 +6280,34 @@ html[data-client='ios'] .hud {
     margin-top: 12px;
   }
 
-  /* Stacked, and the picture gets a definite share rather than an `auto` row.
-     An auto row is content-sized, and the stage's content is a shell that says
-     `flex: 1 1 auto; min-height: 0` — so it collapsed to nothing and the preview
-     came out 70px tall. */
+  /* Stacked, the picture's row is content-sized and fitFrame() gives the shell
+     inside it a definite height — see the note there. It used to be a flat 46vh,
+     which is the right row for exactly one shape: every other one sat in the
+     middle of it with dead space above and below, worst on the wide shapes,
+     where two thirds of the row was empty and the controls started below the
+     fold because of it.
+
+     An `auto` row on its own is not enough, and was tried: the stage's content
+     is a shell that says `flex: 1 1 auto; min-height: 0`, which is happy to be
+     nothing, and the preview came out 70px tall. The height has to be stated. */
   .export-body {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 46vh) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
     margin-top: 12px;
   }
 
   .export-stage {
-    height: 100%;
+    height: auto;
   }
 
   .export-shell {
+    /* Sized from JS, so it must neither stretch nor be squeezed by the flex
+       column it is in. The floor is only for the frame or two before the first
+       fit lands. */
+    flex: none;
     max-height: none;
+    min-height: 90px;
   }
 
   /* Scrolls inside its own row, exactly as it does on a desktop. Letting it
