@@ -363,11 +363,19 @@ export const railGroups = () => STYLE?.groups ?? [];
 export async function railDetail() {
   try {
     const res = await fetch('/api/rail/detail', { credentials: 'same-origin' });
-    if (!res.ok) return { detail: {}, degraded: null };
+    if (!res.ok) return { detail: {}, degraded: null, lang: null };
     const body = await res.json();
-    return { detail: body.detail ?? {}, degraded: body.degraded ?? null };
+    return {
+      detail: body.detail ?? {},
+      degraded: body.degraded ?? null,
+      // Not a setting of ours — the server's own answer, handed back so it can
+      // go in the tile URL. See the note in installRail.
+      lang: typeof body.lang === 'string' && /^[a-z]{2}(-[A-Za-z]{2,4})?$/.test(body.lang)
+        ? body.lang
+        : null,
+    };
   } catch {
-    return { detail: {}, degraded: null };
+    return { detail: {}, degraded: null, lang: null };
   }
 }
 
@@ -449,8 +457,11 @@ function withFont(layer, font) {
  *   the junction-and-site "stations" are drawn
  * @param {Record<string, number>} [opts.detail] the deepest zoom worth asking
  *   each Martin source list for, from `/api/rail/detail`
+ * @param {string|null} [opts.lang] the language the proxy is asking their tiles
+ *   for, from the same call — put in the tile URL so the browser's own cache is
+ *   keyed on it. See the note where the sources are added.
  */
-export function installRail(map, { font, theme, before, groups, technical = false, detail = {} }) {
+export function installRail(map, { font, theme, before, groups, technical = false, detail = {}, lang = null }) {
   if (!STYLE || map.getLayer(STYLE.layers[0].id)) return;
 
   // Their sprites, under our namespace. Images resolve as `spriteId:name`
@@ -484,11 +495,26 @@ export function installRail(map, { font, theme, before, groups, technical = fals
   // line per tile, off the main thread. The main thread meanwhile reports the
   // source as loaded and `transformRequest` still fires, so every signal short
   // of the console says the overlay is working while not one tile is fetched.
+  // **The language belongs in the URL, and it is not there for the server.**
+  // The proxy already decides the language and keys its own cache on it (see
+  // TILE_LANG in server/rail-tiles.js), and it ignores this parameter — it is
+  // the value the server itself published, handed straight back.
+  //
+  // It is here for the *browser's* HTTP cache, which is keyed on the URL and is
+  // the one cache nothing on this side can reach. A rail tile is served
+  // `max-age` of about a day, the service worker deliberately passes
+  // `/api/rail/` through to the network, and "Reload cached data" can only empty
+  // the Cache Storage API. So when the language changed, every tile anyone had
+  // already looked at went on being drawn in the old one for a day, on every
+  // device, with no way to hurry it: a hard reload does not cover the tiles
+  // MapLibre's worker fetches on the next pan. Changing the URL retires those
+  // entries instead of waiting for them.
+  const langQuery = lang ? `?lang=${encodeURIComponent(lang)}` : '';
   for (const [id, source] of Object.entries(STYLE.sources)) {
     if (map.getSource(id)) continue;
     map.addSource(id, {
       ...source,
-      tiles: source.tiles.map((t) => railUrl(t)),
+      tiles: source.tiles.map((t) => railUrl(t) + langQuery),
       // Capped to what the server says is currently answerable. MapLibre then
       // asks for the parent tile and overzooms it — coarser, but railways on
       // screen rather than a blank where their CDN has no cached copy. It does

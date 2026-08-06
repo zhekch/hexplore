@@ -4909,9 +4909,10 @@ function syncRailLayer() {
   // so on a reload during an outage it already knows which zooms are answerable
   // — installing uncapped first would spend a round of requests on tiles known
   // to fail and show nothing until the rebuild caught up.
-  Promise.all([loadRailStyle(), railDetail()]).then(([, { detail, degraded }]) => {
+  Promise.all([loadRailStyle(), railDetail()]).then(([, { detail, degraded, lang }]) => {
     if (!styleReady || !railOn) return;
     railDetailCeilings = detail;
+    railTileLang = lang;
     addRailLayer();
     updateLayersUi();
     showRailTrouble(degraded);
@@ -5541,6 +5542,10 @@ let firstInstall = true;
 // asked for. Empty means "whatever the style says", which is the answer
 // whenever they are healthy.
 let railDetailCeilings = {};
+// The language the proxy is asking OpenRailwayMap for, as the proxy reports it.
+// Held only to be put back in the tile URL — see the note in installRail: it is
+// the browser's HTTP cache this is for, not the server's.
+let railTileLang = null;
 // While the overlay is on, ask again on this cadence: a ceiling that dropped
 // during an outage has to be able to climb back on its own, and the only way to
 // notice is to look. Slow enough to be free, quick enough that the detail
@@ -5598,6 +5603,7 @@ function addRailLayer() {
     groups: railGroupsOn,
     technical: railTechnicalOn,
     detail: railDetailCeilings,
+    lang: railTileLang,
   });
 }
 
@@ -5612,11 +5618,16 @@ function addRailLayer() {
  */
 async function syncRailDetail() {
   if (!railOn) return;
-  const { detail, degraded } = await railDetail();
+  const { detail, degraded, lang } = await railDetail();
   if (!railOn) return;
   showRailTrouble(degraded);
-  if (!railDetailChanged(railDetailCeilings, detail)) return;
+  // The language is in the tile URL, so a server that has changed it needs the
+  // sources rebuilt exactly as a moved ceiling does — a live source's tile
+  // template is no more settable than its `maxzoom`.
+  const langMoved = lang !== railTileLang;
+  if (!langMoved && !railDetailChanged(railDetailCeilings, detail)) return;
   railDetailCeilings = detail;
+  railTileLang = lang;
   if (!styleReady) return;
   // Rebuilt rather than adjusted: `maxzoom` is not settable on a live source.
   // The sprites stay — see removeRail for why taking them out here blanks the

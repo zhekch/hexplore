@@ -527,6 +527,13 @@ export function createRailTiles({ dir, sources, featureViews = new Set(), origin
   }
 
   return {
+    /**
+     * What language the labels are being asked for, so the client can put it in
+     * the URL it asks *us* for. See TILE_LANG — the point is that the browser's
+     * own HTTP cache is keyed on that URL and nothing in the app can reach past
+     * it, so the value has to be visible from outside.
+     */
+    lang,
     dir,
 
     /**

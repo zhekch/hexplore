@@ -3129,7 +3129,11 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
         return send(
           res,
           200,
-          { detail: railTiles.detail(), degraded: railTiles.degraded() },
+          // `lang` rides along because the client has to stamp it onto the tile
+          // URLs it asks for — not for us to read back, but so that the
+          // *browser's* cache is keyed on it. See TILE_LANG in
+          // server/rail-tiles.js.
+          { detail: railTiles.detail(), degraded: railTiles.degraded(), lang: railTiles.lang },
           { 'Cache-Control': 'no-store' },
         );
       }

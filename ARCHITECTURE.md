@@ -2472,16 +2472,28 @@ serving what was fetched under the old one until the last of it aged out. It is
 one value for the whole map rather than something read off the browser, because
 a cache multiplied by however many languages happened to visit is not a cache.
 
-The URL the *browser* asks for is unchanged by any of this, which is the one
-rough edge: a tile already in a browser's HTTP cache keeps the labels it was
-fetched with until its `max-age` runs out. That is **a day** — upstream sends
+**The language is also in the URL the browser asks for, and that is not
+redundant.** The proxy decides the language, keys its own cache on it and
+ignores the parameter completely — `/api/rail/detail` reports the value and
+`installRail` stamps it straight back onto the tile templates. It is there for
+the *browser's* HTTP cache, which is keyed on the URL and is the one cache
+nothing here can reach: the service worker deliberately passes `/api/rail/`
+through to the network, `clearOfflineCaches` can only empty the Cache Storage
+API, and a hard reload does not cover the tiles MapLibre's worker fetches on the
+next pan. A rail tile is served a `max-age` of about a day — upstream sends
 `max-age=86400` and `ttlFrom` honours it, so the seven-day `TILE_TTL_MS` is only
-the fallback for an answer carrying no `Cache-Control` at all. Ground nobody has
-looked at yet arrives in the new language immediately, and a hard reload settles
-the rest. Putting the language in that URL as well was considered and dropped —
-the client would then hold a second copy of the value whose only job is to
-invalidate a cache, and a copy that had drifted would fail silently at exactly
-that job.
+the fallback for an answer carrying no `Cache-Control` at all — and for that day
+every tile anyone had already looked at went on being drawn in the old language,
+on every device, with nothing in the app able to hurry it. Changing the URL
+retires those entries instead of waiting them out.
+
+This was left out at first, on the reasoning that the client would then hold a
+second copy of a value whose only job is to invalidate a cache, and that a copy
+which had drifted would fail silently at exactly that job. The reasoning was
+sound and the conclusion was wrong: there is no second copy, because the value
+travels with the detail ceiling from the server that owns it, and the thing
+being avoided — a stale cache nobody can clear — turned out to be the failure
+that actually happened.
 
 **This change is server-side only, so the API process has to be restarted for it
 to take effect at all** — a front end reloaded against an API still running the

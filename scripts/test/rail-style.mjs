@@ -16,8 +16,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  describeRailFeature, loadRailStyle, mergeRouteDirections, railGroupOn, railGroups, railLayerIds,
-  railUrl, splitRouteLabel, technicalFilter, RAIL_GROUP_DEFAULTS,
+  describeRailFeature, installRail, loadRailStyle, mergeRouteDirections, railGroupOn, railGroups,
+  railLayerIds, railUrl, splitRouteLabel, technicalFilter, RAIL_GROUP_DEFAULTS,
 } from '../../src/rail.js';
 
 let pass = 0;
@@ -583,6 +583,57 @@ console.log('\nAnd it is put through MapLibre\'s own parser, not eyeballed');
     }
     check(!broken.length, 'and every layer it lands on still compiles', broken.slice(0, 2).join(' | '));
   }
+}
+
+console.log('\nThe language is in the tile URL, because the browser caches by URL');
+{
+  // The proxy decides the language and keys its own cache on it, and ignores
+  // this parameter entirely. It is here for the *browser's* HTTP cache, which
+  // is keyed on the URL and is the one cache the app cannot reach: no service
+  // worker (rail is deliberately passed through), no caches.delete(), and a
+  // hard reload does not cover what MapLibre's worker fetches on the next pan.
+  // Without this a language change went on drawing the old one for a day.
+  // installRail reaches `location.origin` through railUrl's default, which the
+  // browser always has and Node does not. The other tests here call railUrl with
+  // an explicit origin, so this is the only place that needs it.
+  globalThis.location ??= { origin: 'https://maps.example' };
+  const install = (opts) => {
+    const sources = {};
+    const stub = {
+      getSprite: () => [],
+      addSprite: () => {},
+      getSource: () => null,
+      addSource: (id, s) => { sources[id] = s; },
+      getLayer: () => null,
+      addLayer: () => {},
+      setGlobalStateProperty: () => {},
+      style: null,
+      _update: undefined,
+    };
+    installRail(stub, { font: ['x'], theme: 'dark', before: undefined, groups: {}, ...opts });
+    return Object.values(sources).flatMap((s) => s.tiles);
+  };
+
+  const withLang = install({ lang: 'en' });
+  check(withLang.length > 0, 'the sources are installed', `${withLang.length} templates`);
+  check(withLang.every((t) => t.endsWith('?lang=en')), 'every tile template carries the language', withLang[0]);
+  // The placeholders have to survive it, or every tile 404s and the overlay is
+  // silently empty — the same failure railUrl's note is about.
+  check(
+    withLang.every((t) => t.includes('/{z}/{x}/{y}.pbf?')),
+    'and the z/x/y placeholders are still placeholders',
+    withLang[0],
+  );
+
+  // A server that reports no language leaves the URL exactly as it was, so this
+  // cannot be what breaks the overlay if `/api/rail/detail` is unreachable.
+  const without = install({ lang: null });
+  check(without.every((t) => !t.includes('lang=')), 'and no language means no parameter', without[0]);
+  check(
+    without.every((t) => t.endsWith('.pbf')),
+    'leaving the URL as it was before any of this',
+    without[0],
+  );
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
