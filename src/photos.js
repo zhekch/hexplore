@@ -142,6 +142,17 @@ export const photoImage = (i, px) => ask({ ask: 'photo', scan, i, px: Math.round
  */
 export const playVideo = (i) => ask({ ask: 'play', scan, i });
 
+/**
+ * Show a photograph full screen, at its own size, in the app's own viewer.
+ *
+ * The same bargain as the video above and for a smaller version of the same
+ * reason: the card already holds a copy scaled to the card, and the only thing
+ * full screen is worth doing for is the original — which is several megabytes it
+ * would then be holding twice. So the app puts a zoomable viewer over the page
+ * and the page gets a yes.
+ */
+export const viewPhoto = (i) => ask({ ask: 'view', scan, i });
+
 // --- The layer -------------------------------------------------------------------
 
 /**

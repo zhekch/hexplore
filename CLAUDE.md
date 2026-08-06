@@ -52,7 +52,8 @@ sessions sharing the worktree would tread on each other.
   - `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
     `HexPlore-IOS/HexPlore.xcodeproj/project.pbxproj` — whenever anything under
     `HexPlore-IOS/` changes. The build number goes up every time; the marketing
-    version follows the same patch/minor rule.
+    version follows the same patch/minor rule and **stays below 1.0**, which is
+    the honest description of where this is.
 
     Both configurations, Debug and Release, carry each setting: change one and
     the app reports a different version depending on how it was built.

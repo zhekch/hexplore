@@ -126,6 +126,7 @@ HexPlore/
     PhotoLibrary.swift      reading the photo library — the only file that does
     PhotoSync.swift         sending where the photographs were taken
     PhotoBridge.swift       answering the map when it asks for the photographs
+    PhotoViewer.swift       one photograph, full screen, zoomable
     FixQueue.swift          what has been recorded but not yet accepted
     SyncClient.swift        the uploads, and the session they borrow
   HexploreCore/             a local Swift package: the maths, with tests
@@ -570,6 +571,12 @@ gathered into a counted group where they pile up, and the picture itself when yo
 tap it. A tap on a group opens the group — all of it, however big — rather than
 zooming in: photographs re-cluster as fast as you can separate them, and zooming
 is what the map's own gestures are for.
+
+**Tapping the picture opens it full screen**, at the original's own size, in
+`PhotoViewerController` — a scroll view around an image view, which is pinch,
+double-tap and drag for nothing. Same bargain as the video below: the page
+already holds a copy scaled to the card, and the original is megabytes it would
+otherwise hold twice.
 
 **Videos are points too, and they play.** Not by being handed to the page — a
 minute of 4K is 350 MB, base64 makes it 470 MB of string, a `WKURLSchemeHandler`

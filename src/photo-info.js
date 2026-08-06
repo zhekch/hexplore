@@ -29,7 +29,7 @@
 // queued simply never happens.
 
 import { formatTime } from './clock.js';
-import { STRIP_CHUNK, photoImage, playVideo } from './photos.js';
+import { STRIP_CHUNK, photoImage, playVideo, viewPhoto } from './photos.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
@@ -136,6 +136,9 @@ export function mountPhotoInfo({ onClose } = {}) {
   // showing, and without this the slower of the two wins whichever it was.
   let picking = 0;
   let watcher = null;
+  // A hand-off to the app is in flight. One at a time, or a second tap while an
+  // iCloud original is still downloading opens a second viewer over the first.
+  let busy = false;
   // The button currently outlined, held rather than searched for: a group can
   // have thousands and only one of them changes.
   let chosenBtn = null;
@@ -313,11 +316,43 @@ export function mountPhotoInfo({ onClose } = {}) {
   // Handing over to the app. The card stays exactly as it is behind the player,
   // because dismissing the player should put you back where you were rather than
   // somewhere you have to find again.
+  //
+  // `busy` does two jobs and both were learned the hard way. A video that has
+  // been offloaded to iCloud takes as long as its download takes, and until it
+  // arrives the button looked like it had ignored the tap — so it spins. And a
+  // second tap while the first is still fetching presented a *second* player on
+  // top of the first, which then had to be dismissed twice.
   playBtn.addEventListener('click', async () => {
     const item = items[chosen];
-    if (!item) return;
-    const reply = await playVideo(item.i);
-    if (!reply.ok) noteEl.textContent = trouble(reply.error);
+    if (!item || busy) return;
+    busy = true;
+    playBtn.classList.add('busy');
+    try {
+      const reply = await playVideo(item.i);
+      if (!reply.ok) noteEl.textContent = trouble(reply.error);
+    } finally {
+      busy = false;
+      playBtn.classList.remove('busy');
+    }
+  });
+
+  // The picture itself, full size, in the app's own viewer — the same bargain as
+  // the video: shown natively rather than sent, so what you get is the original
+  // rather than the card-sized copy the card is already showing you.
+  figure.addEventListener('click', async (e) => {
+    // The play button is inside the figure and has its own job.
+    if (e.target.closest('.photo-play')) return;
+    const item = items[chosen];
+    if (!item || item.v || busy || !imgEl.src) return;
+    busy = true;
+    figure.classList.add('busy');
+    try {
+      const reply = await viewPhoto(item.i);
+      if (!reply.ok) noteEl.textContent = trouble(reply.error);
+    } finally {
+      busy = false;
+      figure.classList.remove('busy');
+    }
   });
 
   return { show, hide, visible: () => !card.hidden };

@@ -205,6 +205,47 @@ nonisolated enum PhotoLibrary {
         return (data, cg?.width ?? Int(image.size.width), cg?.height ?? Int(image.size.height))
     }
 
+    // MARK: - Showing one full screen
+
+    /// Put a photograph on the whole screen, at its own size.
+    ///
+    /// `PHImageManagerMaximumSize` with `.highQualityFormat` is the original —
+    /// fetched from iCloud if that is where it lives, which is why this can take
+    /// a moment and why the card spins while it does.
+    ///
+    /// It is shown here rather than sent for the same reason a video is: the
+    /// page already holds a copy scaled to the card, and the only thing full
+    /// screen is worth doing for is the full-resolution one, which is several
+    /// megabytes it would then be holding twice — once as bytes and once as
+    /// base64. See ``PhotoViewerController``.
+    @MainActor
+    static func view(id: String) async -> Bool {
+        if alreadyShowing { return true }
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
+              let top = topViewController
+        else { return false }
+
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.resizeMode = .none
+        options.isNetworkAccessAllowed = true
+        options.isSynchronous = false
+
+        let once = Latch()
+        let image: UIImage? = await withCheckedContinuation { continuation in
+            PHImageManager.default().requestImage(
+                for: asset, targetSize: PHImageManagerMaximumSize,
+                contentMode: .aspectFit, options: options
+            ) { image, _ in
+                if once.close() { continuation.resume(returning: image) }
+            }
+        }
+        guard let image else { return false }
+
+        top.present(PhotoViewerController(image: image), animated: true)
+        return true
+    }
+
     // MARK: - Playing a video
 
     /// Play one, over the web view.
@@ -236,6 +277,7 @@ nonisolated enum PhotoLibrary {
     /// this bridge strikes.
     @MainActor
     static func play(id: String) async -> Bool {
+        if alreadyShowing { return true }
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               asset.mediaType == .video,
               let top = topViewController
@@ -264,6 +306,22 @@ nonisolated enum PhotoLibrary {
             controller.player?.play()
         }
         return true
+    }
+
+    /// Whether one of our own full-screen presentations is already up.
+    ///
+    /// The card refuses a second tap while the first is in flight, and this is
+    /// the same guard on the other side of the bridge — because the failure it
+    /// prevents is a bad one and the check is one line. `topViewController`
+    /// walks to whatever is frontmost, so without it a second `play` presents a
+    /// second player *on top of the first*, and both have to be dismissed.
+    ///
+    /// Answering "yes, that is done" rather than failing: what was asked for is
+    /// on screen, which is what the tap wanted.
+    @MainActor
+    private static var alreadyShowing: Bool {
+        let top = topViewController
+        return top is AVPlayerViewController || top is PhotoViewerController
     }
 
     /// Whatever is frontmost, which is what a modal has to be presented from.

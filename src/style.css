@@ -234,6 +234,65 @@ body {
   filter: invert(1) hue-rotate(180deg);
 }
 
+/* --- The locate button ---------------------------------------------------------
+   MapLibre's own icon is a crosshair-and-dot, which is a *target* — the symbol
+   for "aim at something". Every phone map draws this as an arrow instead,
+   because the question is "where am I facing", and the arrow is the shape people
+   already read without being taught.
+
+   Drawn as a mask rather than a background image so one shape can be filled or
+   outlined by the same rule that colours everything else here, and so it follows
+   `currentColor` instead of needing the `invert()` above. The default icon is
+   replaced outright: `background-image: none` on the element that carries it.
+
+   **Hollow when the map is not following you, solid when it is** — which is the
+   one thing the button has to say. The classes are MapLibre's: `-active` while
+   the camera is locked to your position, `-background` once it has let the
+   camera go but is still watching (hollow again, because it is no longer
+   following), and `-waiting` while it is asking. */
+.maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
+  background-image: none !important;
+  background-color: currentColor;
+  /* The hollow arrow: an outlined paper plane, which is what "not following"
+     looks like everywhere else. */
+  --locate-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linejoin='round'%3E%3Cpath d='M21 3 3 10.5l7.5 3 3 7.5L21 3Z'/%3E%3C/svg%3E");
+  -webkit-mask-image: var(--locate-mask);
+  mask-image: var(--locate-mask);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: 21px 21px;
+  mask-size: 21px 21px;
+  /* The mask is the shape; the colour comes from the button, so the inversion
+     that exists for MapLibre's raster icons must not also apply here. */
+  filter: none !important;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* Following. The same plane, filled.
+
+   Fill against outline is the whole of the signal, and it is deliberately the
+   *only* signal: the colour stays the ink of the map underneath — white on the
+   dark basemaps, black on the light one — because this button says where the
+   camera is pointing, not what colour your visited ground is. MapLibre's own
+   answer here is to turn it blue, which on four basemaps is four different
+   amounts of legible. */
+.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active .maplibregl-ctrl-icon,
+.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active-error .maplibregl-ctrl-icon {
+  --locate-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M21 3 3 10.5l7.5 3 3 7.5L21 3Z'/%3E%3C/svg%3E");
+}
+
+/* Asking. Dimmed rather than spun: MapLibre animates this class itself, and two
+   things moving is one too many. */
+.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-waiting .maplibregl-ctrl-icon {
+  opacity: 0.55;
+}
+
+[data-theme='light'] .maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
+  color: rgba(15, 23, 42, 0.9);
+}
+
 /* Small screens: tighter margins, panel fits the viewport */
 @media (max-width: 480px) {
   .hud {
@@ -249,10 +308,18 @@ body {
 }
 
 /* Layers control (bottom-left glass button + pop-up menu) */
+/* `--lift` is how far the button cluster steps up to clear an open info card,
+   and it is a variable rather than a rule of its own for a reason worth stating:
+   three different rules set this `bottom` — here, in the phone media query, and
+   in the iOS block at the end of the file — and the last of those has the same
+   specificity as any `body.card-open .layers` selector, so it silently won and
+   the buttons never moved inside the app. A custom property inherits, so every
+   one of them picks it up wherever it is declared and in whatever order. See
+   src/card-lift.js, which measures the card. */
 .layers {
   position: fixed;
   left: calc(20px + var(--safe-l));
-  bottom: calc(20px + var(--safe-b));
+  bottom: calc(20px + var(--safe-b) + var(--lift, 0px));
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -326,7 +393,10 @@ body {
 
   .hud {
     top: auto;
-    bottom: 20px;
+    /* Bottom-left, which an open card covers as thoroughly as it covers the
+       cluster on the right — so it takes the same lift. */
+    bottom: calc(20px + var(--lift, 0px));
+    transition: bottom 0.18s ease;
   }
 
   /* The edit panel grows from the button, and the button is now at the bottom
@@ -1073,6 +1143,16 @@ body {
   background-color: rgba(255, 255, 255, 0.06);
 }
 
+/* A loaded photograph can be tapped for the original, full screen, in the app's
+   own viewer — so it says so, on a device that has a pointer to say it to. */
+.photo-figure.loaded {
+  cursor: zoom-in;
+}
+
+.photo-figure.busy {
+  cursor: progress;
+}
+
 /* Once the photograph is there, the panel behind it goes.
 
    It used to stay, and a portrait picture on a card as wide as the screen left a
@@ -1097,6 +1177,8 @@ body {
 .photo-play {
   place-self: center;
   display: grid;
+  /* One cell: the triangle and the spinner occupy the same middle, so swapping
+     one for the other cannot move the button or shift what is under it. */
   place-items: center;
   width: 58px;
   height: 58px;
@@ -1108,10 +1190,13 @@ body {
   backdrop-filter: blur(8px);
   color: #fff;
   cursor: pointer;
-  /* The triangle is optically left-heavy; nudge it back to the middle. */
-  padding-left: 4px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.photo-play-icon,
+.photo-play-spinner {
+  grid-area: 1 / 1;
 }
 
 .photo-play:hover {
@@ -1121,6 +1206,46 @@ body {
 
 .photo-play[hidden] {
   display: none;
+}
+
+/* Fetching it. An original that has been offloaded to iCloud takes as long as it
+   takes, and without this the button looked like it had swallowed the tap —
+   which is exactly what it looks like when it has. */
+.photo-play-spinner {
+  display: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  animation: photo-spin 0.8s linear infinite;
+}
+
+.photo-play.busy {
+  /* Not `disabled`: a disabled button drops its hover and press styling and, on
+     iOS, stops reporting taps at all — and the point here is that a second tap
+     is *received* and ignored rather than queued into a second player. */
+  cursor: progress;
+}
+
+.photo-play.busy .photo-play-icon {
+  display: none;
+}
+
+.photo-play.busy .photo-play-spinner {
+  display: block;
+}
+
+@keyframes photo-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photo-play-spinner {
+    animation-duration: 2.4s;
+  }
 }
 
 .photo-figure img {
@@ -2645,28 +2770,32 @@ body {
   .layers {
     left: auto;
     right: calc(12px + var(--safe-r));
-    bottom: calc(12px + var(--safe-b));
+    bottom: calc(12px + var(--safe-b) + var(--lift, 0px));
     align-items: flex-end;
     transition: bottom 0.18s ease;
   }
 
-  /* An open card is a sheet across the bottom of the screen and these three
-     buttons are in the corner beneath it, which on a phone means gone. So they
-     step over it — by the card's real height, because the three cards are
-     different sizes and the photo card changes size as its picture arrives.
-     `--card-h` is measured and published by src/card-lift.js.
+  /* An open card is a sheet across the bottom of the screen and the buttons are
+     in the corner beneath it, which on a phone means gone. So they step over it,
+     by the card's real height — the cards are different sizes and the photo card
+     changes size as its picture arrives. `--card-h` is measured and published by
+     src/card-lift.js.
 
-     The card sits at `20px + safe-b`, so clearing it is that plus its height
-     plus a gap. The `min()` is a floor for the tallest possible card: whatever
-     is open, the cluster stays on screen rather than being pushed off the top,
-     because a control that has left the building is not an improvement on one
-     that is behind a card. */
-  body.card-open .layers {
-    bottom: min(
-      calc(30px + var(--safe-b) + var(--card-h, 0px)),
-      calc(100dvh - var(--safe-t) - 124px)
+     Declared on the body rather than on the cluster, so it reaches every rule
+     that positions the cluster instead of racing them. Narrow screens only:
+     this is where the card is full width and the two collide.
+
+     The `min()` is a ceiling for the tallest possible card. Whatever is open,
+     the cluster stays on screen rather than being pushed off the top, because a
+     control that has left the building is not an improvement on one that is
+     behind a card. */
+  body.card-open {
+    --lift: min(
+      calc(var(--card-h, 0px) + 14px),
+      calc(100dvh - var(--safe-t) - var(--safe-b) - 210px)
     );
   }
+
 
   .maplibregl-ctrl-top-right .maplibregl-ctrl-attrib {
     margin: 12px 12px 0 0;
@@ -2721,12 +2850,15 @@ body {
     height: 46px;
   }
 
-  /* The pencil sits above the cluster (two 46px buttons and the hairline). */
+  /* The pencil sits above the cluster (two 46px buttons and the hairline), so it
+     takes the same lift over an open card — otherwise the cluster steps up into
+     it. */
   .hud {
     top: auto;
     left: auto;
     right: calc(12px + var(--safe-r));
-    bottom: calc(117px + var(--safe-b));
+    bottom: calc(117px + var(--safe-b) + var(--lift, 0px));
+    transition: bottom 0.18s ease;
   }
 
   /* Editing: the panel takes over as a bottom sheet. */
@@ -3818,6 +3950,14 @@ body {
 
 .routes-options[hidden] {
   display: none;
+}
+
+/* Photographs are a different subject from the routes above them, and the
+   expander that ends the routes block sat flush against this row — close enough
+   that the two read as one control with a caption under it. The gap is the whole
+   of what says otherwise. */
+#photos-row {
+  margin-top: 12px;
 }
 
 /* Set apart from the group list above it, because it is a different kind of
@@ -6086,12 +6226,13 @@ html[data-client='ios'] .maplibregl-ctrl-top-right .maplibregl-ctrl-attrib {
    button you miss — you press the tab bar instead. Ten more pixels is the
    difference between "next to" and "on top of". */
 html[data-client='ios'] .layers {
-  bottom: calc(22px + var(--safe-b));
+  bottom: calc(22px + var(--safe-b) + var(--lift, 0px));
 }
 
-/* The pencil rides above the cluster, so it moves with it. */
+/* The pencil rides above the cluster, so it moves with it — including when the
+   cluster steps up over an open card. */
 html[data-client='ios'] .hud {
-  bottom: calc(127px + var(--safe-b));
+  bottom: calc(127px + var(--safe-b) + var(--lift, 0px));
 }
 
 /* --- Export an image ---------------------------------------------------------

@@ -38,7 +38,9 @@ number of approaches that were tried and abandoned.
   single accent, or shade each cell by **visits**, by **first seen**, or by
   **type** (a colour per app the data came from).
 - **Ask any area what it knows.** Tap a blob for when you were there, how many
-  visits, and which app it came from.
+  visits, and which app it came from — or switch **Tap for details** off in the
+  layers menu when you would rather just look at the map. Routes, photos and the
+  reference overlays still answer; they are things you aimed at.
 - **Train tracks.** Every line, siding and yard OpenRailwayMap knows about, laid
   over the map in the basemap's own light or dark. Switch it on in the layers
   menu; choose what it draws in Settings → Train tracks — tracks, stations,
@@ -191,10 +193,13 @@ Nothing is uploaded and nothing is shared. The app reads the photographs off the
 phone it is running on, one at a time, only when you tap one, and only to show it
 to you — which is exactly why the switch is not there in a browser.
 
-**Videos are there too**, marked with a play button. Pressing it opens the
-phone's own player over the map — full quality, with scrubbing and AirPlay, and
-nothing copied or uploaded to make it happen. Closing the player puts you back on
-the map exactly where you were.
+**Tap the picture** and it opens full screen at its original size, where you can
+pinch and double-tap to zoom. **Videos are there too**, marked with a play
+button: pressing it opens the phone's own player over the map — full quality,
+with scrubbing and AirPlay, and nothing copied or uploaded to make it happen.
+Either way, closing it puts you back on the map exactly where you were, card and
+all. An original that lives in iCloud has to come down first, so the button
+spins while it does.
 
 One thing it does not do: there is **no "Open in Photos"**. iOS gives no app a
 way to open one particular photo, so such a button would open the Photos app at

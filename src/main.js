@@ -607,6 +607,20 @@ let airportsOn = localStorage.getItem(AIRPORTS_KEY) === 'on';
 // that would set it is not in the menu there.
 const PHOTOS_KEY = 'visited-map:photos:v1';
 let photosOn = localStorage.getItem(PHOTOS_KEY) === 'on';
+
+// Whether a tap on the ground opens a card about it.
+//
+// On unless it has been switched off, which is the opposite default from the
+// railway's equivalent and for the opposite reason: asking a cell what it knows
+// is what this map is *for*, where a railway is somebody else's reference data
+// laid over it. What it costs is that reading the map with a finger opens a card
+// every other tap, and this is the way to say "I am just looking".
+//
+// It governs the ground only — cells, regions, countries, continents. A route,
+// a photograph, an airport and a railway are all things you aimed at rather than
+// the ground you happened to touch, and they keep answering.
+const CELLS_TAP_KEY = 'visited-map:cells-tap:v1';
+let cellsInteractive = localStorage.getItem(CELLS_TAP_KEY) !== 'off';
 // Whether the home marker is drawn. A way of looking at the map rather than a
 // fact about it, so it lives beside `railOn` in localStorage and not in the
 // account preferences — where *home is* follows the account, whether you are
@@ -4812,6 +4826,7 @@ const railToggle = document.getElementById('rail-toggle');
 const airportsToggle = document.getElementById('airports-toggle');
 const photosRow = document.getElementById('photos-row');
 const photosToggle = document.getElementById('photos-toggle');
+const cellsTapToggle = document.getElementById('cells-interactive-toggle');
 // `setStyle()` rebuilds MapLibre's entire style asynchronously. Keep the
 // checkbox as the source of truth while that happens, then reconcile the
 // actual layer once our custom sources/layers are ready again.
@@ -5098,6 +5113,21 @@ function showAirportInfo(e) {
 // app hosting the page, because a photo library is on a phone. Outside the app
 // there is no channel, `photosAvailable()` is false, and the row is left out of
 // the menu — see the note at the top of src/photos.js.
+
+/** Whether a tap on the ground opens a card about it. */
+function setCellsInteractive(on) {
+  cellsInteractive = on;
+  try {
+    localStorage.setItem(CELLS_TAP_KEY, on ? 'on' : 'off');
+  } catch {
+    /* fine */
+  }
+  updateLayersUi();
+  // Whatever the ground has already put on screen goes with it, or switching
+  // this off leaves the last card it opened sitting there with no way to have
+  // opened it. The route and photo cards stay: those still answer.
+  if (!on) closeCellInfo();
+}
 
 function setPhotos(on) {
   photosOn = on;
@@ -5500,6 +5530,7 @@ function updateLayersUi() {
     photosToggle.checked = photosOn;
     document.getElementById('photos-note').textContent = photoNote();
   }
+  cellsTapToggle.checked = cellsInteractive;
 
   // The picker only means anything in single-color mode, and nothing at all
   // while the cells are hidden — the note takes that slot instead.
@@ -5692,6 +5723,7 @@ function wireLayersControl() {
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
   airportsToggle.addEventListener('change', () => setAirports(airportsToggle.checked));
   photosToggle.addEventListener('change', () => setPhotos(photosToggle.checked));
+  cellsTapToggle.addEventListener('change', () => setCellsInteractive(cellsTapToggle.checked));
   document.getElementById('home-pick-cancel').addEventListener('click', () => endHomePick(false));
   document.getElementById('home-pick-ok').addEventListener('click', () => endHomePick(true));
   document.getElementById('route-solo-clear').addEventListener('click', () => {
@@ -6339,7 +6371,12 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // At the three vector levels there are no hexes on screen, so a tap is
       // about the shape it landed on — whether or not you have been to it — and
       // where there is no shape, about nothing. See showInfoAt.
-      else showInfoAt(e.lngLat);
+      //
+      // Unless the ground has been told not to answer, in which case the tap is
+      // spent closing whatever is open — which is still the useful half of it,
+      // and better than a tap that does nothing at all.
+      else if (cellsInteractive) showInfoAt(e.lngLat);
+      else { closeCellInfo(); closeRouteInfo(); closePhotoInfo(); }
       return;
     }
     if (isCtrl(e.originalEvent)) return; // Ctrl gesture is handled as painting

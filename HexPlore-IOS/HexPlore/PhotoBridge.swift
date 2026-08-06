@@ -75,6 +75,8 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
             Task { replyHandler(await photo(body), nil) }
         case "play":
             Task { replyHandler(await play(body), nil) }
+        case "view":
+            Task { replyHandler(await view(body), nil) }
         default:
             // A reply rather than an error: the page asking something this build
             // has never heard of is an old app and a new site, which is a
@@ -141,6 +143,18 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
             "w": picture.width,
             "h": picture.height,
         ]
+    }
+
+    /// Show one full screen, natively, in front of the page.
+    private func view(_ body: [String: Any]) async -> [String: Any] {
+        guard (body["scan"] as? Int) == scan else { return ["ok": false, "error": "stale"] }
+        guard let i = body["i"] as? Int, snapshot.indices.contains(i) else {
+            return ["ok": false, "error": "missing"]
+        }
+        guard await PhotoLibrary.view(id: snapshot[i].id) else {
+            return ["ok": false, "error": "unavailable"]
+        }
+        return ["ok": true]
     }
 
     /// Play one, natively, in front of the page.

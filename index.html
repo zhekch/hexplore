@@ -143,6 +143,16 @@
               <span>Photos<small id="photos-note">Where your pictures were taken</small></span>
               <input type="checkbox" id="photos-toggle" />
             </label>
+            <!-- Whether the ground answers a tap at all. On by default, because
+                 a map you can ask about is the point of this one — but reading
+                 it with a finger means opening a card on every second tap, and
+                 this is the way to just look at it. Routes, photographs and the
+                 reference overlays keep their own taps: those are things you
+                 aimed at, not the ground you happened to touch. -->
+            <label class="menu-row" id="cells-interactive-row">
+              <span>Tap for details<small>Cards about the areas you tap</small></span>
+              <input type="checkbox" id="cells-interactive-toggle" />
+            </label>
             <!-- Gap: above it is what's drawn on the map, below it the panels
                  that open over it. -->
             <button type="button" class="menu-action menu-gap" id="stats-open">
@@ -305,9 +315,14 @@
              something; pressing it hands over to the app, which puts a real
              player in front of the page — see PhotoLibrary.play. -->
         <button type="button" class="photo-play" id="photo-info-play" hidden aria-label="Play video">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
-            <path d="M8 5.2v13.6a.6.6 0 0 0 .92.5l10.7-6.8a.6.6 0 0 0 0-1l-10.7-6.8a.6.6 0 0 0-.92.5Z" />
+          <!-- Drawn around the middle of the box rather than nudged there with
+               padding: a triangle's centre of area is a third of the way along
+               it, so one drawn from edge to edge sits visibly right of centre
+               inside a circle. This one spans 6.5→18.5 with its mass at 12. -->
+          <svg class="photo-play-icon" viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+            <path d="M6.5 5.4v13.2a.6.6 0 0 0 .92.5l10.4-6.6a.6.6 0 0 0 0-1L7.42 4.9a.6.6 0 0 0-.92.5Z" />
           </svg>
+          <span class="photo-play-spinner" aria-hidden="true"></span>
         </button>
       </div>
       <div class="photo-note" id="photo-info-note"></div>

@@ -3255,6 +3255,23 @@ a play button, and the menu row counts photographs and videos separately: with
 both on the map, "12,481 photos" is a number that is not true of what you are
 looking at.
 
+**Tapping the picture does the same for a photograph**, and for a smaller version
+of the same reason. The card is already showing a copy scaled to the card; the
+only thing full screen is worth doing for is the original, which is several
+megabytes the page would then be holding twice — once as bytes and once as
+base64. So `PhotoViewerController` — a scroll view around an image view, which is
+pinch, double-tap and drag for nothing — is presented over the page with
+`PHImageManagerMaximumSize`. `QLPreviewController` would give the same for free
+and wants a file URL, which for a `PHAsset` means exporting a copy to disk first.
+
+**Both hand-offs are one at a time, and say so.** An original that has been
+offloaded to iCloud takes as long as its download takes, and until it arrives the
+button looked like it had swallowed the tap — so it spins. A second tap while the
+first is still fetching used to present a *second* player on top of the first,
+which then had to be dismissed twice. The card refuses the second tap, and the
+app refuses it again on its own side: `alreadyShowing` answers "yes, that is
+done" rather than presenting again, because what was asked for is on screen.
+
 ### Where it sits, and what it takes precedence over
 
 Above the saved routes — the only overlay that goes there. The rule that keeps
@@ -3297,10 +3314,22 @@ whatever shape the picture turns out to be. One hardcoded offset would be wrong
 for two of the three cards and wrong twice for the third.
 
 So the height is measured and published as `--card-h`, with `body.card-open`
-beside it, and the lifting itself is one rule in the phone media query. The rule
-carries a `min()`: whatever is open, the cluster stays on screen rather than
-being pushed off the top, because a control that has left the building is not an
-improvement on one that is behind a card.
+beside it, and the phone media query turns those into `--lift`. The lift carries
+a `min()`: whatever is open, the cluster stays on screen rather than being pushed
+off the top, because a control that has left the building is not an improvement
+on one that is behind a card.
+
+**Why a variable rather than a `body.card-open .layers` rule**, which is what
+this was first written as and which worked everywhere except the place it was
+written for. Three rules position the cluster — the base one, the phone media
+query, and the iOS block at the end of the stylesheet — and
+`html[data-client='ios'] .layers` has *exactly* the same specificity as
+`body.card-open .layers`. It is also later in the file, so it won, and inside the
+app the buttons never moved. Nothing said so: the class was applied, the height
+was published, and the CSS quietly disagreed. A custom property inherits, so it
+reaches all three wherever they are and in whatever order, and the pencil in the
+other corner takes the same lift for the same reason. `scripts/test/card-lift.mjs`
+now fails if any rule that positions either of them forgets it.
 
 **Nothing calls it per card.** A dozen places open or close one — `showCellInfoAt`,
 `closeRouteInfo`, the mode switch, signing out — and a notification hooked into
@@ -3311,6 +3340,42 @@ cards instead: a `ResizeObserver` for the height, a `MutationObserver` on
 reports a picture arriving only when the browser next runs its rendering steps,
 which in a tab that was not being painted left the published height 350 px stale;
 an image saying it has loaded is not subject to that.
+
+## The button that says where you are
+
+MapLibre draws its geolocate control as a crosshair and a dot — a *target*, the
+symbol for aiming at something. Every phone map draws an arrow instead, because
+the question is which way you are pointing, and an arrow is the shape people
+already read without being taught. So the icon is replaced: `background-image:
+none` on the element that carries it, and the arrow supplied as a **mask** so one
+shape can be filled or outlined and takes its colour from `currentColor` rather
+than from the `invert()` filter the raster icons need.
+
+**Hollow when the map is not following you, solid when it is.** That is the whole
+signal and deliberately the only one — the colour stays the ink of the map
+underneath, white on the dark basemaps and near-black on the light one. MapLibre's
+own answer is to turn the icon blue, which across four basemaps is four different
+amounts of legible, and which spends a colour on a control that is not about your
+data. The three states are its classes: `-active` while the camera is locked to
+your position, `-background` once it has let the camera go but is still watching
+(hollow again — it is no longer following), and `-waiting` while it is asking.
+
+## Asking the ground to be quiet
+
+**Tap for details**, under the layers menu's Photos row, and on by default.
+Tapping a cell or a region for what it knows is what this map is *for*, which is
+the opposite default from the railway's equivalent switch and for the opposite
+reason — the railway is somebody else's reference data laid over your map, and
+this is your map.
+
+What it costs is that reading the map with a finger opens a card every other tap,
+and there was no way to say "I am just looking". Switched off, the ground stops
+answering: no cell card, no region card. A tap there is spent closing whatever is
+open, which is the useful half of it and better than a tap that does nothing.
+
+It governs **the ground only**. A saved route, a photograph, an airport and a
+railway all keep answering, because each of those is something you aimed at
+rather than the ground you happened to touch.
 
 ## How sharp a region is
 
