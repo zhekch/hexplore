@@ -9,6 +9,26 @@ that are not visible from the code alone.
 [README.md](README.md) is written for people using the app, not working on it.
 Keep it that way: implementation detail belongs in ARCHITECTURE.md.
 
+## Where work happens
+
+Two checkouts, both long-lived, and no others:
+
+- **`main`**, at the repo root — the branch that ships. Nothing is developed here.
+- **`nightly`**, at `.claude/worktrees/nightly` — where every change is made.
+
+**Do not create a worktree per task.** Enter the existing one by path and commit
+there. A branch per change left eleven stale worktrees and 337MB of duplicated
+`node_modules` behind, for work that had been merged days earlier; the cleanup
+cost more than the isolation was worth.
+
+Landing `nightly` on `main` is the user's call, not yours — leave the merge to
+them. Afterwards `nightly` gets `git merge main` so the two never drift.
+
+Two things that worktree does differently: its `data.db` is a symlink to the
+real database at the repo root, so only one dev server may own it at a time;
+and because there is now a single place to work, parallel sessions will tread
+on each other. Run them one at a time, or branch off `nightly` deliberately.
+
 ## House rules
 
 - **Tuning constants live at the top of their module** (`src/main.js`,
