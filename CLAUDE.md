@@ -1,5 +1,12 @@
 # Notes for Claude
 
+**Work in the `nightly` worktree. Do not create a new one.**
+If you are not already inside `.claude/worktrees/nightly`, enter it —
+`EnterWorktree` takes an existing worktree by `path`, and that is the only
+worktree this project keeps. Never call it with a `name`; that makes the
+per-task worktrees this setup exists to avoid. See [Where work
+happens](#where-work-happens).
+
 **Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing anything non-trivial.**
 It is long, and it is the reason most of this code looks the way it does — the
 hex grid maths, the blob rendering pipeline, the level crossfades, the security
@@ -24,10 +31,9 @@ cost more than the isolation was worth.
 Landing `nightly` on `main` is the user's call, not yours — leave the merge to
 them. Afterwards `nightly` gets `git merge main` so the two never drift.
 
-Two things that worktree does differently: its `data.db` is a symlink to the
-real database at the repo root, so only one dev server may own it at a time;
-and because there is now a single place to work, parallel sessions will tread
-on each other. Run them one at a time, or branch off `nightly` deliberately.
+That worktree's `data.db` is a symlink to the real database at the repo root,
+so only one dev server may own it at a time. One job runs at a time here; two
+sessions sharing the worktree would tread on each other.
 
 ## House rules
 
