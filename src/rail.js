@@ -505,6 +505,21 @@ export function installRail(map, { font, theme, before, groups, technical = fals
     map.setGlobalStateProperty(key, value);
   }
   map.setGlobalStateProperty('theme', theme);
+  // Which of the two names a station is labelled with below z10, and the reason
+  // the far view stayed in the local script while everything closer in had
+  // already switched to English.
+  //
+  // Their style has *two* name properties and reads a different one either side
+  // of z10. `localized_name` is the one that answers the language the tiles were
+  // asked for (see TILE_LANG in server/rail-tiles.js) and is what every layer
+  // from z10 up reads. Below that, three layers read whichever this key names,
+  // and their default names `label` — which is the station's own name and is
+  // never translated, whatever is asked for. So the language landed on half the
+  // zoom range and the far view looked like the change had not been made.
+  //
+  // Safe because `localized_name` is never empty: with no `name:en` to offer it
+  // falls back to `name`, which is exactly what `label` would have been.
+  map.setGlobalStateProperty('stationLowZoomLabel', 'name');
   // After their defaults, not among them: four of the keys just set are the four
   // this owns, and their answer for a map of railways is not ours for an overlay.
   setRailTechnical(map, technical);

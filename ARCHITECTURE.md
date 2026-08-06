@@ -2488,6 +2488,19 @@ to take effect at all** — a front end reloaded against an API still running th
 old code shows every other change and none of this one, which is a confusing
 thing to debug from the map.
 
+**Asking is only half of it — the style has to be told to read the answer.**
+Their layers use two different name properties either side of z10:
+`localized_name` from z10 up, and below that whichever of `label` and
+`localized_name` the `stationLowZoomLabel` global-state key names. `label` is the
+station's own name and is never translated, and their default names it — so the
+language landed on the close view and the far view stayed in the local script,
+which looked exactly like a change that had not been deployed. `installRail`
+sets that key to `name`. Safe, because `localized_name` is never empty: with no
+`name:en` to offer it falls back to `name`, which is what `label` would have
+been. Visible over Poland, where the same far view now reads "Krakow Main
+Station" beside "Rzeszów Główny" — one has an English name in OSM and the other
+does not, and neither is missing.
+
 Nothing is lost by it. Their own style puts `name` on a second line wherever the
 two differ, so the sign at the station is still on the map; where a place has no
 name in the language asked for, `localized_name` is what `name` was and the
