@@ -2468,19 +2468,25 @@ top of a basemap that had already labelled both in English.
 The ask is `?lang=` on the tile, added upstream by the proxy (`TILE_LANG` in
 `server/rail-tiles.js`). Being a query parameter it is part of *what a cached
 entry is*, so it is in the cache key too: without that, changing it would go on
-serving what was fetched under the old one until the last of it aged out, which
-for a tile is a week. It is one value for the whole map rather than something
-read off the browser, because a cache multiplied by however many languages
-happened to visit is not a cache.
+serving what was fetched under the old one until the last of it aged out. It is
+one value for the whole map rather than something read off the browser, because
+a cache multiplied by however many languages happened to visit is not a cache.
 
 The URL the *browser* asks for is unchanged by any of this, which is the one
 rough edge: a tile already in a browser's HTTP cache keeps the labels it was
-fetched with until its `max-age` runs out, up to a week. Ground nobody has
+fetched with until its `max-age` runs out. That is **a day** — upstream sends
+`max-age=86400` and `ttlFrom` honours it, so the seven-day `TILE_TTL_MS` is only
+the fallback for an answer carrying no `Cache-Control` at all. Ground nobody has
 looked at yet arrives in the new language immediately, and a hard reload settles
 the rest. Putting the language in that URL as well was considered and dropped —
 the client would then hold a second copy of the value whose only job is to
 invalidate a cache, and a copy that had drifted would fail silently at exactly
 that job.
+
+**This change is server-side only, so the API process has to be restarted for it
+to take effect at all** — a front end reloaded against an API still running the
+old code shows every other change and none of this one, which is a confusing
+thing to debug from the map.
 
 Nothing is lost by it. Their own style puts `name` on a second line wherever the
 two differ, so the sign at the station is still on the map; where a place has no

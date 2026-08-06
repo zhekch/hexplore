@@ -82,7 +82,9 @@ const USER_AGENT = 'HexPlore/0.1 (+https://github.com/zhekch/hexplore; personal 
 // `?lang=` is the whole ask, and it is a **query parameter on the tile**, which
 // makes it part of what a cached entry *is*. It is in the key below for that
 // reason: without it, switching this would go on serving what was fetched under
-// the old one until the last of it aged out, which for a tile is a week.
+// the old one until the last of it aged out — a day, since that is the `max-age`
+// they send and `ttlFrom` honours it. TILE_TTL_MS below is only the fallback for
+// an answer that carries no `Cache-Control` at all.
 //
 // Not per-request and not read off the browser: this is one map with one set of
 // labels on it, and a per-language cache would multiply every tile by however
