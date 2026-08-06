@@ -776,18 +776,25 @@ function addGeometry(path, geometry, cam) {
     if ((x1 - x0) * cam.k < MIN_RING_PX && (y1 - y0) * cam.k < MIN_RING_PX) continue;
     if (y1 < view.yMin || y0 > view.yMax) continue;
 
-    const cMin = Math.ceil((view.xMin - x1) / WORLD);
-    const cMax = Math.floor((view.xMax - x0) / WORLD);
-    for (let c = cMin; c <= cMax; c++) {
-      const dx = c * WORLD;
-      for (const ring of rings) {
-        if (ring.length < 3) continue;
-        path.moveTo(px(mercX(ring[0][0]) + dx), py(toMercY(ring[0][1])));
-        for (let i = 1; i < ring.length; i++) {
-          path.lineTo(px(mercX(ring[i][0]) + dx), py(toMercY(ring[i][1])));
-        }
-        path.closePath();
+    // **One copy, and only one.** The world repeats every WORLD metres, and a
+    // map draws every repeat that reaches the screen — which is right for a map
+    // you pan, and wrong for a picture. Zoom out far enough to fit the globe
+    // vertically and a 16:9 frame is 1.8 worlds wide, so the Americas appeared
+    // twice with New Zealand tucked in beside Alaska. A picture of the Earth has
+    // one Earth in it; past that the frame is empty, which is the honest answer.
+    //
+    // Which copy: the one that lands nearest the middle of the view. For any
+    // frame narrower than the world this is the same copy the old loop found,
+    // seam-straddling frames included — there was only ever one candidate.
+    const dx = Math.round(((view.xMin + view.xMax) / 2 - (x0 + x1) / 2) / WORLD) * WORLD;
+    if (x1 + dx < view.xMin || x0 + dx > view.xMax) continue;
+    for (const ring of rings) {
+      if (ring.length < 3) continue;
+      path.moveTo(px(mercX(ring[0][0]) + dx), py(toMercY(ring[0][1])));
+      for (let i = 1; i < ring.length; i++) {
+        path.lineTo(px(mercX(ring[i][0]) + dx), py(toMercY(ring[i][1])));
       }
+      path.closePath();
     }
   }
 }
