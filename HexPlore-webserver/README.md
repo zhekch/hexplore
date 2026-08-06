@@ -112,6 +112,17 @@ The app needs the Node server — static hosting isn't enough, since accounts,
 cells and routes live in SQLite (`data.db`) and the Home Assistant poller runs
 server-side.
 
+To pick up new changes on a machine that is already serving:
+
+```sh
+npm run restart   # pull, install, build, then swap the running server for a new one
+```
+
+It runs from any directory, keeps the old server up until the build has
+succeeded, stops it by port rather than by killing every `node` on the machine,
+and waits for the new one to answer before claiming it worked. `--no-pull`
+skips the `git pull`; `PORT` picks a different port.
+
 For a private personal deployment, putting `tailscale serve` in front of
 `npm start` gives you an HTTPS URL reachable only from your own devices. HTTPS
 is worth having: the **my location** button needs it anywhere but localhost.
