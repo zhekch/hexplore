@@ -98,11 +98,28 @@ glass look. Click hexagons to mark places you've visited.
   toward transparent, so a wide edge makes the outermost cells read as a lower
   value than they hold.
   The blur runs on `ctx.filter` where the browser has it and in JS where it
-  doesn't — **Safari has never shipped `CanvasRenderingContext2D.filter`**, and
+  doesn't — **WebKit has never shipped `CanvasRenderingContext2D.filter`**, and
   the obvious feature test says otherwise (assigning it there just makes an
   ordinary property), so iOS was quietly drawing bare discs. Support is probed
   by behaviour instead, and the fallback is three separable box passes over
   premultiplied RGBA.
+  **This is still true as of the WebKit in macOS 27**, measured rather than
+  assumed: in a `WKWebView` there,
+  `'filter' in CanvasRenderingContext2D.prototype` is `false`. So every WebKit
+  client — mobile Safari, both native apps — takes the JS path, and Chrome
+  never does. That difference is the whole reason zooming can feel fine in one
+  browser and heavy in another on the same machine.
+  Because that path costs six CPU passes per pixel, the sheet is bounded by
+  **area** as well as density: **`JS_BLUR_MAX_PX`** (300k) caps the pixel count
+  whenever the blur is in JS. The dpr cap alone bounds *sharpness*, and a
+  desktop window changes *size* — measured on a retina Mac, an iPhone-sized
+  sheet is 131k pixels and ~9 ms a repaint where a 1440×900 window asks for
+  514k and ~35 ms, four times the work for the same code at the same density.
+  A level change pays that, and the crossfade after it recomposites a canvas of
+  the same size every frame, so a big window was the one place blobs felt slow.
+  The cap never binds on a phone or a small window, and is lifted entirely for
+  the image export (`maxPixels: Infinity` in `paintBlobSheet`), which paints
+  once and wants every pixel.
   The canvas is pinned to the padded viewport as a MapLibre canvas source (the
   map never rotates or pitches, so the rectangle maps linearly and stays
   registered while panning) and repaints on level changes, zoom drift and

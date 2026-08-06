@@ -110,6 +110,15 @@ Same for video and `VideoWindowController`.
   without being told which platform it is talking to.
 - **Fixes go to disk before they go anywhere**, in `FixQueue`, and leave only on
   a 200.
+- **Saving an exported picture is native, and has to be.** `a.download` — the
+  one line every browser saves the export with — does nothing whatever in a
+  `WKWebView`: the anchor is created, clicked and ignored, with no file and no
+  error, so both apps used to say "Saved …" and save nothing. `SaveBridge`
+  answers the same kind of message `PhotoBridge` does; the page detects it by
+  the handler's presence and falls back to the anchor in a browser. This app
+  writes to **Downloads**, where the browser it stands in for would have; the
+  iPhone app saves to the **photo library**, because a phone has no filesystem
+  anybody looks at.
 
 ### One thing it does *not* claim to be
 
@@ -234,6 +243,7 @@ HexPlore-macOS/
     PhotoBridge.swift       answering the map when it asks for the photographs
     PhotoViewer.swift       the photo window and the video window
     ServerCheck.swift       is that address a Hexplore server, and is it up
+    SaveBridge.swift        writing an exported picture to Downloads
     FixQueue.swift          what has been recorded but not yet accepted
     SyncClient.swift        the uploads, and the session they borrow
 ```

@@ -37,6 +37,13 @@
 	     carries and the date it was taken — and an image is opened only when you
 	     tap one on the map, to show it to you here. Nothing is written, and no
 	     image is ever uploaded. -->
+	<!-- Adding, which is a different and smaller permission than reading above,
+	     and is asked for separately. The only thing that wants it is saving an
+	     exported picture of your map: `a.download` does nothing in a web view,
+	     so the page hands the bytes to `SaveBridge` and it writes them to the
+	     photo library. Nothing is read under this key. -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Hexplore saves the pictures you export of your map to your photo library, so they end up where your other pictures are.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Hexplore reads the location a photo was taken at, so the places you have photographed appear on your map. Tapping one of those places shows the photo itself, on this phone — no image is ever uploaded.</string>
 	<key>NSHealthShareUsageDescription</key>

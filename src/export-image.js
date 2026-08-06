@@ -349,13 +349,25 @@ export const DEFAULT_SPEC = {
   // Set once the preview has been dragged or zoomed: { cx, cy, zoom }. Not
   // remembered between sessions, because it is a framing of one selection.
   view: null,
-  detail: 'blob',
+  // Regions, most-visited, on paper — which is not what the *map* defaults to,
+  // and deliberately so. The map opens on blobs in a single colour because it
+  // is a thing you read and edit at every zoom; a picture is looked at once, at
+  // one size, usually printed or posted. Blobs at poster scale are a soft wash
+  // that says "somewhere around here", where regions have edges you can name;
+  // and a flat wash throws away the one thing the data has that a shape does
+  // not, which is how often you went. Paper rather than night for the same
+  // reason: the commonest thing done with the result is to put it on a wall.
+  //
+  // These apply only to a dialog with nothing remembered — `export-ui.js` reads
+  // the saved spec over the top, so anyone who has ever changed one of these
+  // keeps their own answer.
+  detail: 'region',
   // A grid level, or 'auto' for the finest the picture can carry.
   cellSize: 'auto',
-  colorBy: 'flat',
+  colorBy: 'visits',
   accent: '#60acff',
   strength: 1,
-  palette: 'night',
+  palette: 'paper',
   colors: {}, // overrides on top of the palette
   // How strongly the land around the subject is drawn, 0 = not at all…
   surroundings: 0,
@@ -1283,6 +1295,11 @@ function drawBlobs(ctx, spec, data, cam, size) {
     // than the picture, and the map's own cap is set for a viewport rather than
     // for a poster.
     maxSide: Math.max(size.w, size.h),
+    // The map bounds the sheet's *area* as well, because on a browser with no
+    // canvas `filter` it repaints on every level change and pays six CPU passes
+    // per pixel. A picture is painted once and then looked at for a long time,
+    // so it buys the pixels and `maxSide` above is the only cap it wants.
+    maxPixels: Infinity,
     featherScale: size.h / FEATHER_REF_PX,
     maxFeatherCells: MAX_FEATHER_CELLS,
   });

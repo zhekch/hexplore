@@ -1195,6 +1195,28 @@ export function mountExport({ onClose, data }) {
 
   // --- Saving the file --------------------------------------------------------------
 
+  // The host that can actually write a file, or null in a browser.
+  //
+  // **`a.download` does nothing inside a `WKWebView`.** The anchor is created,
+  // clicked, and ignored — no download, no error, no way to feature-detect it
+  // from the page. Which meant both apps showed "Saved …" and saved nothing,
+  // the one failure mode worse than an error message. Named and detected the
+  // same way as the photo bridge: the handler is either there or it is not, so
+  // a browser takes the anchor path below and nothing has to guess.
+  //
+  // Changing this name means changing `SaveBridge.name` in both apps.
+  const saveHost = () => globalThis.webkit?.messageHandlers?.hexploreSave ?? null;
+
+  /** The bytes as base64, which is the only shape that survives the bridge. */
+  const blobToBase64 = (blob) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      // "data:image/png;base64,XXXX" — everything after the first comma.
+      reader.onload = () => resolve(String(reader.result).slice(String(reader.result).indexOf(',') + 1));
+      reader.onerror = () => reject(reader.error ?? new Error('unreadable'));
+      reader.readAsDataURL(blob);
+    });
+
   async function download() {
     if (!numbers) return;
     fail(null);
@@ -1210,10 +1232,33 @@ export function mountExport({ onClose, data }) {
       fail('The image could not be encoded.');
       return;
     }
+    const name = exportFilename(spec, numbers);
+
+    // In an app: hand the bytes over and let it put them somewhere a person can
+    // find — the photo library on a phone, Downloads on a Mac.
+    const host = saveHost();
+    if (host) {
+      let reply;
+      try {
+        reply = await host.postMessage({ ask: 'png', name, data: await blobToBase64(blob) });
+      } catch (e) {
+        fail(`The picture could not be saved — ${e?.message ?? e}`);
+        return;
+      }
+      if (!reply?.ok) {
+        // Every refusal is a sentence somebody has to read: permission not
+        // granted, disk full, a name that could not be written.
+        fail(reply?.error ?? 'The picture could not be saved.');
+        return;
+      }
+      showToast(reply.where ? `Saved to ${reply.where}` : `Saved ${name}`);
+      return;
+    }
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = exportFilename(spec, numbers);
+    a.download = name;
     a.click();
     // Revoked on the next turn rather than immediately: Safari has not
     // necessarily started reading the blob when click() returns.

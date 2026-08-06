@@ -46,7 +46,6 @@ final class WebViewController: NSViewController, WKUIDelegate, WKNavigationDeleg
 
     private var webView: WKWebView!
     private var loaded: (url: URL, token: Int)?
-    private let locations = CLLocationManager()
 
     override func loadView() {
         // No storyboard and no nib, so the root view is made here. A plain
@@ -88,6 +87,11 @@ final class WebViewController: NSViewController, WKUIDelegate, WKNavigationDeleg
         // channel it has to correlate by hand.
         configuration.userContentController.addScriptMessageHandler(
             PhotoBridge.shared, contentWorld: .page, name: PhotoBridge.name
+        )
+        // The other thing the page cannot do for itself: write a file. See
+        // `SaveBridge` — `a.download` is silently ignored in a web view.
+        configuration.userContentController.addScriptMessageHandler(
+            SaveBridge.shared, contentWorld: .page, name: SaveBridge.name
         )
         // Set on the configuration *before* the web view exists, because
         // `WKWebView` copies its configuration at init — assigning to
@@ -229,11 +233,12 @@ final class WebViewController: NSViewController, WKUIDelegate, WKNavigationDeleg
     /// at all — https, or localhost. Over plain `http://192.168.x.x` WebKit
     /// refuses regardless of permissions, which is one more reason to put the
     /// server behind `tailscale serve`.
+    /// Asked through ``LocationLogger``, which owns the only `CLLocationManager`
+    /// in the app and has a delegate on it. A manager without one never raises
+    /// the prompt at all — see
+    /// ``LocationLogger/requestAuthorizationIfNeeded()``, which is where that
+    /// is written down.
     func requestLocationIfNeeded() {
-        guard locations.authorizationStatus == .notDetermined else { return }
-        // `requestAlwaysAuthorization` rather than the when-in-use step the
-        // iPhone app takes first: macOS has no when-in-use state to be granted.
-        // See `LocationLogger.apply()`.
-        locations.requestAlwaysAuthorization()
+        LocationLogger.shared.requestAuthorizationIfNeeded()
     }
 }

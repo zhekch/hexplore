@@ -69,7 +69,16 @@ struct SettingsView: View {
 
     private var serverSection: some View {
         Section {
-            TextField("hexplore.your-tailnet.ts.net", text: $draft)
+            // `prompt:` rather than `TextField("…", text:)`. On macOS a
+            // TextField's title is its *row label* in a Form, not its
+            // placeholder — so the one-argument form printed
+            // "hexplore.your-tailnet.ts.net" down the left of the row and put
+            // the actual address on the right, which reads as two values.
+            // `.labelsHidden()` then gives the field the whole row, as on the
+            // phone.
+            TextField("Server address", text: $draft,
+                      prompt: Text("hexplore.your-tailnet.ts.net"))
+                .labelsHidden()
                 .autocorrectionDisabled()
                 .onSubmit(commit)
 
@@ -149,7 +158,12 @@ struct SettingsView: View {
                     }
                 }
                 LabeledContent("Name") {
-                    TextField("This Mac", text: $tracking.deviceName)
+                    // Same reason as the server field above: the title would
+                    // render as a second label inside a row that already has
+                    // one.
+                    TextField("Name", text: $tracking.deviceName,
+                              prompt: Text("This Mac"))
+                        .labelsHidden()
                         .autocorrectionDisabled()
                         .multilineTextAlignment(.trailing)
                 }
@@ -196,8 +210,13 @@ struct SettingsView: View {
     /// recording the moment you leave — has no equivalent here, because
     /// `kCLAuthorizationStatusAuthorizedWhenInUse` does not exist on this
     /// platform.
+    /// Not gated on the switch being on, unlike the phone's.
+    ///
+    /// The map's own "where am I" button wants location with tracking off, so a
+    /// refusal is worth saying either way — and a permission that is silently
+    /// denied is otherwise invisible, which is exactly how it went unnoticed
+    /// that the prompt was never being raised at all.
     private var permissionWarning: String? {
-        guard tracking.isTracking else { return nil }
         switch logger.authorization {
         case .denied, .restricted:
             return "Location is turned off for HexPlore. Open System Settings to allow it."

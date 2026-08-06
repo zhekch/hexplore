@@ -132,6 +132,25 @@ final class LocationLogger: NSObject, ObservableObject, CLLocationManagerDelegat
         Task { await SyncClient.shared.flush() }
     }
 
+    /// Raise the system prompt once, for the page's own "my location" button.
+    ///
+    /// Separate from ``apply()`` because it is a different question: that one is
+    /// about the *logger*, and this is about the blue dot the web app draws,
+    /// which people want with tracking switched off.
+    ///
+    /// **It has to be this manager.** The web view used to own a second
+    /// `CLLocationManager` and ask on that one, and it silently never prompted:
+    /// CoreLocation delivers the outcome of an authorization request through
+    /// `locationManagerDidChangeAuthorization`, and a manager with no delegate
+    /// has nowhere to deliver it — so the request goes nowhere and the only
+    /// symptom is a permission that stays `.notDetermined` for ever. This
+    /// manager has had a delegate since `init`, and it is the one object in the
+    /// app that should be talking to CoreLocation anyway.
+    func requestAuthorizationIfNeeded() {
+        guard manager.authorizationStatus == .notDetermined else { return }
+        manager.requestAlwaysAuthorization()
+    }
+
     // MARK: - CLLocationManagerDelegate
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {

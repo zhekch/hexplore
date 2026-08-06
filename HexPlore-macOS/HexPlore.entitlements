@@ -28,5 +28,11 @@
 	     on. Off by default — see TrackingSettings. -->
 	<key>com.apple.security.personal-information.location</key>
 	<true/>
+	<!-- Saving an exported picture where a browser would have put it. This is
+	     write access to ~/Downloads and to nothing else, which is exactly what
+	     `SaveBridge` needs: `a.download` does nothing in a web view, so the
+	     page hands the bytes over and the app writes them. -->
+	<key>com.apple.security.files.downloads.read-write</key>
+	<true/>
 </dict>
 </plist>

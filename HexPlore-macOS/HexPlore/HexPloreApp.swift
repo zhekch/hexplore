@@ -69,30 +69,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// A last push on the way out, with a ceiling on how long it may take.
+    /// A last push on the way out, with a real ceiling on how long it may take.
     ///
     /// Quitting is the same moment the iPhone app pushes on: the queue is as
     /// full as it is going to get and the process is about to stop existing.
     /// The difference is that a Mac can be told to wait, so it is asked to —
     /// but only for three seconds. Nothing is lost by giving up: a fix leaves
     /// `FixQueue` when the server has answered 200 and not before, so the worst
-    /// case of a cancelled push is that the next launch sends it again.
+    /// case of an abandoned push is that the next launch sends it again.
+    ///
+    /// **The obvious way to write this does not bound anything.** Racing the
+    /// push against a sleep inside a `withTaskGroup` and cancelling the group
+    /// looks like a timeout and is not one: the group awaits *every* child
+    /// before it returns, cancelled or not, so a push waiting out a 30-second
+    /// URLSession timeout held the whole quit open for thirty seconds. Which is
+    /// exactly what it did — an app that would not close, on a machine with
+    /// fixes queued and the server not answering.
+    ///
+    /// So the answer is given by whichever finishes first, directly, and
+    /// `replied` makes sure it is given once: `reply(toApplicationShouldTerminate:)`
+    /// is not something to call twice.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !leaving else { return .terminateNow }
         leaving = true
         Task {
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await SyncClient.shared.flush(force: true) }
-                group.addTask { try? await Task.sleep(for: .seconds(3)) }
-                // Whichever comes first — the push finishing, or the patience
-                // running out.
-                await group.next()
-                group.cancelAll()
-            }
-            NSApp.reply(toApplicationShouldTerminate: true)
+            try? await Task.sleep(for: .seconds(3))
+            finishTerminating()
+        }
+        Task {
+            await SyncClient.shared.flush(force: true)
+            finishTerminating()
         }
         return .terminateLater
     }
 
+    private func finishTerminating() {
+        guard !replied else { return }
+        replied = true
+        NSApp.reply(toApplicationShouldTerminate: true)
+    }
+
     private var leaving = false
+    private var replied = false
 }

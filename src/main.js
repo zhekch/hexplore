@@ -4572,9 +4572,25 @@ let fineLoadPending = false;
 const DEBUG_LEVELS = new URLSearchParams(location.search).has('debuglevels');
 const levelName = (L) => (isVectorLevel(L) ? vectorKindOf(L) : `L${L}`);
 
+// Set across the sign-in sequence, while the cells are known and the colour
+// they should be drawn in is not.
+//
+// `onAuthed` loads the cells before it reconciles preferences, and it has to:
+// the rows `adoptPrefs` rebuilds are built from what the account actually has,
+// so the routes must be in first. But the visited colour is a preference, and a
+// browser that has never seen this account has only `DEFAULT_ACCENT` to paint
+// with — so the map came up blue, held it for as long as the round trip took,
+// and then turned white. On a fresh sign-in that is the first thing you see.
+//
+// Painting nothing for those few hundred milliseconds is the honest version:
+// the basemap is already there, and one appearance is better than two. Released
+// in a `finally`, so a preferences fetch that throws still ends with a map.
+let paintHeldForPrefs = false;
+
 function updateGrid(force = false) {
   // The hex sources briefly don't exist while a new basemap style loads.
   if (!map.getSource('hex')) return;
+  if (paintHeldForPrefs) return;
   const bb = paddedMerc();
   // Edit mode always works on the smallest cells: display, spotlight and
   // painting all lock to level 0 so what you see is what gets marked. Outside
@@ -7089,11 +7105,27 @@ const authState = mountAuth({
   onAuthed: async (name) => {
     authed = true;
     username = name ?? null;
-    await hydrateVisited();
-    await loadRoutes(routesOn);
-    // After the routes, because it re-renders the per-activity rows and those
-    // are built from what the account actually has.
-    await syncPrefs();
+    // Nothing is drawn until the account's colours are in — see
+    // `paintHeldForPrefs`. The cells still load, the routes still load; it is
+    // only the paint that waits, so this costs a fetch rather than a render.
+    paintHeldForPrefs = true;
+    try {
+      await hydrateVisited();
+      await loadRoutes(routesOn);
+      // After the routes, because it re-renders the per-activity rows and those
+      // are built from what the account actually has.
+      await syncPrefs();
+    } finally {
+      paintHeldForPrefs = false;
+      // The first paint, now in the right colour. The same tail
+      // `hydrateVisited` runs, because its own call was the one held —
+      // `recomputeLit` included, since adopting preferences can change the
+      // colour *mode* and the ranges are computed per mode.
+      recomputeLit();
+      updateGrid(true);
+      updateTiles();
+      updateHud(currentLevel);
+    }
     // Only for the menu's status line — the sync itself runs on the server
     // whether or not this page is open.
     homeAssistant?.refresh();

@@ -75,6 +75,12 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         configuration.userContentController.addScriptMessageHandler(
             PhotoBridge.shared, contentWorld: .page, name: PhotoBridge.name
         )
+        // The other thing the page cannot do for itself: save a file. See
+        // `SaveBridge` — `a.download` is silently ignored in a web view, so the
+        // export button did nothing at all in this app.
+        configuration.userContentController.addScriptMessageHandler(
+            SaveBridge.shared, contentWorld: .page, name: SaveBridge.name
+        )
         // How the server tells this app apart from a browser: it lands at the
         // end of the User-Agent, so `server/index.js` can key a layout on it.
         //

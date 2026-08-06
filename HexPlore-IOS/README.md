@@ -128,6 +128,7 @@ HexPlore/
     PhotoBridge.swift       answering the map when it asks for the photographs
     PhotoViewer.swift       one photograph, full screen, zoomable
     ServerCheck.swift       is that address a Hexplore server, and is it up
+    SaveBridge.swift        putting an exported picture in the photo library
     FixQueue.swift          what has been recorded but not yet accepted
     SyncClient.swift        the uploads, and the session they borrow
   HexploreCore/             a local Swift package: the maths, with tests
@@ -644,15 +645,20 @@ is rendered at up to **device ratio 3**, and without one it is capped at **1.5**
 explicitly because every extra pixel is then paid for six times over. That is a
 2× resolution difference decided entirely by whether the blur is native.
 
-**Whether that cap currently applies on iOS is worth measuring rather than
-assuming.** ARCHITECTURE.md states that Safari has never shipped canvas
-`filter`, and that may now be out of date — WebKit landed an implementation in
-2024, though MDN still lists the property as "limited availability". It does not
-matter to the code, which settles it at runtime: `nativeBlur()` (blob-canvas.js:112)
-blurs a test rectangle and reads a pixel back, because assigning `ctx.filter`
-where it is unsupported merely creates an ordinary property and the obvious
-feature test lies. **The probe is the authority — check it on the actual device
-before quoting the 2× anywhere.**
+**That cap does currently apply, and it has now been measured rather than
+assumed.** In a `WKWebView` on macOS 27 — the same WebKit this app embeds —
+`'filter' in CanvasRenderingContext2D.prototype` is **`false`**: the property
+does not exist at all, so assigning it creates an ordinary JS object property
+and every blur silently does nothing. `nativeBlur()` (blob-canvas.js) settles it
+at runtime by blurring a test rectangle and reading a pixel back, which is why
+the obvious feature test could not be used. So the 1.5 cap is what both apps get
+and the 3 is Chrome's.
+
+The consequence is priced in a second place now. Because the JS path costs six
+CPU passes per pixel, `JS_BLUR_MAX_PX` also caps the sheet's *area*: a
+1440×900 window was asking for 514k pixels and ~35 ms a repaint where an
+iPhone-sized sheet is 131k and ~9 ms, which is why zooming felt heavier on a Mac
+than on the phone running the identical code.
 
 The Metal case does not rest on that question either way. On the GPU the blur is
 close to free, a true Gaussian is available rather than three box passes

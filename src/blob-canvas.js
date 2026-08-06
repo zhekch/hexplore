@@ -38,6 +38,35 @@ const displayScale = () =>
   QUALITY * Math.min(window.devicePixelRatio || 1, nativeBlur() ? 3 : 1.5);
 const MAX_SIDE = 2800; // hard cap on either canvas dimension
 
+// Most pixels the sheet may have **when the blur is running in JS**.
+//
+// The dpr cap above bounds the sheet's *density* and nothing bounds its *area*,
+// which is the number a desktop window changes. Measured in a WKWebView on a
+// retina Mac, where `nativeBlur()` is false (WebKit has no canvas `filter` at
+// all — `'filter' in CanvasRenderingContext2D.prototype` is false, so the
+// property assignment in `blurInto` is an ordinary JS property that blurs
+// nothing, which is exactly what the probe above exists to catch):
+//
+//   iPhone-sized sheet   246×532 = 131k px   ~9 ms per repaint
+//   1440×900 window      907×567 = 514k px  ~35 ms per repaint
+//
+// Same code, same density, four times the work — purely because the window is
+// bigger. That is the whole of why zooming feels fine on the phone and in
+// Chrome (which has a native blur and never takes this path) and drags on a
+// Mac: a level change pays that cost, and the crossfade that follows it
+// recomposites a canvas of the same size on every frame.
+//
+// 300k is ~20 ms of blur at the worst case and never binds below roughly a
+// 1100×700 window, so a phone is untouched and a small window is untouched;
+// only a large one gives up density it was only spending on a sheet that is
+// about to be blurred anyway. Raising it trades smoothness for sharpness on
+// big screens; the honest fix is a blur that is not in JavaScript.
+//
+// Deliberately not applied when the blur is native: there an extra pixel costs
+// one GPU pass rather than six CPU ones, and the image export wants every pixel
+// it can have (see `maxPixels` in paintBlobSheet).
+const JS_BLUR_MAX_PX = 300_000;
+
 // Blur sigma as a fraction of a cell's on-screen radius. Everything narrower
 // than this — dents between cells, corners, kinks along a road — is smoothed
 // away, so this is the knob that decides "cells with soft corners" vs "one
@@ -382,6 +411,10 @@ export function paintBlobSheet({
   featherPx: featherOverride,
   pxPerMerc,
   maxSide = MAX_SIDE,
+  // Bounds the sheet's area, where `maxSide` bounds its sides. Only the JS blur
+  // is priced per pixel steeply enough to need it — see JS_BLUR_MAX_PX. The
+  // export passes Infinity: it paints once, and it wants the pixels.
+  maxPixels = nativeBlur() ? Infinity : JS_BLUR_MAX_PX,
   featherScale = 1,
   maxFeatherCells = Infinity,
 }) {
@@ -393,7 +426,14 @@ export function paintBlobSheet({
   const edge = edgeOverride ?? (heat ? BLOB_HEAT_EDGE : BLOB_EDGE);
   const featherPx = featherOverride ?? (heat ? BLOB_HEAT_FEATHER_PX : BLOB_FEATHER_PX);
 
-  const k = Math.min(pxPerMerc, maxSide / mercW, maxSide / mercH);
+  // Area as well as sides: `k` scales both dimensions, so bounding w·h means
+  // bounding k by the square root of the budget over the rectangle's area.
+  const k = Math.min(
+    pxPerMerc,
+    maxSide / mercW,
+    maxSide / mercH,
+    Math.sqrt(maxPixels / (mercW * mercH)),
+  );
   const w = Math.max(1, Math.round(mercW * k));
   const h = Math.max(1, Math.round(mercH * k));
   const xMax = bb.xMin + w / k;
