@@ -1134,6 +1134,13 @@ body {
 .photo-figure {
   display: grid;
   place-items: center;
+  /* And the track itself centred, which is the half that was missing. A grid
+     with one implicit column sizes it to its content and then leaves it at the
+     *start* of the container: with a picture narrower than the card, the button
+     came out centred on that column rather than on the figure, which put it
+     visibly right of the middle of a wide photograph. `place-items` centres
+     items inside their area; this centres the area. */
+  place-content: center;
   /* A floor, not a height. The picture decides the shape, and the card must not
      jump from square to landscape as the bytes arrive — which is why the image
      is given its aspect ratio before it is given its src. */
@@ -1149,7 +1156,17 @@ body {
   cursor: zoom-in;
 }
 
-.photo-figure.busy {
+/* `fetching`, not `busy`.
+
+   `.busy` is already taken — it is the map's own top-centre spinner while
+   boundaries are being fetched, and it is `position: fixed; left: 50%;
+   display: flex; pointer-events: none`. Putting that class on the play button
+   inherited all of it: the button was torn out of the card, pinned to the
+   viewport, and made untappable, which is what the spinner "being really off"
+   was. This stylesheet has a handful of single-word global classes (`.busy`,
+   `.hud`, `.layers`, `.legend`, `.seg`, `.toast`), so a component's state class
+   has to carry the component's prefix or borrow whatever they say. */
+.photo-figure.fetching {
   cursor: progress;
 }
 
@@ -1211,28 +1228,32 @@ body {
 /* Fetching it. An original that has been offloaded to iCloud takes as long as it
    takes, and without this the button looked like it had swallowed the tap —
    which is exactly what it looks like when it has. */
+/* Sized against the triangle it replaces rather than against the disc it sits
+   in: a 26px ring reads far bigger than a 26px triangle, because a ring is all
+   edge and a triangle is mostly middle. Smaller and thicker is the same weight
+   of mark. */
 .photo-play-spinner {
   display: none;
-  width: 26px;
-  height: 26px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  border: 2.5px solid rgba(255, 255, 255, 0.3);
+  border: 3px solid rgba(255, 255, 255, 0.28);
   border-top-color: #fff;
   animation: photo-spin 0.8s linear infinite;
 }
 
-.photo-play.busy {
+.photo-play.fetching {
   /* Not `disabled`: a disabled button drops its hover and press styling and, on
      iOS, stops reporting taps at all — and the point here is that a second tap
      is *received* and ignored rather than queued into a second player. */
   cursor: progress;
 }
 
-.photo-play.busy .photo-play-icon {
+.photo-play.fetching .photo-play-icon {
   display: none;
 }
 
-.photo-play.busy .photo-play-spinner {
+.photo-play.fetching .photo-play-spinner {
   display: block;
 }
 

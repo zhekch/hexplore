@@ -9,8 +9,10 @@
 //
 // It shows a **group** as readily as a single photo, because that is what a tap
 // usually lands on: forty pictures of one dinner are one point on the map at
-// every zoom there is. The strip along the bottom is the group, oldest first,
-// and picking one swaps the picture above it.
+// every zoom there is. The strip along the bottom is the group, newest first,
+// and picking one swaps the picture above it — so the card opens on the most
+// recent, which for a place you have been back to is almost always the one you
+// meant.
 //
 // ## The whole group, however big it is
 //
@@ -71,11 +73,21 @@ export function groupTitle(items) {
  * A single photograph gets its clock reading, because that is the whole of what
  * this card knows and "3 Sep 2023" alone reads as a card that failed to load the
  * rest. A group that happened on one day says the day once rather than twice.
+ *
+ * The ends are the smallest and largest rather than the first and last, so this
+ * reads a group the same way whichever order the list is in — the strip is
+ * newest first, and a span written backwards is a typo everybody sees.
  */
 export function groupWhen(items) {
   if (!items.length) return '';
-  const first = items[0].t;
-  const last = items[items.length - 1].t;
+  // Folded rather than spread: `Math.min(...times)` on a group of four thousand
+  // is four thousand arguments, and that is how you overflow a stack.
+  let first = items[0].t;
+  let last = items[0].t;
+  for (const item of items) {
+    if (item.t < first) first = item.t;
+    if (item.t > last) last = item.t;
+  }
   if (items.length === 1) return [day(first), formatTime(first * 1000)].filter(Boolean).join(' · ');
   const a = day(first);
   const b = day(last);
@@ -326,13 +338,13 @@ export function mountPhotoInfo({ onClose } = {}) {
     const item = items[chosen];
     if (!item || busy) return;
     busy = true;
-    playBtn.classList.add('busy');
+    playBtn.classList.add('fetching');
     try {
       const reply = await playVideo(item.i);
       if (!reply.ok) noteEl.textContent = trouble(reply.error);
     } finally {
       busy = false;
-      playBtn.classList.remove('busy');
+      playBtn.classList.remove('fetching');
     }
   });
 
@@ -345,13 +357,13 @@ export function mountPhotoInfo({ onClose } = {}) {
     const item = items[chosen];
     if (!item || item.v || busy || !imgEl.src) return;
     busy = true;
-    figure.classList.add('busy');
+    figure.classList.add('fetching');
     try {
       const reply = await viewPhoto(item.i);
       if (!reply.ok) noteEl.textContent = trouble(reply.error);
     } finally {
       busy = false;
-      figure.classList.remove('busy');
+      figure.classList.remove('fetching');
     }
   });
 

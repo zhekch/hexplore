@@ -3177,10 +3177,17 @@ nobody taps a group of photographs wanting a different camera position. They wan
 the photographs. Zooming is what the map's own gestures are for, and they are
 still there.
 
-The card shows one picture with the rest as a strip along the bottom, oldest
-first, and it holds **all of them**. It was capped at 48, which made a tap on
+The card shows one picture with the rest as a strip along the bottom, **newest
+first**, and it holds **all of them**. It was capped at 48, which made a tap on
 four thousand photographs quietly a card of forty-eight: the group is the answer
 to the tap, and keeping most of it back is a card misreporting what is there.
+
+Newest first because the card opens on the first of them. A group of photographs
+is a place you have been back to, and the one you want is almost always the last
+time rather than the first — which is also the order every other list of
+photographs anyone uses is in. `groupWhen` reads a span off the smallest and
+largest timestamps rather than the ends of the list, so it cannot print a date
+range backwards when the order changes again.
 
 Four thousand is two problems, and the strip pays for each separately.
 **Elements**: buttons are appended `STRIP_CHUNK` at a time, when a sentinel at
@@ -3260,9 +3267,26 @@ of the same reason. The card is already showing a copy scaled to the card; the
 only thing full screen is worth doing for is the original, which is several
 megabytes the page would then be holding twice — once as bytes and once as
 base64. So `PhotoViewerController` — a scroll view around an image view, which is
-pinch, double-tap and drag for nothing — is presented over the page with
-`PHImageManagerMaximumSize`. `QLPreviewController` would give the same for free
-and wants a file URL, which for a `PHAsset` means exporting a copy to disk first.
+pinch, double-tap and drag for nothing — is presented over the page.
+`QLPreviewController` would give the same for free and wants a file URL, which
+for a `PHAsset` means exporting a copy to disk first.
+
+Two things about it were wrong on a real phone and are worth keeping written
+down. It was presented **`.fullScreen`**, which cannot be swiped down to dismiss
+— and swiping down is how every photograph on this device is closed, and what the
+video player beside it already gave. It is a sheet now, which is the system's own
+gesture rather than an imitation of it. And it asked for
+**`PHImageManagerMaximumSize`**, which on a recent iPhone is a 48-megapixel
+photograph — a `UIImage` of about 190 MB once decoded, handed to a `UIImageView`
+in the middle of a presentation animation. That was the "small preview at the
+bottom for a few seconds, then full screen" it used to do. It asks for 3,000 px
+now: nine megapixels, sharper than any phone screen at 1× and still sharp several
+stops into the zoom, at about a twentieth of the memory.
+
+It also **opens before the picture does**. Presenting only once the image had
+arrived meant a tap did nothing at all for as long as an iCloud fetch took; now
+the sheet comes up immediately with a spinner in it, which is the app responding
+rather than thinking.
 
 **Both hand-offs are one at a time, and say so.** An original that has been
 offloaded to iCloud takes as long as its download takes, and until it arrives the
@@ -3271,6 +3295,15 @@ first is still fetching used to present a *second* player on top of the first,
 which then had to be dismissed twice. The card refuses the second tap, and the
 app refuses it again on its own side: `alreadyShowing` answers "yes, that is
 done" rather than presenting again, because what was asked for is on screen.
+
+The class for that state is `fetching`, and the name matters. It was `busy`
+first, which is **already a global class in this stylesheet** — the map's own
+top-centre spinner, `position: fixed; left: 50%; display: flex; pointer-events:
+none`. The play button inherited every word of it: torn out of the card, pinned
+to the viewport, and untappable while it was meant to be spinning. `src/style.css`
+has a handful of single-word global classes (`.busy`, `.hud`, `.layers`,
+`.legend`, `.seg`, `.toast`), so a component's state class has to carry the
+component's prefix or accept what they say.
 
 ### Where it sits, and what it takes precedence over
 

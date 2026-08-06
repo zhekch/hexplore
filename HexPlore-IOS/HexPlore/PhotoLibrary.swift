@@ -207,17 +207,30 @@ nonisolated enum PhotoLibrary {
 
     // MARK: - Showing one full screen
 
-    /// Put a photograph on the whole screen, at its own size.
+    /// The longest side to ask for when showing one big.
     ///
-    /// `PHImageManagerMaximumSize` with `.highQualityFormat` is the original —
-    /// fetched from iCloud if that is where it lives, which is why this can take
-    /// a moment and why the card spins while it does.
+    /// **Not `PHImageManagerMaximumSize`**, which was the first answer and was a
+    /// bad one: a recent iPhone photograph is 48 megapixels, which is a `UIImage`
+    /// of about 190 MB once decoded, and handing that to a `UIImageView` in the
+    /// middle of a presentation animation is seconds of stutter — the "small
+    /// preview at the bottom, then full screen" this used to do.
+    ///
+    /// 3,000 px is nine megapixels: sharper than any phone screen at 1× and
+    /// still sharp several stops into the zoom, at about a twentieth of the
+    /// memory. Photos itself does the same thing and calls it a degraded result.
+    private static let viewPixels: CGFloat = 3000
+
+    /// Put a photograph in front of the map, big.
+    ///
+    /// The viewer is presented **first** and handed the picture when it arrives.
+    /// Waiting meant a tap did nothing at all for as long as an iCloud fetch took
+    /// and then produced a viewer mid-animation; this way the sheet is up
+    /// immediately, spinning, which is what every other app does.
     ///
     /// It is shown here rather than sent for the same reason a video is: the
-    /// page already holds a copy scaled to the card, and the only thing full
-    /// screen is worth doing for is the full-resolution one, which is several
-    /// megabytes it would then be holding twice — once as bytes and once as
-    /// base64. See ``PhotoViewerController``.
+    /// page already holds a copy scaled to the card, and the only version worth
+    /// going full screen for is one it would then be holding twice — once as
+    /// bytes and once as base64. See ``PhotoViewerController``.
     @MainActor
     static func view(id: String) async -> Bool {
         if alreadyShowing { return true }
@@ -225,24 +238,27 @@ nonisolated enum PhotoLibrary {
               let top = topViewController
         else { return false }
 
+        let viewer = PhotoViewerController()
+        top.present(viewer, animated: true)
+
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
-        options.resizeMode = .none
+        options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
         options.isSynchronous = false
 
         let once = Latch()
+        let size = CGSize(width: viewPixels, height: viewPixels)
         let image: UIImage? = await withCheckedContinuation { continuation in
             PHImageManager.default().requestImage(
-                for: asset, targetSize: PHImageManagerMaximumSize,
-                contentMode: .aspectFit, options: options
+                for: asset, targetSize: size, contentMode: .aspectFit, options: options
             ) { image, _ in
                 if once.close() { continuation.resume(returning: image) }
             }
         }
-        guard let image else { return false }
-
-        top.present(PhotoViewerController(image: image), animated: true)
+        // Handed over even when it is nil: the viewer closes itself rather than
+        // being left as a black sheet with a spinner that never stops.
+        viewer.show(image: image)
         return true
     }
 

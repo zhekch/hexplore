@@ -319,7 +319,7 @@ export function removePhotos(map) {
 }
 
 /**
- * Everything inside a cluster, oldest first.
+ * Everything inside a cluster, **newest first**.
  *
  * All of it, however much there is: the card renders the strip in chunks, so a
  * group of four thousand costs four thousand small objects rather than four
@@ -327,8 +327,10 @@ export function removePhotos(map) {
  * pass the cluster's own `point_count`.
  *
  * Sorted here rather than left in supercluster's order, which is the order the
- * index happens to hold them in. A group of photographs is a stretch of time and
- * reads as one — the strip is a morning, not a shuffle.
+ * index happens to hold them in. Newest first because the card opens on the
+ * first one: a group of photographs is a place you have been back to, and the
+ * one you want is almost always the last time rather than the first. It also
+ * matches every other list of photographs anyone uses.
  */
 export async function photoLeaves(map, clusterId, limit) {
   const source = map.getSource(SOURCE);
@@ -337,7 +339,7 @@ export async function photoLeaves(map, clusterId, limit) {
     const leaves = await source.getClusterLeaves(clusterId, limit, 0);
     return leaves
       .map((f) => ({ i: f.properties.i, t: f.properties.t, v: !!f.properties.v }))
-      .sort((a, b) => a.t - b.t);
+      .sort((a, b) => b.t - a.t);
   } catch {
     return [];
   }

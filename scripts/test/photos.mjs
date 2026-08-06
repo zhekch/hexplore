@@ -202,7 +202,10 @@ console.log('\nA tap on a group opens all of it');
   // the card misreporting what is there.
   const big = await photoLeaves(map(4000), 1, 4000);
   check(big.length === 4000, 'a group of four thousand comes back whole', String(big.length));
-  check(big.every((l, n) => n === 0 || big[n - 1].t <= l.t), 'and comes back oldest first');
+  // Newest first, because the card opens on the first of them: a group of
+  // photographs is a place you have been back to, and the one you want is
+  // almost always the last time rather than the first.
+  check(big.every((l, n) => n === 0 || big[n - 1].t >= l.t), 'and comes back newest first');
   check(STRIP_CHUNK > 0 && STRIP_CHUNK < 4000,
     'the strip renders it in chunks rather than all at once', String(STRIP_CHUNK));
   check((await photoLeaves({ getSource: () => undefined }, 1, 10)).length === 0,
@@ -221,6 +224,11 @@ console.log('\nThe card says when, whether it is one photograph or forty');
   check(!groupWhen(two).includes('–'), 'a group inside one day says that day once', groupWhen(two));
   const across = [...one, { i: 2, t: 1_693_731_600 + 86_400 * 3 }];
   check(groupWhen(across).includes('–'), 'and one that spans days says both ends', groupWhen(across));
+  // The strip is newest first, so the list arrives descending — a span read off
+  // the first and last entries would be printed backwards.
+  check(groupWhen([...across].reverse()) === groupWhen(across),
+    'and reads the same span whichever way round the list is',
+    `${groupWhen([...across].reverse())} vs ${groupWhen(across)}`);
   check(groupWhen([]) === '', 'nothing said about nothing');
 }
 

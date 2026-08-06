@@ -185,8 +185,8 @@ hike" is one question you can ask.
 **Your photographs, on the map.** In the iPhone app, *Photos* in the layers menu
 puts a point wherever you have taken one. Where they pile up they gather into a
 group with a count on it, and tapping one opens it — however many are in there.
-One picture at a time, with the rest as a strip along the bottom, oldest first,
-and it says when each was taken. Zooming is still the map's own gestures; a tap
+One picture at a time — the most recent first, with the rest as a strip along
+the bottom — and it says when each was taken. Zooming is still the map's own gestures; a tap
 is always about the photographs.
 
 Nothing is uploaded and nothing is shared. The app reads the photographs off the
