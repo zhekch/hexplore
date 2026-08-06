@@ -169,9 +169,33 @@ a native map nobody currently wants — and the case for keeping it is now only
 that it is cheap to keep and expensive to rewrite. If it is ever genuinely dead,
 `git rm -r HexPlore/HexploreCore` and drop the local package reference.
 
+### The app target no longer links it
+
+"Not used by the app" used to be true of the *source* and false of the *build*:
+the app target linked the package, so building the app built the package, and
+building the package compiled `Blob/BlobShaders.metal`. Xcode 26 moved the Metal
+compiler out of the base install into a separately downloaded component, so from
+that release onwards a plain `xcodebuild` of the app failed — on a shader that no
+line of the app executes, for a renderer nothing calls.
+
+The link bought nothing to weigh against that. No file in `HexPlore/` imports
+`HexploreCore`; the link was the last trace of the native map. So the product
+dependency is gone from the target and the app builds with no Metal in the graph
+at all.
+
+**The package itself has not moved.** The local package reference is still in the
+project, so Xcode still shows it, and `Tools/test-core.sh` is untouched — all 34
+tests still run in about a second on the Mac, the GPU ones included, because
+`swift test` compiles the shader for macOS quite happily. It is only the
+iOS-destination build that wanted the component. Whenever the native renderer is
+wanted, add the product back to the target and run
+`xcodebuild -downloadComponent MetalToolchain` once.
+
 ## Dependencies
 
-**One**, and it is local: `HexploreCore`, referenced by relative path.
+**None that the app links.** `HexploreCore` is in the project, by relative path,
+and the app target does not depend on it — see
+[The app target no longer links it](#the-app-target-no-longer-links-it).
 
 There is no MapLibre. An earlier version linked
 `maplibre-gl-native-distribution` to draw the map natively; when the map became
@@ -182,7 +206,7 @@ the rest of the site.
 
 ## Running the tests
 
-26 tests, three suites, and three ways to run them.
+34 tests, four suites, and three ways to run them.
 
 ```sh
 HexPlore/Tools/test-core.sh          # on this Mac — about a second
@@ -191,7 +215,7 @@ HexPlore/Tools/test-core.sh --ios    # on the iOS Simulator — about a minute
 
 The Mac run is the one to use while working: no simulator to boot, no signing,
 no Xcode. The `--ios` run is the one that proves the code works where it is
-going to run — the same 26 tests, with the GPU ones exercising the simulator's
+going to run — the same 34 tests, with the GPU ones exercising the simulator's
 Metal stack rather than the Mac's. Both are expected to pass; if only one fails,
 that difference is the interesting part.
 

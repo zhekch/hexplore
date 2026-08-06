@@ -6,7 +6,7 @@
 #
 # The Mac run is the one to use while working: no simulator to boot, no signing,
 # no Xcode. The --ios run is the one that proves the code works where it is
-# actually going to run — same 26 tests, including the GPU ones against the
+# actually going to run — same 34 tests, including the GPU ones against the
 # simulator's Metal stack rather than the Mac's.
 #
 # Two workarounds are baked in, both of which cost an afternoon to find:

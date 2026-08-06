@@ -6,10 +6,6 @@
 	objectVersion = 110;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		7EA0000000000000000000C1 /* HexploreCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7EA0000000000000000000B1 /* HexploreCore */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
 		7E2405E8301D4620008324E9 /* HexPlore.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HexPlore.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -26,7 +22,6 @@
 		7E2405E5301D4620008324E9 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				7EA0000000000000000000C1 /* HexploreCore in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -65,9 +60,6 @@
 				7E2405EA301D4620008324E9 /* HexPlore */,
 			);
 			name = HexPlore;
-			packageProductDependencies = (
-				7EA0000000000000000000B1 /* HexploreCore */,
-			);
 			productName = HexPlore;
 			productReference = 7E2405E8301D4620008324E9 /* HexPlore.app */;
 			productType = "com.apple.product-type.application";
@@ -340,14 +332,6 @@
 			relativePath = HexploreCore;
 		};
 /* End XCLocalSwiftPackageReference section */
-
-
-/* Begin XCSwiftPackageProductDependency section */
-		7EA0000000000000000000B1 /* HexploreCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = HexploreCore;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7E2405E0301D4620008324E9 /* Project object */;
 	validationLevel = 1;
