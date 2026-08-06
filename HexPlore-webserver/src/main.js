@@ -724,9 +724,39 @@ function keepGeolocateOn() {
     true, // capture: the control's own handler is on the button itself
   );
 }
+// Zooming away from yourself should let go of you, and MapLibre's control does
+// not: `_onMoveStart` drops ACTIVE_LOCK to BACKGROUND for any movement the user
+// made — except one where `map.isZooming()` is true, which it exempts so that
+// zooming in on yourself keeps you centred.
+//
+// On this map that exemption is wrong more often than it is right, because zoom
+// is how you navigate here: zoom out to the country level to look at where you
+// have been, and the button stays lit and still tracking. Nothing shows it,
+// either — until the next fix arrives, minutes later, and flies the camera back
+// to your street with no gesture anywhere near it to explain why.
+//
+// So do for a zoom exactly what the control already does for a pan, in the same
+// order and leaving the same state behind. Reaching for `_watchState` is
+// reaching inside the library, so it is read before it is written: a MapLibre
+// that has renamed it leaves the control alone rather than breaking the button.
+function dropLockOnZoom() {
+  const btn = document.querySelector('.maplibregl-ctrl-geolocate');
+  if (!btn) return;
+  map.on('zoomstart', (e) => {
+    // A gesture, not the control's own fly-to and not one of ours.
+    if (!e.originalEvent || geolocate._watchState !== 'ACTIVE_LOCK') return;
+    geolocate._watchState = 'BACKGROUND';
+    btn.classList.add('maplibregl-ctrl-geolocate-background');
+    btn.classList.remove('maplibregl-ctrl-geolocate-active');
+    geolocate.fire('trackuserlocationend');
+    geolocate.fire('userlocationlostfocus');
+  });
+}
+
 // Its own corner, so the attribution can have the top-right one to itself.
 map.addControl(geolocate, 'bottom-right');
 keepGeolocateOn();
+dropLockOnZoom();
 
 // Show the dot without being asked.
 //
