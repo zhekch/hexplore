@@ -576,7 +576,7 @@ body {
   box-sizing: border-box;
   padding: 12px 14px;
   border-radius: 18px;
-  background: rgba(24, 28, 38, 0.94);
+  background: rgba(28, 28, 28, 0.94);
   -webkit-backdrop-filter: blur(24px) saturate(170%);
   backdrop-filter: blur(24px) saturate(170%);
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1461,7 +1461,24 @@ body {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(6, 8, 14, 0.5);
+  /* --- Why this is black and not a dark blue -------------------------------
+     It was `rgba(6, 8, 14, …)`, and those six levels of blue over red were the
+     whole reason every dialog read as slightly cold while the layers menu and
+     the search palette did not.
+
+     Two things multiply it. An element with a `backdrop-filter` is a **backdrop
+     root**, so the card inside this overlay cannot see the map — all it has to
+     work with is this colour over the blurred map, and this colour is half of
+     it. Then the card's own `saturate()` used to take that mixture and push its
+     chroma up by 70%, which on a near-black turns a hint of blue into a
+     reading of it: the composite came out rgb(31, 34, 43) — twelve levels of
+     blue over red, on a surface whose brightest component is 43.
+
+     So: a neutral scrim here (the search palette has always used one), and no
+     saturation on the card. Together they take the same surface to
+     rgb(29, 30, 32). What is left is three levels, which is the map itself
+     showing through glass — the material working, rather than a colour. */
+  background: rgba(0, 0, 0, 0.5);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
@@ -1481,8 +1498,15 @@ body {
   padding: 22px 22px 18px;
   border-radius: 26px;
   background: rgba(255, 255, 255, 0.08);
-  -webkit-backdrop-filter: blur(30px) saturate(170%);
-  backdrop-filter: blur(30px) saturate(170%);
+  /* No `saturate()`, unlike every other panel made of this glass, and the
+     difference is what the glass has behind it. The layers menu and the search
+     palette sit over the *map*: saturation is what lets a lake or a forest
+     glow faintly through them, which is the whole point of the material. A
+     dialog sits over a scrim, and there is no map colour left to reward — so
+     all the filter can do is exaggerate whatever tint the scrim has. See
+     .modal-overlay. */
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.5),
@@ -1731,7 +1755,7 @@ body {
   padding: 9px 11px;
   border-radius: 11px;
   border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(10, 14, 22, 0.5);
+  background: rgba(14, 14, 14, 0.5);
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -2987,7 +3011,8 @@ body {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(6, 8, 14, 0.55);
+  /* Neutral, for the reason .modal-overlay is. */
+  background: rgba(0, 0, 0, 0.55);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
@@ -3005,8 +3030,9 @@ body {
   padding: 28px 26px 22px;
   border-radius: 26px;
   background: rgba(255, 255, 255, 0.08);
-  -webkit-backdrop-filter: blur(30px) saturate(170%);
-  backdrop-filter: blur(30px) saturate(170%);
+  /* Unsaturated, like .modal-card and for the same reason. */
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.5),
@@ -3120,7 +3146,7 @@ body {
 
 /* Quiet, glassy attribution */
 .maplibregl-ctrl-attrib {
-  background: rgba(10, 10, 16, 0.45) !important;
+  background: rgba(10, 10, 10, 0.45) !important;
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-radius: 10px;
@@ -3417,8 +3443,14 @@ body {
   color: #0f172a;
 }
 
+/* Grey rather than slate-200, which carried sixteen levels of blue over red —
+   the light theme's share of the same complaint, and the same fix. The search
+   palette has never had a light override at all: its scrim is neutral in both
+   themes, which is precisely why that one panel never looked cold. Matched on
+   luminance, so the scrim is exactly as heavy as it was and only the hue has
+   gone. The card on top of it keeps slate-50, as the search card does. */
 [data-theme='light'] .modal-overlay {
-  background: rgba(226, 232, 242, 0.55);
+  background: rgba(231, 231, 231, 0.55);
 }
 
 [data-theme='light'] .ha-help,
@@ -3627,7 +3659,7 @@ body {
 }
 
 [data-theme='light'] .auth-overlay {
-  background: rgba(226, 232, 242, 0.6);
+  background: rgba(231, 231, 231, 0.6);
 }
 
 [data-theme='light'] .auth-card {
@@ -3848,7 +3880,7 @@ body {
    `[data-theme='light'] .offline-bar` matches this element too and at the same
    specificity: written any earlier, every rule here would lose to the red. */
 .home-bar {
-  background: rgba(16, 20, 30, 0.86);
+  background: rgba(20, 20, 20, 0.86);
   border-color: rgba(255, 255, 255, 0.16);
   color: #e6ecf7;
   /* Under the dialogs (z 90), where the other two banners are deliberately over
@@ -3861,7 +3893,7 @@ body {
 
 .home-bar svg,
 .home-bar .offline-text small {
-  color: rgba(230, 236, 247, 0.78);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* The second of two buttons, and the one that means "no". The same size and the
@@ -3882,22 +3914,25 @@ body {
 [data-theme='light'] .home-bar {
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(15, 23, 42, 0.16);
-  color: #17233a;
+  color: rgba(15, 23, 42, 0.94);
 }
 
+/* The light theme's own ink, rather than a slate of this banner's invention —
+   two near-identical dark blues on one screen is the sort of thing nobody can
+   name and everybody can see. */
 [data-theme='light'] .home-bar .offline-text b {
-  color: #17233a;
+  color: rgba(15, 23, 42, 0.94);
 }
 
 [data-theme='light'] .home-bar svg,
 [data-theme='light'] .home-bar .offline-text small {
-  color: rgba(23, 35, 58, 0.72);
+  color: rgba(15, 23, 42, 0.58);
 }
 
 [data-theme='light'] .home-bar .offline-retry {
-  border-color: rgba(23, 35, 58, 0.24);
-  background: rgba(23, 35, 58, 0.08);
-  color: #17233a;
+  border-color: rgba(15, 23, 42, 0.16);
+  background: rgba(15, 23, 42, 0.08);
+  color: rgba(15, 23, 42, 0.94);
 }
 
 [data-theme='light'] .home-bar .offline-quiet {
@@ -4630,7 +4665,7 @@ body {
   max-width: min(460px, calc(100vw - 28px));
   padding: 7px 8px 7px 14px;
   border-radius: 999px;
-  background: rgba(24, 28, 38, 0.92);
+  background: rgba(28, 28, 28, 0.92);
   -webkit-backdrop-filter: blur(20px) saturate(170%);
   backdrop-filter: blur(20px) saturate(170%);
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -4709,7 +4744,7 @@ body {
   box-sizing: border-box;
   padding: 9px 15px;
   border-radius: 14px;
-  background: rgba(20, 22, 28, 0.82);
+  background: rgba(22, 22, 22, 0.82);
   -webkit-backdrop-filter: blur(22px) saturate(160%);
   backdrop-filter: blur(22px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.14);
