@@ -93,6 +93,17 @@ final class WebViewController: NSViewController, WKUIDelegate, WKNavigationDeleg
         configuration.userContentController.addScriptMessageHandler(
             SaveBridge.shared, contentWorld: .page, name: SaveBridge.name
         )
+        // And where the map's own "my location" button gets its position, since
+        // WebKit here grants the permission and then never delivers one. See
+        // `LocationBridge` — this pair is the whole of that fix, and it works on
+        // every macOS this app supports rather than only on 27.
+        configuration.userContentController.addScriptMessageHandler(
+            LocationBridge.shared, contentWorld: .page, name: LocationBridge.name
+        )
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: LocationBridge.userScript,
+                         injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        )
         // Set on the configuration *before* the web view exists, because
         // `WKWebView` copies its configuration at init — assigning to
         // `webView.configuration` afterwards writes to a copy nobody reads.
