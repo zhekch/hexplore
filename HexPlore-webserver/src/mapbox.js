@@ -36,28 +36,39 @@ export const STANDARD_STYLE = 'mapbox://styles/mapbox/standard';
 // `setConfigProperty` call has to name it.
 export const BASEMAP_IMPORT = 'basemap';
 
-// --- Terrain, which is Standard's business and not ours ------------------------
+// --- Terrain ------------------------------------------------------------------
 //
-// **There is deliberately no `setTerrain` here.** There was, at exaggeration 1,
-// on the reasoning that a map about where you have been wants the ground's real
-// shape. It was wrong twice over.
+// On, at exaggeration 1 — the ground's real shape and no more of it. A doubled
+// Alps would put the visited wash on a slope nobody walked up.
 //
-// Standard already sets its own, and it is cleverer than a constant: the
-// exaggeration it publishes is
+// **Standard sets its own, and its own is not enough.** What it publishes is
 //
 //     ["interpolate", ["linear"], ["zoom"], 6, 0, 7, 1, 12, 1, 13.7, 0]
 //
-// — no relief at world zoom, full relief through the range where you are looking
-// at a region, and faded back to flat by z13.7. Overriding that with a flat 1
-// held terrain on into the city zooms, and **that is what flattened the
-// bridges**: Standard models the Kornhausbrücke as a deck forty metres above the
-// Aare, and terrain drapes the road network onto the DEM instead, so the bridge
-// sank to river level and crossed the water as a painted stripe. Checked both
-// ways over that bridge.
+// — relief through the zooms where you are looking at a region, and **faded back
+// to flat by z13.7**, which is every zoom at which you are looking at a city. In
+// Bern that is the difference between a town on the side of a gorge and a town
+// printed on a sheet of paper: the Aare drops forty metres below the Bundesplatz
+// and none of it was there. This file briefly deferred to that ramp and the map
+// lost the thing that made it worth looking at.
 //
-// So the fix for the bridges was to stop asking. Hills at the zooms where hills
-// are the subject, structures standing up at the zooms where they are — which is
-// the answer we would have wanted, arrived at by leaving it alone.
+// **What it costs is bridges, and there is no way to have both.** Terrain drapes
+// line layers onto the DEM, so the Kornhausbrücke — which Standard otherwise
+// models as a deck forty metres above the water — sinks to river level and
+// crosses the Aare as a painted stripe. That is what draping *is* for a line
+// layer; all 45 of Standard's config options were read looking for an exemption
+// and there is none. Checked both ways over that bridge, twice.
+//
+// So it is a trade, and this is the side of it worth being on: the relief is
+// everywhere and all the time, and the flattened bridge is a handful of spans in
+// a city. Set this to 0 for the other side — bridges with decks, and a flat
+// Bern.
+export const TERRAIN_EXAGGERATION = 1;
+export const DEM_SOURCE = 'mapbox-dem';
+export const DEM_TILESET = 'mapbox://mapbox.mapbox-terrain-dem-v1';
+// Mapbox's DEM stops here and is upsampled above it, which is why the relief
+// stays smooth at street zoom rather than turning into steps.
+export const DEM_MAX_ZOOM = 14;
 
 // --- Where the sun is ---------------------------------------------------------
 // Standard's four light presets, which are the control the published screenshots
@@ -219,5 +230,28 @@ export function configureStandard(map) {
   } catch {
     // A style that is not Standard has no such import. Not worth failing over:
     // the map is already drawn and none of this decides whether it draws.
+  }
+
+  if (!TERRAIN_EXAGGERATION) return;
+  try {
+    // The DEM is Standard's own tileset, added again here under the same name
+    // because the one inside the import cannot be addressed from out here — and
+    // `setTerrain` needs a source it can see. Two declarations of the same
+    // tiles; the tiles themselves are fetched once.
+    if (!map.getSource(DEM_SOURCE)) {
+      map.addSource(DEM_SOURCE, {
+        type: 'raster-dem',
+        url: DEM_TILESET,
+        tileSize: 512,
+        maxzoom: DEM_MAX_ZOOM,
+      });
+    }
+    // A flat number, deliberately, replacing the zoom ramp Standard would
+    // otherwise apply — see the note above. The ramp is why the city was flat.
+    map.setTerrain({ source: DEM_SOURCE, exaggeration: TERRAIN_EXAGGERATION });
+  } catch (e) {
+    // Terrain is the one part of this that costs a second tile pyramid, and the
+    // one part the map is still a map without.
+    console.warn('Mapbox terrain could not be set up.', e);
   }
 }

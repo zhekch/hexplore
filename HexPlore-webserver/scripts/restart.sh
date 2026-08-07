@@ -44,6 +44,27 @@ pull=1
 [[ "${1:-}" == "--no-pull" ]] && pull=0
 
 if [[ $pull == 1 ]]; then
+  # `npm install` below rewrites package-lock.json often enough — a different npm
+  # or node version on this machine is all it takes — and leaves it dirty. The
+  # *next* run then dies before it does anything at all:
+  #
+  #   error: Your local changes to the following files would be overwritten by
+  #   merge: HexPlore-webserver/package-lock.json
+  #
+  # which is this script having broken its own next run, and it happens on
+  # exactly the commits that matter: the ones that changed a dependency, which
+  # are the ones where the pull is carrying something the build needs.
+  #
+  # So the lockfile is restored before pulling, and **only** the lockfile. It is
+  # generated, npm owns it, and `npm install` regenerates it from package.json a
+  # few lines below — there is nothing in it to lose here. Anything else dirty
+  # still stops the pull, which is right: a tracked file edited on a deploy box
+  # is something a person should look at, not something a script should throw
+  # away to save itself a restart.
+  if ! git diff --quiet -- package-lock.json; then
+    echo "→ restoring package-lock.json (npm rewrote it; it is generated)"
+    git checkout -- package-lock.json
+  fi
   echo "→ pulling"
   git pull --ff-only
 fi

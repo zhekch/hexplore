@@ -5612,6 +5612,26 @@ async function switchEngine(key) {
     // Holds the map it was made for, so it cannot outlive one — see its
     // declaration. The sheet it had is dropped and installGrid repaints it.
     blobCur = createBlobLayer(map, 'blob');
+    // ...and forget everything that described the *old* one. This bookkeeping
+    // lives at module scope and so survives a map that does not: `coverage` is
+    // the patch of ground the sheet was painted for, `currentLevel` which level
+    // it holds, `paintedZoom` the zoom it was rasterised at. Left alone, they
+    // describe a canvas that has just been thrown away — and `updateGrid` reads
+    // them to decide whether a repaint is owed, so it concluded the view was
+    // already covered and never painted the new sheet at all. The wash then
+    // froze exactly where the old basemap left it and stayed there through
+    // every pan, until something forced a repaint by another route: changing
+    // the colouring mode, which is how this was reported.
+    //
+    // A style swap never needed this — the sheet and its layer survive one.
+    // Replacing the map is the case that does.
+    coverage = null;
+    currentLevel = null;
+    currentAsBlob = false;
+    paintedZoom = 0;
+    blobCoarse = false;
+    blobRole = 'none';
+    fedFine = false;
     rewireMap();
     // A basemap that needs building is fetched and applied the same way it is
     // for any other switch. Standard is a URL, so this is usually a no-op.

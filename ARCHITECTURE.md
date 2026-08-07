@@ -2737,22 +2737,33 @@ costs is at the far edge and `PITCH_REACH` already bounded it: past three screen
 heights the visited wash is not painted, so a hard lean shows the basemap running
 to its own horizon with no colour on it.
 
-**Terrain is Standard's business, and taking it over was a bug.** This file used
-to call `setTerrain` at a flat exaggeration of 1, on the reasoning that a map
-about where you have been wants the ground's real shape. Standard already sets
-its own, and it is cleverer than a constant:
+**Terrain is set here, and deferring to Standard's own was a mistake worth
+recording.** Standard publishes its own exaggeration:
 
     ["interpolate", ["linear"], ["zoom"], 6, 0, 7, 1, 12, 1, 13.7, 0]
 
-— no relief at world zoom, full relief through the range where you are looking at
-a region, and faded back to flat by z13.7. Overriding that held terrain on into
-the city zooms, and **that is what flattened the bridges**: Standard models the
-Kornhausbrücke as a deck forty metres above the Aare, and terrain drapes the road
-network onto the DEM instead, so the bridge sank to river level and crossed the
-water as a painted stripe. Checked both ways over that bridge. There is no
-per-layer way out — draping is what terrain *is* for a line layer — so the fix
-was to stop asking, and the answer we wanted fell out: hills where hills are the
-subject, structures standing up where they are.
+— relief through the zooms where you are looking at a region, and **faded back to
+flat by z13.7**, which is every zoom at which you are looking at a city. That was
+briefly left alone, on the theory that Mapbox knew best. In Bern it is the
+difference between a town on the side of a gorge and a town printed on a sheet of
+paper: the Aare drops forty metres below the Bundesplatz and none of it was
+there, and the buildings lost the ground they stand on with it. So `setTerrain`
+is called with a flat exaggeration of 1 and Standard's ramp is overridden.
+
+**What that costs is bridges, and there is no way to have both.** Terrain drapes
+line layers onto the DEM, so the Kornhausbrücke — modelled elsewhere as a deck
+forty metres above the water — sinks to river level and crosses the Aare as a
+painted stripe. It is not a setting that was missed: all 45 of Standard's config
+options were read looking for an exemption, and its own bridge layers
+(`bridge-street`, `bridge-minor-case`, …) carry **no `elevation-reference` at
+all** — zero of the 150 layers in the import do, so the `ElevatedStructures`
+machinery that exists in GL JS 3.28 is not something this style opts into.
+Bridges there are ordinary line layers, and ordinary line layers drape. Checked
+both ways over that bridge, twice.
+
+So it is a trade, and the relief is the side worth being on: it is everywhere and
+all the time, where the flattened bridge is a handful of spans in a city.
+`TERRAIN_EXAGGERATION = 0` takes the other side.
 
 **Which way a drag turns the map** differs between the libraries, and that had to
 be settled rather than left. Mapbox turns by the horizontal distance dragged and
