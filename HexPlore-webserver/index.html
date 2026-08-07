@@ -205,11 +205,17 @@
         <button class="layers-btn compass-btn" id="compass-btn" type="button" hidden aria-label="Face north" title="Face north and level the view">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <!-- Two halves, because one arrow only says which way it points and
-                 a needle says which way the map is turned. They share the waist
-                 line and must not cross it: overlapping halves add their fills
-                 and the needle reads as a solid arrowhead instead. -->
-            <path d="M12 2.8 16.6 13.8 7.4 13.8Z" fill="currentColor" />
-            <path d="M12 21.2 7.4 13.8 16.6 13.8Z" fill="currentColor" opacity="0.35" />
+                 a needle says which way the map is turned. Three things about
+                 the geometry, each of which has been wrong: they must share the
+                 waist rather than cross it (overlapping halves add their fills
+                 and it reads as a solid arrowhead), they must be the same
+                 length as each other (a long lobe and a short one reads as a
+                 lopsided mistake, not as a needle), and the waist must sit at
+                 the middle of the viewBox — that is the point the whole thing
+                 is rotated around, so anywhere else and the needle wobbles as
+                 the map turns instead of pivoting. -->
+            <path d="M12 3.4 16.4 12 7.6 12Z" fill="currentColor" />
+            <path d="M12 20.6 7.6 12 16.4 12Z" fill="currentColor" opacity="0.35" />
           </svg>
         </button>
         <button class="layers-btn" id="search-btn" type="button" aria-label="Search" title="Search places, trips and dates (⌘K)">
