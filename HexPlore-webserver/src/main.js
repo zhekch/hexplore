@@ -7296,127 +7296,139 @@ if (STYLES[styleKey].build) {
   });
 }
 
-// --- Interaction wiring (bound once; map + DOM persist across setStyle) -------
+// --- Interaction wiring --------------------------------------------------------
+//
+// This block used to be headed "bound once; map + DOM persist across setStyle",
+// and that was true for as long as there was only ever one map. It stopped being
+// true when the 3D basemap arrived: switching between the two map libraries
+// **replaces the map object**, and a handler bound to the old one goes with it.
+//
+// The DOM half is still bound once — those elements outlive any map. The map
+// half goes through `onMapBuilt`, which says it again to whichever map is
+// current. Missing that cost two bugs that looked unrelated: routes stopped
+// answering a click after a basemap switch, and the visited wash froze where it
+// was, because `updateGrid` is driven from `move` and `moveend` and neither was
+// being called any more.
 const isCtrl = (e) => e.ctrlKey || e.metaKey;
 
 {
-  map.on('click', (e) => {
-    // On a phone the menu is a sheet over the map, so the tap that dismisses it
-    // is aimed at the sheet, not at the ground behind it — marking a cell or
-    // opening an info card there is never what was meant. The menu is closed by
-    // the click-away handler; this only makes sure the map ignores the same tap.
-    // Desktop is left alone: there the menu sits beside the map, so a click on
-    // the map really is a click on the map.
-    //
-    // This runs *before* the click-away handler, which is why the flag is raised
-    // on pointerdown rather than there — see wireLayersControl.
-    if (dismissedMenuOnTap) {
-      dismissedMenuOnTap = false;
-      return;
-    }
-    // Placing the home pin takes the map over: while it is on, a tap is an
-    // answer to the question on screen and nothing else.
-    if (homePick.on) {
-      placeHomePin(e.lngLat);
-      return;
-    }
-    // Putting the pin away is the whole of that tap. Answering "where is Venice"
-    // and then opening a card about the ground beside it would be two answers
-    // to a question you asked once. Panning never lands here — MapLibre tells a
-    // drag from a click — so the pin survives being looked around.
-    if (placePin) {
-      showPlacePin(null);
-      return;
-    }
-    if (currentLevel == null) return;
-    if (mode !== 'edit') {
-      // Photographs first, ahead of even the routes: this is the smallest target
-      // on the map and the only one drawn *over* them, so a dot sitting on a
-      // line you rode is a dot you aimed at. Guarded by the switch so a tap on a
-      // map with no photographs on it does no work at all.
-      const photo = photosOn && styleReady && showPhotoInfo(e);
-      // A tap that landed on a saved route is about the route, not the ground
-      // under it; otherwise view mode inspects the cell.
-      const route = photo ? null : routeAt(e.point);
-      if (photo) { /* the card is the whole of the tap */ }
-      else if (route) showRouteInfo(route);
-      // Then the train tracks, in the same order they are drawn in: a line you
-      // travelled beats reference geometry about where a line exists, and both
-      // beat the ground underneath. Only when the overlay is on *and* has been
-      // asked to answer — a hit test across 288 layers is not worth running
-      // otherwise, and an overlay switched on to look at should not be quietly
-      // taking taps away from the ground it is drawn over.
-      else if (railOn && railInteractive && showRailInfo(e)) { /* the card is the whole of the tap */ }
-      // Then an airport, in the order these are drawn. No switch guarding it,
-      // unlike the railway above: that one is off by default because a hit test
-      // across 288 layers on every tap is a real cost, and this is one query
-      // over six layers of a point source. An icon you can see and cannot tap
-      // is the worse answer when tapping it is nearly free.
-      else if (airportsOn && showAirportInfo(e)) { /* the card is the whole of the tap */ }
-      // At the three vector levels there are no hexes on screen, so a tap is
-      // about the shape it landed on — whether or not you have been to it — and
-      // where there is no shape, about nothing. See showInfoAt.
+  onMapBuilt(() => map.on('click', (e) => {
+      // On a phone the menu is a sheet over the map, so the tap that dismisses it
+      // is aimed at the sheet, not at the ground behind it — marking a cell or
+      // opening an info card there is never what was meant. The menu is closed by
+      // the click-away handler; this only makes sure the map ignores the same tap.
+      // Desktop is left alone: there the menu sits beside the map, so a click on
+      // the map really is a click on the map.
       //
-      // Unless the ground has been told not to answer, in which case the tap is
-      // spent closing whatever is open — which is still the useful half of it,
-      // and better than a tap that does nothing at all.
-      else if (cellsInteractive) showInfoAt(e.lngLat);
-      else { closeCellInfo(); closeRouteInfo(); closePhotoInfo(); }
-      return;
-    }
-    if (isCtrl(e.originalEvent)) return; // Ctrl gesture is handled as painting
-    toggleCell(cellIdAt(e.lngLat));
-  });
+      // This runs *before* the click-away handler, which is why the flag is raised
+      // on pointerdown rather than there — see wireLayersControl.
+      if (dismissedMenuOnTap) {
+        dismissedMenuOnTap = false;
+        return;
+      }
+      // Placing the home pin takes the map over: while it is on, a tap is an
+      // answer to the question on screen and nothing else.
+      if (homePick.on) {
+        placeHomePin(e.lngLat);
+        return;
+      }
+      // Putting the pin away is the whole of that tap. Answering "where is Venice"
+      // and then opening a card about the ground beside it would be two answers
+      // to a question you asked once. Panning never lands here — MapLibre tells a
+      // drag from a click — so the pin survives being looked around.
+      if (placePin) {
+        showPlacePin(null);
+        return;
+      }
+      if (currentLevel == null) return;
+      if (mode !== 'edit') {
+        // Photographs first, ahead of even the routes: this is the smallest target
+        // on the map and the only one drawn *over* them, so a dot sitting on a
+        // line you rode is a dot you aimed at. Guarded by the switch so a tap on a
+        // map with no photographs on it does no work at all.
+        const photo = photosOn && styleReady && showPhotoInfo(e);
+        // A tap that landed on a saved route is about the route, not the ground
+        // under it; otherwise view mode inspects the cell.
+        const route = photo ? null : routeAt(e.point);
+        if (photo) { /* the card is the whole of the tap */ }
+        else if (route) showRouteInfo(route);
+        // Then the train tracks, in the same order they are drawn in: a line you
+        // travelled beats reference geometry about where a line exists, and both
+        // beat the ground underneath. Only when the overlay is on *and* has been
+        // asked to answer — a hit test across 288 layers is not worth running
+        // otherwise, and an overlay switched on to look at should not be quietly
+        // taking taps away from the ground it is drawn over.
+        else if (railOn && railInteractive && showRailInfo(e)) { /* the card is the whole of the tap */ }
+        // Then an airport, in the order these are drawn. No switch guarding it,
+        // unlike the railway above: that one is off by default because a hit test
+        // across 288 layers on every tap is a real cost, and this is one query
+        // over six layers of a point source. An icon you can see and cannot tap
+        // is the worse answer when tapping it is nearly free.
+        else if (airportsOn && showAirportInfo(e)) { /* the card is the whole of the tap */ }
+        // At the three vector levels there are no hexes on screen, so a tap is
+        // about the shape it landed on — whether or not you have been to it — and
+        // where there is no shape, about nothing. See showInfoAt.
+        //
+        // Unless the ground has been told not to answer, in which case the tap is
+        // spent closing whatever is open — which is still the useful half of it,
+        // and better than a tap that does nothing at all.
+        else if (cellsInteractive) showInfoAt(e.lngLat);
+        else { closeCellInfo(); closeRouteInfo(); closePhotoInfo(); }
+        return;
+      }
+      if (isCtrl(e.originalEvent)) return; // Ctrl gesture is handled as painting
+      toggleCell(cellIdAt(e.lngLat));
+    }));
 
   let hoverPending = false;
-  map.on('mousemove', (e) => {
-    cursorPx = [e.point.x, e.point.y];
-    lastLngLat = e.lngLat;
-    // View mode: show that the line under the cursor is tappable. Skipped
-    // mid-gesture, where a hit test would be both wasted and misleading.
-    if (mode !== 'edit' && !map.isMoving()) {
-      if (routesOn && routeGeom) {
-        pointerOnRoute = !!routeAt(e.point);
-        syncPointer();
+  onMapBuilt(() => map.on('mousemove', (e) => {
+      cursorPx = [e.point.x, e.point.y];
+      lastLngLat = e.lngLat;
+      // View mode: show that the line under the cursor is tappable. Skipped
+      // mid-gesture, where a hit test would be both wasted and misleading.
+      if (mode !== 'edit' && !map.isMoving()) {
+        if (routesOn && routeGeom) {
+          pointerOnRoute = !!routeAt(e.point);
+          syncPointer();
+        }
+        // And the railway under it, if the overlay has been asked to answer. A
+        // frame behind, and its own half of the cursor — see railHoverAt.
+        railHoverAt(e.point);
+        // And an airport, answered here and now: six layers over a point source is
+        // the same order of work as the route test above it, not the railway's.
+        if (airportsOn && styleReady) {
+          pointerOnAirport = !!airportFeatureAt(e.point);
+          syncPointer();
+        }
+        // And a photograph, on the same terms and for the same money.
+        if (photosOn && styleReady) {
+          pointerOnPhoto = !!photoFeatureAt(e.point);
+          syncPointer();
+        }
       }
-      // And the railway under it, if the overlay has been asked to answer. A
-      // frame behind, and its own half of the cursor — see railHoverAt.
-      railHoverAt(e.point);
-      // And an airport, answered here and now: six layers over a point source is
-      // the same order of work as the route test above it, not the railway's.
-      if (airportsOn && styleReady) {
-        pointerOnAirport = !!airportFeatureAt(e.point);
-        syncPointer();
+      if (mode !== 'edit' || currentLevel == null) return;
+      // Keep the paint gesture in sync with the live modifier state (covers the
+      // case where Ctrl is pressed/released without a separate key event, e.g.
+      // after an OS shortcut stole focus).
+      if (isCtrl(e.originalEvent)) startPaint();
+      else stopPaint();
+      if (ctrlPaint) {
+        paintAt(e.lngLat); // painting schedules its own re-render
+        return;
       }
-      // And a photograph, on the same terms and for the same money.
-      if (photosOn && styleReady) {
-        pointerOnPhoto = !!photoFeatureAt(e.point);
-        syncPointer();
-      }
-    }
-    if (mode !== 'edit' || currentLevel == null) return;
-    // Keep the paint gesture in sync with the live modifier state (covers the
-    // case where Ctrl is pressed/released without a separate key event, e.g.
-    // after an OS shortcut stole focus).
-    if (isCtrl(e.originalEvent)) startPaint();
-    else stopPaint();
-    if (ctrlPaint) {
-      paintAt(e.lngLat); // painting schedules its own re-render
-      return;
-    }
-    // While the map is panning/zooming, leave the spotlight where it is: it's
-    // anchored to the map, so it rides along and stays under the cursor (the
-    // grabbed point follows the cursor during a drag). Rebuilding here would
-    // use a mid-drag camera and make it swim. moveend re-anchors it.
-    if (map.isMoving()) return;
-    setHover(cellIdAt(e.lngLat));
-    if (hoverPending) return;
-    hoverPending = true;
-    requestAnimationFrame(() => {
-      hoverPending = false;
-      updateTiles();
-    });
-  });
+      // While the map is panning/zooming, leave the spotlight where it is: it's
+      // anchored to the map, so it rides along and stays under the cursor (the
+      // grabbed point follows the cursor during a drag). Rebuilding here would
+      // use a mid-drag camera and make it swim. moveend re-anchors it.
+      if (map.isMoving()) return;
+      setHover(cellIdAt(e.lngLat));
+      if (hoverPending) return;
+      hoverPending = true;
+      requestAnimationFrame(() => {
+        hoverPending = false;
+        updateTiles();
+      });
+    }));
   map.getCanvas().addEventListener('mouseleave', () => {
     setHover(null);
     clearRailHover();
@@ -7853,24 +7865,24 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   });
 
   let pending = false;
-  map.on('move', () => {
-    if (pending) return;
-    pending = true;
-    requestAnimationFrame(() => {
-      pending = false;
+  onMapBuilt(() => map.on('move', () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => {
+        pending = false;
+        updateGrid();
+        // Don't rebuild the spotlight mid-move — it rides with the map so it
+        // stays under the cursor while dragging; moveend re-anchors it.
+      });
+    }));
+  onMapBuilt(() => map.on('moveend', () => {
       updateGrid();
-      // Don't rebuild the spotlight mid-move — it rides with the map so it
-      // stays under the cursor while dragging; moveend re-anchors it.
-    });
-  });
-  map.on('moveend', () => {
-    updateGrid();
-    updateTiles();
-  });
-  map.on('resize', () => {
-    updateGrid();
-    updateTiles();
-  });
+      updateTiles();
+    }));
+  onMapBuilt(() => map.on('resize', () => {
+      updateGrid();
+      updateTiles();
+    }));
 
   // Until the pointer moves, anchor the spotlight to the viewport center.
   const el = map.getContainer();

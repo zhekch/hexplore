@@ -2681,6 +2681,23 @@ remembers it, and `rewireMap()` says all of it again to the next map in the same
 order. Order is load-bearing: handlers for one event fire in registration order,
 and `installGrid` has to run after the handler that sets `chromeStyleSeen`.
 
+**Everything means everything, and missing five of them cost two bugs that
+looked unrelated.** `click`, `mousemove`, `move`, `moveend` and `resize` were
+registered in a block headed *"bound once; map + DOM persist across setStyle"* —
+which was true for as long as there was only ever one map, and stopped being
+true the moment there were two libraries. Bound to the map that had just been
+thrown away, they left a map that answered no clicks (so a route could not be
+selected) and called `updateGrid` on no camera movement (so the visited wash
+froze where the old basemap left it and stayed there through every pan, until
+something forced a repaint by another route — changing the colouring mode, which
+is how it was reported).
+
+Neither threw, which is what made them slow to find: a handler that was never
+registered is not an error anywhere, and the layers it would have driven were
+all present and correct. The check that finds them is *"which `map.on` calls are
+at module scope and not inside an `onMapBuilt`"* — worth re-running after any
+change here, because the failure mode is silence.
+
 What makes it *safe* is that `installGrid` already rebuilds every layer this app
 draws on `style.load`, because an ordinary basemap switch has always dropped
 them. A new map fires that event exactly as a new style does, so the restoring
