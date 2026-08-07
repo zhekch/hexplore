@@ -925,9 +925,19 @@
             <button type="button" class="modal-btn" id="mapbox-clear" hidden>Remove</button>
           </div>
           <div class="token-note" id="mapbox-note" hidden></div>
+
+          <!-- Where the sun is. Not decoration: two of the four relight the map
+               dark, and the app's chrome, the visited wash and the routes all
+               follow from which. The buttons are built in src/mapbox-ui.js from
+               LIGHT_PRESETS so the list cannot drift from the one applied. -->
+          <div class="menu-subhead"><span>Light</span></div>
+          <div class="seg seg-wrap" id="mapbox-light-seg"></div>
+
           <div class="import-note">
             The token is kept on this device only and is never sent to the HexPlore server. Removing
-            it here takes it off this device; revoking it is done at Mapbox.
+            it here takes it off this device; revoking it is done at Mapbox. Choosing <b>3D</b>, or
+            leaving it, reloads the page — it is drawn by a different map library, and the map comes
+            back where you left it.
           </div>
         </div>
 
@@ -1632,6 +1642,9 @@
       </form>
     </div>
 
-    <script type="module" src="/src/main.js"></script>
+    <!-- boot.js, not main.js: which map library to fetch is the first decision
+         of the page, and main.js cannot be evaluated until it is made.
+         See src/boot.js. -->
+    <script type="module" src="/src/boot.js"></script>
   </body>
 </html>

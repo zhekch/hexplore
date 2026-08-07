@@ -1,5 +1,3 @@
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
 import './style.css';
 import {
   MAX_LEVEL,
@@ -37,7 +35,13 @@ import {
   cellColorOf, cellStats, heatMetric, hotOf, isHeatMode as isHeatColoring,
 } from './coloring.js';
 import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
-import { hasMapboxToken, mapbox3dStyle, mapboxAuth } from './mapbox.js';
+import {
+  BASEMAP_IMPORT, STANDARD_STYLE, configureStandard, hasMapboxToken, presetTheme,
+} from './mapbox.js';
+import {
+  LABEL_SLOT_ID, MAPBOX, STYLE_KEY, WASH_SLOT_ID, engineForBasemap, engineNow,
+  installAddLayerSlots, isSlot,
+} from './gl-engine.js';
 // The theme is not handed over separately: it only ever changes by switching
 // basemap, which replaces the style and rebuilds the overlay from scratch.
 import {
@@ -558,25 +562,35 @@ const STYLES = {
     cellAlpha: 1,
     heatAlpha: 1,
   },
-  // The one basemap that can be *unavailable*. Mapbox serves nothing without an
-  // account, this app does not have one, and so the viewer's own token is what
-  // switches it on — `needsToken` is what lets the picker say so rather than
-  // leaving a button that silently does nothing. See src/mapbox.js.
+  // Mapbox Standard, and the only entry that is not MapLibre's to draw.
   //
-  // Its buildings have height and its ground has shape, which is the whole
-  // point of it; both are declared in the style document rather than set on the
-  // map, so switching away takes them with it and nothing here has to undo
-  // anything.
+  // Two things follow from `engine`, and they are the whole reason this basemap
+  // is different in kind from the other four. It is loaded by a different
+  // library, so choosing it or leaving it **reloads the page** — see
+  // `setStyleKey` and src/gl-engine.js. And it can be *unavailable*: Mapbox
+  // serves nothing without an account, this app does not have one, and the
+  // viewer's own token is what switches it on. `needsToken` is what lets the
+  // picker say so rather than leaving a button that silently does nothing.
+  //
+  // No `build`. Standard is a style *import* and Mapbox GL JS resolves it —
+  // there is nothing here to fetch and rewrite, which is most of what made the
+  // MapLibre version of this basemap a worse copy of it.
   mapbox: {
     label: '3D',
-    build: mapbox3dStyle,
+    url: STANDARD_STYLE,
     needsToken: hasMapboxToken,
-    // Mapbox Streets is a light map — pale ground, beige buildings — so the
-    // wash and the routes take the light-basemap contrast rules, the same as
-    // Voyager.
-    theme: 'light',
+    // Alone among the five, this one's theme is not a constant: Standard's light
+    // preset turns the whole map dark at dusk and at night, and everything the
+    // app decides from a theme — chrome colour, how the wash and the routes are
+    // lifted for contrast — has to follow it. See LIGHT_PRESETS in src/mapbox.js.
+    get theme() {
+      return presetTheme();
+    },
     cellAlpha: 1,
     heatAlpha: 1,
+    // Only reached if Mapbox GL JS itself cannot be loaded, which puts us back
+    // on MapLibre with no Mapbox style to give it. Light, because that is the
+    // theme the chrome has already been painted in by then.
     fallback: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
   },
   satellite: {
@@ -607,9 +621,14 @@ const placeholderStyle = (theme) => ({
   ],
 });
 
+// Which library has to draw a given basemap. The answer lives in gl-engine.js
+// rather than on the STYLES entries below, because boot.js has to ask it before
+// this module can be parsed — see the comment on MAPBOX_BASEMAPS there.
+const engineOf = engineForBasemap;
+
 /**
- * What to hand MapLibre for a basemap: a URL straight through, or the built
- * style object. A build that fails falls back rather than leaving no map.
+ * What to hand the map library for a basemap: a URL straight through, or the
+ * built style object. A build that fails falls back rather than leaving no map.
  */
 async function resolveStyle(key) {
   const entry = STYLES[key];
@@ -621,7 +640,6 @@ async function resolveStyle(key) {
     return entry.fallback;
   }
 }
-const STYLE_KEY = 'visited-map:style:v1';
 
 // Which parts of the train-tracks overlay are switched on. The overlay itself
 // is session-only (see `railOn` below) but these are a shape of the thing rather
@@ -679,6 +697,21 @@ if (STYLES[styleKey].needsToken && !STYLES[styleKey].needsToken()) styleKey = 'v
 // white-on-light flash when the saved basemap is Voyager.
 document.documentElement.dataset.theme = STYLES[styleKey].theme;
 presumeChrome();
+
+// --- The map library ----------------------------------------------------------
+// Already loaded, by src/boot.js, which is the only route into this module and
+// awaits the library before importing it. Read synchronously here because the
+// whole of the rest of this file is written against `gl`, and a map built inside
+// a `.then()` would put seven thousand lines into a callback.
+const { gl, engine } = engineNow();
+// Standard is the only style MapLibre cannot draw, so if boot.js had to fall
+// back to it the basemap has to give up too — otherwise the map opens on a
+// placeholder background that never resolves into anything.
+if (engineOf(styleKey) !== engine) {
+  styleKey = 'voyager';
+  document.documentElement.dataset.theme = STYLES[styleKey].theme;
+  presumeChrome();
+}
 // Train tracks are deliberately session-only and always start disabled after
 // a page reload. Their state still survives basemap switches within the page.
 let railOn = false;
@@ -735,7 +768,7 @@ const tileColors = () =>
     : { fill: 'rgb(240, 246, 255)', line: 'rgb(235, 243, 255)' };
 
 // --- Map -----------------------------------------------------------------------
-const map = new maplibregl.Map({
+const map = new gl.Map({
   container: 'map',
   // A built style can't be awaited here. Rather than load a *different* basemap
   // and throw it away — a wasted fetch and a visible flash of the wrong map —
@@ -761,21 +794,29 @@ const map = new maplibregl.Map({
   // Added by hand below so it can sit top-right, out of the geolocate button's
   // corner.
   attributionControl: false,
-  // The Mapbox basemap's access token, put on every request bound for Mapbox's
-  // API and nothing else — the style, its sprite sheet, its glyph ranges, both
-  // TileJSON documents and every vector and DEM tile, several of which are URLs
-  // MapLibre builds for itself out of strings src/mapbox.js never sees. It
-  // returns undefined for every other host, so the four basemaps that are not
-  // Mapbox's cannot tell this is installed.
-  transformRequest: mapboxAuth,
+  // Flat, and stated rather than assumed. Mapbox GL JS v3 draws a **globe**
+  // below about z6 unless told otherwise, and everything this app puts on the
+  // map is built for a rectangle of Mercator metres — `groundBox` in
+  // src/view.js is closed-form Mercator arithmetic, and the blob sheet is a
+  // canvas pinned to four lng/lat corners. On a globe the sheet would be
+  // stretched across a curved surface it was not painted for, at exactly the
+  // zooms where it covers a continent. MapLibre defaults to Mercator and
+  // accepts the same option, so this is said once for both.
+  projection: 'mercator',
 });
+// On Mapbox the two anchors this app inserts by — under the streets, under the
+// labels — are slots rather than layer ids, because Standard's layers live
+// inside an import and `getStyle().layers` comes back empty. One wrapper here
+// rather than a branch at each of the seventeen `addLayer` calls; see
+// src/gl-engine.js.
+if (engine === MAPBOX) installAddLayerSlots(map);
 
 // The place names that title imported routes come from GeoNames, which is
 // CC BY 4.0 — the credit is required whether or not any route is on screen.
 // (Natural Earth, used for the country level and the lake names, is public
 // domain and asks for nothing.)
 map.addControl(
-  new maplibregl.AttributionControl({
+  new gl.AttributionControl({
     compact: true,
     customAttribution: '<a href="https://www.geonames.org/">GeoNames</a>',
   }),
@@ -806,7 +847,7 @@ map.on('movestart', (e) => {
 
 // "My location" button — browser geolocation (works on localhost; production
 // needs HTTPS). Clicking it pans to the viewer and shows the blue dot.
-const geolocate = new maplibregl.GeolocateControl({
+const geolocate = new gl.GeolocateControl({
   positionOptions: { enableHighAccuracy: true },
   fitBoundsOptions: { maxZoom: 14 },
   trackUserLocation: true,
@@ -1010,8 +1051,16 @@ map.on('idle', () => {
   refreshChrome();
 });
 
-map.on('moveend', () => {
-  askChromeAgain();
+/**
+ * Write the camera down, so the next load opens where this one left off.
+ *
+ * Its own function because a basemap that changes the map *library* has to
+ * reload the page, and the reload has to take the view with it — see
+ * setStyleKey(). `moveend` alone would nearly always do, since it fires after
+ * every gesture, but "nearly always" here means the one press that reloads
+ * catching the camera mid-flight.
+ */
+function rememberView() {
   if (!REMEMBER_VIEW) return;
   try {
     const c = map.getCenter();
@@ -1028,6 +1077,11 @@ map.on('moveend', () => {
   } catch {
     /* storage unavailable */
   }
+}
+
+map.on('moveend', () => {
+  askChromeAgain();
+  rememberView();
 });
 
 // Tracks whether the basemap has become visible yet — before that, the
@@ -4640,7 +4694,12 @@ function raiseVectorLayers(sfx) {
   // selection ring above it — has to stay above the visited wash; moving the
   // wash to `washBefore` would lift it over both, and the trip you just clicked
   // would disappear under the countries.
-  const anchor = map.getLayer(VEC_ANCHOR) ? VEC_ANCHOR : vecInsertBefore;
+  // The fallback is only reachable before `trip-glow` exists, and on Mapbox it
+  // would be a slot name rather than a layer id — which `moveLayer` would throw
+  // on, because a slot is a place to insert *into* and not a layer to sit
+  // before. Nothing to reorder at that point anyway.
+  const fallback = isSlot(vecInsertBefore) ? null : vecInsertBefore;
+  const anchor = map.getLayer(VEC_ANCHOR) ? VEC_ANCHOR : fallback;
   if (!anchor) return;
   for (const id of VEC_LAYERS) {
     if (map.getLayer(`${id}${sfx}`)) map.moveLayer(`${id}${sfx}`, anchor);
@@ -5227,6 +5286,24 @@ function setStyleKey(key) {
     mapboxUi?.open();
     return;
   }
+  // Crossing between the two map libraries, which cannot be done to a map that
+  // already exists — so the page is reloaded and the engine chosen again at
+  // boot. The camera is written down first and read back on the way up, so what
+  // this actually looks like is a flash and the same view returning. See
+  // src/gl-engine.js for why the alternative was not worth its price.
+  if (engineOf(key) !== engine) {
+    try {
+      localStorage.setItem(STYLE_KEY, key);
+    } catch {
+      // Without storage the reload would come back on the old basemap, which is
+      // a switch that visibly does nothing. Better to stay put and say why.
+      showToast('This browser will not remember the basemap, so 3D cannot be opened.');
+      return;
+    }
+    rememberView();
+    location.reload();
+    return;
+  }
   styleKey = key;
   presumeChrome(); // before anything is fetched, let alone painted
   // Immediately, not once the new style lands: the wash on screen belongs to
@@ -5468,7 +5545,7 @@ function showAirportInfo(e) {
   }
 
   airportPopup?.remove();
-  airportPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+  airportPopup = new gl.Popup({ closeButton: true, maxWidth: '280px' })
     .setLngLat(hit.geometry.coordinates.slice(0, 2))
     .setDOMContent(card)
     .addTo(map);
@@ -5804,7 +5881,7 @@ function showRailInfo(e) {
   if (info.osm) addOsmLink(card, info.osm);
 
   railPopup?.remove();
-  railPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+  railPopup = new gl.Popup({ closeButton: true, maxWidth: '280px' })
     .setLngLat(hit.geometry?.type === 'Point' ? hit.geometry.coordinates.slice() : e.lngLat)
     .setDOMContent(card)
     .addTo(map);
@@ -6360,11 +6437,22 @@ map.on('error', (e) => {
 // top of it — and exactly wrong for a route, which came out chopped into dashes
 // wherever a road casing crossed it.
 function labelStart() {
+  // Standard keeps its layers inside an import, so there is nothing to scan and
+  // nothing to name. It answers the same question with a slot instead, which is
+  // the better answer: a promise about position that survives Mapbox reordering
+  // the style, where a `beforeId` is a guess that a layer id still means what it
+  // meant. See src/gl-engine.js.
+  if (engine === MAPBOX) return LABEL_SLOT_ID;
   const layers = map.getStyle().layers;
   for (let i = layers.length - 1; i >= 0; i--) {
     if (layers[i].type !== 'symbol') return layers[i + 1]?.id;
   }
   return undefined;
+}
+
+/** The same question for the visited wash — see washAnchorIn() in basemap.js. */
+function washAnchor() {
+  return engine === MAPBOX ? WASH_SLOT_ID : washAnchorIn(map.getStyle().layers);
 }
 
 // Whatever fontstack the basemap already asks its own glyph server for.
@@ -6376,7 +6464,14 @@ function labelStart() {
 // taking it handed the continent counts an *italic* stack. Water and terrain
 // labels are the ones styles set in italic, and there is always an upright
 // stack further down the list.
+// Standard's fontstack. Named rather than discovered for the same reason
+// labelStart() is: there are no layers to read it off. This is the stack every
+// published Mapbox style asks for, and their glyph server is the one being
+// asked, so it is not the guess it would be against anybody else's.
+const MAPBOX_FONT = ['DIN Pro Regular', 'Arial Unicode MS Regular'];
+
 function styleFont() {
+  if (engine === MAPBOX) return MAPBOX_FONT;
   const stacks = [];
   for (const l of map.getStyle().layers) {
     const font = l.layout?.['text-font'];
@@ -6421,8 +6516,13 @@ const labelColors = () =>
 
 function installGrid() {
   styleParsed = true; // whatever is in place now has parsed; see styleSettled
-  // Over the ground, under the streets and rooftops — see washAnchorIn().
-  const washBefore = washAnchorIn(map.getStyle().layers);
+  // Where the sun is, and whether the ground has shape. Both are Standard's own
+  // config rather than anything this app draws, so they are set before a single
+  // layer of ours goes in — a light preset arriving after the wash would relight
+  // the map underneath a colour already chosen for the old one.
+  if (engine === MAPBOX) configureStandard(map);
+  // Over the ground, under the streets and rooftops — see washAnchor().
+  const washBefore = washAnchor();
   const lineLayout = { 'line-join': 'round', 'line-cap': 'round' };
   const isRegion = ['==', ['get', 'k'], 1];
   const isBoundary = ['==', ['get', 'k'], 2];
@@ -6432,9 +6532,16 @@ function installGrid() {
   // Text needs glyphs, and the placeholder style the map opens on while a built
   // basemap is being fetched has none. Adding the layer anyway would ask a
   // glyph server that isn't there for a font it doesn't have, once per label.
-  const canLabel = !!map.getStyle().glyphs;
-  // A new style brings its own continent names back, visible.
-  continentLabelLayers = canLabel
+  // Standard declares no `glyphs` of its own — the import carries it — but its
+  // glyph server is Mapbox's and MAPBOX_FONT is what it serves, so labels are
+  // always available there.
+  const canLabel = engine === MAPBOX || !!map.getStyle().glyphs;
+  // A new style brings its own continent names back, visible. Empty on Standard:
+  // the layers are inside the import and cannot be addressed, so at the
+  // continent level its names and our counts are both drawn. Ours collide-and-
+  // win where they overlap, which leaves the basemap's showing beside them —
+  // untidy, and the only thing lost by not owning the layer list.
+  continentLabelLayers = canLabel && engine !== MAPBOX
     ? map.getStyle().layers.filter((l) => l.type === 'symbol' && /continent/i.test(l.id)).map((l) => l.id)
     : [];
   basemapContinentsOn = true;
@@ -7073,8 +7180,25 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       updateMapboxNote();
       // ...unless what just happened is that the token holding the basemap on
       // screen was taken away. Then there is nothing left to draw and the map
-      // has to be moved off it.
+      // has to be moved off it — which, from 3D, is a reload.
       if (!hasMapboxToken() && STYLES[styleKey]?.needsToken) setStyleKey('voyager');
+    },
+    // Only the map that is actually Standard can be relit, and only while it is
+    // the one on screen. Chosen from any other basemap this is a preference
+    // being set for later, which is why nothing here complains about it.
+    onPreset: (key) => {
+      if (engine !== MAPBOX || styleKey !== 'mapbox') return;
+      try {
+        map.setConfigProperty(BASEMAP_IMPORT, 'lightPreset', key);
+      } catch (e) {
+        console.warn('Mapbox light preset could not be applied.', e);
+      }
+      // Dusk and night turn the whole map dark, and everything the app decides
+      // from a theme has to follow: the chrome, and how the wash and the routes
+      // are lifted for contrast against it.
+      presumeChrome();
+      syncAccent();
+      updateLayersUi();
     },
   });
   personalUi = mountPersonal({

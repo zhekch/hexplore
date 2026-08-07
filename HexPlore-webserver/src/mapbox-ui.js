@@ -13,20 +13,25 @@
 // restricted to other URLs" and half an hour of wondering why the button does
 // nothing.
 
-import { checkMapboxToken, mapboxToken, setMapboxToken, tokenComplaint } from './mapbox.js';
+import {
+  LIGHT_PRESETS, checkMapboxToken, lightPreset, mapboxToken, setLightPreset, setMapboxToken,
+  tokenComplaint,
+} from './mapbox.js';
 
 /**
  * @param {object} opts
  * @param {() => void} [opts.onClose]  called when the dialog is dismissed with Back
  * @param {(token: string) => void} [opts.onToken] a token was saved or cleared
+ * @param {(key: string) => void} [opts.onPreset] the light preset was changed
  */
-export function mountMapbox({ onClose, onToken } = {}) {
+export function mountMapbox({ onClose, onToken, onPreset } = {}) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('mapbox-overlay');
   const input = $('mapbox-token');
   const saveBtn = $('mapbox-save');
   const clearBtn = $('mapbox-clear');
   const note = $('mapbox-note');
+  const lightSeg = $('mapbox-light-seg');
 
   /** Say something under the field, in one of three registers. */
   const say = (text, kind) => {
@@ -36,10 +41,34 @@ export function mountMapbox({ onClose, onToken } = {}) {
     note.classList.toggle('bad', kind === 'bad');
   };
 
+  // Standard's four light presets. Built from the list rather than written into
+  // the markup so the two cannot drift, the same as the railway's group rows.
+  lightSeg.replaceChildren(...LIGHT_PRESETS.map((preset) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'seg-btn';
+    btn.dataset.light = preset.key;
+    btn.textContent = preset.label;
+    btn.addEventListener('click', () => {
+      setLightPreset(preset.key);
+      drawLight();
+      onPreset?.(preset.key);
+    });
+    return btn;
+  }));
+
+  function drawLight() {
+    const now = lightPreset();
+    for (const btn of lightSeg.querySelectorAll('[data-light]')) {
+      btn.classList.toggle('active', btn.dataset.light === now);
+    }
+  }
+
   function draw() {
     const held = mapboxToken();
     input.value = held;
     clearBtn.hidden = !held;
+    drawLight();
     // Deliberately not re-checked on every opening: that is a network request
     // for a question nobody asked, and the answer was already given when the
     // token went in. It says what is *stored*, which is the thing the dialog is

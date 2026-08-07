@@ -190,18 +190,18 @@ body {
 /* The attribution has the top-right corner to itself. It used to share the
    bottom-right one with the geolocate button, which meant the button had to be
    lifted clear of it and the two still crowded each other on a phone. */
-.maplibregl-ctrl-top-right {
+:is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right) {
   top: 0;
   right: 0;
 }
 
-.maplibregl-ctrl-top-right .maplibregl-ctrl-attrib {
+:is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right) :is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) {
   margin: 14px 20px 0 0;
 }
 
 /* Glassy map controls (geolocate button), bottom right — the thumb-reachable
    corner on desktop and on a phone alike. */
-.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
+:is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
   background: rgba(255, 255, 255, 0.1);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
   backdrop-filter: blur(20px) saturate(160%);
@@ -215,22 +215,22 @@ body {
 /* The geolocate button moves between the map's own corner and the layers
    cluster (phones — see main.js), so everything about the button itself has to
    apply in both places. Only the glass around it differs. */
-.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button,
-.layers-cluster .maplibregl-ctrl-group button {
+:is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button,
+.layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button {
   width: 40px;
   height: 40px;
   background-color: transparent;
 }
 
-.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button:hover,
-.layers-cluster .maplibregl-ctrl-group button:hover {
+:is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button:hover,
+.layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button:hover {
   background-color: rgba(255, 255, 255, 0.12);
 }
 
 /* Re-tint the dark default icons for the dark glass; hue-rotate keeps the
    active (blue) geolocate states looking blue after inversion. */
-.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
-.layers-cluster .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+:is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon),
+.layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon) {
   filter: invert(1) hue-rotate(180deg);
 }
 
@@ -250,7 +250,7 @@ body {
    the camera is locked to your position, `-background` once it has let the
    camera go but is still watching (hollow again, because it is no longer
    following), and `-waiting` while it is asking. */
-.maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
+:is(.maplibregl-ctrl-geolocate, .mapboxgl-ctrl-geolocate) :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon) {
   background-image: none !important;
   background-color: currentColor;
   /* The hollow arrow: an outlined paper plane, which is what "not following"
@@ -283,18 +283,18 @@ body {
    camera is pointing, not what colour your visited ground is. MapLibre's own
    answer here is to turn it blue, which on five basemaps is five different
    amounts of legible. */
-.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active .maplibregl-ctrl-icon,
-.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active-error .maplibregl-ctrl-icon {
+:is(.maplibregl-ctrl-geolocate, .mapboxgl-ctrl-geolocate):is(.maplibregl-ctrl-geolocate-active, .mapboxgl-ctrl-geolocate-active) :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon),
+:is(.maplibregl-ctrl-geolocate, .mapboxgl-ctrl-geolocate):is(.maplibregl-ctrl-geolocate-active-error, .mapboxgl-ctrl-geolocate-active-error) :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon) {
   --locate-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' stroke='black' stroke-width='2' stroke-linejoin='round' stroke-linecap='round' d='M20.4 3.6 4.2 10.4a.9.9 0 0 0 .1 1.7l6.1 1.6 1.6 6.1a.9.9 0 0 0 1.7.1l6.8-16.2a.75.75 0 0 0-.1-.1Z'/%3E%3C/svg%3E");
 }
 
 /* Asking. Dimmed rather than spun: MapLibre animates this class itself, and two
    things moving is one too many. */
-.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-waiting .maplibregl-ctrl-icon {
+:is(.maplibregl-ctrl-geolocate, .mapboxgl-ctrl-geolocate):is(.maplibregl-ctrl-geolocate-waiting, .mapboxgl-ctrl-geolocate-waiting) :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon) {
   opacity: 0.55;
 }
 
-[data-theme='light'] .maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
+[data-theme='light'] :is(.maplibregl-ctrl-geolocate, .mapboxgl-ctrl-geolocate) :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon) {
   color: rgba(15, 23, 42, 0.9);
 }
 
@@ -3007,11 +3007,11 @@ body {
   }
 
 
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-attrib {
+  :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right) :is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) {
     margin: 12px 12px 0 0;
   }
 
-  .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
+  :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
     margin: 0 12px 12px 0;
     border-radius: 15px;
   }
@@ -3033,7 +3033,7 @@ body {
   }
 
   .layers-cluster .layers-btn,
-  .layers-cluster .maplibregl-ctrl-group {
+  .layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
     margin: 0;
     border: 0;
     border-radius: 0;
@@ -3043,7 +3043,7 @@ body {
     box-shadow: none;
   }
 
-  .layers-cluster .maplibregl-ctrl-group {
+  .layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
     border-top: 1px solid rgba(255, 255, 255, 0.14);
   }
 
@@ -3055,7 +3055,7 @@ body {
   }
 
   /* Match the menu button above it (.layers-btn is already 46px). */
-  .layers-cluster .maplibregl-ctrl-group button {
+  .layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button {
     width: 46px;
     height: 46px;
   }
@@ -3090,14 +3090,14 @@ body {
      until you tap Done. */
   body.editing .cell-info,
   body.editing .layers,
-  body.editing .maplibregl-ctrl-bottom-right {
+  body.editing :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) {
     display: none;
   }
 
   /* Menu open: hide the floating buttons and dock the menu at the bottom. */
   body.menu-open .layers-cluster,
   body.menu-open .hud,
-  body.menu-open .maplibregl-ctrl-bottom-right,
+  body.menu-open :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right),
   body.menu-open .cell-info {
     display: none;
   }
@@ -3269,15 +3269,15 @@ body {
 }
 
 /* Quiet, glassy attribution */
-.maplibregl-ctrl-attrib {
+:is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) {
   background: rgba(10, 10, 10, 0.45) !important;
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-radius: 10px;
 }
 
-.maplibregl-ctrl-attrib a,
-.maplibregl-ctrl-attrib {
+:is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) a,
+:is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) {
   color: rgba(255, 255, 255, 0.5) !important;
   font-size: 10.5px;
 }
@@ -3370,19 +3370,19 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
-[data-theme='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
+[data-theme='light'] :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
   background: rgba(248, 250, 252, 0.86);
   border-color: rgba(15, 23, 42, 0.16);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
 }
 
-[data-theme='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button:hover,
-[data-theme='light'] .layers-cluster .maplibregl-ctrl-group button:hover {
+[data-theme='light'] :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button:hover,
+[data-theme='light'] .layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button:hover {
   background-color: rgba(15, 23, 42, 0.08);
 }
 
-[data-theme='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
-[data-theme='light'] .layers-cluster .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+[data-theme='light'] :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon),
+[data-theme='light'] .layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon) {
   filter: none;
 }
 
@@ -3419,17 +3419,17 @@ body {
 
 @media (max-width: 560px) {
 
-  [data-theme='light'] .layers-cluster .maplibregl-ctrl-group {
+  [data-theme='light'] .layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
     border-top-color: rgba(15, 23, 42, 0.12);
   }
 }
 
-[data-theme='light'] .maplibregl-ctrl-attrib {
+[data-theme='light'] :is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) {
   background: rgba(248, 250, 252, 0.8) !important;
 }
 
-[data-theme='light'] .maplibregl-ctrl-attrib a,
-[data-theme='light'] .maplibregl-ctrl-attrib {
+[data-theme='light'] :is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) a,
+[data-theme='light'] :is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) {
   color: rgba(15, 23, 42, 0.62) !important;
 }
 
@@ -4273,7 +4273,7 @@ body {
    tapped airport are the same sort of answer and should not look like two. The
    `.rail-popup-route*` rules below are the railway's own, because the list of
    services calling at a station is not a shape anything else has. */
-.maplibregl-popup-content {
+:is(.maplibregl-popup-content, .mapboxgl-popup-content) {
   padding: 14px 16px 12px;
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.08);
@@ -4290,7 +4290,7 @@ body {
    can never agree — the tip reads as a stuck-on tab of the wrong colour. The
    other card in this app does not have one either, and the popup opens where
    you clicked, so nothing is lost by saying it with position instead. */
-.maplibregl-popup-tip {
+:is(.maplibregl-popup-tip, .mapboxgl-popup-tip) {
   display: none;
 }
 
@@ -4298,7 +4298,7 @@ body {
    at `top: 0; right: 0` with no dimensions, so a padded hover background sits in
    the corner the 24px radius has already curved away — the highlight spilled
    past the edge of the card. */
-.maplibregl-popup-close-button {
+:is(.maplibregl-popup-close-button, .mapboxgl-popup-close-button) {
   display: grid;
   place-items: center;
   top: 9px;
@@ -4313,7 +4313,7 @@ body {
   transition: background 0.15s ease;
 }
 
-.maplibregl-popup-close-button:hover {
+:is(.maplibregl-popup-close-button, .mapboxgl-popup-close-button):hover {
   background: rgba(255, 255, 255, 0.12);
   color: rgba(255, 255, 255, 0.92);
 }
@@ -4477,7 +4477,7 @@ body {
 }
 
 /* The same values `.cell-info` uses in light, for the same reason. */
-[data-theme='light'] .maplibregl-popup-content {
+[data-theme='light'] :is(.maplibregl-popup-content, .mapboxgl-popup-content) {
   background: rgba(248, 250, 252, 0.92);
   border-color: rgba(15, 23, 42, 0.16);
   box-shadow:
@@ -4486,11 +4486,11 @@ body {
   color: rgba(15, 23, 42, 0.94);
 }
 
-[data-theme='light'] .maplibregl-popup-close-button {
+[data-theme='light'] :is(.maplibregl-popup-close-button, .mapboxgl-popup-close-button) {
   color: rgba(15, 23, 42, 0.5);
 }
 
-[data-theme='light'] .maplibregl-popup-close-button:hover {
+[data-theme='light'] :is(.maplibregl-popup-close-button, .mapboxgl-popup-close-button):hover {
   background: rgba(15, 23, 42, 0.08);
   color: rgba(15, 23, 42, 0.9);
 }
@@ -6175,19 +6175,19 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
-[data-chrome='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
+[data-chrome='light'] :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
   background: rgba(248, 250, 252, 0.86);
   border-color: rgba(15, 23, 42, 0.16);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
 }
 
-[data-chrome='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button:hover,
-[data-chrome='light'] .layers-cluster .maplibregl-ctrl-group button:hover {
+[data-chrome='light'] :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button:hover,
+[data-chrome='light'] .layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button:hover {
   background-color: rgba(15, 23, 42, 0.08);
 }
 
-[data-chrome='light'] .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
-[data-chrome='light'] .layers-cluster .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+[data-chrome='light'] :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon),
+[data-chrome='light'] .layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) button :is(.maplibregl-ctrl-icon, .mapboxgl-ctrl-icon) {
   filter: none;
 }
 
@@ -6216,16 +6216,16 @@ body {
     border-right-color: rgba(15, 23, 42, 0.14);
 }
 
-[data-chrome='light'] .layers-cluster .maplibregl-ctrl-group {
+[data-chrome='light'] .layers-cluster :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
     border-top-color: rgba(15, 23, 42, 0.12);
 }
 
-[data-chrome='light'] .maplibregl-ctrl-attrib {
+[data-chrome='light'] :is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) {
   background: rgba(248, 250, 252, 0.8) !important;
 }
 
-[data-chrome='light'] .maplibregl-ctrl-attrib a,
-[data-chrome='light'] .maplibregl-ctrl-attrib {
+[data-chrome='light'] :is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) a,
+[data-chrome='light'] :is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) {
   color: rgba(15, 23, 42, 0.62) !important;
 }
 
@@ -6501,14 +6501,14 @@ body {
    corner nothing else is using: the tab bar is centred and the buttons are on
    the right. It stays a link, and stays on screen, which is what the licences
    actually ask for. */
-html[data-client='ios'] .maplibregl-ctrl-top-right {
+html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right) {
   top: auto;
   right: auto;
   bottom: 0;
   left: 0;
 }
 
-html[data-client='ios'] .maplibregl-ctrl-top-right .maplibregl-ctrl-attrib {
+html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right) :is(.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib) {
   margin: 0 0 calc(8px + var(--safe-b)) calc(12px + var(--safe-l));
 }
 

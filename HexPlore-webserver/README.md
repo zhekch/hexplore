@@ -379,14 +379,19 @@ without hiding them. Terrain and Satellite are
 kept to the same label and road density as Light, and roads on all of them fade
 out as you zoom away rather than shouting over the map.
 
-**3D** is Mapbox's, and it is the one basemap that needs something from you:
-Mapbox serves no tiles without an account and this app does not have one, so it
-runs on your own free access token. Make one at
+**3D** is Mapbox Standard — buildings with height, modelled landmarks, trees, and
+a **Light** setting that moves the sun between dawn, day, dusk and night. It is
+the one basemap that needs something from you: Mapbox serves no tiles without an
+account and this app does not have one, so it runs on your own free access
+token. Make one at
 [account.mapbox.com](https://account.mapbox.com/access-tokens/) — the default
 public token is the right one — and paste it into **Export & settings →
-Settings → 3D basemap**. It is kept on that device and never sent to the
-server. Tilt the map with a right-button drag, or two fingers on a touchscreen,
-and zoom past about z14 for the buildings.
+Settings → 3D basemap**. It is kept on that device and never sent to the server.
+
+Choosing 3D, or leaving it, reloads the page: it is drawn by a different map
+library from the other four, and the map comes back where you left it. Tilt with
+a right-button drag, or two fingers on a touchscreen, and zoom in past about
+z14 to see the buildings stand up.
 
 ## Rebuilding the map data
 
