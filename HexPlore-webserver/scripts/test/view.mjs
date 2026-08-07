@@ -16,7 +16,7 @@
 // looks like a rendering glitch somewhere else entirely.
 
 import {
-  DEFAULT_FOV, PITCH_REACH, boxContains, groundBox, lngLatBox, mercPerPixel,
+  DEFAULT_FOV, PITCH_REACH, boxArea, boxContains, groundBox, lngLatBox, mercPerPixel,
 } from '../../src/view.js';
 import { MAX_MERC_Y, WORLD, mercX, mercY } from '../../src/hexgrid.js';
 
@@ -244,6 +244,31 @@ console.log('\nContainment is what decides whether anything is rebuilt');
     !boxContains(outer, groundBox(cam({ bearing: 45 }), 0)),
     'turning to the diagonal leaves the box that was painted facing north',
   );
+}
+
+console.log('\nA lean asks for far more ground than a level camera, and says how much');
+{
+  // The number main.js's COVERAGE_SLACK is chosen against. A perspective view's
+  // far edge is wider as well as further, so the growth is much larger than the
+  // forward reach alone suggests — which is the whole reason levelling has to
+  // force a repaint rather than being allowed to keep the tilted sheet.
+  const level = groundBox(cam({ width: 1710, height: 986 }), VIEW_PAD);
+  const tilted = groundBox(cam({ width: 1710, height: 986, pitch: 60 }), VIEW_PAD);
+  const growth = boxArea(tilted) / boxArea(level);
+  check(growth > 4 && growth < 9, 'a 60° lean is several times the ground', `×${growth.toFixed(2)}`);
+  const COVERAGE_SLACK = 2.5; // main.js's
+  check(growth > COVERAGE_SLACK, 'and comfortably past the slack that forces the repaint back');
+
+  // ...while an ordinary pan or zoom must never trip it, or the map would
+  // repaint itself for nothing. The padded box is 2.89× the viewport by
+  // construction, and that ratio is what the slack sits above.
+  const bare = groundBox(cam({ width: 1710, height: 986 }));
+  near(boxArea(level) / boxArea(bare), 1.7 * 1.7, 1e-9, 'the pad is 2.89× the viewport, as designed');
+  for (const bearing of [0, 30, 45, 90]) {
+    const turned = groundBox(cam({ width: 1710, height: 986, bearing }), VIEW_PAD);
+    const ratio = Math.max(boxArea(level) / boxArea(turned), boxArea(turned) / boxArea(level));
+    check(ratio < COVERAGE_SLACK, `bearing ${bearing} alone never trips the slack`, `×${ratio.toFixed(2)}`);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

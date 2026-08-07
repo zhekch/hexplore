@@ -20,8 +20,9 @@ number of approaches that were tried and abandoned.
   country when you zoom out — and its whole continent one step further.
 - **Soft blobs, not tiles.** Marked areas are drawn as discs, blurred, and cut
   at a fixed alpha — neighbouring cells merge and blend their colours.
-- **Turn the map.** Right-drag, two fingers twisting, or shift and the arrow
-  keys. A compass appears while it is turned; press it to face north again.
+- **Turn the map, and tilt it.** Ctrl-drag (or right-drag) turns it sideways and
+  tilts it up and down; two fingers do both on a touch screen. A compass appears
+  while it is turned or tilted; press it to face north and level again.
 - **Import your history.** GPX, KML, TCX, FIT, GeoJSON, CSV, Google Timeline,
   Snapchat, Apple Photos, or a whole Strava ZIP. Parsed **in your browser** —
   the files never leave your machine, only the cells they resolve to.

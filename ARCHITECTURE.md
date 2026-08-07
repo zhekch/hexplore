@@ -22,11 +22,12 @@ glass look. Click hexagons to mark places you've visited.
 - **My location**: the round button (bottom right) uses browser geolocation to
   pan to you and show the usual blue dot — works on localhost, needs HTTPS
   in production. The map attribution sits top right, out of its way.
-- **The map turns.** Right-drag, two fingers twisting, or shift with the arrow
-  keys. A **compass** appears in the button cluster while it is turned and puts
-  it back; there is nothing there while north is up. Leaning the camera is the
-  same machinery and is off by default — `?pitch=55` raises the ceiling. See
-  [Turning the map](#turning-the-map).
+- **The map turns, and tilts.** Ctrl-drag (or right-drag) turns it sideways and
+  leans it up and down — one gesture, because they are one camera — and two
+  fingers do both on a touch screen. A **compass** appears in the button cluster
+  while it is turned or tilted and puts both back; there is nothing there while
+  north is up and the view is level. The lean is capped at 60°, which is where
+  the horizon stops being a question. See [Turning the map](#turning-the-map).
 - **Modes**: the map is view-only until you switch **Editing** on in the menu,
   which reveals the glass **pencil button**; tapping that expands the edit panel
   and enters edit mode, where a glass tile **spotlight around the cursor** shows
@@ -2552,9 +2553,23 @@ north-up because that is what a poster is.
 
 ### Pitch, and the 3D basemaps after it
 
-`MAX_PITCH` is 0 and `?pitch=55` raises it. Everything underneath a lean already
-works: `groundBox` computes the trapezoid a leaning camera actually sees, in
-closed form, from the ray through each screen corner —
+`MAX_PITCH` is 60 and `?pitch=` overrides it in either direction. The lean rides
+on the turn gesture rather than one of its own — ctrl-drag sideways turns, the
+same drag up and down tilts — because they are two axes of one camera and
+MapLibre's `pitchWithRotate` already says so. `touchPitch` is the two-finger
+version. Both are asked for by name rather than left to their defaults, so that
+a `MAX_PITCH` of 0 really does mean the camera cannot lean by any route.
+
+**60° is not a taste.** The horizon comes on screen when `cot(pitch) <
+tan(fov/2)`, which for the field of view both libraries ship is 71.6°. Below
+that there is ground everywhere the camera looks and nothing has to be invented
+to fill the top of the window; above it the map needs a sky, and a basemap that
+has not been given one draws its background colour up there instead. 60 keeps
+the horizon off screen at every zoom, so none of these basemaps needs a sky
+layer it does not have.
+
+`groundBox` computes the trapezoid a leaning camera actually sees, in closed
+form, from the ray through each screen corner —
 
     scale(y)   = d·cos θ / (d·cos θ − y·sin θ)
     forward(y) = d·y     / (d·cos θ − y·sin θ)
@@ -2572,18 +2587,35 @@ continent rendered at the density of a street, so the ground is painted for
 three screen heights in front of the camera and no further. Past that the
 basemap continues to the horizon on its own.
 
-What is **not** ready is the sheet's resolution. It is one flat raster spread
-over the whole visible ground, and a lean makes that ground several times larger
-without making the window any bigger — so the near field, the part actually
-being looked at, is painted at a fraction of the density it gets today. The fix
-is a tiled sheet rather than a viewport-sized one: blob tiles per Mercator tile
-at a zoom chosen per tile, which is also what makes a level change a raster
-crossfade MapLibre already knows how to do, and what would retire the
-"two canvas layers cannot hand over" problem the current dissolve exists to
-avoid. Until that exists, shipping a lean by default would be shipping a softer
-map to anyone who tilted. The query parameter is how the trapezoid, the reach
-clamp and the draped raster get exercised in the meantime rather than merely
-written.
+**What a lean costs is sharpness, not speed.** The sheet is one flat raster
+spread over the whole visible ground, and the far edge of a perspective view is
+wider as well as further away — so the growth is not the modest one intuition
+offers. Measured in a 1710×986 window at z9: level, the sheet is 1745×1006 over
+6.27 square degrees; at 60° it is 2800×1341 over 38.16, which is **6.1× the
+ground through the same window**. The caps then bind — `MAX_SIDE` even on
+Chrome, and `JS_BLUR_MAX_PX` considerably harder on WebKit — and density falls
+by the square root of the area: about **1.7× softer on Chrome, 2.5× on WebKit**,
+for exactly as long as the camera is tilted.
+
+Levelling restores the original sheet to the pixel, and that took a fix of its
+own. Every other test in `updateGrid` asks whether coverage has run *out*, and
+none of them fires here: levelling cuts the ground the camera sees to a sixth
+while staying comfortably inside the box painted for the lean, so
+`coverageContainsView()` said yes and nothing rebuilt. The wash stayed soft with
+no gesture left to blame it on. `coverageTooLoose` is the missing question —
+*is the sheet now spending most of its pixels off screen* — and it is handled
+exactly like a drifted zoom: worth repainting, not worth repainting mid-gesture.
+`COVERAGE_SLACK` is 2.5 against a padded box that is 2.89× the viewport by
+construction, so an ordinary pan or zoom never trips it.
+
+The real fix is a tiled sheet rather than a viewport-sized one: blob tiles per
+Mercator tile at a zoom chosen per tile, so the near field keeps its density
+whatever the far field is doing. That is also what would make a level change a
+raster crossfade MapLibre already knows how to do, and would retire the "two
+canvas layers cannot hand over" problem the current in-canvas dissolve exists to
+avoid. It is the next thing to do here, and the reason `PITCH_REACH` exists in
+the meantime — three screen heights of ground and no more, so a hard lean cannot
+ask for a continent.
 
 Terrain needs nothing further from this side. MapLibre drapes raster layers over
 a terrain source, and the blob layer is a raster layer.

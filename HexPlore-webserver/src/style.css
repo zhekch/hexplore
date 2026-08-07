@@ -1831,12 +1831,18 @@ body {
   color: rgba(178, 40, 24, 1);
 }
 
+/* The colour is stated outright rather than through `var(--muted, …)`: nothing
+   in this stylesheet has ever declared `--muted`, so the fallback was the only
+   value it ever had — a near-white, on a card that is white in the light theme.
+   The one line whose whole job is to be read out over a message was the one
+   line you could not read. It takes the same pair every other piece of
+   secondary text in a modal does. */
 .settings-version {
   margin-top: 16px;
   font-size: 11.5px;
   line-height: 1.5;
   text-align: center;
-  color: var(--muted, rgba(235, 243, 255, 0.45));
+  color: rgba(255, 255, 255, 0.55);
   font-variant-numeric: tabular-nums;
 }
 
@@ -3387,6 +3393,7 @@ body {
 [data-theme='light'] .cell-info-coord,
 [data-theme='light'] .cell-info-row,
 [data-theme='light'] .modal-sub,
+[data-theme='light'] .settings-version,
 [data-theme='light'] .import-file-line,
 [data-theme='light'] .import-summary-sub,
 [data-theme='light'] .import-row small,

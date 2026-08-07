@@ -202,12 +202,14 @@
              whose whole message is "north is that way" has nothing to say about
              a map that is already facing north, and the corner is better spent
              on the map. Pressing it puts the camera back. -->
-        <button class="layers-btn compass-btn" id="compass-btn" type="button" hidden aria-label="Face north" title="Face north">
+        <button class="layers-btn compass-btn" id="compass-btn" type="button" hidden aria-label="Face north" title="Face north and level the view">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <!-- Two halves, because one arrow only says which way it points and
-                 a needle says which way the map is turned. -->
-            <path d="M12 3.2 16.2 15 12 12.4 7.8 15Z" fill="currentColor" />
-            <path d="M12 20.8 7.8 9 12 11.6 16.2 9Z" fill="currentColor" opacity="0.4" />
+                 a needle says which way the map is turned. They share the waist
+                 line and must not cross it: overlapping halves add their fills
+                 and the needle reads as a solid arrowhead instead. -->
+            <path d="M12 2.8 16.6 13.8 7.4 13.8Z" fill="currentColor" />
+            <path d="M12 21.2 7.4 13.8 16.6 13.8Z" fill="currentColor" opacity="0.35" />
           </svg>
         </button>
         <button class="layers-btn" id="search-btn" type="button" aria-label="Search" title="Search places, trips and dates (⌘K)">

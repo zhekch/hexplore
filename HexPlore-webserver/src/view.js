@@ -240,6 +240,11 @@ export function lngLatBox(box) {
   return [lngOf(box.xMin), latOf(box.yMin), lngOf(box.xMax), latOf(box.yMax)];
 }
 
+/** Area of a Mercator box, in square metres. `Infinity` for a world claim. */
+export function boxArea(box) {
+  return (box.xMax - box.xMin) * (box.yMax - box.yMin);
+}
+
 /** Whether `inner` lies entirely within `outer`. Both Mercator boxes. */
 export function boxContains(outer, inner) {
   return (

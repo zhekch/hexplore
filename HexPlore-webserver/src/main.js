@@ -98,7 +98,7 @@ import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './
 // The one place that asks the map where its camera is, and the only arithmetic
 // that knows a camera can be turned or leaned. Everything downstream still
 // receives a rectangle of Mercator metres.
-import { boxContains, cameraOf, groundBox, lngLatBox, mercPerPixel } from './view.js';
+import { boxArea, boxContains, cameraOf, groundBox, lngLatBox, mercPerPixel } from './view.js';
 import { installScrollChain } from './scroll-chain.js';
 import { installCardLift } from './card-lift.js';
 
@@ -153,29 +153,40 @@ const VIEW_PAD = 0.35; // extra region coverage around the viewport, per side
 // slightly softer wash rather than a slower one.
 const ROTATE_ENABLED = true;
 
-// ...and it leans, if you ask it to.
+// ...and it leans. **Ctrl** (or the right button) and drag: sideways turns,
+// up and down tilts, which is one gesture because they are one camera. Two
+// fingers dragging vertically does the same on a touch screen. The compass that
+// appears for a turn appears for a tilt too, and puts both back.
 //
-// Pitch is the shape of the 3D basemaps this is heading toward, and everything
-// underneath it already works: the blob sheet is handed to MapLibre as a
-// georeferenced quad, so it is drawn in perspective — and draped over terrain —
-// by the same matrix that draws the basemap, and src/view.js computes the
-// trapezoid of ground a leaning camera sees rather than pretending it is a
-// rectangle.
+// Everything underneath it is the same machinery as the rotation: the blob
+// sheet is a georeferenced quad, so it is drawn in perspective — and draped
+// over terrain — by the same matrix that draws the basemap, and src/view.js
+// computes the trapezoid of ground a leaning camera sees rather than pretending
+// it is a rectangle.
 //
-// What is *not* ready is the sheet's resolution. It is one flat raster spread
-// over the whole visible ground, and a lean makes that ground several times
-// larger without making the window any bigger — so the near field, the part
-// being looked at, is painted at a fraction of the density it gets today. The
-// fix is a tiled sheet rather than a viewport-sized one; until that exists,
-// shipping a lean would be shipping a softer map to anyone who tilted.
+// **60°, and the number is not a taste.** The horizon comes on screen when
+// `cot(pitch) < tan(fov/2)`, which for the field of view both MapLibre and
+// Mapbox ship is 71.6°. Below that there is ground everywhere the camera looks
+// and nothing has to be invented to fill the top of the window; above it the
+// map needs a sky, and a basemap that has not been given one draws its
+// background colour up there instead. 60 keeps the horizon comfortably off
+// screen at every zoom. `?pitch=` overrides it either way — `?pitch=0` for the
+// old flat camera, `?pitch=80` to see what the sky would have to cover.
 //
-// So it is off by default and reachable with `?pitch=55`, which is how the
-// trapezoid, the reach clamp and the draped raster are actually exercised
-// rather than merely written. Raise the default when the sheet is tiled.
+// What a lean costs is sharpness, not speed. The sheet is one flat raster over
+// the whole visible ground, and the far edge of a perspective view is wider as
+// well as further: measured, a 60° lean asks for **6.1× the ground** through
+// the same window. The caps in blob-canvas.js then bind — `MAX_SIDE` even on
+// Chrome, `JS_BLUR_MAX_PX` harder on WebKit — so the wash comes out about 1.7×
+// softer there and 2.5× on WebKit, for exactly as long as the camera is tilted.
+// Levelling restores the original sheet to the pixel; `coverageTooLoose` is
+// what makes sure it actually does. The real fix is a tiled sheet rather than a
+// viewport-sized one; see ARCHITECTURE.md.
 const MAX_PITCH = (() => {
   const asked = new URLSearchParams(location.search).get('pitch');
-  const n = asked === null ? 0 : Number(asked);
-  return Number.isFinite(n) ? Math.min(85, Math.max(0, n)) : 0;
+  if (asked === null) return 60;
+  const n = Number(asked);
+  return Number.isFinite(n) ? Math.min(85, Math.max(0, n)) : 60;
 })();
 const TILE_INSET = 0.92; // unvisited tiles shrink to leave a glass gap
 // Vector region smoothing — used for the selection ring, and for regions only
@@ -735,12 +746,19 @@ map.addControl(
   'top-right',
 );
 // Right-button (or ctrl-) drag on a pointer, two fingers twisting on a touch
-// screen, shift-arrows on a keyboard. MapLibre enables all three by default;
+// screen, shift-arrows on a keyboard. MapLibre enables all of these by default;
 // what this file used to do was turn them off.
+//
+// Tilting rides on the same handlers — `pitchWithRotate` above is what puts it
+// on the vertical axis of the turn gesture, and `touchPitch` is its two-finger
+// equivalent. Asked for by name rather than left to the default so that a
+// `MAX_PITCH` of 0 really does mean the camera cannot lean, by any route.
 if (!ROTATE_ENABLED) {
   map.dragRotate.disable();
   map.touchZoomRotate.disableRotation();
 }
+if (MAX_PITCH > 0) map.touchPitch?.enable();
+else map.touchPitch?.disable();
 window.map = map; // handy in devtools
 
 // Any user-initiated movement (or a geolocate flight) cancels the pending
@@ -4703,6 +4721,30 @@ function coverageContainsView() {
   return !!coverage && boxContains(coverage, viewMerc());
 }
 
+// How much larger than the box it would paint now the last painted box may be
+// before it is worth painting again.
+//
+// Every other test in updateGrid asks whether coverage has run *out*. None of
+// them asks whether it has gone slack, and until the camera could lean, none of
+// them needed to: panning and zooming out both leave coverage behind, and
+// zooming in is caught by the zoom drift. Levelling a tilted view does neither.
+// It cuts the ground the camera sees to a fraction while staying comfortably
+// inside the box painted for the lean — so `coverageContainsView()` says yes,
+// nothing rebuilds, and the map keeps a sheet that is spending most of its
+// pixels off screen and under-sampling the part that is on it. The wash stayed
+// soft after being levelled, with no gesture left to blame.
+//
+// 2.5, against a padded box that is 2.89× the viewport by construction: well
+// clear of the ordinary case, so an ordinary pan or zoom never trips it, and
+// comfortably under the ~6× a full lean produces.
+const COVERAGE_SLACK = 2.5;
+
+function coverageTooLoose(bb) {
+  if (!coverage || coverage === WORLD_COVERAGE) return false;
+  const now = boxArea(bb);
+  return now > 0 && boxArea(coverage) > COVERAGE_SLACK * now;
+}
+
 // Set while the country boundaries are being fetched, so a zoom gesture doesn't
 // queue one callback per frame.
 let countryLoadPending = false;
@@ -4797,14 +4839,21 @@ function updateGrid(force = false) {
   // asked for it is still running, because a repaint mid-dissolve would put the
   // full-size sheet back into every remaining frame of it.
   const owedSharp = currentAsBlob && blobCoarse;
+  // A sheet painted for far more ground than the camera now wants — levelling a
+  // lean is the case that put this here. Treated exactly like a drifted zoom:
+  // worth repainting, not worth repainting mid-gesture.
+  const slackCoverage = currentAsBlob && coverageTooLoose(bb);
   const settled = !map.isMoving() && !blobCur.inTransition();
-  if (!force && !levelChanged && !resolutionChanged && !zoomDrift && !owedSharp && coverageContainsView())
+  if (
+    !force && !levelChanged && !resolutionChanged &&
+    !zoomDrift && !owedSharp && !slackCoverage && coverageContainsView()
+  )
     return;
   if (
     !force &&
     !levelChanged &&
     !resolutionChanged &&
-    (zoomDrift || owedSharp) &&
+    (zoomDrift || owedSharp || slackCoverage) &&
     coverageContainsView() &&
     !settled
   )
