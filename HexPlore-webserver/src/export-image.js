@@ -421,16 +421,18 @@ export const DEFAULT_SPEC = {
   // …and how strongly the borders across it are. Separate, because "which one
   // is Germany" and "is there anything there at all" are separate questions.
   borders: 0,
-  // The lines the picture is made of, as one strength and a choice of where
-  // they go: `outline` is the silhouette around the subject, `inside` the seams
-  // of whatever Detail is set to — so a fill covering eleven cantons can still
-  // be read as eleven — and `both` is both. They were two controls, a switch and
-  // a slider, which is the same question ("how much line do you want") asked
-  // twice and answerable inconsistently: an outline you could not soften beside
-  // seams you could. The silhouette alone is the default, because the shape of
-  // the place is the picture and the seams are a thing you add to it.
+  // The lines the picture is made of, as one strength and a choice of which
+  // borders it buys: `regions` the admin-1 ones, `countries` the national ones,
+  // `both` both. The silhouette around the subject comes with all three and is
+  // not a choice — it is the edge of the picture rather than a border in it.
+  // These were two controls, a switch and a slider, which is the same question
+  // ("how much line do you want") asked twice and answerable inconsistently: an
+  // outline you could not soften beside seams you could.
+  //
+  // National borders are the default because they are the fewest lines that
+  // still make a shape into a map, and the shape of the place is the picture.
   lines: 1,
-  lineScope: 'outline',
+  lineScope: 'countries',
   caption: {
     on: true,
     anchor: 'bottom-left',
@@ -1301,16 +1303,22 @@ const isLight = isLightColor;
 /**
  * How strongly each kind of line is drawn — 0 for not at all.
  *
- * A blob has no seams, so at that detail the choice collapses to the outline
- * rather than to nothing: a slider that visibly does nothing is worse than one
- * that quietly means the only line there is.
+ * The silhouette is always at the slider's own strength. It is the edge of the
+ * picture rather than a border in it: what the mask cut the subject out along,
+ * and the one line whose absence reads as unfinished rather than as a choice.
+ * The selector chooses which *borders* go inside it — the region ones, the
+ * national ones, or both.
+ *
+ * A blob has no borders to draw, so at that detail the selector goes and the
+ * slider means the only line there is.
  */
 export function lineAlphas(spec) {
   const a = Math.max(0, Math.min(1, spec?.lines ?? 0));
-  const scope = spec?.detail === 'blob' ? 'outline' : (spec?.lineScope ?? 'outline');
+  const which = spec?.detail === 'blob' ? 'none' : (spec?.lineScope ?? 'countries');
   return {
-    outline: scope === 'inside' ? 0 : a,
-    inside: scope === 'outline' ? 0 : a,
+    outline: a,
+    regions: which === 'regions' || which === 'both' ? a : 0,
+    countries: which === 'countries' || which === 'both' ? a : 0,
   };
 }
 
@@ -1635,10 +1643,16 @@ function drawAreas(ctx, spec, data, cam) {
 // where the colour stops draws attention to the boundary of your own travel
 // twice over. The clip does the cutting, as it does for everything else here.
 //
-// Which units: whatever *Detail* is set to, because these are the fill's own
-// seams and it would be a different control if they were anything else. Blobs
-// have no seams, so the row is hidden there rather than drawing something that
-// answers a question nobody asked.
+// **Which units is asked, not inherited.** These followed *Detail* on the
+// grounds that they were the fill's own seams — which is one good picture and
+// only one. A poster coloured by region wants the national borders in it as
+// often as it wants the cantonal ones, and a poster coloured by country
+// sometimes wants the regions showing through faintly underneath; neither was
+// reachable while the lines were whatever the fill happened to be made of. So
+// the selector says regions, countries, or both, and it means those words.
+// Blobs are the exception: there is nothing between two blobs, so the row is
+// hidden there rather than drawing something that answers a question nobody
+// asked.
 
 /**
  * The geometries whose edges are the divisions, bounded to what the frame can
@@ -1722,15 +1736,22 @@ export function divisionGeoms(detail, cam) {
 }
 
 function drawDivisions(ctx, spec, cam, size, palette) {
-  const alpha = lineAlphas(spec).inside;
-  if (alpha <= 0.001 || spec.detail === 'blob') return;
+  const { regions, countries } = lineAlphas(spec);
+  const alpha = Math.max(regions, countries);
+  if (alpha <= 0.001) return;
 
   // One path for all of them rather than one per unit. Nothing here is filled
   // and every line is the same colour, so there is nothing to tell them apart
   // with — and a single stroke is one rasterizer pass instead of four thousand.
   // Shared edges are therefore drawn twice, which at a flat alpha is invisible;
-  // it is `fill` that would show the overlap, and there is no fill.
-  const lines = pathOf(divisionGeoms(spec.detail, cam), cam);
+  // it is `fill` that would show the overlap, and there is no fill. Which is
+  // also why *both* is one stroke and not two: a country the region set does not
+  // subdivide stands in for itself at that level, so its outline is in both
+  // lists, and at a flat alpha nobody can tell.
+  const geoms = [];
+  if (regions > 0.001) geoms.push(...divisionGeoms('region', cam));
+  if (countries > 0.001) geoms.push(...divisionGeoms('country', cam));
+  const lines = pathOf(geoms, cam);
   ctx.strokeStyle = withAlpha(palette.edge, alpha);
   // Finer than the outline around the whole subject, which has to stay the
   // strongest line in the picture: these divide it, they do not bound it.
@@ -1797,7 +1818,7 @@ function boundaryIsos(spec, data, cam) {
   }
 
   const alphas = lineAlphas(spec);
-  const linesInside = alphas.inside > 0.001 && spec?.detail !== 'blob';
+  const linesInside = alphas.regions > 0.001 || alphas.countries > 0.001;
   // The outline draws a country's edge too, but only for a picture of
   // *everywhere*: that is the one case where it is traced around
   // `allCountries()`, and for any other scope it strokes the selection's own

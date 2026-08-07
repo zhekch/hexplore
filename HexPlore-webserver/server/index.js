@@ -98,7 +98,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.32.0';
+export const SERVER_VERSION = '0.33.0';
 
 const scrypt = promisify(scryptCb);
 // The same folding the browser importer uses, so a fix from Home Assistant and
@@ -3371,9 +3371,14 @@ let iosIndex = { from: null, entry: null };
 function indexForClient(req, entry) {
   if (!entry || !isIosApp(req)) return entry;
   if (iosIndex.from !== entry.etag) {
+    // Matched on the opening tag rather than the whole of it, so an attribute
+    // added to index.html cannot silently stop the app being an app. It already
+    // did once: `class="booting"` went on that tag and the exact-string replace
+    // quietly matched nothing, which shows up as the iOS chrome sitting under
+    // the tab bar and nowhere else.
     const html = entry.body
       .toString('utf8')
-      .replace('<html lang="en">', '<html lang="en" data-client="ios">');
+      .replace('<html lang="en"', '<html lang="en" data-client="ios"');
     const body = Buffer.from(html, 'utf8');
     iosIndex = {
       from: entry.etag,

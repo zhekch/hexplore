@@ -1444,26 +1444,43 @@ offline and cannot render half-drawn while a font arrives.
   entirely on the picture: a hairline that gives a country-sized fill some shape
   turns a poster of one canton into a diagram of it.
 
-  *Borders* is that strength, and *Outline / Inside / Both* is where it applies —
-  the silhouette around the subject, the seams within it, or the two together.
-  They were two controls, a switch for the outline and a slider for the seams,
-  which is one question ("how much line do you want") asked twice and answerable
-  inconsistently: the outline could not be softened and the seams could, so a
-  faint diagram of a canton still wore a hard black edge. `lineAlphas(spec)` is
-  the one place that reads the pair, and `spec.lines` / `spec.lineScope` replace
-  `spec.outline` / `spec.divisions` — with a migration, because a stored spec
-  says which picture it wanted in the two old fields and both halves are worth
-  keeping.
+  *Borders* is that strength, and *Regions / Countries / Both* is which borders
+  it buys. They were two controls, a switch for the outline and a slider for the
+  seams, which is one question ("how much line do you want") asked twice and
+  answerable inconsistently: the outline could not be softened and the seams
+  could, so a faint diagram of a canton still wore a hard black edge.
+  `lineAlphas(spec)` is the one place that reads the pair, and `spec.lines` /
+  `spec.lineScope` replace `spec.outline` / `spec.divisions`.
 
-  Which seams is **whatever *Detail* is set to**, because that is what the fill
-  is made of and it would be a different control if it were anything else.
-  *Blobs* have no seams, so the selector is hidden there rather than answering a
-  question nobody asked — the same call the *Cell size* row makes in the other
-  direction — and `lineAlphas` reads the same detail, so at that setting the
-  slider means the silhouette rather than meaning nothing. Every unit the frame reaches is traced, not only the lit ones: the
-  empty half of the subject is part of the composition too, and lines that stop
-  where the colour stops draw the boundary of your own travel twice over. The
-  clip does the cutting, as it does for everything else here.
+  **The silhouette is not one of the choices.** It is the edge of the picture
+  rather than a border in it — what the mask cut the subject out along, and the
+  one line whose absence reads as unfinished rather than as a decision — so it
+  comes at the slider's strength with all three settings.
+
+  **And which borders is asked, not inherited.** These followed *Detail* on the
+  grounds that they were the fill's own seams, which is one good picture and only
+  one: a poster coloured by region wants the national borders in it as often as
+  it wants the cantonal ones, and neither was reachable while the lines were
+  whatever the fill happened to be made of. *Both* is one stroke rather than two,
+  because a country the region set does not subdivide stands in for itself at
+  that level and would otherwise be traced twice — at a flat alpha with no fill,
+  nobody can tell. *Blobs* are the exception: nothing lies between two blobs, so
+  the selector is hidden there rather than answering a question nobody asked —
+  the same call the *Cell size* row makes in the other direction — and
+  `lineAlphas` reads the same detail, so at that setting the slider means the
+  silhouette rather than meaning nothing.
+
+  Every unit the frame reaches is traced, not only the lit ones: the empty half
+  of the subject is part of the composition too, and lines that stop where the
+  colour stops draw the boundary of your own travel twice over. The clip does the
+  cutting, as it does for everything else here.
+
+  Two vocabularies of stored spec therefore have to be read. `spec.outline` /
+  `spec.divisions` came first; then `lineScope` said *where* (`outline` /
+  `inside` / `both`); it now says *which*. The silhouette becoming unconditional
+  is what makes the second migration lossless in the direction that matters — a
+  spec that asked for the outline alone keeps it, and gains the national borders,
+  which are the fewest lines that change the picture at all.
 
   `divisionGeoms` culls on bounding boxes before it touches geometry — a frame
   over the Alps asks for six countries and 69 regions rather than 250 and 4,553
@@ -2883,6 +2900,26 @@ written for. So boot.js awaits and then imports main.js, which reads
 `engineNow()` synchronously and cannot be wrong, because the only path to main.js
 runs through that import.
 
+**That await is also why the page starts hidden.** The stylesheet is imported by
+main.js, and main.js is behind a map library fetched over the network — so
+between first paint and then, the browser drew index.html with no CSS on it at
+all: every inline SVG at its natural size, every panel meant to be a dismissed
+sheet stacked down the page, white behind all of it. It lasted a fraction of a
+second and read as a broken page. `<html class="booting">` and two rules inline
+in the head hide the body and paint the stylesheet's own background; boot.js
+removes the class after `import('./main.js')` resolves, by which point the
+stylesheet is in force, and on the failure path too — a page that cannot load its
+map still has to be able to say so. Inline and in the head because it is the one
+rule that must be in force before first paint, which is exactly what an external
+stylesheet cannot promise; `visibility` rather than `display` so nothing is laid
+out twice; and a `<noscript>` override, because a permanently blank window is a
+worse answer than an ugly one.
+
+That class is also why the server's iOS rewrite matches `<html lang="en"` rather
+than the whole tag. It matched the whole tag, and adding an attribute to
+index.html silently stopped it matching anything at all — which shows up as the
+iOS chrome sitting under the tab bar and nowhere else.
+
 **Both MapLibre anchors are read before a single layer of ours is added.**
 `labelStart()` looks for the bottom of the topmost run of symbol layers, which is
 a question about the *basemap* — and `map.getStyle()` answers it about whatever
@@ -3041,6 +3078,25 @@ line has. It looked like a rendering fault in the track and was a property of th
 corner. A bevel is one triangle and overlaps nothing, so the corner is chamfered
 instead — invisible inside a blur, where the spike was not. Only the glows: the
 line itself is a tenth as wide and nearly opaque, and wants its corners round.
+
+**And the glow is the hover state.** `setHoveredRoute` writes one feature state,
+`hov`, and both of the glow's paint expressions already branch on it —
+`routeGlowOpacity` three-quarters of the way from its resting alpha to the
+selected one, `routeWidth` by `ROUTE_HOVER_SCALE`. Both carry a
+`ROUTE_HOVER_MS` transition, which is the whole of the animation: nothing here
+steps a value or holds a timer. Short of the selected strength on purpose, since
+a hover that looked like a selection would be answering the question before it
+was asked, and only the glow moves — a core line that thickened as well would be
+the route shifting rather than lighting up, and at a hairline the two read
+completely differently.
+
+The hit test is free. `routeAt(e.point)` was already being run on every mousemove
+to decide whether the cursor is a pointer, so this is the same answer said in the
+picture instead of on the pointer — the trade the railway hover makes, one line
+up. What it costs instead is the bookkeeping: feature state does not survive
+`setData`, so `syncRoutes` re-applies it, and the mousemove only asks in view
+mode with the map still, so `setMode` and `mouseleave` have to clear it or a lit
+route stays lit with nothing under it.
 
 **Two things a route needs that only this basemap can give it.** Its glow is
 wider and softer here — `ROUTE_GLOW_SCALE_3D`, `ROUTE_GLOW_BLUR_3D` — because

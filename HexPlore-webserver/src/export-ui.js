@@ -49,23 +49,20 @@ const DETAILS = [
   { key: 'continent', label: 'Continents' },
 ];
 
-// Which lines the Borders slider is setting the strength of: the silhouette
-// around the subject, the seams inside it, or both.
+// Which borders the Borders slider is setting the strength of. The silhouette
+// around the subject comes with all three — see `lineAlphas`.
 const LINE_SCOPES = [
-  { key: 'outline', label: 'Outline' },
-  { key: 'inside', label: 'Inside' },
+  { key: 'regions', label: 'Regions' },
+  { key: 'countries', label: 'Countries' },
   { key: 'both', label: 'Both' },
 ];
 
-// What the inside lines are drawn *between*, said in the note under the slider.
-// Lower case and plural rather than reusing the labels above: this reads as the
-// end of a sentence ("35% · between regions"), not as the name of a button. It
-// has to be said at all because the control that decides which units those are
-// is Detail, three sections up.
-const DIVISION_NAMES = {
-  region: 'regions',
-  country: 'countries',
-  continent: 'continents',
+// The same three said as the end of a sentence ("35% · region borders") rather
+// than as the name of a button, which is why they are lower case here.
+const LINE_SCOPE_NOTES = {
+  regions: 'region borders',
+  countries: 'country borders',
+  both: 'region and country borders',
 };
 
 const ALIGNS = [
@@ -172,9 +169,17 @@ function loadSpec() {
   // control now. A spec from before that says what picture it wanted in two
   // fields, and both are worth keeping: somebody with the outline on and no
   // seams must not open the dialog to find the outline gone.
-  if (Number.isFinite(raw.lines) && LINE_SCOPES.some((l) => l.key === raw.lineScope)) {
+  //
+  // Then the selector stopped asking *where* the lines go and started asking
+  // *which borders* they are, so there are two older vocabularies to read. The
+  // silhouette is unconditional now, which is what makes both readable: a spec
+  // that asked for the outline alone keeps it and gains the national borders,
+  // the fewest lines that change the picture at all.
+  const OLD_SCOPES = { outline: 'countries', inside: 'regions', both: 'both' };
+  if (Number.isFinite(raw.lines) && (LINE_SCOPES.some((l) => l.key === raw.lineScope)
+    || raw.lineScope in OLD_SCOPES)) {
     spec.lines = Math.min(1, Math.max(0, raw.lines));
-    spec.lineScope = raw.lineScope;
+    spec.lineScope = OLD_SCOPES[raw.lineScope] ?? raw.lineScope;
   } else {
     // `outline` defaulted to true, so a spec that never mentions it wanted one.
     const hadOutline = typeof raw.outline === 'boolean' ? raw.outline : true;
@@ -183,13 +188,13 @@ function loadSpec() {
       spec.lineScope = 'both';
       spec.lines = inside;
     } else if (hadOutline) {
-      spec.lineScope = 'outline';
+      spec.lineScope = 'countries';
       spec.lines = 1;
     } else if (inside > 0.001) {
-      spec.lineScope = 'inside';
+      spec.lineScope = 'regions';
       spec.lines = inside;
     } else {
-      spec.lineScope = 'outline';
+      spec.lineScope = 'countries';
       spec.lines = 0;
     }
   }
@@ -811,20 +816,15 @@ export function mountExport({ onClose, data }) {
     $('export-borders-note').textContent =
       spec.borders <= 0.001 ? 'Off' : `${Math.round(spec.borders * 100)}%`;
     lines.value = String(Math.round(spec.lines * 100));
-    // Blobs have no seams, so the choice of where the lines go goes rather than
-    // sitting there with two thirds of it doing nothing — the same call the Cell
+    // Nothing lies between two blobs, so the choice of which borders goes rather
+    // than sitting there with all of it doing nothing — the same call the Cell
     // size row makes in the other direction. `lineAlphas` reads that detail the
     // same way, so the slider still means the silhouette rather than nothing.
     const blobbed = spec.detail === 'blob';
     $('export-lines-which').hidden = blobbed;
-    const units = DIVISION_NAMES[spec.detail] ?? 'areas';
     const pct = `${Math.round(spec.lines * 100)}%`;
-    const where = blobbed || spec.lineScope === 'outline'
-      ? 'the outline'
-      : spec.lineScope === 'inside'
-        ? `between ${units}`
-        : `the outline and ${units}`;
-    $('export-lines-note').textContent = spec.lines <= 0.001 ? 'Off' : `${pct} · ${where}`;
+    const what = blobbed ? 'the outline' : LINE_SCOPE_NOTES[spec.lineScope] ?? 'borders';
+    $('export-lines-note').textContent = spec.lines <= 0.001 ? 'Off' : `${pct} · ${what}`;
 
     captionOn.checked = spec.caption.on;
     $('export-caption-body').hidden = !spec.caption.on;

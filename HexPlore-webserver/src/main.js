@@ -250,6 +250,14 @@ const ROUTE_WIDTH_STOPS = [
 ];
 const ROUTE_GLOW_SCALE = 3.4;
 const ROUTE_SELECTED_SCALE = 1.7;
+// How much the glow grows under the pointer. Well short of the selected bump,
+// because hovering is not choosing: this only has to say *this one*, and it says
+// it against four other routes that are not doing it.
+const ROUTE_HOVER_SCALE = 1.45;
+// How long the glow takes to come up and go down. Long enough to read as a
+// light coming on rather than a redraw, short enough that sweeping across a
+// dozen tracks does not leave a trail of them still fading.
+const ROUTE_HOVER_MS = 160;
 
 // The trip or day being shown, drawn as a track of dots. Warm amber so it can
 // never be mistaken for a saved route (orange) or the visited wash (the accent,
@@ -1657,7 +1665,11 @@ const routeGlowColor = () => routeColorExpr((hex) => lifted(hex));
 const routeGlowOpacity = () => {
   const strong = STYLES[styleKey].theme === 'light' ? 0.5 : 0.6;
   const soft = STYLES[styleKey].theme === 'light' ? 0.26 : 0.35;
-  return ['*', routeAlphaExpr(), ['case', ROUTE_SELECTED, strong, soft]];
+  // Under the pointer, most of the way to the selected strength but not all of
+  // it — a hover that looked identical to a selection would be answering the
+  // question before it was asked.
+  const lit = soft + (strong - soft) * 0.75;
+  return ['*', routeAlphaExpr(), ['case', ROUTE_SELECTED, strong, ROUTE_HOVERED, lit, soft]];
 };
 // The core line is nearly solid, and an activity you have made translucent
 // scales that down rather than replacing it.
@@ -1728,13 +1740,20 @@ const tileLineOpacity = () => ['*', tileVis, F, ['+', 0.22, ['*', 0.32, HOVER]]]
 // to be baked into the stop values — wrapping an interpolate in ['*', …] is
 // rejected outright when the layer is added.
 const ROUTE_SELECTED = ['boolean', ['feature-state', 'sel'], false];
-const routeWidth = (scale) => [
+const ROUTE_HOVERED = ['boolean', ['feature-state', 'hov'], false];
+// `hover` is the multiplier under the pointer, and only the glow passes one: a
+// core line that thickened as well would be the route moving rather than
+// lighting up, and the two read completely differently at a hairline.
+const routeWidth = (scale, hover = 1) => [
   'interpolate',
   ['linear'],
   ['zoom'],
   ...ROUTE_WIDTH_STOPS.flatMap(([zoom, w]) => [
     zoom,
-    ['case', ROUTE_SELECTED, w * scale * ROUTE_SELECTED_SCALE, w * scale],
+    ['case',
+      ROUTE_SELECTED, w * scale * ROUTE_SELECTED_SCALE,
+      ROUTE_HOVERED, w * scale * hover,
+      w * scale],
   ]),
 ];
 
@@ -3333,6 +3352,7 @@ let statsUi = null; // set by mountStats()
 let backupUi = null; // set by mountBackup()
 let homeUi = null; // set by mountHome()
 let selectedRoute = null;
+let hoveredRoute = null;
 
 function saveRoutesPref() {
   try {
@@ -3808,6 +3828,10 @@ function syncRoutes() {
   if (selectedRoute != null && routeGeom) {
     map.setFeatureState({ source: 'routes', id: selectedRoute }, { sel: true });
   }
+  // The pointer has not moved, so whatever it was on it is still on.
+  if (hoveredRoute != null && routesOn && routeGeom) {
+    map.setFeatureState({ source: 'routes', id: hoveredRoute }, { hov: true });
+  } else hoveredRoute = null;
 }
 
 function setRoutesOn(on) {
@@ -3830,6 +3854,23 @@ function setSelectedRoute(id) {
   if (selectedRoute != null && src) map.removeFeatureState({ source: 'routes', id: selectedRoute }, 'sel');
   selectedRoute = id;
   if (id != null && src) map.setFeatureState({ source: 'routes', id }, { sel: true });
+}
+
+/**
+ * Which route the pointer is on. One feature state, and the glow's own paint
+ * expressions do the rest — the same trade the railway hover makes, where the
+ * highlight costs nothing of ours because the style already answers it.
+ *
+ * The early return matters more than it looks: this is called from every
+ * mousemove, and a `setFeatureState` on the route already lit would re-evaluate
+ * the layer's paint on every one of them.
+ */
+function setHoveredRoute(id) {
+  if (hoveredRoute === id) return;
+  const src = map.getSource('routes');
+  if (hoveredRoute != null && src) map.removeFeatureState({ source: 'routes', id: hoveredRoute }, 'hov');
+  hoveredRoute = id;
+  if (id != null && src) map.setFeatureState({ source: 'routes', id }, { hov: true });
 }
 
 function closeRouteInfo() {
@@ -5640,6 +5681,9 @@ function setMode(next) {
   }
   if (mode !== 'edit') stopPaint();
   setHover(null);
+  // Edit mode never asks which route is under the pointer, so one lit on the way
+  // in would stay lit until something else happened to clear it.
+  setHoveredRoute(null);
   closeCellInfo(); // the cards belong to view mode; clicks now paint
   closeRouteInfo();
   closePhotoInfo();
@@ -7451,8 +7495,13 @@ function installGrid() {
     paint: {
       'line-color': routeGlowColor(),
       'line-opacity': routeGlowOpacity(),
-      'line-width': routeWidth(glowScale()),
+      'line-width': routeWidth(glowScale(), ROUTE_HOVER_SCALE),
       'line-blur': glowBlur(),
+      // The whole of the hover animation. Both properties are feature-state
+      // expressions, so writing `hov` is enough to start them — nothing here
+      // steps a value or holds a timer.
+      'line-opacity-transition': { duration: ROUTE_HOVER_MS },
+      'line-width-transition': { duration: ROUTE_HOVER_MS },
     },
   }, beforeLabels);
   map.addLayer({
@@ -7690,7 +7739,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // mid-gesture, where a hit test would be both wasted and misleading.
       if (mode !== 'edit' && !map.isMoving()) {
         if (routesOn && routeGeom) {
-          pointerOnRoute = !!routeAt(e.point);
+          const under = routeAt(e.point);
+          pointerOnRoute = !!under;
+          // The hit test was already being paid for, for the cursor. The glow
+          // is the same answer said in the picture instead of on the pointer.
+          setHoveredRoute(under?.id ?? null);
           syncPointer();
         }
         // And the railway under it, if the overlay has been asked to answer. A
@@ -7734,6 +7787,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   map.getCanvas().addEventListener('mouseleave', () => {
     setHover(null);
     clearRailHover();
+    setHoveredRoute(null);
   });
 
   // The modifier state carried on the button-press itself, checked before

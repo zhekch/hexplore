@@ -6789,6 +6789,15 @@ html[data-client='ios'] .hud {
   grid-template-columns: 1fr 1fr 1fr;
 }
 
+/* A segmented control that belongs to the row above it rather than to the
+   section. Every other one sits under a heading, which brings its own space;
+   this one sits under a slider's own label and was touching it. Still nearer
+   that row than the next, because the gap is what says which control it
+   answers. */
+.seg-under {
+  margin-top: 10px;
+}
+
 .export-size-note {
   margin-top: 8px;
   font-size: 11px;

@@ -22,6 +22,13 @@ import { MAPBOX, MAPLIBRE, engineForBasemap, loadEngine, savedStyleKey } from '.
 
 const wanted = engineForBasemap(savedStyleKey());
 
+// The document is hidden until its stylesheet is — see the inline rule in the
+// head of index.html. main.js imports the stylesheet before its own first line
+// runs, so by the time that import resolves the page is styled and safe to
+// show. Called on both paths: a page that could not load a map still has to be
+// able to say so.
+const reveal = () => document.documentElement.classList.remove('booting');
+
 loadEngine(wanted)
   .catch((e) => {
     if (wanted === MAPLIBRE) throw e; // nothing left to fall back to
@@ -29,7 +36,9 @@ loadEngine(wanted)
     return loadEngine(MAPLIBRE);
   })
   .then(() => import('./main.js'))
+  .then(reveal)
   .catch((e) => {
+    reveal();
     // Neither library loaded, which means there is going to be no map at all.
     // Said out loud rather than left as a blank page: the alternative is a
     // window that looks like the app is simply broken, with nothing in it that

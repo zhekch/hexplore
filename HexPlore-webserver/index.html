@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="booting">
   <head>
     <meta charset="UTF-8" />
     <!-- `viewport-fit=cover` lets the page reach the edges of a screen with a
@@ -10,6 +10,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" href="data:," />
     <title>Visited Map</title>
+    <!-- The stylesheet arrives with main.js, and main.js arrives after boot.js
+         has fetched a map library over the network — so between first paint and
+         then, the browser draws this markup with no CSS on it at all: every
+         inline SVG at its natural size, every panel that is meant to be a
+         dismissed sheet stacked down the page, and a white background under all
+         of it. It lasted a fraction of a second and looked like the page had
+         broken.
+
+         So the document starts hidden and boot.js reveals it, both on the way
+         through and on the failure path — a page that cannot load its map still
+         has to be able to say so. Inline and in the head because it is the one
+         rule that has to be in force before the first paint, which is exactly
+         the thing an external stylesheet cannot promise. `visibility` rather
+         than `display`, so nothing is laid out twice.
+
+         The background is the stylesheet's own, repeated here rather than
+         imported, so the wait is the app's dark rather than the browser's
+         white — one flash fewer than hiding alone would give. -->
+    <style>
+      html.booting {
+        background: #0b0b10;
+      }
+
+      html.booting body {
+        visibility: hidden;
+      }
+    </style>
+    <!-- Nothing reveals the page if scripts never run, and a permanently blank
+         window is a worse answer than an ugly one. -->
+    <noscript>
+      <style>
+        html.booting body {
+          visibility: visible;
+        }
+      </style>
+    </noscript>
   </head>
   <body>
     <div id="map"></div>
@@ -1093,17 +1129,16 @@
                   <button type="button" class="color-swatch" data-color="edge" aria-label="Outline color"></button></div>
               </div>
               <!-- The lines the picture is made of, as one strength and a
-                   choice of where they go. It was a switch for the silhouette
-                   and a slider for the seams, which is one question asked twice
-                   — and answerable inconsistently, since only half of it had a
-                   strength. Hidden units: the selector says *where*, the note
-                   under the slider says *between what*, because which units
-                   those are is decided by Detail, three sections up. -->
+                   choice of which borders it buys. It was a switch for the
+                   silhouette and a slider for the seams, which is one question
+                   asked twice — and answerable inconsistently, since only half
+                   of it had a strength. The silhouette is unconditional; the
+                   selector is about the borders inside it. -->
               <label class="import-row">
                 <span>Borders<small id="export-lines-note">Off</small></span>
                 <input class="export-range" id="export-lines" type="range" min="0" max="100" step="5" />
               </label>
-              <div class="seg seg-mini seg-grid" id="export-lines-which"></div>
+              <div class="seg seg-mini seg-grid seg-under" id="export-lines-which"></div>
               <label class="import-row">
                 <span>The rest of the world<small id="export-surroundings-note">Off</small></span>
                 <input class="export-range" id="export-surroundings" type="range" min="0" max="100" step="5" />
