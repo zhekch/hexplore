@@ -401,11 +401,16 @@ export const DEFAULT_SPEC = {
   // …and how strongly the borders across it are. Separate, because "which one
   // is Germany" and "is there anything there at all" are separate questions.
   borders: 0,
-  // And the lines *inside* the cut: the seams of whatever Detail is set to, so
-  // a fill covering eleven cantons can still be read as eleven. Off by default
-  // — the silhouette is the picture, and this is a thing you add to it.
-  divisions: 0,
-  outline: true,
+  // The lines the picture is made of, as one strength and a choice of where
+  // they go: `outline` is the silhouette around the subject, `inside` the seams
+  // of whatever Detail is set to — so a fill covering eleven cantons can still
+  // be read as eleven — and `both` is both. They were two controls, a switch and
+  // a slider, which is the same question ("how much line do you want") asked
+  // twice and answerable inconsistently: an outline you could not soften beside
+  // seams you could. The silhouette alone is the default, because the shape of
+  // the place is the picture and the seams are a thing you add to it.
+  lines: 1,
+  lineScope: 'outline',
   caption: {
     on: true,
     anchor: 'bottom-left',
@@ -1170,6 +1175,22 @@ export function isLightColor(color) {
 }
 const isLight = isLightColor;
 
+/**
+ * How strongly each kind of line is drawn — 0 for not at all.
+ *
+ * A blob has no seams, so at that detail the choice collapses to the outline
+ * rather than to nothing: a slider that visibly does nothing is worse than one
+ * that quietly means the only line there is.
+ */
+export function lineAlphas(spec) {
+  const a = Math.max(0, Math.min(1, spec?.lines ?? 0));
+  const scope = spec?.detail === 'blob' ? 'outline' : (spec?.lineScope ?? 'outline');
+  return {
+    outline: scope === 'inside' ? 0 : a,
+    inside: scope === 'outline' ? 0 : a,
+  };
+}
+
 /** A hex colour at a given opacity, as something canvas will take. */
 function withAlpha(color, alpha) {
   const s = String(color).trim();
@@ -1334,8 +1355,12 @@ export function renderExport(canvas, spec, data, numbers, size = sizeOf(spec)) {
   drawDivisions(ctx, spec, cam, size, palette);
   ctx.restore();
 
-  if (spec.outline) {
-    ctx.strokeStyle = palette.edge;
+  // The silhouette, last, over everything it encloses. At full strength this is
+  // the flat edge colour — the same line it always was — and below it fades,
+  // which is the half of this control that used to be a switch.
+  const outlineAlpha = lineAlphas(spec).outline;
+  if (outlineAlpha > 0.001) {
+    ctx.strokeStyle = withAlpha(palette.edge, outlineAlpha);
     ctx.lineWidth = Math.max(1, size.h * 0.0016);
     ctx.lineJoin = 'round';
     ctx.stroke(land);
@@ -1570,7 +1595,7 @@ export function divisionGeoms(detail, cam) {
 }
 
 function drawDivisions(ctx, spec, cam, size, palette) {
-  const alpha = Math.max(0, Math.min(1, spec.divisions ?? 0));
+  const alpha = lineAlphas(spec).inside;
   if (alpha <= 0.001 || spec.detail === 'blob') return;
 
   // One path for all of them rather than one per unit. Nothing here is filled
@@ -1664,7 +1689,8 @@ export async function ensureSharpBoundaries(scope, { spec, data, size, all = fal
   // The divisions are the third: they trace every unit the frame reaches, which
   // is the same set and the same mismatch — a blunt canton border beside a sharp
   // one is more obvious as a line than it ever was as a fill.
-  const linesInside = (spec?.divisions ?? 0) > 0.001 && spec?.detail !== 'blob';
+  const alphas = lineAlphas(spec);
+  const linesInside = alphas.inside > 0.001 && spec?.detail !== 'blob';
   // The outline is the fourth thing that draws a country's edge, and it was the
   // one missing from this list — so a picture of everywhere with nothing but its
   // own silhouette turned on never asked for a sharp boundary at all, and there
@@ -1676,7 +1702,7 @@ export async function ensureSharpBoundaries(scope, { spec, data, size, all = fal
   // difference matters because this list feeds FINE_COUNTRY_LIMIT: counting
   // every country the frame touches for an outline that will not be drawn from
   // them pushes a preview of one canton past ten and it then fetches nothing.
-  const outlinesTheWorld = !!spec?.outline && settled.kind === 'world';
+  const outlinesTheWorld = alphas.outline > 0.001 && settled.kind === 'world';
   const wantsNeighbours = spec?.detail === 'region'
     || linesInside
     || outlinesTheWorld

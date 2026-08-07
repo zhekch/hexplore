@@ -1387,22 +1387,34 @@ offline and cannot render half-drawn while a font arrives.
   sharp outline wherever it has been fetched — a blunt national border cuts
   visibly across the detailed regions on the other side of it, which is the same
   mismatch as the fringe above wearing a different hat.
-- **And a third slider, for the lines *inside* the cut.** A solid fill is one
-  shape, and one shape says one thing: colour a poster by regions and every
-  canton you have been to dissolves into its neighbours. That is right — it is
-  what `mergeAreas` is for, and it is how a whole corner of a country reads at a
-  glance — but it is also the whole of what the picture then says. Twenty-six
-  cantons with a flat wash over eleven of them carry the same ink and the same
-  amount of information. *Borders inside* draws the seams the fill is made of
-  back over it, at a strength of its own, because how loud they should be
-  depends entirely on the picture: a hairline that gives a country-sized fill
-  some structure turns a poster of one canton into a diagram of it.
+- **And one slider for the lines the picture is made of, with a choice of where
+  they go.** A solid fill is one shape, and one shape says one thing: colour a
+  poster by regions and every canton you have been to dissolves into its
+  neighbours. That is right — it is what `mergeAreas` is for, and it is how a
+  whole corner of a country reads at a glance — but it is also the whole of what
+  the picture then says. Twenty-six cantons with a flat wash over eleven of them
+  carry the same ink and the same amount of information. Drawing the seams back
+  over the fill is what gives it structure again, at a strength that depends
+  entirely on the picture: a hairline that gives a country-sized fill some shape
+  turns a poster of one canton into a diagram of it.
+
+  *Borders* is that strength, and *Outline / Inside / Both* is where it applies —
+  the silhouette around the subject, the seams within it, or the two together.
+  They were two controls, a switch for the outline and a slider for the seams,
+  which is one question ("how much line do you want") asked twice and answerable
+  inconsistently: the outline could not be softened and the seams could, so a
+  faint diagram of a canton still wore a hard black edge. `lineAlphas(spec)` is
+  the one place that reads the pair, and `spec.lines` / `spec.lineScope` replace
+  `spec.outline` / `spec.divisions` — with a migration, because a stored spec
+  says which picture it wanted in the two old fields and both halves are worth
+  keeping.
 
   Which seams is **whatever *Detail* is set to**, because that is what the fill
   is made of and it would be a different control if it were anything else.
-  *Blobs* have no seams, so the row is hidden there rather than answering a
+  *Blobs* have no seams, so the selector is hidden there rather than answering a
   question nobody asked — the same call the *Cell size* row makes in the other
-  direction. Every unit the frame reaches is traced, not only the lit ones: the
+  direction — and `lineAlphas` reads the same detail, so at that setting the
+  slider means the silhouette rather than meaning nothing. Every unit the frame reaches is traced, not only the lit ones: the
   empty half of the subject is part of the composition too, and lines that stop
   where the colour stops draw the boundary of your own travel twice over. The
   clip does the cutting, as it does for everything else here.

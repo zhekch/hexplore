@@ -1092,10 +1092,18 @@
                 <div class="export-swatch"><span>Outline</span>
                   <button type="button" class="color-swatch" data-color="edge" aria-label="Outline color"></button></div>
               </div>
+              <!-- The lines the picture is made of, as one strength and a
+                   choice of where they go. It was a switch for the silhouette
+                   and a slider for the seams, which is one question asked twice
+                   — and answerable inconsistently, since only half of it had a
+                   strength. Hidden units: the selector says *where*, the note
+                   under the slider says *between what*, because which units
+                   those are is decided by Detail, three sections up. -->
               <label class="import-row">
-                <span>Draw the outline</span>
-                <input type="checkbox" id="export-outline" />
+                <span>Borders<small id="export-lines-note">Off</small></span>
+                <input class="export-range" id="export-lines" type="range" min="0" max="100" step="5" />
               </label>
+              <div class="seg seg-mini seg-grid" id="export-lines-which"></div>
               <label class="import-row">
                 <span>The rest of the world<small id="export-surroundings-note">Off</small></span>
                 <input class="export-range" id="export-surroundings" type="range" min="0" max="100" step="5" />
@@ -1103,13 +1111,6 @@
               <label class="import-row">
                 <span>Their borders<small id="export-borders-note">Off</small></span>
                 <input class="export-range" id="export-borders" type="range" min="0" max="100" step="5" />
-              </label>
-              <!-- The lines inside the cut, as opposed to the two above, which
-                   are about the world outside it. Hidden for Blobs: they are the
-                   seams of the fill, and a blob has none. -->
-              <label class="import-row" id="export-divisions-row">
-                <span>Borders inside<small id="export-divisions-note">Off</small></span>
-                <input class="export-range" id="export-divisions" type="range" min="0" max="100" step="5" />
               </label>
             </div>
 

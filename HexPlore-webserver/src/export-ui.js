@@ -49,9 +49,19 @@ const DETAILS = [
   { key: 'continent', label: 'Continents' },
 ];
 
-// What "Borders inside" is drawing between, said in the note under it. Lower
-// case and plural rather than reusing the labels above: this reads as the end of
-// a sentence ("35% · between regions"), not as the name of a button.
+// Which lines the Borders slider is setting the strength of: the silhouette
+// around the subject, the seams inside it, or both.
+const LINE_SCOPES = [
+  { key: 'outline', label: 'Outline' },
+  { key: 'inside', label: 'Inside' },
+  { key: 'both', label: 'Both' },
+];
+
+// What the inside lines are drawn *between*, said in the note under the slider.
+// Lower case and plural rather than reusing the labels above: this reads as the
+// end of a sentence ("35% · between regions"), not as the name of a button. It
+// has to be said at all because the control that decides which units those are
+// is Detail, three sections up.
 const DIVISION_NAMES = {
   region: 'regions',
   country: 'countries',
@@ -150,7 +160,6 @@ function loadSpec() {
   // It used to be an offset (0/1/2 steps coarser than auto) and is a level now.
   // An old value would mean a different size, so it is not carried over.
   if (CELL_SIZES.some((c) => c.key === raw.cellSize)) spec.cellSize = raw.cellSize;
-  if (typeof raw.outline === 'boolean') spec.outline = raw.outline;
   // It used to be a switch and is a strength now. A stored `true` means "on",
   // and what "on" was is the old constant.
   if (typeof raw.surroundings === 'boolean') spec.surroundings = raw.surroundings ? 0.34 : 0;
@@ -159,9 +168,31 @@ function loadSpec() {
   // Before they were separate, the borders came along with the land at 85% of
   // it. A spec from that build keeps the picture it described.
   else if (spec.surroundings > 0) spec.borders = spec.surroundings * 0.85;
-  // No such migration for these: a spec written before they existed described a
-  // picture with no lines in it, and that is what the default draws.
-  if (Number.isFinite(raw.divisions)) spec.divisions = Math.min(1, Math.max(0, raw.divisions));
+  // The outline was a switch and the inside lines a strength, and they are one
+  // control now. A spec from before that says what picture it wanted in two
+  // fields, and both are worth keeping: somebody with the outline on and no
+  // seams must not open the dialog to find the outline gone.
+  if (Number.isFinite(raw.lines) && LINE_SCOPES.some((l) => l.key === raw.lineScope)) {
+    spec.lines = Math.min(1, Math.max(0, raw.lines));
+    spec.lineScope = raw.lineScope;
+  } else {
+    // `outline` defaulted to true, so a spec that never mentions it wanted one.
+    const hadOutline = typeof raw.outline === 'boolean' ? raw.outline : true;
+    const inside = Number.isFinite(raw.divisions) ? Math.min(1, Math.max(0, raw.divisions)) : 0;
+    if (hadOutline && inside > 0.001) {
+      spec.lineScope = 'both';
+      spec.lines = inside;
+    } else if (hadOutline) {
+      spec.lineScope = 'outline';
+      spec.lines = 1;
+    } else if (inside > 0.001) {
+      spec.lineScope = 'inside';
+      spec.lines = inside;
+    } else {
+      spec.lineScope = 'outline';
+      spec.lines = 0;
+    }
+  }
   if (raw.colors && typeof raw.colors === 'object') {
     for (const key of ['background', 'land', 'edge']) {
       if (typeof raw.colors[key] === 'string') spec.colors[key] = raw.colors[key];
@@ -316,6 +347,19 @@ export function mountExport({ onClose, data }) {
     () => spec.colorBy,
     (key) => {
       spec.colorBy = key;
+    },
+  );
+
+  addSegment(
+    $('export-lines-which'),
+    LINE_SCOPES,
+    () => spec.lineScope,
+    (key) => {
+      spec.lineScope = key;
+      // Choosing where the lines go while there are none is choosing to have
+      // some: the alternative is a segmented control that appears to do
+      // nothing, three presses in a row, with the answer on a slider above it.
+      if (spec.lines <= 0.001) spec.lines = 1;
     },
   );
 
@@ -566,10 +610,6 @@ export function mountExport({ onClose, data }) {
     spec.strength = Number(strength.value) / 100;
   });
 
-  const outline = $('export-outline');
-  bind(outline, 'change', () => {
-    spec.outline = outline.checked;
-  });
 
   const surroundings = $('export-surroundings');
   bind(surroundings, 'input', () => {
@@ -581,9 +621,9 @@ export function mountExport({ onClose, data }) {
     spec.borders = Number(borders.value) / 100;
   });
 
-  const divisions = $('export-divisions');
-  bind(divisions, 'input', () => {
-    spec.divisions = Number(divisions.value) / 100;
+  const lines = $('export-lines');
+  bind(lines, 'input', () => {
+    spec.lines = Number(lines.value) / 100;
   });
 
   const captionOn = $('export-caption-on');
@@ -764,23 +804,27 @@ export function mountExport({ onClose, data }) {
       const value = palette[slot];
       pickers.get(slot)?.set(/^#[0-9a-f]{3,8}$/i.test(String(value)) ? value : '#00000000');
     }
-    outline.checked = spec.outline;
     surroundings.value = String(Math.round(spec.surroundings * 100));
     $('export-surroundings-note').textContent =
       spec.surroundings <= 0.001 ? 'Off' : `${Math.round(spec.surroundings * 100)}% behind the cut`;
     borders.value = String(Math.round(spec.borders * 100));
     $('export-borders-note').textContent =
       spec.borders <= 0.001 ? 'Off' : `${Math.round(spec.borders * 100)}%`;
-    // Blobs have no seams to draw, so the row goes rather than sitting there
-    // doing nothing — the same call the Cell size row makes in the other
-    // direction. The note names the units, because "borders inside" is only
-    // half an answer when the control that decides *which* borders is three
-    // sections further up.
-    $('export-divisions-row').hidden = spec.detail === 'blob';
-    divisions.value = String(Math.round(spec.divisions * 100));
-    $('export-divisions-note').textContent = spec.divisions <= 0.001
-      ? 'Off'
-      : `${Math.round(spec.divisions * 100)}% · between ${DIVISION_NAMES[spec.detail] ?? 'areas'}`;
+    lines.value = String(Math.round(spec.lines * 100));
+    // Blobs have no seams, so the choice of where the lines go goes rather than
+    // sitting there with two thirds of it doing nothing — the same call the Cell
+    // size row makes in the other direction. `lineAlphas` reads that detail the
+    // same way, so the slider still means the silhouette rather than nothing.
+    const blobbed = spec.detail === 'blob';
+    $('export-lines-which').hidden = blobbed;
+    const units = DIVISION_NAMES[spec.detail] ?? 'areas';
+    const pct = `${Math.round(spec.lines * 100)}%`;
+    const where = blobbed || spec.lineScope === 'outline'
+      ? 'the outline'
+      : spec.lineScope === 'inside'
+        ? `between ${units}`
+        : `the outline and ${units}`;
+    $('export-lines-note').textContent = spec.lines <= 0.001 ? 'Off' : `${pct} · ${where}`;
 
     captionOn.checked = spec.caption.on;
     $('export-caption-body').hidden = !spec.caption.on;
