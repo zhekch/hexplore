@@ -2811,21 +2811,45 @@ All three shims are in `src/gl-engine.js`, so `src/rail.js` is untouched.
   wrappers above, so the layers arrive before an anchor that does not exist,
   reading an expression Mapbox cannot parse. Hence `fastAdd`, false on 3D.
 
-### Colours that survive an atmosphere
+### Being lit by a map, and refusing to be
 
-Mapbox GL JS applies the style's fog to **everything in the scene**, ours
-included. A route a few hundred metres out at a lean is already being mixed
-toward the haze colour, and at dusk and night that haze is a dark desaturated
-blue — so routes and visited regions came out the colour of the sky. The line is
-still exactly the colour it was told to be; it is being fogged, which is right
-for something standing in the ground and wrong for an annotation drawn on it.
+Mapbox GL JS lights the whole scene from the style, and at dusk and night that
+light is dim and blue. **Every layer type this app draws with is lit by
+default** — `line`, `fill`, `circle` and `raster` all ship
+`*-emissive-strength: 0`, meaning "take the scene's light". So the visited wash,
+the routes and all 288 layers of the railway overlay were being *dimmed by the
+sun going down*: correct for a road, which is a thing lying in the world, and
+wrong for an annotation drawn on top of one.
 
-There is no per-layer way to opt out, so the answer is to hand the layer a colour
-with enough saturation and light in it to survive the trip. `vivid()` does that
-in HSL, because that is the pair of words the problem is stated in, and the
-`lift` on the STYLES entry says how much: `[1.25, 0.06]` by day, `[1.55, 0.22]`
-after dark, with `cellAlpha` and `heatAlpha` raised alongside. Only the 3D entry
-has one — it is the only basemap in the app whose atmosphere touches our layers.
+Mapbox's own labels never had the problem, and the reason is the answer:
+`icon-emissive-strength` and `text-emissive-strength` default to **1**, which is
+the style spec admitting out loud that some things are drawn on a map rather
+than lying in it. Ours say the same. `selfLit()` in `src/gl-engine.js` injects
+the right property for the layer's type inside the same `addLayer` wrapper that
+translates the slots — done there rather than written into twenty layer
+definitions because it is a fact about the renderer, not about any of them, and
+because it has to reach the railway overlay's layers too, which are somebody
+else's style and not ours to annotate. A layer that sets its own is left alone.
+
+**The colour lift is what is left over.** `vivid()` — saturation and lightness,
+in HSL, because that is the pair of words the problem is stated in — was
+originally the whole answer, and it was treating a symptom. Emissive strength
+fixes the lighting; it does not touch the **fog**, which GL JS still applies to
+everything in the scene, so a route a few hundred metres out at a lean is mixed
+toward the haze whatever its emissive strength. That is all the `lift` on the
+STYLES entry now does, and it is much gentler for it: `[1.15, 0.02]` by day,
+`[1.2, 0.05]` after dark. Only the 3D entry has one.
+
+**Two things a route needs that only this basemap can give it.** Its glow is
+wider and softer here — `ROUTE_GLOW_SCALE_3D`, `ROUTE_GLOW_BLUR_3D` — because
+Standard puts the line in a lit scene with texture and shadow under it, and the
+halo that reads as *drawn on* a flat basemap disappears into that one. And
+`line-occlusion-opacity` is set to 0.4: a line is drawn on the ground, so a
+tower between it and the camera hides it completely, and on a leaning 3D map a
+walk through a city becomes a dotted line of the gaps between blocks. Not 1,
+which would put the route in front of the city and throw away the depth that
+makes the basemap worth having — enough to follow a line through a block and
+know that it continues.
 
 One trap, and it cost a round of "why is nothing changing": `syncAccent()`
 returns early when the accent hex has not changed, which is exactly what happens

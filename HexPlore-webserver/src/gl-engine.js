@@ -161,6 +161,40 @@ const SLOT_OF = {
 /** Is this one of the sentinels rather than a real layer id? */
 export const isSlot = (id) => typeof id === 'string' && id in SLOT_OF;
 
+// --- Being lit, and refusing to be ---------------------------------------------
+//
+// Mapbox GL JS lights the whole scene from the style, and at dusk and night that
+// light is dim and blue. Every layer type this app draws with is lit by default:
+// `line`, `fill`, `circle` and `raster` all ship `*-emissive-strength: 0`, which
+// means "take the scene's light". So a route, a railway and the visited wash were
+// all being *dimmed by the sun going down* — correct for a road, which is a thing
+// lying in the world, and wrong for an annotation drawn on top of it. The map's
+// own labels never had the problem: `icon-` and `text-emissive-strength` default
+// to 1, which is exactly the admission that some things are not lit by the scene.
+//
+// So ours say the same. Injected here rather than written into twenty layer
+// definitions because it is a fact about the renderer, not about any of them —
+// and because it has to reach the railway overlay's 288 layers too, which are
+// somebody else's style and not ours to annotate.
+//
+// Only when the layer has not asked for its own, so a caller that wants to be
+// lit — or half-lit — still can.
+const EMISSIVE_OF = {
+  line: 'line-emissive-strength',
+  fill: 'fill-emissive-strength',
+  circle: 'circle-emissive-strength',
+  raster: 'raster-emissive-strength',
+};
+// 1 is "ignore the scene's light entirely", which is what a drawn-on annotation
+// wants. Lower it to let night dim our layers along with the map again.
+const EMISSIVE_STRENGTH = 1;
+
+function selfLit(spec) {
+  const prop = EMISSIVE_OF[spec.type];
+  if (!prop || (spec.paint && prop in spec.paint)) return spec;
+  return { ...spec, paint: { ...spec.paint, [prop]: EMISSIVE_STRENGTH } };
+}
+
 /**
  * Teach a Mapbox map to read the two sentinels as slots.
  *
@@ -173,8 +207,9 @@ export const isSlot = (id) => typeof id === 'string' && id in SLOT_OF;
 export function installAddLayerSlots(map) {
   const add = map.addLayer.bind(map);
   map.addLayer = (spec, before) => {
+    const lit = selfLit(spec);
     const slot = SLOT_OF[before];
-    return slot ? add({ ...spec, slot }, undefined) : add(spec, before);
+    return slot ? add({ ...lit, slot }, undefined) : add(lit, before);
   };
 }
 

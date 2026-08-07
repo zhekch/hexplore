@@ -614,15 +614,21 @@ const STYLES = {
     // Two numbers, `[saturation ×, lightness lift]`, and night gets much more of
     // both: at day the haze is bright enough that lifting further would only
     // wash the colour out, and at night nothing survives without it.
-    lift: () => (presetTheme() === 'dark' ? [1.55, 0.22] : [1.25, 0.06]),
+    // Much gentler than it was. This started as the whole answer to "the routes
+    // and the regions vanish at night", and it was treating a symptom: the cause
+    // was that our layers were being *lit* by the scene, which `selfLit()` in
+    // src/gl-engine.js now refuses on their behalf. What is left for this to do
+    // is the fog, which emissive strength does not touch — a little more
+    // saturation so a colour still reads as itself across a hazy distance.
+    lift: () => (presetTheme() === 'dark' ? [1.2, 0.05] : [1.15, 0.02]),
     // The wash is a layer opacity on top of that, and the same argument applies
     // — a colour fogged toward the night sky needs to be laid on thicker before
     // it reads as a colour at all.
     get cellAlpha() {
-      return presetTheme() === 'dark' ? 1.35 : 1.1;
+      return presetTheme() === 'dark' ? 1.1 : 1;
     },
     get heatAlpha() {
-      return presetTheme() === 'dark' ? 1.35 : 1.1;
+      return presetTheme() === 'dark' ? 1.1 : 1;
     },
     // Only reached if Mapbox GL JS itself cannot be loaded, which puts us back
     // on MapLibre with no Mapbox style to give it. Light, because that is the
@@ -1604,6 +1610,32 @@ const routeGlowOpacity = () => {
 // The core line is nearly solid, and an activity you have made translucent
 // scales that down rather than replacing it.
 const routeLineOpacity = () => ['*', routeAlphaExpr(), 0.95];
+
+// --- Routes on a map with buildings in it -------------------------------------
+//
+// Two things the 3D basemap needs and the flat four do not.
+//
+// **A wider, softer glow.** On a flat basemap the glow is haze around a crisp
+// line and 3.4× the core is plenty. Standard puts the route in a lit scene with
+// texture and shadow under it, and at that busy a background the same halo
+// disappears into the ground. Widening and blurring it further is what makes the
+// line read as *drawn on* the map rather than as one more thing in it — which is
+// the whole job of the glow, done harder because the background got harder.
+const ROUTE_GLOW_SCALE_3D = 6;
+const ROUTE_GLOW_BLUR_3D = 9;
+const glowScale = () => (engine === MAPBOX ? ROUTE_GLOW_SCALE_3D : ROUTE_GLOW_SCALE);
+const glowBlur = () => (engine === MAPBOX ? ROUTE_GLOW_BLUR_3D : 4);
+
+// **And a route you can still see behind a building.** A line is drawn on the
+// ground, so a tower between it and the camera hides it completely — which on a
+// leaning 3D map means a walk through a city is a dotted line of the gaps
+// between blocks. `line-occlusion-opacity` is Mapbox's answer: the opacity of
+// the part of the line that is behind something. Not 1, which would put the
+// route *in front of* the city and lose the depth that makes the basemap worth
+// having; enough to follow a line through a block and know it continues.
+const ROUTE_THROUGH_BUILDINGS = 0.4;
+const throughBuildings = () =>
+  (engine === MAPBOX ? { 'line-occlusion-opacity': ROUTE_THROUGH_BUILDINGS } : {});
 
 // --- Paint expressions -----------------------------------------------------
 // Region features: k=1 fill polygons, k=2 outline. Tile features carry a
@@ -7081,8 +7113,9 @@ function installGrid() {
     paint: {
       'line-color': routeGlowColor(),
       'line-opacity': routeGlowOpacity(),
-      'line-width': routeWidth(ROUTE_GLOW_SCALE),
-      'line-blur': 4,
+      'line-width': routeWidth(glowScale()),
+      'line-blur': glowBlur(),
+      ...throughBuildings(),
     },
   }, beforeLabels);
   map.addLayer({
@@ -7092,6 +7125,7 @@ function installGrid() {
       'line-color': routeLineColor(),
       'line-opacity': routeLineOpacity(),
       'line-width': routeWidth(1),
+      ...throughBuildings(),
     },
   }, beforeLabels);
 

@@ -123,6 +123,44 @@ console.log('\nThe two anchors, on a map whose layers cannot be read');
   const spec = { id: 'reused', type: 'fill' };
   map.addLayer(spec, WASH_SLOT_ID);
   check(!('slot' in spec), 'and the caller’s own object is never written into');
+  check(!('paint' in spec), 'nor given a paint block it did not have');
+}
+
+// --- Refusing to be lit by the scene -----------------------------------------
+// `line`, `fill`, `circle` and `raster` all default to `*-emissive-strength: 0`,
+// which means the style's light dims them — so at dusk a route was being darkened
+// by the sun going down. Symbols are the counter-example worth keeping in the
+// test: Mapbox already defaults *their* emissive strength to 1, which is the
+// admission that some things are drawn on a map rather than lying in it.
+console.log('\nOur layers are drawn on the map, not lit by it');
+{
+  const added = [];
+  const map = { addLayer: (spec) => added.push(spec) };
+  installAddLayerSlots(map);
+  const last = () => added.at(-1);
+
+  map.addLayer({ id: 'route-line', type: 'line' });
+  eq(last().paint?.['line-emissive-strength'], 1, 'a line is self-lit');
+  map.addLayer({ id: 'hex-fill', type: 'fill' });
+  eq(last().paint?.['fill-emissive-strength'], 1, 'so is a fill');
+  map.addLayer({ id: 'photo-dot', type: 'circle' });
+  eq(last().paint?.['circle-emissive-strength'], 1, 'and a circle');
+  map.addLayer({ id: 'blob-layer', type: 'raster' });
+  eq(last().paint?.['raster-emissive-strength'], 1, 'and the blob sheet, which is a raster');
+
+  // Symbols are left alone — Mapbox already gives them 1.
+  map.addLayer({ id: 'hex-label', type: 'symbol' });
+  check(
+    !Object.keys(last().paint ?? {}).some((k) => k.includes('emissive')),
+    'a symbol is left alone, because Mapbox already defaults it to 1',
+  );
+
+  // Existing paint survives, and an explicit choice is never overridden.
+  map.addLayer({ id: 'kept', type: 'line', paint: { 'line-width': 3 } });
+  eq(last().paint['line-width'], 3, 'paint the layer already had is kept');
+  eq(last().paint['line-emissive-strength'], 1, 'alongside the one added');
+  map.addLayer({ id: 'own', type: 'line', paint: { 'line-emissive-strength': 0.25 } });
+  eq(last().paint['line-emissive-strength'], 0.25, 'a layer that asked to be half-lit stays half-lit');
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
