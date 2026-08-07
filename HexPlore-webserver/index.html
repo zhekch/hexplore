@@ -198,6 +198,18 @@
            stacked pills. On a wider screen it stays in the map's own
            bottom-right corner and this is just the menu button. -->
       <div class="layers-cluster" id="layers-cluster">
+        <!-- Only present once the map has been turned or leaned. A control
+             whose whole message is "north is that way" has nothing to say about
+             a map that is already facing north, and the corner is better spent
+             on the map. Pressing it puts the camera back. -->
+        <button class="layers-btn compass-btn" id="compass-btn" type="button" hidden aria-label="Face north" title="Face north">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <!-- Two halves, because one arrow only says which way it points and
+                 a needle says which way the map is turned. -->
+            <path d="M12 3.2 16.2 15 12 12.4 7.8 15Z" fill="currentColor" />
+            <path d="M12 20.8 7.8 9 12 11.6 16.2 9Z" fill="currentColor" opacity="0.4" />
+          </svg>
+        </button>
         <button class="layers-btn" id="search-btn" type="button" aria-label="Search" title="Search places, trips and dates (⌘K)">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="11" cy="11" r="6.5" />

@@ -385,8 +385,12 @@ body {
   }
 
   /* One hairline between them. In row-reverse this is the left-hand button, so
-     the seam is on its right. */
-  .layers-cluster .layers-btn + .layers-btn {
+     the seam is on its right.
+
+     `:not([hidden])` because the compass comes and goes: with a plain `+` the
+     button after a hidden one still matches, and the pill drew a hairline down
+     its own outside edge whenever the map was facing north. */
+  .layers-cluster .layers-btn:not([hidden]) + .layers-btn {
     border-right: 1px solid rgba(255, 255, 255, 0.14);
   }
 
@@ -434,6 +438,20 @@ body {
 
 .layers-btn:hover {
   background: rgba(255, 255, 255, 0.16);
+}
+
+/* display:grid above would defeat the hidden attribute — the same trap the
+   pencil falls into, and the compass is hidden far more often than it is not. */
+.compass-btn[hidden] {
+  display: none;
+}
+
+/* The needle turns with the map, so it is set from JS on every rotate frame —
+   which is why there is no transition on it. One would put the needle a
+   fraction of a second behind the ground it is describing, and the whole point
+   of the thing is that the two agree. */
+.compass-btn svg {
+  transform-origin: 50% 50%;
 }
 
 .layers-btn:active {

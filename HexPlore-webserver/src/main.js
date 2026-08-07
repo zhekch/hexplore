@@ -3,7 +3,6 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './style.css';
 import {
   MAX_LEVEL,
-  MAX_MERC_Y,
   SQRT3,
   mercX,
   mercY,
@@ -96,6 +95,10 @@ import { routesToFC, totalLength, formatDistance, canonicalSport, duplicateRoute
 import { reconcilePrefs } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
+// The one place that asks the map where its camera is, and the only arithmetic
+// that knows a camera can be turned or leaned. Everything downstream still
+// receives a rectangle of Mercator metres.
+import { boxContains, cameraOf, groundBox, lngLatBox, mercPerPixel } from './view.js';
 import { installScrollChain } from './scroll-chain.js';
 import { installCardLift } from './card-lift.js';
 
@@ -131,6 +134,49 @@ const LEVEL_STEP = Math.log2(3); // ≈ 1.585 zoom levels per grid level
 const LEVEL0_ZOOM = 10;
 
 const VIEW_PAD = 0.35; // extra region coverage around the viewport, per side
+
+// --- Which way the camera may point --------------------------------------------
+// The map turns. It did not, for a long time, and the reason was never that
+// anybody wanted a map you could only look at from the south: it was that every
+// renderer here asks the same question — *what ground can the camera see* — and
+// the only code that answered it read `map.getBounds()` and padded a north-up
+// rectangle by a third. Turn the map and that rectangle is the wrong ground.
+// src/view.js answers it from the camera instead, so this is now a switch
+// rather than a rewrite.
+//
+// What a rotation costs: the smallest north-up box around a turned viewport is
+// larger than the viewport — nothing at all at each quarter turn, and
+// (W+H)²/2WH of it on the diagonal, which is exactly 2 for a square window and
+// a little more the longer the window is. The blob sheet is painted into that
+// box, so a map held on the diagonal pays about twice the pixels — bounded, as
+// ever, by the caps in src/blob-canvas.js, which is why the worst case is a
+// slightly softer wash rather than a slower one.
+const ROTATE_ENABLED = true;
+
+// ...and it leans, if you ask it to.
+//
+// Pitch is the shape of the 3D basemaps this is heading toward, and everything
+// underneath it already works: the blob sheet is handed to MapLibre as a
+// georeferenced quad, so it is drawn in perspective — and draped over terrain —
+// by the same matrix that draws the basemap, and src/view.js computes the
+// trapezoid of ground a leaning camera sees rather than pretending it is a
+// rectangle.
+//
+// What is *not* ready is the sheet's resolution. It is one flat raster spread
+// over the whole visible ground, and a lean makes that ground several times
+// larger without making the window any bigger — so the near field, the part
+// being looked at, is painted at a fraction of the density it gets today. The
+// fix is a tiled sheet rather than a viewport-sized one; until that exists,
+// shipping a lean would be shipping a softer map to anyone who tilted.
+//
+// So it is off by default and reachable with `?pitch=55`, which is how the
+// trapezoid, the reach clamp and the draped raster are actually exercised
+// rather than merely written. Raise the default when the sheet is tiled.
+const MAX_PITCH = (() => {
+  const asked = new URLSearchParams(location.search).get('pitch');
+  const n = asked === null ? 0 : Number(asked);
+  return Number.isFinite(n) ? Math.min(85, Math.max(0, n)) : 0;
+})();
 const TILE_INSET = 0.92; // unvisited tiles shrink to leave a glass gap
 // Vector region smoothing — used for the selection ring, and for regions only
 // on browsers that can't run the blob canvas (src/blob-canvas.js does the real
@@ -450,7 +496,13 @@ function savedView() {
   try {
     const v = JSON.parse(localStorage.getItem(VIEW_KEY) ?? 'null');
     if (v && Number.isFinite(v.lng) && Number.isFinite(v.lat) && Number.isFinite(v.zoom)) {
-      return v;
+      // Which way the camera was pointing is part of where it was. A view
+      // written before the map could turn has neither, and 0 is what it meant.
+      return {
+        ...v,
+        bearing: Number.isFinite(v.bearing) ? v.bearing : 0,
+        pitch: Number.isFinite(v.pitch) ? v.pitch : 0,
+      };
     }
   } catch {
     /* ignore */
@@ -652,6 +704,13 @@ const map = new maplibregl.Map({
   style: STYLES[styleKey].url ?? placeholderStyle(STYLES[styleKey].theme),
   center: initialView ? [initialView.lng, initialView.lat] : [15, 30],
   zoom: initialView?.zoom ?? 2.2,
+  bearing: initialView?.bearing ?? 0,
+  pitch: Math.min(MAX_PITCH, initialView?.pitch ?? 0),
+  // Both stated rather than left to their defaults, because "the camera may not
+  // lean" has to be true of the gesture as well as of the camera: a
+  // right-button drag pitches as it rotates unless it is told not to.
+  maxPitch: MAX_PITCH,
+  pitchWithRotate: MAX_PITCH > 0,
   // Two, not 1.8, and not the 1 this briefly was. MapLibre asks for tiles at
   // floor(zoom), so anything below 2 is drawn on a basemap's z1 tiles, whose
   // coastlines are generalised far coarser than our own — see CONTINENT_ZOOM,
@@ -675,8 +734,13 @@ map.addControl(
   }),
   'top-right',
 );
-map.dragRotate.disable();
-map.touchZoomRotate.disableRotation();
+// Right-button (or ctrl-) drag on a pointer, two fingers twisting on a touch
+// screen, shift-arrows on a keyboard. MapLibre enables all three by default;
+// what this file used to do was turn them off.
+if (!ROTATE_ENABLED) {
+  map.dragRotate.disable();
+  map.touchZoomRotate.disableRotation();
+}
 window.map = map; // handy in devtools
 
 // Any user-initiated movement (or a geolocate flight) cancels the pending
@@ -757,6 +821,42 @@ function dropLockOnZoom() {
 map.addControl(geolocate, 'bottom-right');
 keepGeolocateOn();
 dropLockOnZoom();
+
+// --- The compass ---------------------------------------------------------------
+// Turning a map is easy to do by accident — a two-finger pinch that twists a
+// few degrees, a right-drag meant for a context menu — and very hard to undo by
+// hand, because "back to exactly north" is not a thing a gesture can hit. So
+// the one control the rotation needs is the one that puts it back.
+//
+// It is in the cluster rather than a corner of its own, and it is only there at
+// all while there is something to say: on a map facing north the button would
+// be a permanent statement that north is up, which the map is already making.
+const compassBtn = document.getElementById('compass-btn');
+const compassNeedle = compassBtn?.querySelector('svg');
+
+function refreshCompass() {
+  if (!compassBtn) return;
+  const bearing = map.getBearing();
+  const pitch = map.getPitch();
+  // Half a degree, not zero: `easeTo` lands on 1e-14 often enough, and a button
+  // that will not go away after being pressed is worse than one that never
+  // appeared.
+  const turned = Math.abs(bearing) > 0.5 || pitch > 0.5;
+  compassBtn.hidden = !turned;
+  // North is at −bearing on screen, bearing being the direction that is up.
+  // Set whether or not the button is showing: a needle left pointing where the
+  // map used to face is one frame of wrong on the way back in.
+  if (compassNeedle) compassNeedle.style.transform = `rotate(${-bearing}deg)`;
+}
+
+compassBtn?.addEventListener('click', () => {
+  userInteracted = true;
+  releaseCameraLock();
+  map.easeTo({ bearing: 0, pitch: 0, duration: 400 });
+});
+map.on('rotate', refreshCompass);
+map.on('pitch', refreshCompass);
+refreshCompass();
 
 // Show the dot without being asked.
 //
@@ -867,6 +967,8 @@ map.on('moveend', () => {
         lng: +c.lng.toFixed(5),
         lat: +c.lat.toFixed(5),
         zoom: +map.getZoom().toFixed(2),
+        bearing: +map.getBearing().toFixed(1),
+        pitch: +map.getPitch().toFixed(1),
       }),
     );
   } catch {
@@ -2322,11 +2424,12 @@ window.visitedMap = {
   }),
   // Why a zoom-in is (or isn't) asking for detailed boundaries.
   fineDebug: () => {
-    const b = map.getBounds();
-    const view = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+    const view = lngLatBox(viewMerc());
     return {
       level: currentLevel,
       zoom: map.getZoom(),
+      bearing: +map.getBearing().toFixed(1),
+      pitch: +map.getPitch().toFixed(1),
       lit: litRegionIds ? [...litRegionIds] : null,
       view: view.map((n) => +n.toFixed(2)),
       candidates: litRegionIds ? countriesInView(litRegionIds, view) : null,
@@ -3973,21 +4076,17 @@ function levelForZoom(zoom, current = null) {
   return held ? current : raw;
 }
 
-function paddedMerc() {
-  const b = map.getBounds();
-  const xMin = mercX(b.getWest());
-  const xMax = mercX(b.getEast());
-  const yMin = mercY(b.getSouth());
-  const yMax = mercY(b.getNorth());
-  const px = (xMax - xMin) * VIEW_PAD;
-  const py = (yMax - yMin) * VIEW_PAD;
-  return {
-    xMin: xMin - px,
-    xMax: xMax + px,
-    yMin: Math.max(-MAX_MERC_Y, yMin - py),
-    yMax: Math.min(MAX_MERC_Y, yMax + py),
-  };
-}
+// What the renderers are built for: a rectangle of Mercator metres, padded so
+// a small pan has something already drawn to move into.
+//
+// The arithmetic is in src/view.js because a turned or leaning camera does not
+// see a north-up rectangle and `map.getBounds()` cannot say so. On a map nobody
+// has touched the compass on, this returns exactly what the four-line version
+// it replaced returned.
+const paddedMerc = () => groundBox(cameraOf(map), VIEW_PAD);
+
+/** The same, unpadded: what is actually on screen. */
+const viewMerc = () => groundBox(cameraOf(map));
 
 // --- Geometry builders -------------------------------------------------------
 // Unvisited tiles: plain inset hexagons (sharp corners) — precomputed once
@@ -4242,10 +4341,17 @@ function buildTiles() {
   const cxm = mercX(c.lng);
   const cym = mercY(c.lat);
   // Spotlight radius: SPOT_PX on screen, capped so tiny cells can't flood it.
-  const rim = map.unproject([cursorPx[0] + SPOT_PX, cursorPx[1]]);
+  //
+  // Straight from the zoom rather than by unprojecting a point SPOT_PX to the
+  // right of the cursor and measuring how far east it landed. That measurement
+  // is the same number only while north is up: turn the map a quarter turn and
+  // a step to the right of the cursor is a step *north*, its easting is zero,
+  // and the spotlight closes to nothing with the grid still switched on. A CSS
+  // pixel is a fixed number of Mercator metres at a given zoom whatever the
+  // compass says, so the conversion never needed the map at all.
   const hexArea = ((3 * SQRT3) / 2) * R * R;
   const radius = Math.min(
-    Math.abs(mercX(rim.lng) - cxm),
+    SPOT_PX * mercPerPixel(map.getZoom()),
     Math.sqrt((SPOT_MAX_CELLS * hexArea) / Math.PI),
   );
 
@@ -4513,8 +4619,7 @@ const VECTOR_COOL_ZOOM = levelBoundary(FIRST_VECTOR_LEVEL - 2) + 1;
 function considerFineRegions(level) {
   if (level !== REGION_LEVEL || map.getZoom() < REGION_FINE_ZOOM) return;
   if (!regionsLoaded() || !litRegionIds) return;
-  const b = map.getBounds();
-  const view = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+  const view = lngLatBox(viewMerc());
   for (const { iso, country } of countriesInView(litRegionIds, view)) {
     if (fineCountryKnown(iso)) continue;
     // The ring at the top of the map, so a zoom that is about to sharpen doesn't
@@ -4590,15 +4695,12 @@ function warmVector(level, asBlob) {
   setVecData(idle, fc);
 }
 
+// Whether what was last built still covers what is on screen. A rotation
+// changes the box exactly as a pan does — the ground the camera sees is
+// different ground — so turning the map re-runs the build through this test
+// rather than through one of its own.
 function coverageContainsView() {
-  if (!coverage) return false;
-  const b = map.getBounds();
-  return (
-    mercX(b.getWest()) >= coverage.xMin &&
-    mercX(b.getEast()) <= coverage.xMax &&
-    mercY(b.getSouth()) >= coverage.yMin &&
-    mercY(b.getNorth()) <= coverage.yMax
-  );
+  return !!coverage && boxContains(coverage, viewMerc());
 }
 
 // Set while the country boundaries are being fetched, so a zoom gesture doesn't

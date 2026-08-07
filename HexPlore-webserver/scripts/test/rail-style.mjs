@@ -200,6 +200,25 @@ console.log('\nThe switches their style reads for itself');
   check('theme' in style.state, 'the theme default is carried over');
   check('showConstructionInfrastructure' in style.state, 'and the infrastructure switches');
   check(Object.keys(style.state).length >= 10, 'along with the rest', `${Object.keys(style.state).length} keys`);
+
+  // Two of their keys describe the *camera*: `bearing` and `pitched`. Their own
+  // map keeps them in step with the view; we set them once, at their defaults,
+  // and never again — which is only harmless for as long as nothing draws from
+  // them. It has always been nothing, and this is where a rebuild that grafted
+  // a layer reading one would say so, rather than the overlay quietly drawing
+  // itself for a map facing north on a map that has been turned.
+  const readsCamera = style.layers.filter((l) => {
+    const consults = (v) =>
+      Array.isArray(v)
+        ? (v[0] === 'global-state' && (v[1] === 'bearing' || v[1] === 'pitched')) || v.some(consults)
+        : v && typeof v === 'object' && Object.values(v).some(consults);
+    return consults(l.layout) || consults(l.paint) || consults(l.filter);
+  });
+  check(
+    readsCamera.length === 0,
+    'and nothing they draw consults the camera we do not keep up to date',
+    readsCamera.map((l) => l.id).join(', '),
+  );
 }
 
 console.log('\nEvery URL handed to MapLibre is absolute');

@@ -22,6 +22,11 @@ glass look. Click hexagons to mark places you've visited.
 - **My location**: the round button (bottom right) uses browser geolocation to
   pan to you and show the usual blue dot — works on localhost, needs HTTPS
   in production. The map attribution sits top right, out of its way.
+- **The map turns.** Right-drag, two fingers twisting, or shift with the arrow
+  keys. A **compass** appears in the button cluster while it is turned and puts
+  it back; there is nothing there while north is up. Leaning the camera is the
+  same machinery and is off by default — `?pitch=55` raises the ceiling. See
+  [Turning the map](#turning-the-map).
 - **Modes**: the map is view-only until you switch **Editing** on in the menu,
   which reveals the glass **pencil button**; tapping that expands the edit panel
   and enters edit mode, where a glass tile **spotlight around the cursor** shows
@@ -143,11 +148,15 @@ glass look. Click hexagons to mark places you've visited.
   — with `main.js` repainting at the full budget once the camera has stopped
   *and* the dissolve has landed. A 620 ms crossfade of a smaller sheet is
   cheaper on every frame, not just at the paint.
-  The canvas is pinned to the padded viewport as a MapLibre canvas source (the
-  map never rotates or pitches, so the rectangle maps linearly and stays
-  registered while panning) and repaints on level changes, zoom drift and
-  moveend — never mid-gesture, where the existing image simply scales with the
-  map until you let go.
+  The canvas is pinned as a MapLibre canvas source to a rectangle of *ground* —
+  four lng/lat corners covering the padded viewport — rather than to the window,
+  which is what lets the map be turned: the sheet is drawn by the same matrix as
+  the basemap, so it rotates with it and would foreshorten under a pitch without
+  anything in `blob-canvas.js` knowing. Which rectangle to ask for is
+  `src/view.js`'s answer and no longer a north-up assumption — see
+  [Turning the map](#turning-the-map). It repaints on level changes, zoom drift
+  and moveend — never mid-gesture, where the existing image simply scales with
+  the map until you let go.
 - **Level changes** cross-dissolve over `LEVEL_FADE_MS` *inside* the blob
   canvas: the outgoing level is frozen into a buffer with its own Mercator
   rectangle, the new one is painted over it, and only the mix changes while the
@@ -2436,6 +2445,154 @@ lng/lat arithmetic, so a polygon at +173° reads as 300° from Alaska rather tha
 7°, and no threshold reaches it. Attu is a few hundred square kilometres and a
 hundred and fifty people; measuring the gap the short way round the world is the
 fix, and it has not been worth doing.
+
+## Turning the map
+
+For most of this project's life the map could not be turned, and the reason was
+never that anybody wanted a map you may only look at from the south. It was one
+function.
+
+Everything drawn over the basemap is built for **a rectangle of Mercator
+metres**: the blob sheet is painted into one, the hex geometry is generated
+inside one, the country and region loaders are told which countries fall in one,
+and `coverage` — the thing that decides whether a pan needs a rebuild at all —
+is one. All of them came from `paddedMerc()`, four lines that read
+`map.getBounds()` and grew it by a third. That is the correct rectangle for
+exactly one camera: north up, looking straight down. Turn the map and it
+describes the wrong ground; lean it and it describes a rectangle where there is
+a trapezoid.
+
+So the question is asked once now, in `src/view.js`, from the camera itself
+rather than from the shape of its bounding box. Nothing downstream changed —
+`groundBox()` still returns `{xMin, xMax, yMin, yMax}` in Mercator metres, and
+every renderer still consumes one. `ROTATE_ENABLED` in `src/main.js` is
+therefore a switch rather than a rewrite.
+
+**At bearing 0 and pitch 0 it returns precisely the box the old code did**, and
+`scripts/test/view.mjs` opens by reimplementing the old four lines and
+comparing. The unturned map is not a special case inside `view.js`; it is what
+the general formula collapses to. A feature nobody switched on must not be able
+to reframe the map by rounding.
+
+Two facts about Web Mercator carry the whole file. **It is linear in screen
+space** — one CSS pixel is the same number of Mercator metres everywhere on
+screen at a given zoom, at every latitude — which is what makes the arithmetic
+exact rather than an approximation, and what lets a margin measured in pixels
+become one measured in metres by a multiply. And the **canvas source is
+georeferenced**: the blob sheet is handed to MapLibre as four lng/lat corners,
+so it is drawn by the same matrix as the basemap. It rotates because the
+basemap does, not because anything in `blob-canvas.js` was taught to.
+
+### What a rotation costs, exactly
+
+The smallest north-up box around a turned viewport is bigger than the viewport,
+and the blob sheet is painted into that box. The factor is `(W+H)²/2WH` on the
+diagonal and 1 at each quarter turn — exactly 2 for a square window, 2.11 for
+16:10, 2.67 for 3:1. So a map held on the diagonal asks for about twice the
+pixels, bounded by the same `JS_BLUR_MAX_PX` / `MAX_SIDE` caps as everything
+else, which is why the worst case is a slightly softer wash rather than a slower
+map. A wide window is the one that finds those caps first, and that is worth
+knowing before someone measures a rotation on a 21:9 monitor and concludes the
+rotation is slow.
+
+The **pad is a margin around the window**, not a share of the box. Charging 35%
+of the *diagonal* box would compound with the rotation and make the sheet grow
+faster than the ground it covers, so the padded rectangle is the padded
+*window*, turned — which at bearing 0 is the same number as before.
+
+### The compass, and why it only sometimes exists
+
+Turning a map is easy to do by accident — a pinch that twists a few degrees, a
+right-drag meant for a context menu — and very hard to undo by hand, because
+"back to exactly north" is not a target a gesture can hit. So the one control
+rotation needs is the one that puts it back.
+
+It lives in the button cluster rather than a corner of its own, and it is only
+there while there is something to say: on a map facing north the button would be
+a permanent statement that north is up, which the map is already making. The
+needle is set from JS on every rotate frame and deliberately has no CSS
+transition — one would put it a fraction of a second behind the ground it is
+describing, and the whole point is that the two agree.
+
+Its appearing and disappearing is why the cluster's hairline rule reads
+`.layers-btn:not([hidden]) + .layers-btn`. A plain `+` still matches the button
+after a hidden one, so the pill drew a hairline down its own outside edge
+whenever the map was facing north.
+
+### What was actually broken besides the box
+
+Almost nothing, and that is the point of the canvas source being georeferenced.
+The saved routes, the trip track, the photographs, the airports, the train
+tracks, the country and region fills, the edit-mode tiles and the two markers
+are all MapLibre layers; they turn because the camera does.
+
+One thing was genuinely wrong. The **edit-mode spotlight** converted its radius
+from screen pixels to ground by unprojecting a point `SPOT_PX` to the right of
+the cursor and measuring how far *east* it had landed. That is the same number
+only while north is up: at a quarter turn a step to the right of the cursor is a
+step north, its easting is zero, and the spotlight closed to nothing with the
+grid still switched on. It reads `SPOT_PX × mercPerPixel(zoom)` now, which never
+needed the map at all.
+
+The **train tracks** deserve a specific mention because OpenRailwayMap's own
+style has two camera keys in its state block, `bearing` and `pitched`. We set
+their defaults once and never update them, which is harmless for exactly as long
+as nothing draws from them — and nothing does, across all 288 grafted layers.
+`scripts/test/rail-style.mjs` now walks every layout, paint and filter
+expression looking for a `global-state` read of either, so a future rebuild that
+grafts a layer consulting one says so, rather than the overlay quietly drawing
+itself for a north-up map on a map that has been turned. The line-placement
+`icon-rotate` expressions are not that: they orient an arrow along its own
+railway and are camera-independent.
+
+The **image export is not affected at all**, and should not be. It has its own
+camera — a Mercator centre and a multiple of the fitted scale, see
+[The preview is the camera](#the-preview-is-the-camera) — and a poster is drawn
+north-up because that is what a poster is.
+
+### Pitch, and the 3D basemaps after it
+
+`MAX_PITCH` is 0 and `?pitch=55` raises it. Everything underneath a lean already
+works: `groundBox` computes the trapezoid a leaning camera actually sees, in
+closed form, from the ray through each screen corner —
+
+    scale(y)   = d·cos θ / (d·cos θ − y·sin θ)
+    forward(y) = d·y     / (d·cos θ − y·sin θ)
+
+where `d = 0.5·height / tan(fov/2)` is the camera-to-centre distance in pixels
+and the denominator vanishing is the horizon. At θ = 0 the two collapse to `1`
+and `y`, which is the rectangle, which is why there is no separate unpitched
+path to keep in step. A useful thing the formula says and intuition does not: a
+lean pushes the **near** edge away from the centre too, not just the far one —
+the camera pulls up and back, so the foreground widens rather than crops.
+
+`PITCH_REACH` is the part that has to exist. The far edge runs to infinity as
+the pitch approaches the horizon, and the sheet painted for it would be a
+continent rendered at the density of a street, so the ground is painted for
+three screen heights in front of the camera and no further. Past that the
+basemap continues to the horizon on its own.
+
+What is **not** ready is the sheet's resolution. It is one flat raster spread
+over the whole visible ground, and a lean makes that ground several times larger
+without making the window any bigger — so the near field, the part actually
+being looked at, is painted at a fraction of the density it gets today. The fix
+is a tiled sheet rather than a viewport-sized one: blob tiles per Mercator tile
+at a zoom chosen per tile, which is also what makes a level change a raster
+crossfade MapLibre already knows how to do, and what would retire the
+"two canvas layers cannot hand over" problem the current dissolve exists to
+avoid. Until that exists, shipping a lean by default would be shipping a softer
+map to anyone who tilted. The query parameter is how the trapezoid, the reach
+clamp and the draped raster get exercised in the meantime rather than merely
+written.
+
+Terrain needs nothing further from this side. MapLibre drapes raster layers over
+a terrain source, and the blob layer is a raster layer.
+
+**For Mapbox, `cameraOf(map)` is the seam.** It is the only place in the app
+that asks a map object where its camera is, and it is duck-typed on six getters
+both libraries agree about. `view.js` imports nothing but `hexgrid.js`; it has
+no DOM and no MapLibre, which is why `scripts/test/view.mjs` can check the
+geometry in Node.
 
 ## What a basemap switch takes with it
 

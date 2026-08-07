@@ -8,9 +8,16 @@
 // instead of a mosaic. A few alpha passes over the blurred sheet firm the rim
 // back up — the classic "metaball" trick — so blobs still have a defined edge.
 //
-// The result is handed to MapLibre as a canvas source pinned to the padded
-// viewport rectangle in Mercator space (the map never rotates or pitches, so
-// that rectangle maps linearly and the image stays registered while panning).
+// The result is handed to MapLibre as a canvas source pinned to a rectangle of
+// *ground* — four lng/lat corners — rather than to the window. That is what
+// lets the map be turned: the sheet is drawn by the same matrix as the basemap,
+// so it rotates, foreshortens under a pitch and drapes over terrain without
+// anything here knowing that any of those happened.
+//
+// What the camera does decide is which rectangle to ask for, and that arrives
+// as an argument (`bb`). src/view.js works it out from the camera — bearing and
+// pitch included — and a still image being exported answers it for itself. The
+// pipeline below has never known which of the two it is drawing for.
 
 import { SQRT3, radiusOf, colsOf, normCol, WORLD, lngOf, latOf } from './hexgrid.js';
 
