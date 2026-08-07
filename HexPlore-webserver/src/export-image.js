@@ -38,7 +38,8 @@
 // `coverageOf`, which the dialog holds on to while you drag a colour around.
 
 import {
-  MAX_LEVEL, MAX_MERC_Y, SQRT3, WORLD, cellCenter, latOf, lngOf, mercX, mercY, radiusOf,
+  MAX_LEVEL, MAX_MERC_Y, SQRT3, WORLD, cellCenter, latOf, lngOf, mercX, mercY, parseCellId,
+  radiusOf,
 } from './hexgrid.js';
 import {
   allCountries, countryAreaKm2, countryCount, countryGeometry, countryIso, loadCountries,
@@ -770,7 +771,7 @@ export function frameFor(geoms, cellIds) {
     for (const g of geoms) extentOf(g, acc);
   } else {
     for (const id of cellIds ?? []) {
-      const [L, col, row] = String(id).split('/').map(Number);
+      const [L, col, row] = parseCellId(id);
       if (!Number.isFinite(L) || L > MAX_LEVEL) continue;
       const [x, y] = cellCenter(L, col, row);
       const R = radiusOf(L);

@@ -14,7 +14,7 @@
 // knows about. A week in a country with your phone off is a week that didn't
 // happen, which is the same honesty the rest of the map keeps.
 
-import { cellCenter, project } from './hexgrid.js';
+import { cellCenter, project, parseCellId, wrapLng } from './hexgrid.js';
 
 /** Silence longer than this ends a trip. Being home ends one at any length. */
 export const TRIP_GAP_DAYS = 2;
@@ -110,13 +110,12 @@ const DAY = 86400;
 const R_KM = 6371;
 const DEG = Math.PI / 180;
 
-// Cell columns count eastwards from the antimeridian, so projecting a cell
-// centre gives a longitude in 0…360 — 338 for Reykjavík, not −22. Everything
-// here compares and bounds longitudes, and a box from 338 to 338.1 asks the map
-// to frame the whole planet: clicking a trip anywhere in the western hemisphere
-// zoomed all the way out. The country statistics already wrap for the same
-// reason; this is that, applied at the point the coordinate is made.
-const wrapLng = (lng) => ((((lng + 180) % 360) + 360) % 360) - 180;
+// Every longitude below comes through `wrapLng` (src/hexgrid.js) at the point
+// the coordinate is made. Cell columns count eastwards from the antimeridian, so
+// projecting a cell centre gives a longitude in 0…360 — 338 for Reykjavík, not
+// −22. Everything here compares and bounds longitudes, and a box from 338 to
+// 338.1 asks the map to frame the whole planet: clicking a trip anywhere in the
+// western hemisphere zoomed all the way out.
 
 export function distanceKm(aLng, aLat, bLng, bLat) {
   const dLat = (bLat - aLat) * DEG;
@@ -170,7 +169,7 @@ function keyOfDay(n) {
 export function findHome(cellMeta) {
   const scored = [];
   for (const [id, entries] of cellMeta) {
-    const [L, col, row] = id.split('/').map(Number);
+    const [L, col, row] = parseCellId(id);
     if (!Number.isFinite(L)) continue;
     let hits = 0;
     for (const e of entries) hits += e.hits || 0;
@@ -203,7 +202,7 @@ export function findHome(cellMeta) {
 function events(cellMeta, routes) {
   const out = [];
   for (const [id, entries] of cellMeta) {
-    const [L, col, row] = id.split('/').map(Number);
+    const [L, col, row] = parseCellId(id);
     if (!Number.isFinite(L)) continue;
     let lngLat = null;
     for (const e of entries) {
@@ -738,7 +737,7 @@ export function dayCells(key, cellMeta) {
   const inDay = (at) => at >= start && at < end;
   const out = [];
   for (const [id, entries] of cellMeta ?? []) {
-    const [L, col, row] = id.split('/').map(Number);
+    const [L, col, row] = parseCellId(id);
     if (!Number.isFinite(L)) continue;
     let at = 0;
     let fresh = false;

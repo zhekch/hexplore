@@ -11,6 +11,8 @@ import {
   cellCenter,
   pointToCell,
   parentOf,
+  parseCellId,
+  wrapLng,
 } from './hexgrid.js';
 import {
   loadCountries,
@@ -2078,11 +2080,15 @@ function recomputeLit(byType = HEAT_MODES[heatMode]?.categorical) {
   const shown = filtering ? new Set() : null;
 
   for (const id of visited) {
-    let [L, col, row] = id.split('/').map(Number);
+    let [L, col, row] = parseCellId(id);
     // Stored at a level that no longer exists. It draws no hexagon, but it is
     // not *hidden* either — it still lights the country it is in, which is what
     // it did before there was anything to hide.
-    if (L > MAX_LEVEL) {
+    //
+    // Written as the negation so an id that did not parse — NaN, which fails
+    // every comparison it is put through — lands here as well, rather than
+    // walking up the lattice as NaN and lighting a cell called "NaN/NaN".
+    if (!(L <= MAX_LEVEL)) {
       shown?.add(id);
       continue;
     }
@@ -2188,8 +2194,8 @@ function rollUpPainted(id) {
   // is on, and you are painting — to be worth a rebuild rather than a second
   // answer to the same question here.
   if (hiddenSources.size) return false;
-  let [L, col, row] = id.split('/').map(Number);
-  if (L > MAX_LEVEL) return true; // same skip as recomputeLit()
+  let [L, col, row] = parseCellId(id);
+  if (!(L <= MAX_LEVEL)) return true; // same skip as recomputeLit()
 
   let hits = 0;
   let time = 0;
@@ -2359,11 +2365,6 @@ function markAreasDirty() {
 // asked. Only a dataset arriving late clears them (see ensureAreaFC).
 const cellCountryMemo = new Map(); // "L/col/row" -> country id
 const cellRegionMemo = new Map(); //  "L/col/row" -> region id
-
-// Longitudes come back from cellCenter() in [0,360) because cell columns are
-// stored normalized; fold them into [-180,180] before the country lookup, or
-// western-hemisphere cells (Portugal, Spain, the Americas) land near +350°.
-const wrapLng = (lng) => ((lng + 180) % 360 + 360) % 360 - 180;
 
 /**
  * Which area of `kind` one stored cell belongs to, memoised.
@@ -2887,7 +2888,7 @@ function storedUnder(L, col, row) {
 
 function toggleCell(id) {
   clearTripHighlight();
-  const [L, col, row] = id.split('/').map(Number);
+  const [L, col, row] = parseCellId(id);
   if (litSets[L].has(`${col}/${row}`)) {
     // Clear everything stored beneath (or at) this cell. Iterate a copy: the
     // array belongs to litSets now, and unmarkCell is removing its contents.
@@ -3140,7 +3141,7 @@ function countriesVisitedIn(name) {
 function groundKm2(ids) {
   let km2 = 0;
   for (const id of ids) {
-    const [L, col, row] = id.split('/').map(Number);
+    const [L, col, row] = parseCellId(id);
     if (!Number.isFinite(L)) continue;
     km2 += cellAreaKm2(L, project(cellCenter(L, col, row))[1]);
   }
@@ -4853,19 +4854,33 @@ function regionFeatures(boundary) {
     Math.round(pts[0][0]) === Math.round(pts[pts.length - 1][0]) &&
     Math.round(pts[0][1]) === Math.round(pts[pts.length - 1][1]);
   const loops = chainSegments(boundary).filter(closed).map((l) => smoothLoop(l));
+  // Each loop's signed area decides which way round it runs, and the smallest
+  // enclosing outer is what a hole belongs to — the same number, asked twice.
+  // Kept from the first pass rather than recomputed inside the second, where it
+  // was being taken again for every outer ring against every hole: a walk of the
+  // whole ring, which after smoothing is four times the points it started with.
   const outers = [];
+  const outerAreas = [];
   const holes = [];
-  for (const lp of loops) (ringArea(lp) > 0 ? outers : holes).push(lp);
+  for (const lp of loops) {
+    const a = ringArea(lp);
+    if (a > 0) {
+      outers.push(lp);
+      outerAreas.push(a);
+    } else {
+      holes.push(lp);
+    }
+  }
 
   const polys = outers.map((o) => [o]);
   for (const h of holes) {
     let best = -1;
     let bestArea = Infinity;
     for (let i = 0; i < outers.length; i++) {
-      const a = ringArea(outers[i]);
-      if (a < bestArea && pointInRing(h[0], outers[i])) {
+      // Cheap compare first: it short-circuits most of the point-in-ring tests.
+      if (outerAreas[i] < bestArea && pointInRing(h[0], outers[i])) {
         best = i;
-        bestArea = a;
+        bestArea = outerAreas[i];
       }
     }
     if (best >= 0) polys[best].push(h);
@@ -4900,6 +4915,9 @@ function buildGrid(bb, L) {
   const N = colsOf(L);
   const lit = litSets[L];
   const hexOffs = fullHexOffsets(R);
+  // The closed ring, built once: the heat branch below draws one polygon per lit
+  // cell and every one of them wants the same six corners with the first repeated.
+  const hexRing = [...hexOffs, hexOffs[0]];
 
   let colMin = Math.floor((bb.xMin - R) / colSp);
   let colMax = Math.ceil((bb.xMax + R) / colSp);
@@ -4948,7 +4966,7 @@ function buildGrid(bb, L) {
           properties: { k: 1, v: heat(stat, litRange[L]) },
           geometry: {
             type: 'Polygon',
-            coordinates: [[...hexOffs, hexOffs[0]].map(([dx, dy]) => project([cx + dx, cy + dy]))],
+            coordinates: [hexRing.map(([dx, dy]) => project([cx + dx, cy + dy]))],
           },
         });
         continue;
@@ -5121,24 +5139,23 @@ function stopVectorFade() {
   applyPrevFade(0);
 }
 
-// Put every 'out' source somewhere a steady state can live with.
+// Put every 'out' source somewhere a steady state can live with. Both ways out
+// of a crossing end here, and both want the same thing — keep the geometry
+// tiled and pinned invisible rather than dropping it:
+//
+//   - Vector → blob, where the source is the live one: it has finished fading
+//     out where it stood, and the map is now one level from crossing straight
+//     back. Re-parsing it at that moment is exactly the stall this avoids.
+//   - Vector → vector, where it is the other one: it has handed over, and what
+//     it is holding is precisely the level one step back the way we came.
+//     Emptying it now and warming the same geometry a moment later is two
+//     re-tiles for no gain.
+//
+// warmVector() is what releases either of them, once the zoom is clear of the
+// boundary it was warmed for.
 function settleOutgoing() {
   for (const sfx of ['', '-prev']) {
-    if (vecRole[sfx] !== 'out') continue;
-    if (sfx === vecLive) {
-      // Vector → blob: the geometry has finished fading out where it stood.
-      // Keep it tiled and pinned invisible rather than dropping it — the map is
-      // now one level from crossing straight back, and re-parsing it at that
-      // moment is exactly the stall this avoids.
-      vecRole[sfx] = 'warm';
-    } else {
-      // Vector → vector: this source has handed over, and what it is holding is
-      // precisely the level one step back the way we came. Keep it tiled and
-      // pinned invisible rather than emptying it and warming the same geometry
-      // back a moment later — two re-tiles for no gain. warmVector() releases
-      // it once the zoom is clear of the boundary.
-      vecRole[sfx] = 'warm';
-    }
+    if (vecRole[sfx] === 'out') vecRole[sfx] = 'warm';
   }
 }
 

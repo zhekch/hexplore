@@ -6,7 +6,7 @@
 // country zoom level uses; each cell is attributed to the country under its
 // center (~22k exact point-in-country tests take well under half a second).
 
-import { SQRT3, radiusOf, cellCenter, project, MAX_LEVEL } from './hexgrid.js';
+import { SQRT3, radiusOf, cellCenter, project, MAX_LEVEL, parseCellId, wrapLng } from './hexgrid.js';
 import { loadCountries, countryAt, countryNear, countryAreaKm2, countryCount } from './countries.js';
 import { loadRegions, regionNear, regionAreaKm2, regionsInCountry } from './regions.js';
 import { continentOf } from './continents.js';
@@ -15,8 +15,6 @@ import { dayKey, longestStreak } from './trips.js';
 // Earth's land surface, the yardstick for "% of the world" (oceans excluded —
 // covering the Pacific isn't a goal anyone has).
 export const EARTH_LAND_KM2 = 148_940_000;
-
-const wrapLng = (lng) => (((lng + 180) % 360) + 360) % 360 - 180;
 
 // How these numbers are spelled, in the one place both readers of them can
 // reach. The Cells tab and the image export show the same coverage; a poster
@@ -63,7 +61,7 @@ export const WHOLE_COUNTRY = '\u0000country:';
  * @returns {string|null} the area's id, or null for a cell in no country at all
  */
 export function areaOfCell(kind, id) {
-  const [L, col, row] = String(id).split('/').map(Number);
+  const [L, col, row] = parseCellId(id);
   if (!Number.isFinite(L) || !Number.isFinite(col) || !Number.isFinite(row)) return null;
   if (L > MAX_LEVEL) return null; // stored at a level that no longer exists
   const [lng, lat] = project(cellCenter(L, col, row));
@@ -163,8 +161,8 @@ export async function computeStats(cellIds, cellMeta, only = null) {
   const daysSeen = new Set();
 
   for (const id of cellIds) {
-    const [L, col, row] = id.split('/').map(Number);
-    if (L > MAX_LEVEL) continue;
+    const [L, col, row] = parseCellId(id);
+    if (!(L <= MAX_LEVEL)) continue;
     if (only && !only(id)) continue;
     const [lng, lat] = project(cellCenter(L, col, row));
     const area = cellAreaKm2(L, lat);

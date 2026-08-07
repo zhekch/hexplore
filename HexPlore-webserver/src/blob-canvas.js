@@ -361,6 +361,9 @@ function blurInto(context, src, w, h, sigma, edge, box) {
 
 // Re-cut a blurred layer at BLOB_LEVEL, in place. Only the alpha channel is
 // touched, so the blurred (and therefore blended) colors survive untouched.
+//
+// On a little-endian machine that is one 32-bit read/write per pixel, and empty
+// pixels — most of the canvas — cost a single compare.
 function applyLut(data, lut) {
   if (LE) {
     const words = new Uint32Array(data.buffer);
@@ -375,23 +378,11 @@ function applyLut(data, lut) {
   for (let i = 3; i < data.length; i += 4) data[i] = lut[data[i]];
 }
 
+// The same cut, for the native-blur path: there the blur happened on the GPU, so
+// the pixels have to be fetched and put back around it.
 function cutAtLevel(context, w, h, edge) {
   const img = context.getImageData(0, 0, w, h);
-  const lut = alphaLut(edge);
-  if (LE) {
-    // One 32-bit read/write per pixel, and empty pixels — most of the canvas —
-    // cost a single compare.
-    const words = new Uint32Array(img.data.buffer);
-    for (let i = 0; i < words.length; i++) {
-      const px = words[i];
-      const a = px >>> 24;
-      if (a === 0) continue;
-      words[i] = (px & 0x00ffffff) | (lut[a] << 24);
-    }
-  } else {
-    const data = img.data;
-    for (let i = 3; i < data.length; i += 4) data[i] = lut[data[i]];
-  }
+  applyLut(img.data, alphaLut(edge));
   context.putImageData(img, 0, 0);
 }
 
