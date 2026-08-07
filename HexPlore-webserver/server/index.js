@@ -11,6 +11,7 @@
 //   POST /api/logout                       → {ok}        (clears cookie)
 //   POST /api/account/delete {password}    → {ok,username,removed} | 401/403/429
 //   GET  /api/me                           → {username,version} | 401
+//   GET  /api/airport?lat=&lng=            → {airport|null}     | 401  (the phone)
 //   GET  /api/prefs                        → {prefs}            | 401
 //   POST /api/prefs {prefs}                → {ok}               | 401
 //   GET  /api/cells                        → {sources,rows}     | 401
@@ -123,6 +124,7 @@ import { createFineRegions } from './regions-fine.js';
 // before touching how often it asks upstream.
 import { createRailTiles } from './rail-tiles.js';
 import { loadRegions } from '../src/regions.js';
+import { airportAt } from './airport-at.js';
 import { describeCron } from '../src/cron.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -2146,6 +2148,27 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       // its own: it is only ever read by a signed-in page, and a version number
       // an unauthenticated caller can ask for is a fingerprint for free.
       return send(res, 200, { username: user.username, version: SERVER_VERSION });
+    }
+
+    // Which airport a point is standing in. Asked by the phone, and only by the
+    // phone: it has no copy of the dataset and wants to know whether the ten
+    // minutes somebody has spent standing still were spent in a departure hall.
+    //
+    // Behind the session like everything else. The dataset is public and the
+    // answer gives nothing away about the account, but the *question* does —
+    // an unauthenticated endpoint taking a coordinate is somewhere to leak a
+    // position to, and there is no reason to have one.
+    if (req.method === 'GET' && pathname === '/api/airport') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const lat = Number(query.get('lat'));
+      const lng = Number(query.get('lng'));
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return send(res, 400, { error: 'lat and lng are required' });
+      }
+      // `null` rather than a 404: "you are not at an airport" is a successful
+      // answer to the question, and the caller has to treat it as one.
+      return send(res, 200, { airport: airportAt(ROOT, lat, lng) });
     }
 
     // Display preferences, so the same account sees the same map on the phone

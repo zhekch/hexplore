@@ -162,6 +162,10 @@ final class LocationLogger: NSObject, ObservableObject, CLLocationManagerDelegat
                 lng: location.coordinate.longitude,
                 t: Int(stamp.timeIntervalSince1970),
             ))
+            // Offered every fix the app has decided to believe, and cheap on
+            // nearly all of them — it does nothing until you have moved a few
+            // hundred metres from wherever it last asked about.
+            FlightWatch.shared.note(location)
             took = true
         }
 

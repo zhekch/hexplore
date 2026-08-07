@@ -131,6 +131,8 @@ HexPlore/
     SaveBridge.swift        putting an exported picture in the photo library
     FixQueue.swift          what has been recorded but not yet accepted
     SyncClient.swift        the uploads, and the session they borrow
+    Notifications.swift     the permission, and the only things it ever says
+    FlightWatch.swift       ten minutes at an airport is a flight
   HexploreCore/             a local Swift package: the maths, with tests
     Sources/HexploreCore/
       HexGrid.swift         the hex lattice — a port of src/hexgrid.js
@@ -614,6 +616,66 @@ that it does not come back.** It shipped once and a real phone settled it: iOS
 has no public way to open a particular asset, so the button opened the Photos app
 at whatever was last on screen — a control that lies about what it does, at
 exactly the moment you pressed it because you wanted that photograph.
+
+## Notifications
+
+Settings → **Notifications** → *Have a good flight*.
+
+Off by default, and the permission is asked for from that switch rather than at
+launch. An app that asks on first run is asking you to trust a promise; this asks
+next to a sentence saying what it will send, after you have said you want it.
+
+**Everything here is local.** There is no push server, no APNs certificate and no
+device token leaving the phone. Every notification is scheduled by this phone
+from something this phone already knew, so it works with the server unreachable —
+which matters, because the one thing this app is *for* is knowing where it is
+with the screen off.
+
+### Ten minutes at an airport is a flight
+
+The obvious implementation waits for a second fix ten minutes after the first and
+compares the two. It does not work, and the reason is the whole of
+`FlightWatch.swift`: **at an airport you are standing still.** On the *only when I
+go somewhere* cadence there is no standard location service running at all —
+significant-change monitoring is fed by the cell radio noticing you have moved
+half a kilometre, and a person sitting at gate B47 has not. The second fix
+arrives when you land.
+
+So the ten minutes are a `UNTimeIntervalNotificationTrigger`. The first fix inside
+an airport schedules a notification for ten minutes' time; any later fix outside
+one cancels it before it fires. What that amounts to is *you arrived at an airport
+ten minutes ago and nothing since has said you left* — the same claim, reached
+without needing the phone awake in between.
+
+The case it gets wrong in the direction of speaking is leaving within those ten
+minutes with no further fix: drive past a terminal on a coarse cadence and you may
+be wished a happy flight. Ten minutes makes that rare, and the cost is a friendly
+sentence rather than a wrong map.
+
+### The airport list stays on the server
+
+`GET /api/airport?lat=&lng=` (`server/airport-at.js`). The dataset is 5,272
+airports and this phone has no copy of it; bundling one would mean a generated
+resource in the Xcode project kept in step with
+`HexPlore-webserver/src/airports-airline.json` by hand, going stale silently. The
+phone asks, and only when a fix has moved 400 m from wherever it last asked —
+otherwise a one-minute cadence would ask sixty times an hour to be told the same
+thing. A phone at an airport has a network, because that is what an airport is;
+with no network nothing is scheduled, and a missing notification costs nothing.
+
+**Only airports with scheduled service count.** The other 44,000 entries in the
+dataset are airfields, helipads and closed strips — a flying club on the edge of
+town is somewhere you can legitimately spend an afternoon, and *have a good
+flight* is a strange thing to be told while mowing a runway. A wrong notification
+is worse than a missing one here, because the missing one costs nothing and the
+wrong one is the app being odd at you.
+
+The radius is generous — 3.2 km for a large field, 1.8 for a medium one — because
+a record is one reference point and an airport is not a point. Frankfurt is four
+kilometres across and Dallas/Fort Worth is seven, so a tight radius answers "no"
+from inside the terminal, which is the only place the question is ever asked
+from. Then a twelve-hour cooldown per airport, long enough to cover a flight and
+its connection.
 
 ## What is not here yet
 

@@ -24,6 +24,7 @@ struct SettingsView: View {
     @StateObject private var logger = LocationLogger.shared
     @StateObject private var photos = PhotoSync.shared
     @StateObject private var server = ServerCheck.shared
+    @StateObject private var notifications = Notifications.shared
 
     @State private var draft = ""
     @State private var confirmingReread = false
@@ -39,6 +40,7 @@ struct SettingsView: View {
                     if tracking.isTracking { statusSection }
                     healthSection
                     photosSection
+                    notificationsSection
 
                     technicalSection
                 }
@@ -334,6 +336,65 @@ struct SettingsView: View {
             Text("Photos")
         } footer: {
             Text("Import the geolocation of every photo from your library. Also allows to view your photos on the map from the phone.")
+        }
+    }
+
+    // MARK: - The only things this app says when it is not on screen
+    //
+    // A section rather than a tab of its own. A third tab bar item for one
+    // switch would make the app look like it does three things, and what it
+    // actually does is host a map and know where it is — this is a small part of
+    // the second. It sits after Photos because it is about what the app *sends
+    // you*, and everything above is about what it collects.
+
+    private var notificationsSection: some View {
+        Section {
+            Toggle("Have a good flight", isOn: $tracking.notifyFlights)
+                .disabled(notifications.authorization == .denied)
+
+            // Asked from here, next to the switch that wants it, rather than at
+            // launch. iOS shows its dialog once and only for `.notDetermined`,
+            // so once it has been refused the only way back is the Settings app
+            // — and a button that silently does nothing is worse than a link
+            // that admits where the answer lives.
+            if notifications.authorization == .denied {
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Label("Notifications are turned off for Hexplore. Open Settings to allow them.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                }
+            } else if tracking.notifyFlights && !notifications.isAllowed {
+                Button("Allow notifications") {
+                    Task { await notifications.request() }
+                }
+                .font(.footnote)
+            }
+
+            if tracking.notifyFlights && !tracking.isTracking {
+                // The switch is real and it will work; it just cannot work yet.
+                // Saying so beats a notification that never comes.
+                Text("Turn Location on above, or this has nothing to notice.")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+        } header: {
+            Text("Notifications")
+        } footer: {
+            Text("After ten minutes at an airport, a note wishing you a good flight. Nothing is sent from a server — this phone works it out and says it to itself.")
+        }
+        .task { await notifications.refresh() }
+        // Permission can be changed in the Settings app while this app is in the
+        // background, so the answer shown here is stale exactly when somebody
+        // has just gone and changed it.
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.willEnterForegroundNotification
+        )) { _ in
+            Task { await notifications.refresh() }
         }
     }
 

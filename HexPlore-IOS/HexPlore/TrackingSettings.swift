@@ -140,6 +140,19 @@ final class TrackingSettings: ObservableObject {
         }
     }
 
+    /// Whether to be wished a good flight after ten minutes at an airport.
+    ///
+    /// Off by default, like everything else here that speaks without being
+    /// asked. Switching it off cancels anything already scheduled rather than
+    /// letting one last notification arrive from a decision you have reversed.
+    @Published var notifyFlights: Bool {
+        didSet {
+            guard notifyFlights != oldValue else { return }
+            defaults.set(notifyFlights, forKey: Keys.notifyFlights)
+            if !notifyFlights { FlightWatch.shared.stop() }
+        }
+    }
+
     /// What this phone calls itself on the sync screen.
     ///
     /// Typed rather than read, because since iOS 16 `UIDevice.name` answers
@@ -184,6 +197,7 @@ final class TrackingSettings: ObservableObject {
         static let precision = "tracking.precision"
         static let syncWorkouts = "tracking.syncWorkouts"
         static let syncPhotos = "tracking.syncPhotos"
+        static let notifyFlights = "tracking.notifyFlights"
         static let deviceName = "tracking.deviceName"
         static let deviceId = "tracking.deviceId"
     }
@@ -197,6 +211,7 @@ final class TrackingSettings: ObservableObject {
         precision = (d.object(forKey: Keys.precision) as? Int).flatMap(Precision.init) ?? .normal
         syncWorkouts = d.bool(forKey: Keys.syncWorkouts)
         syncPhotos = d.bool(forKey: Keys.syncPhotos)
+        notifyFlights = d.bool(forKey: Keys.notifyFlights)
         deviceName = d.string(forKey: Keys.deviceName) ?? UIDevice.current.name
         if let existing = d.string(forKey: Keys.deviceId), !existing.isEmpty {
             deviceId = existing

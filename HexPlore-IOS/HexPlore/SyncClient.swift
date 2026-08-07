@@ -183,7 +183,46 @@ final class SyncClient {
         TrackingSettings.shared.status.workoutsSent = 0
     }
 
+    // MARK: - Where am I standing
+
+    /// One airport, as much of it as is worth putting in a sentence.
+    struct Airport {
+        let name: String
+        let city: String
+        /// What identifies it for the cooldown — the ICAO code, which every
+        /// entry has, falling back to the name for the handful that do not.
+        let key: String
+    }
+
+    /// Which airport this point is standing in, or nil for none.
+    ///
+    /// The dataset lives on the server (`server/airport-at.js`) because this
+    /// phone has no copy of 5,272 airports and should not carry one. Asked by
+    /// `FlightWatch`, and only when a fix has moved far enough to have changed
+    /// the answer.
+    func airport(lat: Double, lng: Double) async throws -> Airport? {
+        var items = URLComponents()
+        items.queryItems = [
+            URLQueryItem(name: "lat", value: String(lat)),
+            URLQueryItem(name: "lng", value: String(lng)),
+        ]
+        let reply = try await get("/api/airport?\(items.percentEncodedQuery ?? "")")
+        guard let found = reply["airport"] as? [String: Any] else { return nil }
+        let name = (found["name"] as? String) ?? ""
+        let icao = (found["icao"] as? String) ?? ""
+        return Airport(name: name, city: (found["city"] as? String) ?? "", key: icao.isEmpty ? name : icao)
+    }
+
     // MARK: - The request itself
+
+    private func get(_ path: String) async throws -> [String: Any] {
+        guard let base = AppSettings.shared.baseURL, let url = URL(string: path, relativeTo: base) else {
+            throw SyncError.noServer
+        }
+        var request = URLRequest(url: url)
+        request.setValue(WebViewController.userAgentTag, forHTTPHeaderField: "X-Hexplore-Client")
+        return try await run(request)
+    }
 
     @discardableResult
     private func post(_ path: String, body: [String: Any]) async throws -> [String: Any] {
@@ -197,7 +236,14 @@ final class SyncClient {
         // own traffic from the page's.
         request.setValue(WebViewController.userAgentTag, forHTTPHeaderField: "X-Hexplore-Client")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return try await run(request)
+    }
 
+    /// Send it, and turn the two answers that mean something into errors that
+    /// say so. Shared by `get` and `post` because a 401 has to be recognised
+    /// identically either way — it is the one status the Settings tab has words
+    /// for, and the one nothing here can mend.
+    private func run(_ request: URLRequest) async throws -> [String: Any] {
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
