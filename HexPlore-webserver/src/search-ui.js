@@ -19,6 +19,7 @@ import { dayKey, dayDetail } from './trips.js';
 import { mountCalendar, MONTHS } from './calendar.js';
 import { formatDistance } from './routes.js';
 import { onBackdropClick } from './dismiss.js';
+import { fold, matchRank } from './fold.js';
 
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -97,6 +98,35 @@ export function parseDateQuery(text) {
   return null;
 }
 
+// Everything a trip is findable by, in the order of how much each says about
+// where the trip *was*. The name is what it is called; the tags are everywhere
+// it merely went.
+const TRIP_FIELDS = [(t) => t.name, (t) => t.place, (t) => t.region, (t) => t.country,
+  (t) => (t.tags ?? []).join(' ')];
+
+/**
+ * How well a trip answers a typed query — lower is better, `Infinity` for no
+ * match at all. Which field matched, and then how much of that field the query
+ * was, so an exact name beats a name starting with it, which beats a name
+ * containing it, which beats the same three on the canton underneath.
+ *
+ * Sorted on before anything else, because the alternative was sorting matches by
+ * date: a fortnight actually spent in Zürich came out below a weekend in
+ * St. Moritz that had merely driven through it, and the list gave no clue why.
+ *
+ * @param {object} t a derived trip
+ * @param {string} q the query, already folded (src/fold.js)
+ */
+export function tripRelevance(t, q) {
+  if (!q) return 0;
+  let best = Infinity;
+  for (let i = 0; i < TRIP_FIELDS.length; i++) {
+    const rank = matchRank(fold(TRIP_FIELDS[i](t)), q);
+    if (rank >= 0 && i * 3 + rank < best) best = i * 3 + rank;
+  }
+  return best;
+}
+
 /**
  * @param {object} opts
  * @param {() => Array<object>} opts.trips    derived trips, newest first
@@ -104,6 +134,9 @@ export function parseDateQuery(text) {
  * @param {() => Map<string, {cells:number, routes:number}>} opts.days  active days
  * @param {() => Map<string, Array>} opts.meta cell provenance, for a day's detail
  * @param {(lngLat:{lng:number, lat:number}, opts?:object) => void} opts.onPlace
+ * @param {(area:{kind:string, id:string, name:string, of:string|null,
+ *   bbox:Array<number>}) => void} [opts.onArea] a whole region or country,
+ *   which is a shape rather than a point — see the region section below
  * @param {(trip:object) => void} opts.onTrip
  * @param {(route:object) => void} opts.onRoute
  * @param {(key:string, detail:object) => void} [opts.onDay] show one day's
@@ -114,7 +147,7 @@ export function parseDateQuery(text) {
  *   opened — the trips it lists are derived lazily and this is what starts that
  */
 export function mountSearch({
-  trips, routes, days, meta, onPlace, onTrip, onRoute, onDay,
+  trips, routes, days, meta, onPlace, onArea, onTrip, onRoute, onDay,
   hiddenTrips = () => new Set(), onHideTrip, onOpen,
 }) {
   const $ = (id) => document.getElementById(id);
@@ -253,11 +286,6 @@ export function mountSearch({
     return wrap;
   }
 
-  /** Everything a trip is findable by, not just what it ended up called. */
-  const tripMatches = (t, q) =>
-    !q || `${t.name} ${t.place ?? ''} ${t.region ?? ''} ${t.country ?? ''} ${(t.tags ?? []).join(' ')}`
-      .toLowerCase().includes(q);
-
   function tripRow(t) {
     const el = document.createElement('div');
     el.className = 'trip-row';
@@ -291,10 +319,15 @@ export function mountSearch({
     return el;
   }
 
-  /** The list, optionally in blocks. The sort holds inside each one. */
-  function tripList(list) {
+  /**
+   * The list, optionally in blocks. The sort holds inside each one — under the
+   * relevance ranking, which is flat (every trip 0) when nothing is typed and
+   * so decides nothing then.
+   */
+  function tripList(list, rank) {
     const out = [];
-    const ordered = (l) => [...l].sort(TRIP_SORTS[tripSort].sort);
+    const ordered = (l) =>
+      [...l].sort((a, b) => rank.get(a) - rank.get(b) || TRIP_SORTS[tripSort].sort(a, b));
     const group = TRIP_GROUPS[tripGroup];
     if (!group.of) {
       for (const t of ordered(list)) out.push(tripRow(t));
@@ -306,8 +339,14 @@ export function mountSearch({
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push(t);
     }
+    // Best answer first between the blocks too, on the block's best trip —
+    // otherwise grouping by country buries the one trip you searched for under
+    // whichever country you happen to have the most of. Flat with nothing typed,
+    // where every trip scores 0.
+    const bestOf = (l) => Math.min(...l.map((t) => rank.get(t)));
     const blocks = [...buckets.entries()]
-      .sort((a, b) => !a[0] - !b[0] || b[1].length - a[1].length || a[0].localeCompare(b[0]));
+      .sort((a, b) => !a[0] - !b[0] || bestOf(a[1]) - bestOf(b[1])
+        || b[1].length - a[1].length || a[0].localeCompare(b[0]));
     for (const [key, group2] of blocks) {
       const head = document.createElement('div');
       head.className = 'search-section search-subsection';
@@ -420,16 +459,64 @@ export function mountSearch({
   /** The trips section: all of them when nothing is typed, matches when it is. */
   function addTrips(q) {
     const put = hiddenTrips();
-    const all = trips().filter((t) => !put.has(t.id));
-    const hits = all.filter((t) => tripMatches(t, q));
-    if (!hits.length) return false;
+    // Scored once, here, rather than inside the comparator: the sort would ask
+    // the same question of the same trip a dozen times over.
+    const rank = new Map();
+    for (const t of trips()) {
+      if (put.has(t.id)) continue;
+      const r = tripRelevance(t, q);
+      if (r < Infinity) rank.set(t, r);
+    }
+    if (!rank.size) return false;
     resultsEl.append(section(q ? 'Trips' : 'Your trips'));
     // On their own line, centred. Beside the heading they had to share a row
     // barely wide enough for one of them, and "Your trips" wrapped to two lines
     // to make room.
     if (!q) resultsEl.append(tripControls());
-    resultsEl.append(...tripList(hits));
+    resultsEl.append(...tripList([...rank.keys()], rank));
     if (!q && put.size) resultsEl.append(hiddenRow(put));
+    return true;
+  }
+
+  /**
+   * Whole regions and countries, when the boundary data is already in memory
+   * (deriving the trips pulls it in). Asking for a canton is a different request
+   * from flying to a town in it, and both are things people type.
+   *
+   * **First, above everything else.** "Zürich" is a canton, a city, a lake and
+   * an airport, and the four are indistinguishable in a list unless something
+   * says which is which — so the row is titled *Canton Zürich*, with the word in
+   * front of the name rather than in the grey line underneath it. That line is
+   * still there and still says which country, but a caption you have to look
+   * for cannot be what distinguishes two rows with the same word on them.
+   *
+   * Answered with the shape, not with a point in it. A pin needs a coordinate,
+   * and the only one an area has for free is the middle of its bounding box —
+   * which for anything that isn't a rectangle is not in the area at all: the
+   * middle of the United States' box is in Puget Sound, and Hawaii's is open
+   * ocean. See **Searching for a region** in ARCHITECTURE.md.
+   */
+  function addAreas(q) {
+    const hits = [...searchRegions(q, 3), ...searchCountries(q, 2)];
+    if (!hits.length) return false;
+    resultsEl.append(section('Regions and countries'));
+    for (const a of hits) {
+      const el = resultRow({
+        icon: ICON.area,
+        title: a.kind === 'region' ? `${a.name} ${a.term}` : a.name,
+        sub: a.kind === 'region' ? a.country : 'Country',
+        onPick: () => {
+          close();
+          onArea?.({
+            kind: a.kind, id: a.id, name: a.name,
+            of: a.kind === 'region' ? a.country : null,
+            bbox: a.bbox,
+          });
+        },
+      });
+      resultsEl.append(el);
+      items.push({ el, pick: () => el.click() });
+    }
     return true;
   }
 
@@ -480,13 +567,23 @@ export function mountSearch({
       return;
     }
 
-    const lower = q.toLowerCase();
+    // Folded, once, for everything below: a query is typed on whatever keyboard
+    // is to hand, and "zurich" has to reach Zürich whether it is a town, a
+    // canton, a route or the fortnight you spent there.
+    const lower = fold(q);
 
-    // Nothing typed: the whole trip list, with its own ordering and grouping —
-    // this is the trips browser, not a preview of one. Typing narrows it, on
-    // everything a trip is called *and* everywhere it went, so "valais" finds
-    // the week in Zermatt and so does the name of a town it merely drove
-    // through.
+    // Regions and countries first, because they are the answers most easily
+    // mistaken for something else in a list — and because they are the smallest
+    // section, so putting them anywhere but the top buries them under a dozen
+    // trips. Empty until two characters are typed, so this costs nothing on the
+    // trip browser below.
+    addAreas(q);
+
+    // Then the trips. With nothing typed this is the whole list, with its own
+    // ordering and grouping — the trips browser, not a preview of one. Typing
+    // narrows it, on everything a trip is called *and* everywhere it went, so
+    // "valais" finds the week in Zermatt and so does the name of a town it
+    // merely drove through.
     const anyTrips = addTrips(lower);
     if (!q) {
       if (!anyTrips) {
@@ -496,7 +593,7 @@ export function mountSearch({
     }
 
     const routeHits = routes()
-      .filter((r) => `${r.name} ${r.place ?? ''} ${r.sport ?? ''}`.toLowerCase().includes(lower))
+      .filter((r) => fold(`${r.name} ${r.place ?? ''} ${r.sport ?? ''}`).includes(lower))
       .slice(0, 5);
     if (routeHits.length) {
       resultsEl.append(section('Routes'));
@@ -509,27 +606,6 @@ export function mountSearch({
           onPick: () => {
             close();
             onRoute?.(r);
-          },
-        });
-        resultsEl.append(el);
-        items.push({ el, pick: () => el.click() });
-      }
-    }
-
-    // Whole regions and countries, when the boundary data is already in memory
-    // (deriving the trips pulls it in). Framing a canton is a different request
-    // from flying to a town in it, and both are things people type.
-    const areaHits = [...searchRegions(q, 3), ...searchCountries(q, 2)];
-    if (areaHits.length) {
-      resultsEl.append(section('Regions and countries'));
-      for (const a of areaHits) {
-        const el = resultRow({
-          icon: ICON.area,
-          title: a.name,
-          sub: a.kind === 'region' ? a.country : 'Country',
-          onPick: () => {
-            close();
-            onPlace?.({ lng: (a.bbox[0] + a.bbox[2]) / 2, lat: (a.bbox[1] + a.bbox[3]) / 2 }, { bounds: a.bbox });
           },
         });
         resultsEl.append(el);

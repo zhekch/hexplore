@@ -10,9 +10,12 @@
 // are: Vite splits it into its own chunk that only loads when a route actually
 // needs a name.
 
+import { fold, matchRank } from './fold.js';
+
 let TOWNS = null; // [name, lng, lat, popThousands]
 let LAKES = null; // [name, minLng, minLat, maxLng, maxLat]
 let index = null; // "lngCell/latCell" → town indices, for the nearest search
+let folded = null; // { towns:[foldedName], lakes:[foldedName] }, built on first search
 let loading = null;
 
 // Grid cell size for the town index, in degrees. One degree of latitude is
@@ -35,6 +38,7 @@ export function loadPlaces(data) {
     loading = (data ? Promise.resolve({ default: data }) : import('./places.json')).then((m) => {
       TOWNS = m.default.towns ?? [];
       LAKES = m.default.lakes ?? [];
+      folded = null;
       index = new Map();
       for (let i = 0; i < TOWNS.length; i++) {
         const k = key(TOWNS[i][1], TOWNS[i][2]);
@@ -230,11 +234,20 @@ const EXACT_WEIGHT = 40;
 const score = (exact, prefix, popThousands) =>
   Math.max(1, popThousands) * (exact ? EXACT_WEIGHT : prefix ? 1 : CONTAINED_WEIGHT);
 
-const fold = (s) =>
-  String(s ?? '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, ''); // so "zurich" finds "Zürich"
+/**
+ * Every name in the gazetteer, folded once (src/fold.js).
+ *
+ * Folding is the expensive half of a search and the half whose answer never
+ * changes: 96,000 calls to `normalize()` is about 20 ms, and it was being paid
+ * again on every keystroke. Built on the first search rather than at load,
+ * because most sessions open this dataset to *name a route* and never search it.
+ */
+function foldedNames() {
+  if (!folded) {
+    folded = { towns: TOWNS.map((t) => fold(t[0])), lakes: (LAKES ?? []).map((l) => fold(l[0])) };
+  }
+  return folded;
+}
 
 /**
  * Places whose name starts with (or contains) the query, best first.
@@ -253,25 +266,25 @@ const fold = (s) =>
  */
 export function searchPlaces(query, limit = 8) {
   if (!TOWNS) return [];
-  const q = fold(query).trim();
+  const q = fold(query);
   if (q.length < 2) return [];
+  const names = foldedNames();
   const hits = [];
   for (let i = 0; i < TOWNS.length; i++) {
+    const rank = matchRank(names.towns[i], q);
+    if (rank < 0) continue;
     const t = TOWNS[i];
-    const name = fold(t[0]);
-    const at = name.indexOf(q);
-    if (at < 0) continue;
-    hits.push({ score: score(name === q, at === 0, t[3] || 0), pop: t[3] || 0, name: t[0], lng: t[1], lat: t[2], kind: 'town' });
+    hits.push({ score: score(rank === 0, rank === 1, t[3] || 0), pop: t[3] || 0, name: t[0], lng: t[1], lat: t[2], kind: 'town' });
     if (hits.length > 4000) break; // a one-letter query is not a search
   }
-  for (const l of LAKES ?? []) {
-    const name = fold(l[0]);
-    const at = name.indexOf(q);
-    if (at < 0) continue;
+  for (let i = 0; i < (LAKES?.length ?? 0); i++) {
+    const rank = matchRank(names.lakes[i], q);
+    if (rank < 0) continue;
+    const l = LAKES[i];
     hits.push({
       // A lake has no population; give it the weight of a small town so it
       // ranks with the places rather than always last.
-      score: score(name === q, at === 0, 12),
+      score: score(rank === 0, rank === 1, 12),
       pop: 0,
       name: l[0],
       lng: (l[1] + l[3]) / 2,

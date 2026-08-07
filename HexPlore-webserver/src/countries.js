@@ -6,6 +6,7 @@
 // The point-in-polygon and area maths is shared with the admin-1 regions
 // (src/regions.js), which asks the same questions of the same shape of data.
 import { inPolygon, asMulti, ringAreaM2, unionGeometries } from './polygon.js';
+import { fold, matchRank } from './fold.js';
 
 let COUNTRIES = null; // [{ id, bbox:[w,s,e,n], geometry }]
 let loading = null;
@@ -137,17 +138,19 @@ export const countryIso = (id) => COUNTRIES?.find((c) => c.id === id)?.iso ?? nu
 export const allCountries = () => COUNTRIES ?? [];
 
 /** Countries whose name matches, for the search box. Same deal as regions:
- *  nothing until the dataset is already in memory. */
+ *  nothing until the dataset is already in memory, and the same fold, so
+ *  "curacao" and "sao tome" find the two that carry accents. */
 export function searchCountries(query, limit = 2) {
   if (!COUNTRIES) return [];
-  const q = String(query ?? '').trim().toLowerCase();
+  const q = fold(query);
   if (q.length < 2) return [];
   const hits = [];
   for (const c of COUNTRIES) {
-    const name = String(c.id).toLowerCase();
-    const at = name.indexOf(q);
-    if (at < 0) continue;
-    hits.push({ rank: name === q ? 0 : at === 0 ? 1 : 2, name: c.id, bbox: c.bbox, kind: 'country' });
+    const rank = matchRank(fold(c.id), q);
+    if (rank < 0) continue;
+    // A country's name *is* its id here, so the search result needs nothing
+    // else to be the shape the map draws and counts cells inside.
+    hits.push({ rank, id: c.id, name: c.id, bbox: c.bbox, kind: 'country' });
   }
   hits.sort((a, b) => a.rank - b.rank || a.name.length - b.name.length);
   return hits.slice(0, limit);

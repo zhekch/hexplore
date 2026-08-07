@@ -1,15 +1,20 @@
-// The two pieces of search that are decisions rather than plumbing: what counts
-// as a date when someone types one, and how place names are ranked.
+// The pieces of search that are decisions rather than plumbing: what counts as a
+// date when someone types one, how names are folded so they can be typed on any
+// keyboard, and how the answers are ranked.
 //
-// Both are the kind of thing that looks obviously right and is quietly wrong —
-// a date parser that reads "2024" as the 20th of some month swallows every text
-// search containing a number, and a ranking that ignores size answers "bern"
-// with a hamlet called Bernau.
+// All of them are the kind of thing that looks obviously right and is quietly
+// wrong — a date parser that reads "2024" as the 20th of some month swallows
+// every text search containing a number, a ranking that ignores size answers
+// "bern" with a hamlet called Bernau, and a fold applied to one dataset and not
+// the next means "zurich" finds the town and not the canton.
 //
 //   node scripts/test/search.mjs
 
-import { parseDateQuery } from '../../src/search-ui.js';
+import { parseDateQuery, tripRelevance } from '../../src/search-ui.js';
 import { loadPlaces, searchPlaces, nearestTown } from '../../src/places.js';
+import { loadRegions, searchRegions } from '../../src/regions.js';
+import { loadCountries, searchCountries } from '../../src/countries.js';
+import { fold } from '../../src/fold.js';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -129,6 +134,61 @@ check(nearestTown(9.838, 46.498)?.name === 'St. Moritz',
   'and so does one with a much bigger town an hour away', nearestTown(9.838, 46.498)?.name);
 // Nothing within 30 km is still nothing: the middle of an ocean has no town.
 check(nearestTown(-30, 40) === null, 'and the open Atlantic has none at all');
+
+console.log('\nnames typed on the keyboard you have');
+// Both sides of every comparison go through this, which is the whole point:
+// applying it to the town dataset and not the region one is exactly how
+// "zurich" came to find the town and not the canton it is in.
+check(fold('Zürich') === 'zurich', 'an umlaut folds', fold('Zürich'));
+check(fold('Québec') === 'quebec', 'and an accent', fold('Québec'));
+// The half that NFD cannot do: these are their own letters, not marked-up ones.
+check(fold('Weißenfels') === 'weissenfels', 'ß is spelled out', fold('Weißenfels'));
+check(fold('Tromsø') === 'tromso', 'and ø', fold('Tromsø'));
+check(fold('Łódź') === 'lodz', 'and ł', fold('Łódź'));
+check(fold('St. Moritz') === 'st moritz', 'punctuation is a gap between words', fold('St. Moritz'));
+check(fold('  Bern  ') === 'bern', 'and so is the space around it', `"${fold('  Bern  ')}"`);
+// Not ASCII-only: a few dozen gazetteer names are in another script, and
+// folding those to nothing would make them unreachable rather than easier.
+check(fold('Москва') === 'москва', 'another script keeps its letters', fold('Москва'));
+
+console.log('\nregions and countries by name');
+await loadRegions(JSON.parse(await readFile(path.join(ROOT, 'src', 'regions.json'), 'utf8')));
+await loadCountries(JSON.parse(await readFile(path.join(ROOT, 'src', 'countries.json'), 'utf8')));
+
+const canton = searchRegions('zurich', 3);
+check(canton[0]?.name === 'Zürich', 'the canton answers to "zurich"', canton.map((r) => r.name).join(', '));
+check(canton[0]?.id === 'Switzerland/Zürich', '…and carries its id, so the map can draw the shape', canton[0]?.id);
+check(canton[0]?.bbox?.length === 4, '…and its box, to frame it with', JSON.stringify(canton[0]?.bbox));
+check(searchRegions('quebec', 1)[0]?.name === 'Québec', 'and so does Québec', searchRegions('quebec', 1)[0]?.name);
+check(searchCountries('curacao', 1)[0]?.id === 'Curaçao', 'countries fold too', searchCountries('curacao', 1)[0]?.id);
+check(searchRegions('z', 3).length === 0, 'one letter is not a search');
+
+// The scan used to stop at 400 hits *before* sorting, which answered a broad
+// query with the first 400 rows of the file rather than the best matches in it.
+const BROAD = 'al';
+const regionData = JSON.parse(await readFile(path.join(ROOT, 'src', 'regions.json'), 'utf8'));
+const starts = regionData.filter((r) => fold(r.name).startsWith(BROAD));
+const shortest = Math.min(...starts.map((r) => r.name.length));
+const best = new Set(starts.filter((r) => r.name.length === shortest).map((r) => r.name));
+check(starts.length > 3 && best.has(searchRegions(BROAD, 1)[0]?.name),
+  'a broad query is ranked over every match, not over the first few hundred',
+  `${searchRegions(BROAD, 1)[0]?.name} vs ${[...best].join('/')}`);
+
+console.log('\nwhich trip a query means');
+// The case this exists for: a fortnight actually spent in Zürich came out below
+// a weekend in St. Moritz that had merely driven through it, because matches
+// were sorted by date and nothing else.
+const zh = { name: 'Zürich, Switzerland', place: 'Zürich', region: 'Zürich', country: 'Switzerland', tags: ['Zürich'] };
+const sm = { name: 'St. Moritz, Switzerland', place: 'St. Moritz', region: 'Graubünden', country: 'Switzerland', tags: ['Zürich', 'Chur'] };
+const wi = { name: 'Winterthur, Switzerland', place: 'Winterthur', region: 'Zürich', country: 'Switzerland', tags: [] };
+const zq = fold('zurich');
+check(tripRelevance(zh, zq) < tripRelevance(wi, zq), 'named for the place beats merely being in it',
+  `${tripRelevance(zh, zq)} vs ${tripRelevance(wi, zq)}`);
+check(tripRelevance(wi, zq) < tripRelevance(sm, zq), '…and being in it beats having passed through',
+  `${tripRelevance(wi, zq)} vs ${tripRelevance(sm, zq)}`);
+check(tripRelevance(sm, fold('reykjavik')) === Infinity, 'and no match is no match');
+check(tripRelevance(zh, '') === 0 && tripRelevance(sm, '') === 0,
+  'nothing typed ranks nothing — the list keeps the sort you chose');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

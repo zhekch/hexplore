@@ -17,6 +17,7 @@
 
 import { inPolygon, asMulti, ringAreaM2, unionGeometries } from './polygon.js';
 import { stripDetachedTerritories } from './geo-filter.js';
+import { fold, matchRank } from './fold.js';
 
 let REGIONS = null; // [{ id, name, country, bbox:[w,s,e,n], geometry }]
 let index = null; //   "gx/gy" → region indices whose bbox touches that tile
@@ -113,6 +114,7 @@ export function loadRegions(data) {
       idIndex = null;
       recordIndex = null;
       byIso = null;
+      foldedRegions = null;
       buildIndex();
       return REGIONS;
     });
@@ -120,49 +122,93 @@ export function loadRegions(data) {
   return loading;
 }
 
-export const foldName = (v) =>
-  String(v ?? '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+// Pairing two datasets' names is the same question a search box asks — is this
+// the same word, typed by someone else — so it is the same fold. See src/fold.js.
+export const foldName = fold;
+
+// How finely to sample a shape when asking what is underneath it. 7×7 interior
+// candidates, plus the mean of the outer ring. Enough to outvote an enclave —
+// see regionUnder() — and cheap, because it is only ever run for a shape whose
+// name did not pair, once per country, on the server.
+const SAMPLE_STEPS = 8;
 
 /**
- * A point that is definitely inside a ring: the average of its vertices when
- * that lands inside, and otherwise a walk across the bounding box until
- * something does. Needed because the two datasets name the same place
- * differently often enough — Luzern/Lucerne, St. Gallen/Sankt Gallen — that
- * names alone cannot be trusted to pair them up.
+ * Points that are definitely inside a ring, best first: the average of its
+ * vertices when that lands inside, then a walk across the bounding box.
+ *
+ * Needed because the two datasets name the same place differently often enough —
+ * Luzern/Lucerne, St. Gallen/Sankt Gallen, and every Ukrainian oblast, which
+ * geoBoundaries suffixes " Oblast" and Natural Earth does not — that names alone
+ * cannot be trusted to pair them up.
  */
-export function pointInside(rings) {
+export function interiorPoints(rings) {
   const outer = rings[0];
+  const out = [];
   let x = 0;
   let y = 0;
-  for (const p of outer) {
-    x += p[0];
-    y += p[1];
-  }
-  const mean = [x / outer.length, y / outer.length];
-  if (inPolygon(mean[0], mean[1], rings)) return mean;
   let w = Infinity;
   let sN = Infinity;
   let e = -Infinity;
   let n = -Infinity;
   for (const p of outer) {
+    x += p[0];
+    y += p[1];
     if (p[0] < w) w = p[0];
     if (p[1] < sN) sN = p[1];
     if (p[0] > e) e = p[0];
     if (p[1] > n) n = p[1];
   }
-  for (let i = 1; i < 8; i++) {
-    for (let j = 1; j < 8; j++) {
-      const px = w + ((e - w) * i) / 8;
-      const py = sN + ((n - sN) * j) / 8;
-      if (inPolygon(px, py, rings)) return [px, py];
+  const mean = [x / outer.length, y / outer.length];
+  if (inPolygon(mean[0], mean[1], rings)) out.push(mean);
+  for (let i = 1; i < SAMPLE_STEPS; i++) {
+    for (let j = 1; j < SAMPLE_STEPS; j++) {
+      const px = w + ((e - w) * i) / SAMPLE_STEPS;
+      const py = sN + ((n - sN) * j) / SAMPLE_STEPS;
+      if (inPolygon(px, py, rings)) out.push([px, py]);
     }
   }
-  return null;
+  return out;
+}
+
+/** The single best interior point, for callers that only want somewhere to aim. */
+export const pointInside = (rings) => interiorPoints(rings)[0] ?? null;
+
+/**
+ * Which of our regions a detailed shape is standing on, by a vote of the points
+ * inside it rather than by one of them.
+ *
+ * One point is not enough, and Kyiv is why. Not a single Ukrainian name pairs —
+ * geoBoundaries calls every one "<name> Oblast" where Natural Earth calls it
+ * "<name>" — so all 25 fall through to geometry, and 24 of them land correctly.
+ * Kyiv oblast is a **ring around the capital**: both datasets cut the hole, in
+ * slightly different places, and the average of a ring's vertices is its centre,
+ * which is the hole. That one point came down in the sliver where the two
+ * disagree — inside their oblast and inside *our* Kyiv City — so the lookup
+ * answered "Kyiv City", the size guard correctly rejected 28,105 km² against
+ * 1,649, and the oblast kept its overview shape while all 24 neighbours
+ * sharpened. Exactly the shape of the report: one region, low detail, no reason
+ * visible from the map.
+ *
+ * The answer was already in the data. A walk across the same polygon lands in
+ * our Kyiv oblast thirty times and in Kyiv City twice, so the majority is not a
+ * close call — and every capital-inside-a-province in the world is the same
+ * shape of problem.
+ */
+function regionUnder(rings, iso) {
+  const votes = new Map();
+  for (const [x, y] of interiorPoints(rings)) {
+    const hit = regionAt(x, y, iso);
+    if (hit) votes.set(hit.id, (votes.get(hit.id) ?? 0) + 1);
+  }
+  let best = null;
+  let bestN = 0;
+  for (const [id, n] of votes) {
+    if (n > bestN) {
+      best = id;
+      bestN = n;
+    }
+  }
+  return best;
 }
 
 // Regions by country. Held, because the export's borders slider asks this once
@@ -258,8 +304,9 @@ export function geometryAreaM2(g) {
  *
  * - Names pair most of them for free. The two datasets agree on 24 of 26 Swiss
  *   cantons and disagree on Luzern/Lucerne and St. Gallen/Sankt Gallen.
- * - A name miss falls back to a point provably inside their polygon, looked up
- *   in our own dataset.
+ * - A name miss falls back to the region most of their polygon's interior points
+ *   land in — a vote, not one point, because a province shaped like a ring
+ *   around its capital puts its own centre inside the capital. See regionUnder.
  * - And then every pair has to be about the same *size*. This is the guard that
  *   matters: geoBoundaries' Italian ADM1 has five macro-regions, each of which
  *   genuinely contains one of our 110 provinces' centres, so geometry alone
@@ -287,8 +334,7 @@ export function pairFineRegions(iso, features) {
       const polys = asMulti(g);
       let biggest = polys[0];
       for (const poly of polys) if (poly[0].length > biggest[0].length) biggest = poly;
-      const pt = pointInside(biggest);
-      if (pt) id = regionAt(pt[0], pt[1], iso)?.id;
+      id = regionUnder(biggest, iso);
     }
     if (!id || claimed.has(id)) continue; // one detailed shape per region
 
@@ -569,24 +615,73 @@ export function mergeRegions(litIds, fine = false) {
   return unionGeometries(geoms);
 }
 
+// What one admin-1 unit is called, per country, so a search result can say
+// *Canton Zürich* rather than leaving "Zürich" to mean the canton, the city, the
+// lake or the airport depending on which row you are looking at.
+//
+// The rule for being in this table is strict: the word has to be right for
+// **every** unit the dataset holds for that country. That is why the obvious
+// entries are missing. Canada is ten provinces and three territories; the United
+// States is fifty states and the District of Columbia; Spain is fifty provinces
+// and two autonomous cities; the United Kingdom's 232 units are councils,
+// districts and boroughs at once. Calling Nunavut a province is a worse answer
+// than calling it a region, so those countries take the default.
+//
+// The default is "Region", which is also literally correct for a good many of
+// them — Italy's regioni, Chile's regiones, Czechia's kraje, Denmark's regioner.
+const REGION_TERM = {
+  CHE: 'Canton',
+  LIE: 'Municipality',
+  FRA: 'Département',
+  DEU: 'State',
+  AUT: 'State',
+  JPN: 'Prefecture',
+  POL: 'Voivodeship',
+  SWE: 'County',
+  ZAF: 'Province',
+  TUR: 'Province',
+  IDN: 'Province',
+  EGY: 'Governorate',
+  KEN: 'Province',
+  URY: 'Department',
+};
+
+/** What this country calls one of its admin-1 units. Never empty. */
+export const regionTerm = (iso) => REGION_TERM[iso] ?? 'Region';
+
+// The folded names, worked out once. 4,500 of them is a millisecond a
+// keystroke, which is not the reason — the reason is that it is the same list
+// every time and the search reads it on every character typed.
+let foldedRegions = null;
+
 /**
  * Regions whose name matches, for the search box. Returns nothing when the
  * dataset isn't loaded rather than loading it: 2.5 MB is not a reasonable price
  * for a keystroke, and by the time anyone searches, the trips have usually
  * pulled it in already.
+ *
+ * The id comes out with the name, because a region picked out of a list is a
+ * shape the map can draw and count cells inside — not a coordinate to fly to.
+ * See **Searching for a region** in ARCHITECTURE.md.
  */
 export function searchRegions(query, limit = 3) {
   if (!REGIONS) return [];
-  const q = String(query ?? '').trim().toLowerCase();
+  const q = fold(query);
   if (q.length < 2) return [];
+  foldedRegions ??= REGIONS.map((r) => fold(r.name));
   const hits = [];
-  for (const r of REGIONS) {
-    const name = r.name.toLowerCase();
-    const at = name.indexOf(q);
-    if (at < 0) continue;
-    hits.push({ rank: name === q ? 0 : at === 0 ? 1 : 2, name: r.name, country: r.country, bbox: r.bbox, kind: 'region' });
-    if (hits.length > 400) break;
+  for (let i = 0; i < REGIONS.length; i++) {
+    const rank = matchRank(foldedRegions[i], q);
+    if (rank < 0) continue;
+    const r = REGIONS[i];
+    hits.push({
+      rank, id: r.id, name: r.name, country: r.country, bbox: r.bbox, kind: 'region',
+      term: regionTerm(r.iso),
+    });
   }
+  // Every hit, then sorted. It used to stop at 400 and sort what it had, which
+  // is the wrong 400: a broad query collects the alphabet and throws away the
+  // exact match sitting at the end of it.
   hits.sort((a, b) => a.rank - b.rank || a.name.length - b.name.length);
   return hits.slice(0, limit);
 }

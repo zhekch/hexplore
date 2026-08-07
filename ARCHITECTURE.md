@@ -2190,17 +2190,46 @@ describing something else entirely.
 
 **Pairing is by name, then geometry, then size.** The two datasets agree on 24 of
 26 Swiss cantons and disagree on Luzern/Lucerne and St. Gallen/Sankt Gallen, so a
-name miss falls back to a point provably inside their polygon, looked up in ours.
-Then every pair must be within 0.3×–3.2× on area and each detailed shape may
-claim only one of our regions — the guard that makes a wrong level harmless
-rather than catastrophic.
+name miss falls back to the geometry. Then every pair must be within 0.3×–3.2× on
+area and each detailed shape may claim only one of our regions — the guard that
+makes a wrong level harmless rather than catastrophic.
+
+**The geometry path is a vote, not one point, and Kyiv is why.** It is easy to
+read that fallback as a rare tidy-up for two Swiss cantons. It is the *only* path
+for whole countries: not a single Ukrainian name pairs, because geoBoundaries
+calls every unit "<name> Oblast" where Natural Earth calls it "<name>". All 25
+fell through to geometry, 24 landed correctly, and one did not — Kyiv oblast is a
+ring around the capital, both datasets cut the hole, and the average of a ring's
+vertices is its centre, which is the hole. That single sample came down in the
+sliver where the two disagree about where Kyiv ends: inside their oblast and
+inside *our* Kyiv City. The lookup answered "Kyiv City", the size guard correctly
+refused 28,105 km² against 1,649, and the oblast kept the overview shape while
+all 24 of its neighbours sharpened. One region, low detail, no reason visible
+from the map — which is exactly how it was reported.
+
+`regionUnder` now tallies every interior point instead of taking the first. The
+answer was already in the data: a walk across the same polygon lands in our Kyiv
+oblast thirty times and in Kyiv City twice. Ukraine goes 24 → 25, no other
+country's count moves, and every capital-inside-a-province in the world is the
+same shape of problem. `scripts/test/region-pairing.mjs` builds that geometry
+from scratch — a round province, its capital cut out, and the two datasets
+disagreeing about where the capital is — and fails on a single-sample rule.
+
+**Improving the pairing has to invalidate the cache.** `server/regions-fine.js`
+caches per country and never expires it, because the upstream commit is pinned.
+A better `pairFineRegions` is a third thing that changes the answer while leaving
+no trace in either dataset, so `PAIRING_VERSION` goes into the fingerprint beside
+our region ids. Without it, every country already cached would have gone on being
+served the worse answer forever — the same failure mode as the Italian province
+ids, which is what put the fingerprint there in the first place.
 
 **Nothing is *resolved* against the detailed set.** Which region a cell belongs to
 is decided once, on the overview geometry, so the answer cannot change under you
 when the fine one lands and the per-cell memo stays valid.
 
 What this buys, measured: Switzerland 26 of 26 regions, Italy 20 of 20, France
-96 of 101, Liechtenstein 11 of 11, Hungary 17 of 43. The drawn union of two
+96 of 101 (their file simply has no overseas départements in it), Ukraine 25 of
+25, Spain 52 of 52, Liechtenstein 11 of 11, Hungary 17 of 43. The drawn union of two
 Italian provinces goes from 342 points to 4,158.
 
 **The two datasets are joined on ISO code, never on the country name.** Natural
@@ -2725,6 +2754,19 @@ top-level `await` at the head of main.js — does not build: the target is Safar
 written for. So boot.js awaits and then imports main.js, which reads
 `engineNow()` synchronously and cannot be wrong, because the only path to main.js
 runs through that import.
+
+**Both MapLibre anchors are read before a single layer of ours is added.**
+`labelStart()` looks for the bottom of the topmost run of symbol layers, which is
+a question about the *basemap* — and `map.getStyle()` answers it about whatever
+is on the map at the moment it is asked. The trip track goes on top of the whole
+style on purpose, and the topmost of its three layers is a circle, so a scan run
+after it stopped at the first layer from the top, found no symbol, and answered
+`undefined`. `addLayer` reads that as "the very top", so every saved route was
+inserted above the place names: green tracks drawn straight across *BERN*. Both
+anchors are now read once at the head of `installGrid`, which runs on every
+`style.load` and so is always the current basemap and never anything else. It was
+already known one call site down — `PHOTO_BEFORE` names the place pin explicitly
+rather than asking — but as a local workaround rather than as the bug it was.
 
 **The visited colour goes in a slot, not before a layer.** On the four MapLibre
 basemaps the anchors are layer ids worked out by reading `map.getStyle().layers`
@@ -4468,6 +4510,85 @@ at a spot rather than occupying one. It sits below home in the stack: home is
 what you navigate *from*, and it should never be the thing that vanished under
 an answer.
 
+**A pin is for a place, and a region is not a place.** See below.
+
+## Searching for a region
+
+A canton picked out of the search box is outlined on the map and described in
+the same card a tapped one gets — not marked with a pin. The difference is not
+presentation. A pin needs a coordinate, and the only coordinate a region has for
+free is the middle of its bounding box, which for anything that is not a
+rectangle is *not inside the region at all*: the middle of the United States'
+box is in Puget Sound, Hawaii's is open ocean between the islands, and Norway's
+is dragged 300 km north by Svalbard. So the answer to "where is Zürich the
+canton" was a marker somewhere near it and nothing whatever about it.
+
+What made this a two-line change is that both halves already existed and neither
+could be reached from here. `searchRegions` returned a name, a country and a
+bbox, and deliberately dropped the `id` — so the caller held the only thing the
+map cannot draw a shape from. It returns the id now, and `showSearchedArea` in
+`src/main.js` hands it to the same `showAreaInfo` a tap goes through: same
+outline, same card, same numbers.
+
+Two things had to give way for that.
+
+**`storedInArea` reads `visited`, not the memo.** The per-cell area memo is
+filled as a side effect of *building a vector level's shapes*, so reading it back
+only ever worked for an area you were already looking at. A region picked out of
+a search box is usually one you are not — the card came up saying you had never
+been to the canton you live in. It walks `visited` through `areaOfCellMemo`
+instead, which answers from the memo when it can and fills it when it cannot: the
+first search pays the ~100 ms sweep the level would have paid anyway, and every
+one after it is a map lookup per cell. Same answers, and now they do not depend
+on where the camera happens to be.
+
+**The framed box carries its east edge past 180° when it has to.** A boundary
+that crosses the antimeridian comes out of the dataset with its east edge *west*
+of its west edge — Russia's is `[19.6 … 180]`, Chukotka's and Fiji's the same
+shape. Read literally that is the whole globe minus the country, and `fitBounds`
+frames exactly that, the long way round.
+
+There is no `lastInfoLngLat` for a searched area, and that is deliberate: nothing
+was tapped, so there is no point on the map for a later zoom to re-resolve
+against, and a stale one left over from an earlier tap would answer that zoom
+with a different shape than the one on screen.
+
+**The shape is drawn at the highest resolution there is, and fetched if it isn't
+here.** The map's own boundaries drop back to the overview set when zoomed out,
+because tiling 7,000-point cantons to draw them four pixels across is waste. This
+is one shape, drawn because somebody asked to look at it, and the straight line
+the overview cuts across the lake the border actually follows is the thing they
+would be looking at — so `selectionFC` always asks for the fine geometry, and
+`showAreaInfo` calls `fetchFineRegions` for the country behind it and redraws
+when it lands. That is the same one-country-at-a-time fetch the region zoom
+already does (`considerFineRegions`), now shared: same request, same ring at the
+top of the screen, same redraw. Never twice — `fineCountryKnown` remembers
+failures as well as successes.
+
+**Regions and countries are the first section, not the third.** They are the
+answers most easily mistaken for something else in a list, and the smallest
+section, so anywhere but the top buried them under a dozen trips. Order is now
+regions and countries, trips, routes, places — places still last, because the
+gazetteer is big enough to bury four real answers under eight villages. Enter
+with nothing highlighted therefore opens the canton, which is the point.
+
+**And each is labelled with what that country calls it: `Canton Zürich`.**
+"Zürich" is a canton, a city, a lake and an airport, and the four are
+indistinguishable in a list unless something says which is which — the grey line
+underneath was saying it, and a caption you have to look for cannot be what
+distinguishes two rows carrying the same word. The card agrees: `Canton in
+Switzerland · 1,739 km²`.
+
+`REGION_TERM` in `src/regions.js` is deliberately short, and the rule for being
+in it is strict: the word has to be right for **every** unit the dataset holds
+for that country. That is why the obvious entries are missing. Canada is ten
+provinces and three territories, the United States fifty states and the District
+of Columbia, Spain fifty provinces and two autonomous cities, and the United
+Kingdom's 232 units are councils, districts and boroughs at once. Calling Nunavut
+a province is a worse answer than calling it a region, so those countries take
+the default — which is `Region`, and is also literally correct for a good many of
+them: Italy's regioni, Chile's regiones, Czechia's kraje, Denmark's regioner.
+
 ## Tapping a region
 
 At the three vector levels there are no hexagons on screen, so a tap is about the
@@ -4492,10 +4613,11 @@ counts is genuinely inside the shape it names. A country the dataset never
 subdivided uses the same `WHOLE_COUNTRY` stand-in the fill does, for the same
 reason.
 
-`storedInArea` filters on `visited` as well as on the memo. The memo is never
-invalidated by an edit — a cell centre never moves, so its answer is good
-forever — which means an erased cell keeps its entry, and the card must not go
-on counting it.
+`storedInArea` walks `visited` rather than the memo, filling the memo as it goes
+(see [Searching for a region](#searching-for-a-region) for why). The memo is
+never invalidated by an edit — a cell centre never moves, so its answer is good
+forever — which means an erased cell keeps its entry, and `visited` is what must
+decide whether it still counts.
 
 **A shape you have never been to still gets a card.** It used to fall through to
 the cell card, which found nothing and closed, on the reasoning that an empty
@@ -4527,6 +4649,18 @@ exactly how that got in.
 
 **The selection highlight is the region's own border**, not the hex ring a cell
 gets, so it says which shape was picked rather than merely where.
+
+**Drawn in white over near-black, and in nothing the accent has a say in.** Both
+selections — a cell's ring and a region's border — used to be tinted 75 % toward
+white from the accent, and the tint was the problem rather than the fix. A
+selection is not a colour the map is saying something with; it is the answer to
+*this one*, and it has to read over the accent-coloured wash, over pale green
+fields and over a photograph. Following the accent meant it disagreed with the
+wash it was drawn on by a few percent of lightness and disappeared into it, and
+pinning it near-white so it wouldn't left a hairline nothing could see over a
+bright basemap. The casing (`sel-halo`) is what buys the visibility, so the white
+line itself stays as fine as it ever was — the same trick, and the same reason,
+as the house and the place pin being stroked white-then-dark.
 
 ## What "Most visited" is measuring
 
@@ -4740,6 +4874,40 @@ outright, and after that each place scores its population with a
 merely-contained match counted at a quarter — enough that eight million people
 outrank a village that happens to start with the query, and not enough that
 "bern" answers with Berlin.
+
+**Every name is folded, by one function, in `src/fold.js`.** A search box is
+typed on whatever keyboard is to hand and this map is full of names that want a
+keyboard nobody has. Folding used to live inside `searchPlaces` and nowhere else,
+which is a bug shaped exactly like a working feature: `zurich` found the town,
+because the town dataset folded, and did not find the canton, the country, the
+route or the fortnight you spent there, because none of the other four did. 659
+of 4,484 regions carry a diacritic — Québec, São Paulo, Aqtöbe — and every one of
+them was unreachable without typing the accent.
+
+Two steps, and the second is the one that is easy to leave out. NFD strips the
+accents off letters that *have* accents; it does nothing at all for the letters
+that are their own letter rather than a marked-up one, so ß, ø, æ, ð, đ, ł, ı, ħ
+and ə are spelled out by hand. Punctuation then collapses to a single space, so
+`St.Moritz`, `St. Moritz` and `st moritz` are the same three syllables typed
+three ways. Deliberately **not** ASCII-only: anything that is a letter or a digit
+in any script survives, because a few dozen gazetteer names are Cyrillic or
+Arabic and folding a script away entirely makes those places unreachable rather
+than easier to type.
+
+The folded gazetteer is built once and kept (`foldedNames` in `src/places.js`).
+Folding is the expensive half of a search and the half whose answer never
+changes — 96,000 calls to `normalize()` is a fifth of the frame budget, and it
+was being paid again on every keystroke.
+
+**Matching trips are ranked by relevance before anything else.** The trip list is
+also the trips *browser*, so it has a sort of its own — newest, longest,
+furthest — and when a query narrowed it that sort was still the only thing
+deciding the order. A fortnight actually spent in Zürich came out below a weekend
+in St. Moritz that had merely driven through it, and the list gave no clue why.
+`tripRelevance` scores which field matched (the name it is called, then the town,
+the region, the country, and last the tags recording everywhere it merely went)
+and then how much of that field the query was. The chosen sort breaks the ties
+underneath, and with nothing typed every trip scores 0, so it decides nothing.
 
 **Dates are parsed strictly.** `2024-08-12`, `12.08.2024`, `August 2024` and a
 bare year are read; `3/4` is not, because no amount of guessing fixes which

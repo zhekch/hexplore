@@ -1,0 +1,91 @@
+// Pairing our regions against a detailed boundary set, when the names don't help.
+//
+// `pairFineRegions` pairs by name first and by geometry second, and the second
+// path is not a rare fallback — it is the *only* path for whole countries. Not
+// one Ukrainian name pairs: geoBoundaries calls every unit "<name> Oblast" where
+// Natural Earth calls it "<name>", so all 25 fall through to geometry.
+//
+// Which is fine until a region is shaped like a ring around its capital. The
+// average of a ring's vertices is its centre, and its centre is the hole — so
+// asking one point what it is standing on asks the capital, the size guard
+// correctly refuses to pair a 28,000 km² oblast with a 1,600 km² city, and that
+// one region keeps the overview shape while all its neighbours sharpen. That is
+// what happened to Kyiv oblast, and it is the shape of every
+// capital-inside-a-province in the world.
+//
+// The fixture is that geometry and nothing else: a round province with its
+// capital cut out, and the two datasets disagreeing about exactly where the
+// capital is — which is the whole of the bug, because the two datasets always
+// disagree about exactly where anything is.
+//
+//   node scripts/test/region-pairing.mjs
+
+import { loadRegions, pairFineRegions, interiorPoints, regionAt } from '../../src/regions.js';
+
+let pass = 0;
+let fail = 0;
+const check = (ok, label, detail) => {
+  console.log(`${ok ? '  ok  ' : '  FAIL'} ${label}${ok || !detail ? '' : ` — ${detail}`}`);
+  ok ? pass++ : fail++;
+};
+
+const box = (w, s, e, n) => [[w, s], [e, s], [e, n], [w, n], [w, s]];
+const poly = (rings) => ({ type: 'Polygon', coordinates: rings });
+
+// A round province a degree across. Round rather than square so the average of
+// its vertices really is its middle — a square ring closes on its first corner
+// and drags the average into that corner, which would hide the very thing this
+// is testing.
+const OUTER = [];
+for (let i = 0; i <= 64; i++) {
+  const a = (i / 64) * Math.PI * 2;
+  OUTER.push([11 + Math.cos(a), 51 + Math.sin(a)]);
+}
+// The capital, cut out of the middle of it — ours, and then theirs, drawn a
+// little to the north-east of ours. That offset is all "two datasets" ever means.
+const OUR_CAPITAL = box(10.95, 50.95, 11.25, 51.25);
+const THEIR_CAPITAL = box(11.05, 51.05, 11.35, 51.35);
+
+await loadRegions([
+  {
+    id: 'Fixture/Province', name: 'Province', country: 'Fixture', iso: 'FIX',
+    bbox: [10, 50, 12, 52], geometry: poly([OUTER, OUR_CAPITAL]),
+  },
+  {
+    id: 'Fixture/Capital', name: 'Capital', country: 'Fixture', iso: 'FIX',
+    bbox: [10.95, 50.95, 11.25, 51.25], geometry: poly([OUR_CAPITAL]),
+  },
+]);
+
+const theirProvince = [OUTER, THEIR_CAPITAL];
+
+console.log('\none point inside a ring is the wrong point');
+const first = interiorPoints(theirProvince)[0];
+check(regionAt(first[0], first[1], 'FIX')?.id === 'Fixture/Capital',
+  'the first point their province offers is standing on our capital',
+  `${first.map((v) => v.toFixed(3))} → ${regionAt(first[0], first[1], 'FIX')?.id}`);
+
+console.log('\nso the pairing votes rather than sampling once');
+const paired = pairFineRegions('FIX', [
+  // A name that pairs with nothing, exactly like every Ukrainian oblast.
+  { properties: { shapeName: 'Province Oblast' }, geometry: poly(theirProvince) },
+]);
+check(paired.has('Fixture/Province'),
+  'the ring-shaped province gains its detailed shape',
+  `paired: ${[...paired.keys()].join(', ') || 'nothing'}`);
+check(paired.get('Fixture/Province')?.coordinates?.length === 2,
+  'and it is theirs — the one with their capital cut out of it');
+
+console.log('\nand the size guard still refuses a bad pair');
+// The guard that made the failure quiet rather than wrong is untouched: a shape
+// may only pair with a region of about its own size, whatever the vote says.
+// This is what stopped one Italian province colouring in a fifth of Italy.
+const wrongSize = pairFineRegions('FIX', [
+  { properties: { shapeName: 'Province Oblast' }, geometry: poly([box(11.4, 51.4, 11.45, 51.45)]) },
+]);
+check(!wrongSize.has('Fixture/Province'),
+  'a shape a thousandth of the size pairs with nothing',
+  `paired: ${[...wrongSize.keys()].join(', ') || 'nothing'}`);
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

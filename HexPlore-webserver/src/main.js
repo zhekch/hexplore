@@ -86,6 +86,7 @@ import { activeDays, findHome } from './trips.js';
 import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
   loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView, fineCountryOutline,
+  regionById, regionTerm,
 } from './regions.js';
 import { geometryAreaM2 } from './regions.js';
 import { countryAreaKm2, countryIso } from './countries.js';
@@ -1774,9 +1775,6 @@ function applyColors() {
       map.setPaintProperty(`hex-label${s}`, prop, value);
     }
   }
-  if (map.getLayer('sel-line')) {
-    map.setPaintProperty('sel-line', 'line-color', mixWithWhite(accent, 0.75));
-  }
   if (map.getLayer('route-line')) {
     map.setPaintProperty('route-line', 'line-color', routeLineColor());
     map.setPaintProperty('route-line', 'line-opacity', routeLineOpacity());
@@ -2890,6 +2888,12 @@ function gatherInfo(L, col, row) {
   };
 }
 
+// The selection outline — one cell's ring or a whole region's border. Drawn in
+// nothing the map means anything else by: white over near-black, owing nothing
+// to the accent. See the `sel-halo` / `sel-line` layers in installGrid.
+const SEL_COLOR = '#ffffff';
+const SEL_CASING = 'rgba(8, 10, 16, 0.85)';
+
 // The highlight ring around the inspected cell — same rounded outline the
 // regions use, so it reads as part of the same language.
 function selectionFC() {
@@ -2897,7 +2901,13 @@ function selectionFC() {
   // A selected region is outlined by its own border rather than by a ring, so
   // the highlight says which shape was picked instead of merely where.
   if (selection.area) {
-    const g = areaGeometry(selection.area.kind, selection.area.id, fineRegionsLoaded());
+    // Always the sharpest boundary in memory, whatever the zoom. The map's own
+    // shapes drop back to the overview set when zoomed out, because tiling
+    // 7,000-point cantons to draw them four pixels across is waste — but this is
+    // one shape, drawn because someone asked to look at it, and a border that
+    // cuts a straight line across the lake it actually follows is the thing they
+    // would be looking at. `sharpenSelection` fetches it if it isn't here yet.
+    const g = areaGeometry(selection.area.kind, selection.area.id, true);
     return g
       ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: g }] }
       : EMPTY;
@@ -2960,18 +2970,24 @@ function areaAt(lngLat) {
  * Every stored cell inside one area, found through the same per-cell lookup the
  * fill was built from — so what the card counts is exactly what is painted, and
  * every cell it counts is genuinely inside the shape it names.
+ *
+ * Over `visited` rather than over the memo, which are the same walk once the
+ * level has been drawn and are not the same walk before it. The memo is filled
+ * by building a vector level's shapes, so reading it back only ever worked for
+ * an area you were already looking at — and a region picked out of the search
+ * box is usually one you are not: the card came up saying you had never been to
+ * the canton you live in. `areaOfCellMemo` answers from the memo when it can and
+ * fills it when it cannot, so the first search pays the ~100 ms sweep the level
+ * would have paid anyway and every one after it is a map lookup per cell.
+ *
+ * `visited` also decides which cells count at all. A cell's answer is memoised
+ * forever — its centre never moves — so an erased cell keeps its entry, and the
+ * card must not go on counting it.
  */
 function storedInArea(kind, id) {
-  const memo = kind === 'region' ? cellRegionMemo : cellCountryMemo;
-  // A continent has no memo of its own — the fill was built by mapping the
-  // country memo's answers on, so the card reads it back the same way.
-  const idOf = kind === 'continent' ? continentOf : (cid) => cid;
   const out = [];
-  // `visited` decides, not the memo: a cell centre never moves, so an erased
-  // cell keeps its answer here rather than paying to be looked up again if it
-  // comes back. The card must not count it while it is gone.
-  for (const [cellId, cid] of memo) {
-    if (cid && idOf(cid) === id && visited.has(cellId)) out.push(cellId);
+  for (const cellId of visited) {
+    if (areaOfCellMemo(kind, cellId) === id) out.push(cellId);
   }
   return out;
 }
@@ -3029,19 +3045,66 @@ function areaKm2(area) {
 function showAreaInfoAt(lngLat) {
   const area = areaAt(lngLat);
   if (!area) return false;
+  lastInfoLngLat = lngLat; // remembered so a zoom can re-resolve the same spot
+  showAreaInfo(area);
+  return true;
+}
+
+/**
+ * A whole region or country picked out of the search box rather than tapped.
+ *
+ * The same card and the same outline, because it is the same question — the
+ * only difference is that nothing was tapped, so there is no point on the map
+ * for a later zoom to re-resolve against. A stale one left over from an earlier
+ * tap would answer that zoom with a different shape than the one on screen.
+ *
+ * It used to be answered with a pin at the middle of the area's bounding box,
+ * which is what the search box had to give: a coordinate. For anything that is
+ * not a rectangle that coordinate is not in the area — the middle of the United
+ * States' box is in Puget Sound and Hawaii's is open ocean — so the answer to
+ * "where is this" was a marker somewhere near it and nothing about it.
+ *
+ * @param {{kind:string, id:string, name:string, of:string|null, bbox:Array<number>}} area
+ */
+function showSearchedArea(area) {
+  showPlacePin(null); // the pin answers a different question; only one at a time
+  lastInfoLngLat = null;
+  showAreaInfo(area);
+  fitBboxOnMap(area.bbox);
+}
+
+/**
+ * The ISO3 code of the country an area belongs to — the key the detailed
+ * boundaries are fetched by. Null for a continent, which is not one country's
+ * worth of fetching.
+ */
+function isoOfArea(area) {
+  if (area.kind === 'continent') return null;
+  if (area.kind === 'region' && !area.id.startsWith(WHOLE_COUNTRY)) {
+    return regionById(area.id)?.iso ?? null;
+  }
+  return countryIso(area.id.startsWith(WHOLE_COUNTRY) ? area.id.slice(WHOLE_COUNTRY.length) : area.id);
+}
+
+/** The card and the outline for one area, however it was arrived at. */
+function showAreaInfo(area) {
   const ids = storedInArea(area.kind, area.id);
   closeRouteInfo(); // the cards all share the same spot on screen
   closePhotoInfo();
-  lastInfoLngLat = lngLat;
   const covered = groundKm2(ids);
   const whole = areaKm2(area);
   selection = { area };
   updateSelection();
+  // "Canton in Switzerland", not "Region in Switzerland" — the same word the
+  // search box puts in front of the name, so the row you picked and the card it
+  // opened are describing the thing with the same noun. A country standing in as
+  // its own region says so; it is not a region of anything.
+  const term = area.id.startsWith(WHOLE_COUNTRY) ? 'Country' : regionTerm(isoOfArea(area));
   const what =
     area.kind === 'continent'
       ? 'Continent'
       : area.kind === 'region'
-        ? (area.of ? `Region in ${area.of}` : 'Region')
+        ? (area.of ? `${term} in ${area.of}` : term)
         : 'Country';
   cellInfo?.show({
     ...rollUpIds(ids),
@@ -3061,7 +3124,12 @@ function showAreaInfoAt(lngLat) {
         ? { label: 'Countries visited', n: countriesVisitedIn(area.id), of: countriesInContinent(area.id) }
         : null,
   });
-  return true;
+  // Drawn from whatever is in memory, and then again from the national survey's
+  // own outline when it arrives. Natural Earth cannot supply this at any
+  // tolerance — its 10m geometry gives Solothurn 276 points where swisstopo
+  // gives 6,951 — so a shape somebody is looking at deliberately is worth the
+  // one request. See loadFineRegions.
+  fetchFineRegions(isoOfArea(area), area.name);
 }
 
 /**
@@ -3722,18 +3790,32 @@ function bboxOfPoints(points) {
   return b.every(Number.isFinite) ? b : null;
 }
 
+// The furthest north or south a Web Mercator map can show at all.
+const MERC_LAT = 85.051129;
+
 // Frame a [w, s, e, n] box with the same padding a route gets. Trips and
 // searched-for lakes are both "here is an area, look at it" — the only thing
 // zoomToRoute does that this doesn't is read the box off a route.
 function fitBboxOnMap(b) {
   if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) return;
   releaseCameraLock();
+  // A box that crosses the antimeridian comes out of the boundary datasets with
+  // its east edge *west* of its west edge — Russia's is [19.6 … 180], Fiji's and
+  // Chukotka's the same shape. Read literally that is the whole globe minus the
+  // country, and fitBounds obligingly frames it the long way round. Carrying the
+  // east edge past 180° is the short way, which is the way anyone meant.
+  const e = b[2] < b[0] ? b[2] + 360 : b[2];
   // A single-cell trip has no extent at all; give it something to fit.
-  const pad = Math.max(0.02, (b[2] - b[0]) * 0.08, (b[3] - b[1]) * 0.08);
+  const pad = Math.max(0.02, (e - b[0]) * 0.08, (b[3] - b[1]) * 0.08);
+  // 8 % of Russia is fourteen degrees of latitude, which puts the padded north
+  // edge at 95° — a coordinate that does not exist, and `fitBounds` throws on
+  // it rather than clamping. The whole flight was then skipped and the map sat
+  // exactly where it was, which reads as a search result that does nothing.
+  const lat = (v) => Math.max(-MERC_LAT, Math.min(MERC_LAT, v));
   map.fitBounds(
     [
-      [b[0] - pad, b[1] - pad],
-      [b[2] + pad, b[3] + pad],
+      [b[0] - pad, lat(b[1] - pad)],
+      [e + pad, lat(b[3] + pad)],
     ],
     { padding: 60, maxZoom: 13, duration: 800 },
   );
@@ -5036,19 +5118,34 @@ function considerFineRegions(level) {
   if (level !== REGION_LEVEL || map.getZoom() < REGION_FINE_ZOOM) return;
   if (!regionsLoaded() || !litRegionIds) return;
   const view = lngLatBox(viewMerc());
-  for (const { iso, country } of countriesInView(litRegionIds, view)) {
-    if (fineCountryKnown(iso)) continue;
-    // The ring at the top of the map, so a zoom that is about to sharpen doesn't
-    // look like one that isn't going to.
-    const done = busy(`Loading ${country} boundaries…`);
-    loadFineRegions(iso)
-      .then((paired) => {
-        if (!paired) return;
-        areaFC.regionFine = EMPTY; // rebuild at the new resolution
-        updateGrid(true);
-      })
-      .finally(done);
-  }
+  for (const { iso, country } of countriesInView(litRegionIds, view)) fetchFineRegions(iso, country);
+}
+
+/**
+ * One country's detailed boundaries, fetched once and drawn wherever they show.
+ *
+ * Shared by the zoom that sharpens the map and by picking a single region out of
+ * the search box, because the fetch, the ring at the top of the screen and the
+ * redraw afterwards are the same three things either way. Never fetched twice —
+ * `fineCountryKnown` remembers failures as well as successes, so a country
+ * nobody has boundaries for at our granularity is asked for once.
+ *
+ * @param {string} iso ISO3 country code
+ * @param {string} label what to call it while it is on its way
+ */
+function fetchFineRegions(iso, label) {
+  if (!iso || fineCountryKnown(iso)) return;
+  // The ring at the top of the map, so a zoom that is about to sharpen doesn't
+  // look like one that isn't going to.
+  const done = busy(`Loading ${label} boundaries…`);
+  loadFineRegions(iso)
+    .then((paired) => {
+      if (!paired) return;
+      areaFC.regionFine = EMPTY; // rebuild at the new resolution
+      updateGrid(true);
+      updateSelection(); // and the outlined shape, if one is being looked at
+    })
+    .finally(done);
 }
 
 function warmVector(level, asBlob) {
@@ -6773,17 +6870,17 @@ const AIRPORT_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelS
 // first.
 //
 // Anchored on the **place pin** rather than on `labelStart()`, which is what
-// everything else here anchors on and is the wrong question by the time this
-// runs. `labelStart()` finds the bottom of the topmost run of symbol layers, and
-// by now the style also holds the place pin, the home marker and the selection
-// ring — the topmost of which is a line — so it answers `undefined`, which
-// `addLayer` reads as "the very top". Measured, not reasoned about: every
-// photograph was drawn over the marker you navigate by and over the ring around
-// the cell you had just clicked.
+// everything else here anchors on and is the wrong question for this one.
+// `labelStart()` is where the *basemap's* place names begin, and above that
+// point sit the trip track, the place pin, the home marker and the selection
+// ring — all of them ours, none of them something a photograph should cover.
+// Measured, not reasoned about: anchored on the labels, every photograph was
+// drawn over the marker you navigate by and over the ring around the cell you
+// had just clicked.
 //
-// Those three markers are precisely what this has to stay under, so naming the
-// first of them says it directly and cannot drift. It lands immediately above
-// the saved routes, which is where it was always meant to be.
+// Those markers are precisely what this has to stay under, so naming the first
+// of them says it directly and cannot drift. It lands immediately above the
+// saved routes, which is where it was always meant to be.
 const PHOTO_BEFORE = () => (map.getLayer('place-pin') ? 'place-pin' : labelStart());
 let firstInstall = true;
 
@@ -6937,7 +7034,19 @@ onMapBuilt(() => map.on('error', (e) => {
 // exactly right for the visited wash — tinted ground with the streets drawn on
 // top of it — and exactly wrong for a route, which came out chopped into dashes
 // wherever a road casing crossed it.
-function labelStart() {
+//
+// **Read before a single layer of ours goes in, and held for that style.** The
+// scan below looks for the bottom of the topmost run of symbol layers, which is
+// a question about the *basemap*, and `map.getStyle()` answers it about whatever
+// is on the map right now. The trip track is added on top of the whole style on
+// purpose, and its topmost layer is a circle — so a scan run after it stopped at
+// the first layer from the top, found no symbol, and answered "nowhere at all".
+// Everything anchored on it then went above the place names instead of below
+// them, which is how the saved routes came to be drawn straight across BERN.
+// Only on the MapLibre basemaps: Standard answers with a slot and never scans.
+let basemapLabelStart;
+
+function readLabelStart() {
   // Standard keeps its layers inside an import, so there is nothing to scan and
   // nothing to name. It answers the same question with a slot instead, which is
   // the better answer: a promise about position that survives Mapbox reordering
@@ -6950,6 +7059,8 @@ function labelStart() {
   }
   return undefined;
 }
+
+const labelStart = () => basemapLabelStart;
 
 /** The same question for the visited wash — see washAnchorIn() in basemap.js. */
 function washAnchor() {
@@ -7022,8 +7133,11 @@ function installGrid() {
   // layer of ours goes in — a light preset arriving after the wash would relight
   // the map underneath a colour already chosen for the old one.
   if (engine === MAPBOX) configureStandard(map);
+  // Both anchors are read here, before anything of ours is on the map, because
+  // both are questions about the basemap and both are asked of the live style.
   // Over the ground, under the streets and rooftops — see washAnchor().
   const washBefore = washAnchor();
+  basemapLabelStart = readLabelStart(); // …and under the place names — see labelStart().
   const lineLayout = { 'line-join': 'round', 'line-cap': 'round' };
   const isRegion = ['==', ['get', 'k'], 1];
   const isBoundary = ['==', ['get', 'k'], 2];
@@ -7273,12 +7387,32 @@ function installGrid() {
   // ring occludes almost nothing, and it only exists while you are looking at
   // that one cell.
   map.addSource('sel', { type: 'geojson', data: EMPTY, tolerance: 0 });
+  // Two lines, dark under light, for the same reason the house and the place pin
+  // are stroked twice: nothing one colour can be seen against both this map's own
+  // ink and a basemap of pale green fields.
+  //
+  // It was one line, tinted 75 % toward white from the accent — and the tint was
+  // the problem rather than the fix. A selection is not a colour the map is
+  // saying something with; it is the answer to "this one", and it has to read
+  // over the accent-coloured wash, over pale green fields and over a photograph.
+  // Following the accent meant it disagreed with the wash by a few percent of
+  // lightness and vanished into it, and pinning it near-white so it wouldn't
+  // left a hairline nothing could see over bright terrain. White over near-black
+  // owes nothing to either, and the casing is what buys the visibility — so the
+  // white line itself stays as fine as it ever was. A canton's border traced in
+  // a 4 px rope is a different kind of wrong from one you cannot find.
+  map.addLayer({
+    id: 'sel-halo', type: 'line', source: 'sel', layout: lineLayout,
+    paint: {
+      'line-color': SEL_CASING,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 2, 3.6, 17, 5.4],
+    },
+  });
   map.addLayer({
     id: 'sel-line', type: 'line', source: 'sel', layout: lineLayout,
     paint: {
-      'line-color': mixWithWhite(accent, 0.75),
-      'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.6, 17, 2.6],
-      'line-opacity': 0.95,
+      'line-color': SEL_COLOR,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.7, 17, 2.7],
     },
   });
 
@@ -7789,6 +7923,9 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     days: () => activeDays(cellMeta, listedRoutes()),
     meta: () => cellMeta,
     onPlace: (lngLat, { bounds } = {}) => {
+      // The pin is the whole answer to "where is this", and an outlined canton
+      // left over from the last search sitting underneath it is a second one.
+      closeCellInfo();
       showPlacePin(lngLat);
       if (bounds?.length === 4) fitBboxOnMap(bounds);
       else {
@@ -7796,6 +7933,9 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
         map.flyTo({ center: [lngLat.lng, lngLat.lat], zoom: 11, duration: 900 });
       }
     },
+    // A canton or a country is a shape, not a spot — so it is outlined and
+    // described rather than pinned. See showSearchedArea.
+    onArea: showSearchedArea,
     onTrip: (trip) => {
       showTripOnMap(trip);
       fitBboxOnMap(trip.bbox);

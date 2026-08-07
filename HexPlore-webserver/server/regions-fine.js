@@ -51,6 +51,11 @@ const LEVELS = ['ADM1', 'ADM2', 'ADM3'];
 // counties — but a handful out of hundreds means the level is describing
 // something else and the country is better left at one resolution.
 const MIN_PAIRED_SHARE = 0.4;
+// Bumped whenever pairFineRegions can answer differently, because the cache is
+// keyed on the inputs and this is a change to the function. 2: a name miss now
+// votes over the interior points of their shape instead of taking one of them,
+// which is what pairs a province shaped like a ring around its capital.
+const PAIRING_VERSION = 2;
 const MIN_PAIRED = 3;
 const FETCH_TIMEOUT_MS = 30000;
 
@@ -90,7 +95,7 @@ export function createFineRegions({ dir, log = () => {} }) {
   }
 
   /**
-   * A fingerprint of *our* regions for one country.
+   * A fingerprint of *our* regions for one country, and of how they were paired.
    *
    * The upstream commit is pinned, so their side of this cache cannot change —
    * which is the whole reason it never expires. Our side can, and did: Italy's
@@ -103,10 +108,16 @@ export function createFineRegions({ dir, log = () => {} }) {
    * The ids, not the count: a rebuild that renames a region without changing how
    * many there are strands the cache in exactly the same way and would be far
    * harder to spot.
+   *
+   * `PAIRING_VERSION` is the third thing that can change the answer and leaves no
+   * trace in either dataset: improving `pairFineRegions` gives a *better* answer
+   * to the same question, and without this every country would go on being served
+   * the worse one out of a cache that never expires. Bump it whenever the pairing
+   * changes.
    */
   const fingerprintOf = (iso) =>
     createHash('sha1')
-      .update([...regionsOf(iso)].map((r) => r.id).sort().join('\n'))
+      .update(`v${PAIRING_VERSION}\n${[...regionsOf(iso)].map((r) => r.id).sort().join('\n')}`)
       .digest('hex')
       .slice(0, 12);
 
