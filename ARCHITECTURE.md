@@ -2152,6 +2152,66 @@ than last, and that a trip marks every day of its span in the calendar including
 the silent ones. `scripts/test/stats.mjs` runs the same naming case against the
 real datasets.
 
+## What changed while you were not looking
+
+`src/whats-new.js` is the arithmetic; `src/whats-new-ui.js` is the banner.
+
+The map is filled in by things that are not you — a phone in your pocket, a
+watch that saved a ride, Home Assistant noticing you came home, a Strava sync at
+four in the morning. So opening it is the interesting moment: the ground has
+moved and nothing on screen says so, because **a map that has grown looks exactly
+like a map that has not**.
+
+### Since when, and why it is not "since last time you opened it"
+
+Since the last time a banner was *shown*. That distinction is the whole of why
+the middle setting works. If the baseline moved on every open, four days of one
+cell each would each be too small to mention and the fifth would report one cell
+— and a week would pass without a word. Holding the baseline until something is
+actually said lets small changes accumulate until they are worth saying.
+
+Two consequences, both deliberate:
+
+- **The first open ever shows nothing.** There is no baseline, so there is no
+  change. A banner announcing that you have 12,000 places is not news, it is the
+  map. The baseline is recorded and the next visit is the first that can report
+  anything.
+- **`never` moves the baseline anyway.** Otherwise switching it on after a year
+  would open on "+38,000 places", which is a number nobody can feel and not what
+  anybody meant by turning the setting on.
+
+**Only growth is reported**, and that is not laziness. Cells go *down* when you
+take a source off the map or undo an import — both things you just did on
+purpose — and being told about them on the next open is the app reading your own
+action back to you. There is no honest "you lost 300 km²" that is also welcome.
+
+### The frequency syncs; the baseline does not
+
+The setting rides in the account's preferences beside the clock: how much you
+want to be told is a fact about you. The **snapshot** stays in this browser's
+localStorage, because it answers *since you last saw this banner* — and the
+laptop and the phone have seen different banners at different times. A shared
+baseline would mean opening the phone silently spent the laptop's news.
+
+### Workouts are the exception, at every setting
+
+A new workout out of Apple Health is the one change here that came from something
+you *did*: you went for a ride, and a watch and two syncs later it is on the map.
+That is worth saying whatever the frequency says, so it is counted separately —
+routes whose source is `apple-health` — and reported unconditionally. On `never`
+you get the workout and none of the coverage, which is what `never` means.
+
+The thresholds for "substantial" are constants at the top of `src/whats-new.js`
+and they are two different kinds of thing. A country or a region is
+*categorical* — there is no such thing as a slightly new country — so one of
+either is always a line. Ground is continuous and needs a number: 20 cells or
+400 km², which is more than a walk to the shops and less than a day out. A record
+streak counts at any length, being the one figure that can only be beaten rather
+than accumulated.
+
+`scripts/test/whats-new.mjs` pins all four of the decisions above, because every
+one of them is the sort of thing a later reader would "fix" back.
+
 ## Coverage
 
 Countries and their regions in one list (`coverageList` in `src/stats-ui.js`),

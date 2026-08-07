@@ -697,6 +697,18 @@
           </select>
         </label>
 
+        <!-- How often the map volunteers what has changed. Not a switch,
+             because "never" and "always" are both wrong for most people and the
+             useful answer is the middle one. -->
+        <label class="import-row">
+          <span>What's new<small id="settings-whats-new-note">A line on opening, when the map has grown</small></span>
+          <select id="settings-whats-new">
+            <option value="never">Never</option>
+            <option value="substantial">After substantial changes</option>
+            <option value="always">Always</option>
+          </select>
+        </label>
+
         <!-- The one switch that changes what a tap on the map *does* rather
              than what it shows, which is why it is last and why it is here
              rather than in the menu you open to change the view. -->
@@ -1646,6 +1658,26 @@
         <small id="rail-bar-detail"></small>
       </span>
       <button type="button" class="offline-retry" id="rail-bar-dismiss">Dismiss</button>
+    </div>
+
+    <!-- What changed since the last time this said anything. The only banner in
+         the app that is good news, so it is the accent colour rather than a
+         warning one — the others exist because something is wrong, and nothing
+         is wrong here. -->
+    <div class="offline-bar whats-new-bar" id="whats-new-bar" hidden role="status" aria-live="polite">
+      <!-- An upward line over a baseline: the least that reads as "this went
+           up" at 17px. A bar chart would need three bars and would be mud. -->
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 20h18" />
+        <path d="m4 15 5-5 4 3.5L20 5" />
+        <path d="M20 9V5h-4" />
+      </svg>
+      <span class="offline-text">
+        <b id="whats-new-title"></b>
+        <small id="whats-new-detail"></small>
+      </span>
+      <button type="button" class="offline-retry" id="whats-new-open">Show me</button>
+      <button type="button" class="offline-retry offline-quiet" id="whats-new-dismiss">Dismiss</button>
     </div>
 
     <!-- Asked once, ever. Everything in the Trips tab is measured from home, and

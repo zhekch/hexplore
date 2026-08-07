@@ -47,6 +47,8 @@ import {
   matchMapboxRotation,
 } from './gl-engine.js';
 import { applySnow, isSnowMode, setSnowMode, snowMode, snowWanted } from './snow.js';
+import { bannerMode, forgetSnapshot, isBannerMode, setBannerMode } from './whats-new.js';
+import { mountWhatsNew } from './whats-new-ui.js';
 // The theme is not handed over separately: it only ever changes by switching
 // basemap, which replaces the style and rebuilds the overlay from scratch.
 import {
@@ -3391,6 +3393,7 @@ let colorPicker = null; // set by mountColorPicker()
 let stravaUi = null; // set by mountStrava()
 let deviceUi = null; // set by mountDevices()
 let statsUi = null; // set by mountStats()
+let whatsNewUi = null; // set by mountWhatsNew()
 let backupUi = null; // set by mountBackup()
 let homeUi = null; // set by mountHome()
 let selectedRoute = null;
@@ -3524,6 +3527,15 @@ const prefsPayload = () => ({
   // one short string and it means the phone is already snowing when you pick it
   // up, which is the entire point of an easter egg you had to go and find.
   snow: snowMode(),
+  // How often the map says what has changed since you last looked. In the
+  // account for the same reason as the clock: it is a thing about how much you
+  // want to be told, not about which browser you are being told in.
+  //
+  // The *snapshot* it is measured against deliberately stays local. It answers
+  // "since you last saw this banner", and the laptop and the phone have seen
+  // different banners at different times — a shared baseline would mean opening
+  // the phone silently spent the laptop's news.
+  whatsNew: bannerMode(),
   // The 3D basemap's Mapbox token, for exactly the same reason and with a
   // stronger case: it is a thing you signed up for once, and pasting it again on
   // every device was the whole of what stood between them and the basemap. Sent
@@ -3651,6 +3663,9 @@ function adoptPrefs(prefs) {
     snowOn = null;
     refreshSnow();
   }
+  // Nothing to redraw: the banner has already been decided for this load, and a
+  // frequency adopted mid-session is for the next one.
+  if (isBannerMode(prefs.whatsNew)) setBannerMode(prefs.whatsNew);
   // The pair if the account has it; the single value if it was saved before
   // there were two, in which case it stands for both — the same reading
   // savedAccents() gives the old localStorage key, for the same reason.
@@ -8126,6 +8141,12 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       pushPrefs();
     },
     snowPossible: () => engine === MAPBOX,
+    whatsNew: () => bannerMode(),
+    onWhatsNew: (mode) => {
+      setBannerMode(mode);
+      touchPrefs();
+      pushPrefs();
+    },
     sources: sourcesUi,
     rail: railUi,
     airports: airportsUi,
@@ -8314,6 +8335,17 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     stats.open();
   });
 
+  // "Your map has grown" — and the one press it offers goes to the panel that
+  // says by how much, which is the only thing anybody would want next.
+  whatsNewUi = mountWhatsNew({
+    stats: () => derived.stats(),
+    routes: () => routeList,
+    onOpenStats: () => {
+      setMenuOpen(false);
+      stats.open();
+    },
+  });
+
   let pending = false;
   onMapBuilt(() => map.on('move', () => {
       if (pending) return;
@@ -8471,6 +8503,26 @@ const authState = mountAuth({
     // …and the backup schedule, for the row in Sync. Only the account that made
     // the map may read it; anyone else's row says so.
     backupUi?.refresh();
+
+    // What changed since this last said anything.
+    //
+    // Last, and deliberately not awaited by anything above it: the coverage
+    // sweep is the one reading here that can take a moment on a large map, and
+    // the banner is the least urgent thing on the screen. Nothing waits for it,
+    // and a map that has finished drawing before the line appears is the right
+    // order — the map is what you came for.
+    //
+    // The failure is silence. `loadStats` throws where the other readings
+    // swallow (see src/derived.js), because the Statistics panel has somewhere
+    // to put the reason and this does not: a banner that cannot be computed
+    // simply does not appear, and the baseline stays where it was so the next
+    // open can still report whatever happened in between.
+    try {
+      await derived.loadStats();
+      whatsNewUi?.show();
+    } catch {
+      /* no coverage answer, no banner, and no baseline moved */
+    }
     // Whatever was on the stack was somebody else's map, or this one before it
     // was re-read from the server. Either way there is nothing here to take
     // back any more.
@@ -8484,6 +8536,11 @@ const authState = mountAuth({
     history.clear();
     // The server's readings of their map — their trips, their coverage.
     derived.clear();
+    // …and the baseline the "what's new" banner measures against, which
+    // describes their map and would otherwise make the next account's first
+    // open report the difference between two strangers' maps.
+    forgetSnapshot();
+    whatsNewUi?.hide();
     // …and the copies the service worker keeps of the same answers, which are
     // filed under URLs that say nothing about whose account they describe.
     forgetAccountOffline();

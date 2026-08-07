@@ -28,6 +28,8 @@ import { onBackdropClick } from './dismiss.js';
  * @param {(mode:string) => void} [opts.onSnow]
  * @param {() => boolean} [opts.snowPossible] whether the basemap on screen can
  *   show it at all — Mapbox can, the other four cannot
+ * @param {() => string} [opts.whatsNew] how often to say what has changed
+ * @param {(mode:string) => void} [opts.onWhatsNew]
  * @param {{open:Function}} [opts.sources] the Sources dialog, opened from here
  * @param {{open:Function}} [opts.rail] the Train tracks dialog, likewise
  * @param {{open:Function}} [opts.airports] the Airports dialog, likewise
@@ -39,6 +41,7 @@ import { onBackdropClick } from './dismiss.js';
  */
 export function mountPersonal({
   onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, snow, onSnow, snowPossible,
+  whatsNew, onWhatsNew,
   sources, rail, airports, mapbox, onClearCache, version, username, onDeleteAccount,
 }) {
   const $ = (id) => document.getElementById(id);
@@ -50,6 +53,8 @@ export function mountPersonal({
   const clockNote = $('settings-clock-note');
   const snowSel = $('settings-snow');
   const snowNote = $('settings-snow-note');
+  const whatsNewSel = $('settings-whats-new');
+  const whatsNewNote = $('settings-whats-new-note');
   const versionEl = $('settings-version');
 
   // Read on every opening rather than wired once: home can be changed from the
@@ -82,6 +87,18 @@ export function mountPersonal({
     snowNote.textContent = snowPossible?.()
       ? 'Falls on the 3D basemap'
       : 'Only on the 3D basemap — this one cannot show it';
+    // The note says what each answer actually means, because the words in the
+    // list do not: "substantial" is a threshold somebody chose, and a person
+    // deciding between three options deserves to know roughly where it sits.
+    // The workouts sentence is on every one of them — including Never — because
+    // that exception is exactly the thing somebody choosing Never would
+    // otherwise be surprised by later.
+    whatsNewSel.value = whatsNew?.() ?? 'substantial';
+    whatsNewNote.textContent = {
+      never: 'Only new workouts are ever mentioned',
+      substantial: 'A new country or region, or a day out. Plus new workouts',
+      always: 'Anything at all that has changed, plus new workouts',
+    }[whatsNewSel.value] ?? '';
     // Hidden rather than shown empty or as "unknown": the whole value of this
     // line is that it can be trusted, and a placeholder where a build number
     // belongs is the kind of thing someone reads out as if it meant something.
@@ -114,6 +131,10 @@ export function mountPersonal({
   });
   snowSel.addEventListener('change', () => {
     onSnow?.(snowSel.value);
+    draw();
+  });
+  whatsNewSel.addEventListener('change', () => {
+    onWhatsNew?.(whatsNewSel.value);
     draw();
   });
 

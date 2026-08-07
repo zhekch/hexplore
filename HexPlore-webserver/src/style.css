@@ -4063,6 +4063,40 @@ body {
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* What changed since last time. The only banner here that is good news, so it
+   is neither red nor amber — and it takes the home bar's z-index rather than
+   the offline bar's for the same reason that one does: it is an observation,
+   not something that decides whether your edits are being saved, and it must
+   not float across the title of a dialog you deliberately opened. */
+.whats-new-bar {
+  background: rgba(14, 22, 34, 0.88);
+  border-color: rgba(120, 175, 255, 0.42);
+  color: #e8f0fd;
+  z-index: 80;
+}
+
+.whats-new-bar svg {
+  color: rgba(140, 190, 255, 0.95);
+}
+
+.whats-new-bar .offline-text small {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+[data-theme='light'] .whats-new-bar {
+  background: rgba(247, 250, 255, 0.94);
+  border-color: rgba(60, 120, 210, 0.32);
+  color: #0f172a;
+}
+
+[data-theme='light'] .whats-new-bar svg {
+  color: rgba(40, 100, 190, 0.95);
+}
+
+[data-theme='light'] .whats-new-bar .offline-text small {
+  color: rgba(15, 23, 42, 0.62);
+}
+
 /* The second of two buttons, and the one that means "no". The same size and the
    same reach as the offer — a dismissal you have to aim at is a dismissal you
    resent — but without the fill, so which of the pair is the offer is not a
