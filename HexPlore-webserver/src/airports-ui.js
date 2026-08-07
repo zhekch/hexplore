@@ -16,6 +16,7 @@ import { AIRPORT_GROUPS, airportGroupOn } from './airports.js';
 // describe. Statically imported — unlike the group data itself, which is the
 // whole point of splitting it up.
 import GROUP_COUNTS from './airports-counts.json';
+import { onBackdropClick } from './dismiss.js';
 
 const NUM = new Intl.NumberFormat();
 
@@ -83,9 +84,7 @@ export function mountAirports({ onClose, groups, onGroup }) {
   });
   $('airports-done').addEventListener('click', close);
   $('airports-close').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

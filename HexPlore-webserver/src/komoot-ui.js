@@ -9,6 +9,7 @@ import { parseKomootUrls, fetchTour, tourUrl } from './komoot.js';
 import { pointsToCells } from './locations.js';
 import { buildRoutes, formatDistance, formatDuration } from './routes.js';
 import { loadPlaces, describeRoute, isGenericName } from './places.js';
+import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const n = (v) => v.toLocaleString();
@@ -289,8 +290,8 @@ export function mountKomoot({ knownCells, onImported, onClose }) {
   });
   backBtn.addEventListener('click', () => close());
   closeBtn.addEventListener('click', () => close(true));
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay && !busy) close(true);
+  onBackdropClick(overlay, () => {
+    if (!busy) close(true);
   });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden && !busy) close(true);

@@ -8,6 +8,7 @@
 
 import { auth } from './auth.js';
 import { formatTime } from './clock.js';
+import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 const n = (v) => v.toLocaleString();
@@ -310,8 +311,8 @@ export function mountStrava({ onSynced, onLink, onClose }) {
   forgetBtn.addEventListener('click', forget);
   backBtn.addEventListener('click', () => close(false));
   closeBtn.addEventListener('click', () => close());
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay && !busy) close();
+  onBackdropClick(overlay, () => {
+    if (!busy) close();
   });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden && !busy) close();

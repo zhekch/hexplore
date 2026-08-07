@@ -13,6 +13,7 @@
 // getting your map *out*, which is what the hub is for.
 
 import { clockSource, localIs24Hour } from './clock.js';
+import { onBackdropClick } from './dismiss.js';
 
 /**
  * @param {object} opts
@@ -208,9 +209,7 @@ export function mountPersonal({
   });
   $('personal-done').addEventListener('click', close);
   $('personal-close').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

@@ -12,6 +12,8 @@
 // It owns nothing itself — each entry hands off to its own dialog and comes
 // back here when that one is dismissed with Back, so the two read as one flow.
 
+import { onBackdropClick } from './dismiss.js';
+
 /**
  * @param {object} opts
  * @param {{open:Function}} opts.homeAssistant the Home Assistant dialog
@@ -50,9 +52,7 @@ export function mountSync({ homeAssistant, strava, device, files }) {
 
   $('sync-close').addEventListener('click', close);
   $('sync-done').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

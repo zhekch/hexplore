@@ -17,6 +17,7 @@
 import { auth } from './auth.js';
 import { sourceLabel, IMPORT_SOURCES } from './locations.js';
 import { whenAgo } from './device-ui.js';
+import { onBackdropClick } from './dismiss.js';
 
 const n = (v) => v.toLocaleString();
 const plural = (count, word, suffix = 's') => `${n(count)} ${word}${count === 1 ? '' : suffix}`;
@@ -221,9 +222,7 @@ export function mountSources({ onClose, onChanged } = {}) {
   });
   $('sources-done').addEventListener('click', close);
   $('sources-close').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

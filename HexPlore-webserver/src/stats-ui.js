@@ -10,6 +10,7 @@ import { auth } from './auth.js';
 import { derived } from './derived.js';
 import { isKomootTourUrl } from './komoot.js';
 import { formatTime } from './clock.js';
+import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
@@ -937,9 +938,7 @@ export function mountStats({
   }
   $('stats-close').addEventListener('click', close);
   $('stats-done').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

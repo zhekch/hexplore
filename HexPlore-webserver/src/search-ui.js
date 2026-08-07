@@ -18,6 +18,7 @@ import { loadCountries, searchCountries, countryIdAt } from './countries.js';
 import { dayKey, dayDetail } from './trips.js';
 import { mountCalendar, MONTHS } from './calendar.js';
 import { formatDistance } from './routes.js';
+import { onBackdropClick } from './dismiss.js';
 
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -722,9 +723,7 @@ export function mountSearch({
   calPrev.addEventListener('click', () => cal.step(-1));
   calNext.addEventListener('click', () => cal.step(1));
   $('search-close').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown') {

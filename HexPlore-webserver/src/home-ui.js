@@ -8,6 +8,7 @@
 // correctable, by something more precise than another guess.
 
 import { loadPlaces, searchPlaces } from './places.js';
+import { onBackdropClick } from './dismiss.js';
 
 /**
  * @param {object} opts
@@ -118,9 +119,7 @@ export function mountHome({ onPick, onSet, onClose }) {
     close();
     onClose?.();
   });
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

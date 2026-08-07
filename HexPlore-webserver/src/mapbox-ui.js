@@ -27,6 +27,7 @@
 // URLs" and half an hour of wondering why the button does nothing.
 
 import { checkMapboxToken, mapboxToken, setMapboxToken, tokenComplaint } from './mapbox.js';
+import { onBackdropClick } from './dismiss.js';
 
 /**
  * @param {object} opts
@@ -139,9 +140,7 @@ export function mountMapbox({ onClose, onToken, onUse } = {}) {
   input.addEventListener('input', () => say(''));
 
   $('mapbox-close').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

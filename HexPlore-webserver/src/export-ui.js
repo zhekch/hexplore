@@ -28,6 +28,7 @@ import { mercX, mercY } from './hexgrid.js';
 import { mountColorPicker } from './color-picker.js';
 import { HEAT_MODES } from './coloring.js';
 import { showToast } from './toast.js';
+import { onBackdropClick } from './dismiss.js';
 
 const SPEC_KEY = 'visited-map:export:v1';
 
@@ -1335,17 +1336,10 @@ export function mountExport({ onClose, data }) {
     schedule();
   });
   // Clicking the backdrop closes — but only when the click *started* there too.
-  // A `click` is dispatched on the nearest common ancestor of the press and the
-  // release, so letting go of a slider outside the card fires one on the overlay
-  // and the dialog shut itself in the middle of dragging a colour.
-  let pressedBackdrop = false;
-  overlay.addEventListener('pointerdown', (e) => {
-    pressedBackdrop = e.target === overlay;
-  });
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay && pressedBackdrop) close();
-    pressedBackdrop = false;
-  });
+  // This dialog met that first, with a slider: letting go outside the card fires
+  // a click on the overlay and it shut itself mid-drag. src/dismiss.js is that
+  // answer, now that every other dialog turned out to need it for selected text.
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

@@ -9,6 +9,8 @@
 // Like the other hub, it owns nothing itself — each entry hands off to its own
 // dialog and comes back here when that one is dismissed with Back.
 
+import { onBackdropClick } from './dismiss.js';
+
 /**
  * @param {object} opts
  * @param {{open:Function}} opts.personal the Settings dialog
@@ -46,9 +48,7 @@ export function mountSettings({ personal, backup, exportImage }) {
 
   $('settings-close').addEventListener('click', close);
   $('settings-done').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

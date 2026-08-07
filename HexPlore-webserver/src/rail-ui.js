@@ -13,6 +13,7 @@
 // question as "is the heatmap drawn", and it belongs beside it.
 
 import { loadRailStyle, railGroups, railGroupOn } from './rail.js';
+import { onBackdropClick } from './dismiss.js';
 
 /**
  * What each group is, in words that are about the map rather than about OSM.
@@ -126,9 +127,7 @@ export function mountRail({
   });
   $('rail-done').addEventListener('click', close);
   $('rail-close').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

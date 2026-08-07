@@ -4329,6 +4329,41 @@ before the menu has had a chance to move under the finger. Assigned on every
 press rather than only raised, so a gesture that never becomes a click (a pan, a
 pinch, a tap on the sheet itself) cannot leave it standing for something later.
 
+### Clicking away, and the drag that only looks like it
+
+**A `click` is dispatched on the nearest common ancestor of the press and the
+release**, not on whatever the pointer was over when the button came up. That one
+line of the DOM spec closed every dialog in this app at the wrong moment: select
+a sentence inside a card, run the cursor past its edge and let go, and the
+browser reports a click on the *backdrop* — a click nobody made, on an element
+nobody pressed. Sixteen dialogs read that as "you clicked away", shut, and took
+the selection with it. The colour picker did the same thing to its hex box.
+
+Two places had already met it and answered it locally, which is the tell that it
+wanted a file rather than a third copy: the image export, whose sliders end their
+drags outside the card, and the layers menu above. `src/dismiss.js` is that file.
+`onClickAway(node, outside, dismiss)` records the verdict on a capture-phase
+`pointerdown` and confirms it on the click — **both ends must be outside**, and
+one end inside is enough to keep the thing open. That is not a heuristic about
+intent; it is the only reading under which the press and the click describe the
+same gesture. `onBackdropClick(overlay, close)` is the modal shape of it, and is
+what all sixteen now call.
+
+The flag is cleared on every click whatever the verdict, because a press left
+standing would be answered by whatever came next — the same failure the layers
+menu's `dismissedMenuOnTap` had to be assigned rather than raised to avoid. A
+click with no `pointerdown` behind it (Enter on a focused button) dismisses
+nothing, which is right: nobody pressed the backdrop.
+
+The layers menu keeps its own copy deliberately. It settles a third thing in the
+same listener — MapLibre's click ordering, above — that has nothing to do with
+dismissal, and folding it in would make both harder to read than either.
+
+`scripts/test/dismiss.mjs` covers it with a fake `EventTarget` rather than a DOM.
+The rule is entirely about which of two events is trusted, and a real DOM would
+not synthesise the common-ancestor behaviour for the test anyway — the test has
+to state the sequence it is describing either way.
+
 ## Chrome over a photograph
 
 Under a vector basemap the ground is a palette we chose, so one set of glass

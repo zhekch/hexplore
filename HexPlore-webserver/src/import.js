@@ -16,6 +16,7 @@ import { buildRoutes, totalLength, formatDistance } from './routes.js';
 import { loadPlaces, describeRoute, isGenericName } from './places.js';
 import { isZip, isGzip, unzip, gunzip, stripCompressedExt } from './archive.js';
 import { parseFit, looksLikeFit } from './fit.js';
+import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
@@ -550,8 +551,8 @@ export function mountImport({ knownCells, knownSources, onImported, onKomoot, on
     onClose?.();
   });
   closeBtn.addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay && !busy) close();
+  onBackdropClick(overlay, () => {
+    if (!busy) close();
   });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden && !busy) close();

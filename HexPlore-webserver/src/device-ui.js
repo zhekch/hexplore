@@ -13,6 +13,7 @@
 
 import { auth } from './auth.js';
 import { formatTime } from './clock.js';
+import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 const n = (v) => v.toLocaleString();
@@ -141,9 +142,7 @@ export function mountDevices({ onClose, onDevices } = {}) {
     onClose?.();
   });
   closeBtn.addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

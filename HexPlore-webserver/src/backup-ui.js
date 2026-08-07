@@ -14,6 +14,7 @@
 import { auth } from './auth.js';
 import { describeCron, isValidCron, nextRun } from './cron.js';
 import { formatTime, formatDayTime } from './clock.js';
+import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 
@@ -352,9 +353,7 @@ export function mountBackup({ onClose, onStatus } = {}) {
     onClose?.();
   });
   closeBtn.addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
+  onBackdropClick(overlay, close);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });

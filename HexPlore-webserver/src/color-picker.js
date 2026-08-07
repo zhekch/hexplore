@@ -10,6 +10,8 @@
 // a finger or a stylus, and `setPointerCapture` keeps the drag alive when it
 // leaves the element — which is most of a drag, on a small field.
 
+import { onClickAway } from './dismiss.js';
+
 // --- Color maths ---------------------------------------------------------------
 // HSV rather than HSL: a saturation/brightness square with a hue strip beside it
 // is the arrangement people already know, and it maps directly onto HSV.
@@ -316,16 +318,23 @@ export function mountColorPicker({ button, panel, value, onInput, place, presets
     else show();
   };
   const onPanel = (e) => e.stopPropagation();
-  const onDocClick = (e) => {
-    if (open && !panel.contains(e.target)) close();
-  };
   const onKey = (e) => {
     if (e.key === 'Escape' && open) close();
   };
 
   button.addEventListener('click', onButton);
   panel.addEventListener('click', onPanel);
-  document.addEventListener('click', onDocClick);
+  // Both ends of the press have to be off the panel — see src/dismiss.js. The
+  // hex box is a text field inside a floating panel, so selecting what is in it
+  // and letting go over the map is a gesture somebody will actually make, and it
+  // used to close the picker on them.
+  const stopClickAway = onClickAway(
+    document,
+    (e) => !panel.contains(e.target),
+    () => {
+      if (open) close();
+    },
+  );
   window.addEventListener('keydown', onKey);
 
   paint();
@@ -339,7 +348,7 @@ export function mountColorPicker({ button, panel, value, onInput, place, presets
       close();
       button.removeEventListener('click', onButton);
       panel.removeEventListener('click', onPanel);
-      document.removeEventListener('click', onDocClick);
+      stopClickAway();
       window.removeEventListener('keydown', onKey);
     },
     set(hex) {
