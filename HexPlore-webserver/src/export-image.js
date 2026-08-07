@@ -231,6 +231,22 @@ const MIN_STEP_PX = 0.35;
  * around it and the caption — because these four have to be picked against each
  * other, and a dialog of four independent colour wells is a machine for making
  * an unreadable poster. Every one of them can still be overridden.
+ *
+ * **They are all quiet, and that is the constraint rather than a taste.** The
+ * subject of the picture is the visited wash, which arrives on top in one
+ * saturated hue the person picked themselves; anything under it that competes
+ * for the same attention turns the poster into two maps arguing. So every entry
+ * below is a near-neutral or a single desaturated tone, and the distance between
+ * `background` and `land` is small — enough to read as *there is ground there*,
+ * never enough to read as data.
+ *
+ * The other rule is that `land` is not always the lighter of the two. `chart`
+ * inverts it deliberately, the way a sea chart does: pale water, paler land, and
+ * the coastline legible because those two are close rather than because they are
+ * far apart.
+ *
+ * Order is the order they appear in the dialog — the three that were here first,
+ * then the lights, then the darks, then the one that is not a colour at all.
  */
 export const PALETTES = {
   night: {
@@ -253,6 +269,68 @@ export const PALETTES = {
     land: '#ffffff',
     edge: '#c2c8d4',
     text: '#141821',
+  },
+  // An old atlas: paper that has gone brown and ink that was never black.
+  sepia: {
+    label: 'Sepia',
+    background: '#efe4cf',
+    land: '#e0cfae',
+    edge: '#a89069',
+    text: '#3b2c1b',
+  },
+  // A sea chart, and the one palette whose land is lighter than its background.
+  chart: {
+    label: 'Chart',
+    background: '#d9e7ef',
+    land: '#f7f2e4',
+    edge: '#87a6b6',
+    text: '#1d3441',
+  },
+  // No colour at all, for the case where the wash should be the only hue on the
+  // page — and for a printer that is going to make this decision anyway.
+  ink: {
+    label: 'Ink',
+    background: '#fafafa',
+    land: '#e8e8e8',
+    edge: '#8f8f8f',
+    text: '#111111',
+  },
+  // Night's neutral twin: the same picture with the blue taken out of it.
+  carbon: {
+    label: 'Carbon',
+    background: '#101010',
+    land: '#1e1e1e',
+    edge: '#3d3d3d',
+    text: '#f2f2f2',
+  },
+  // Cyanotype. The one dark palette with a hue you would name.
+  blueprint: {
+    label: 'Blueprint',
+    background: '#0e253c',
+    land: '#173653',
+    edge: '#3d6f9e',
+    text: '#dceaf7',
+  },
+  moss: {
+    label: 'Moss',
+    background: '#0d1712',
+    land: '#182a20',
+    edge: '#314c3b',
+    text: '#e6f0e8',
+  },
+  plum: {
+    label: 'Plum',
+    background: '#160f1e',
+    land: '#251a33',
+    edge: '#453257',
+    text: '#f0e8f7',
+  },
+  ember: {
+    label: 'Ember',
+    background: '#180f0a',
+    land: '#2a1a12',
+    edge: '#563325',
+    text: '#f7e9e2',
   },
   none: {
     label: 'Transparent',

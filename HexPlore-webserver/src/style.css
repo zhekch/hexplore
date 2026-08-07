@@ -1745,6 +1745,24 @@ body {
   margin-top: 18px;
 }
 
+/* A group heading inside a settings dialog. The menu's own (`.menu-heading`)
+   would have done the job and is the wrong colour for it: that one is painted
+   for a dark glass panel and hard-codes a white, so in the light theme it
+   arrives invisible. This is the same type at the same weight, taking its
+   colour from the card it is in. */
+.settings-heading {
+  margin: 20px 0 -2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+[data-theme='light'] .settings-heading {
+  color: rgba(15, 23, 42, 0.45);
+}
+
 /* The build, at the foot of Settings. Quiet on purpose — it is a fact to read
    back, not a thing to press, so it sits below everything and does not compete
    with the rows above it. */

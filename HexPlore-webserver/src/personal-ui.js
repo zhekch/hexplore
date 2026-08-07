@@ -24,6 +24,10 @@ import { onBackdropClick } from './dismiss.js';
  * @param {(on:boolean) => void} opts.onShowHome
  * @param {() => string} opts.clock      the account's clock preference
  * @param {(mode:string) => void} opts.onClock
+ * @param {() => string} [opts.snow]     never / in winter / always
+ * @param {(mode:string) => void} [opts.onSnow]
+ * @param {() => boolean} [opts.snowPossible] whether the basemap on screen can
+ *   show it at all — Mapbox can, the other four cannot
  * @param {{open:Function}} [opts.sources] the Sources dialog, opened from here
  * @param {{open:Function}} [opts.rail] the Train tracks dialog, likewise
  * @param {{open:Function}} [opts.airports] the Airports dialog, likewise
@@ -34,8 +38,8 @@ import { onBackdropClick } from './dismiss.js';
  * @param {(password:string) => Promise<object>} [opts.onDeleteAccount] close it
  */
 export function mountPersonal({
-  onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, sources, rail, airports, mapbox,
-  onClearCache, version, username, onDeleteAccount,
+  onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, snow, onSnow, snowPossible,
+  sources, rail, airports, mapbox, onClearCache, version, username, onDeleteAccount,
 }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('personal-overlay');
@@ -44,6 +48,8 @@ export function mountPersonal({
   const homeBox = $('settings-home-shown');
   const clockSel = $('settings-clock');
   const clockNote = $('settings-clock-note');
+  const snowSel = $('settings-snow');
+  const snowNote = $('settings-snow-note');
   const versionEl = $('settings-version');
 
   // Read on every opening rather than wired once: home can be changed from the
@@ -67,6 +73,15 @@ export function mountPersonal({
     clockNote.textContent = clockSel.value === 'auto'
       ? `${localIs24Hour() ? '24-hour' : '12-hour'}${clockSource() === 'device' ? '' : ", from your browser's language"}`
       : '';
+    // Snow is Mapbox's own renderer pass and the other four basemaps have no
+    // equivalent (see src/snow.js). The row is left working rather than disabled
+    // — the setting is real and it will apply the moment you switch basemap —
+    // but it says which of the two situations you are in, because a switch that
+    // demonstrably does nothing is indistinguishable from a broken one.
+    snowSel.value = snow?.() ?? 'off';
+    snowNote.textContent = snowPossible?.()
+      ? 'Falls on the 3D basemap'
+      : 'Only on the 3D basemap — this one cannot show it';
     // Hidden rather than shown empty or as "unknown": the whole value of this
     // line is that it can be trusted, and a placeholder where a build number
     // belongs is the kind of thing someone reads out as if it meant something.
@@ -95,6 +110,10 @@ export function mountPersonal({
   homeBox.addEventListener('change', () => onShowHome?.(homeBox.checked));
   clockSel.addEventListener('change', () => {
     onClock?.(clockSel.value);
+    draw();
+  });
+  snowSel.addEventListener('change', () => {
+    onSnow?.(snowSel.value);
     draw();
   });
 

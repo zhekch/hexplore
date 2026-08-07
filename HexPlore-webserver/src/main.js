@@ -46,6 +46,7 @@ import {
   installAddLayerSlots, installGlobalStateShim, installSpriteShim, isSlot, loadEngine,
   matchMapboxRotation,
 } from './gl-engine.js';
+import { applySnow, isSnowMode, setSnowMode, snowMode, snowWanted } from './snow.js';
 // The theme is not handed over separately: it only ever changes by switching
 // basemap, which replaces the style and rebuilds the overlay from scratch.
 import {
@@ -1267,9 +1268,49 @@ function rememberView() {
   }
 }
 
+// Whether snow is on the map right now, so a camera move that changed the
+// answer can be told from the thousand that did not. `null` means "nothing has
+// been decided yet", which is distinct from "decided, and the answer was no" —
+// and it is what a fresh style resets it to, since a style swap takes the snow
+// with it and the renderer must be told again even though the answer is the same.
+let snowOn = null;
+
+/**
+ * Put the snow on, or take it off, when that has changed.
+ *
+ * Called from two places, neither of which is the setting: after a style parses,
+ * because a style swap drops the snow, and after a camera move, because "in
+ * winter" is a question about *where the map is looking* (see src/snow.js) and
+ * the answer flips at the equator.
+ *
+ * The comparison is the point. `setSnow` rebuilds the particle system, so
+ * calling it on every `moveend` would restart the fall from an empty sky each
+ * time somebody let go of the map — a snowfall that visibly begins again after
+ * every pan. Working the answer out is arithmetic on one latitude and a month;
+ * only a change reaches the renderer.
+ */
+function refreshSnow() {
+  if (engine !== MAPBOX) return;
+  const want = snowWanted(snowMode(), map.getCenter?.()?.lat ?? NaN);
+  if (want === snowOn) return;
+  snowOn = applySnow(map);
+}
+
+/**
+ * The setting itself changed. Forces the re-apply that `refreshSnow` skips,
+ * because the stored answer it compares against is exactly what has moved.
+ */
+function snowModeChanged(mode) {
+  setSnowMode(mode);
+  snowOn = null;
+  refreshSnow();
+  touchPrefs();
+}
+
 onMapBuilt(() => map.on('moveend', () => {
   askChromeAgain();
   rememberView();
+  refreshSnow();
 }));
 
 // Tracks whether the basemap has become visible yet — before that, the
@@ -3478,6 +3519,11 @@ const prefsPayload = () => ({
   // be sitting at — picking 24-hour on the laptop should mean the phone agrees
   // without being told twice.
   clock: clockMode(),
+  // Whether it snows, by the same argument: an easter egg you switched on is a
+  // thing you decided, not a thing about the laptop you decided it at. It costs
+  // one short string and it means the phone is already snowing when you pick it
+  // up, which is the entire point of an easter egg you had to go and find.
+  snow: snowMode(),
   // The 3D basemap's Mapbox token, for exactly the same reason and with a
   // stronger case: it is a thing you signed up for once, and pasting it again on
   // every device was the whole of what stood between them and the basemap. Sent
@@ -3596,6 +3642,15 @@ function adoptPrefs(prefs) {
   // Repaint only if the formatters actually changed, since every list that
   // shows a time has to be rebuilt to pick it up.
   if (setClock(prefs.clock)) redrawClocks();
+  // Only when the account actually names one. An account whose preferences were
+  // written before snow existed has no key, and reading that as `off` would take
+  // the snow off a device that had just been asked to switch it on — the same
+  // trap the Mapbox token below is careful about, for the same reason.
+  if (isSnowMode(prefs.snow) && prefs.snow !== snowMode()) {
+    setSnowMode(prefs.snow);
+    snowOn = null;
+    refreshSnow();
+  }
   // The pair if the account has it; the single value if it was saved before
   // there were two, in which case it stands for both — the same reading
   // savedAccents() gives the old localStorage key, for the same reason.
@@ -7308,6 +7363,11 @@ function installGrid() {
   // layer of ours goes in — a light preset arriving after the wash would relight
   // the map underneath a colour already chosen for the old one.
   if (engine === MAPBOX) configureStandard(map);
+  // A style swap takes the snow with it, so this is asked again on every parse
+  // rather than once at startup — and the remembered answer is cleared first,
+  // because what it describes is a map that no longer exists.
+  snowOn = null;
+  refreshSnow();
   // Both anchors are read here, before anything of ours is on the map, because
   // both are questions about the basemap and both are asked of the live style.
   // Over the ground, under the streets and rooftops — see washAnchor().
@@ -8057,6 +8117,15 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       touchPrefs();
       pushPrefs();
     },
+    snow: () => snowMode(),
+    onSnow: (mode) => {
+      snowModeChanged(mode);
+      // Straight out rather than on the debounce, for the reason the token
+      // above goes straight out: the next thing somebody does after switching
+      // this on is look at the other device.
+      pushPrefs();
+    },
+    snowPossible: () => engine === MAPBOX,
     sources: sourcesUi,
     rail: railUi,
     airports: airportsUi,

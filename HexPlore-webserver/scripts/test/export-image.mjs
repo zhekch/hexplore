@@ -17,10 +17,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  CAPTION_FIELDS, CELL_SIZES, MAX_PIXELS, SCALES, SHAPES,
+  CAPTION_FIELDS, CELL_SIZES, MAX_PIXELS, PALETTES, SCALES, SHAPES,
   blobLevelFor, cameraFor, captionLines, circularSpan, coverageOf, divisionGeoms, exportFilename, fitCamera,
-  fitBox, frameFor, lngLatAt, paletteOf, pickAt, presetOf, scopeAreaKm2, scopeGeometry, scopeName, sizeOf,
-  unwrapRing, visitedAreas,
+  fitBox, frameFor, isLightColor, lngLatAt, paletteOf, pickAt, presetOf, scopeAreaKm2, scopeGeometry,
+  scopeName, sizeOf, unwrapRing, visitedAreas,
 } from '../../src/export-image.js';
 import { loadCountries, countryAreaKm2 } from '../../src/countries.js';
 import { loadRegions } from '../../src/regions.js';
@@ -38,6 +38,15 @@ const check = (ok, label, detail) => {
   ok ? pass++ : fail++;
 };
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+/** Perceived brightness of a hex colour, on the same 0–255 scale isLightColor uses. */
+const luma = (color) => {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(color).trim());
+  if (!m) return 255;
+  const [r, g, b] = m.slice(1).map((h) => parseInt(h, 16));
+  return (r * 299 + g * 587 + b * 114) / 1000;
+};
+const lumaGap = (a, b) => Math.abs(luma(a) - luma(b));
 
 await Promise.all([loadCountries(await json('countries.json')), loadRegions(await json('regions.json'))]);
 
@@ -416,6 +425,34 @@ console.log('\nThe spec resolves to a picture');
   check(scopeName('region', 'Switzerland/Bern') === 'Bern', 'and a region by its own, not by its id');
   check(scopeAreaKm2('country', 'Switzerland') > 39_000, 'a country knows how big it is');
   check(CAPTION_FIELDS.every((f) => f.key && f.label), 'every caption field has something to call itself');
+}
+
+// --- The ready-made palettes ---------------------------------------------------
+// A palette is the one control that can make an unreadable poster in a single
+// press, because all four of its colours move at once and three of them are
+// behind the fourth. These are the two ways that goes wrong and neither is
+// visible from reading the hex: type the same lightness as the paper it sits on,
+// and a coastline the same lightness as the ground either side of it.
+
+console.log('\nEvery palette is a poster you can actually read');
+{
+  for (const [key, p] of Object.entries(PALETTES)) {
+    check(!!(p.label && p.background && p.land && p.edge && p.text),
+      `${key} answers all four questions`);
+
+    // Transparent has no paper, so there is nothing for the caption to contrast
+    // against — what it lands on is decided by whatever the file is put on.
+    if (p.background === 'transparent') continue;
+
+    check(isLightColor(p.text) !== isLightColor(p.background),
+      `${key}'s caption is the opposite lightness to its paper`);
+    // Not a contrast ratio: the land is *meant* to be close to the background,
+    // and demanding a real one would forbid the restraint that makes these
+    // work. This only catches the case where the edge has vanished into the
+    // land entirely — a silhouette with no silhouette.
+    check(lumaGap(p.edge, p.land) >= 12,
+      `${key}'s outline is visible against its land`, `gap ${lumaGap(p.edge, p.land).toFixed(1)}`);
+  }
 }
 
 // --- The box the preview is shown in -------------------------------------------

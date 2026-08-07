@@ -1367,6 +1367,40 @@ looks smudged, so the default is a halo of the opposite lightness. Colour and
 strength are both there for when the default is not what a particular picture
 wants.
 
+### The ready-made palettes
+
+`PALETTES` in `src/export-image.js` is twelve complete answers rather than twelve
+background colours. Each names all four — `background`, `land`, `edge`, `text` —
+because those four are picked *against* each other, and four independent colour
+wells is a machine for producing a poster nobody can read. Choosing one clears
+whatever was overridden on top of the last, so "Paper" never arrives still
+wearing a dark land somebody nudged an hour ago.
+
+**They are all quiet, and that is a constraint rather than a taste.** The subject
+of the picture is the visited wash, which lands on top in one saturated hue the
+person chose themselves. Anything underneath competing for the same attention
+turns the poster into two maps arguing with each other, so every entry is a
+near-neutral or a single desaturated tone, and the distance between `background`
+and `land` is deliberately small — enough to read as *there is ground there*,
+never enough to read as data. That is why there is no palette here with a hue you
+would call bright, and why adding one would be a mistake rather than an
+improvement.
+
+`chart` is the one that breaks the other assumption: its land is *lighter* than
+its background, the way a sea chart's is. The coastline is legible because those
+two are close rather than because they are far apart, which is the same
+restraint applied from the other side.
+
+`none` is not a colour scheme. It is a transparent background with the land and
+the outline carried at low alpha, for dropping the shape onto something else — so
+it is the one palette whose caption contrast cannot be checked, because what the
+type will land on is decided by whatever the file is put on.
+
+Two of those rules are pinned by `scripts/test/export-image.mjs`: the caption is
+always the opposite lightness to the paper, and the outline never disappears into
+the land. Neither is visible from reading the hex values, and both are one typo
+away in a list this long.
+
 ### Six colours, one picker
 
 Every colour here opens the app's **own** picker (`src/color-picker.js`) rather
@@ -3227,6 +3261,55 @@ free. A server-side cache like `server/rail-tiles.js` was not extended here
 either: that file's whole justification is that OpenRailwayMap is a volunteer
 service which caching *helps*, and Mapbox is a commercial vendor metering exactly
 that.
+
+### Snow, which is the only thing here that is not information
+
+`src/snow.js`. Everything else the app draws answers a question — where you have
+been, how often, what that ground is called. This answers none, which is why the
+control is under a heading that says **Easter eggs** rather than sitting among
+the preferences: a switch for weather on a map with no weather in it needs to
+admit what it is, or it reads as a feature that is broken.
+
+**It is Mapbox's, so it is the 3D basemap's alone.** `setSnow` renders inside the
+same 3D scene as the terrain and the buildings. MapLibre has no equivalent and
+cannot be given one from out here — precipitation is a renderer pass, not a layer
+you can add — so the other four basemaps never snow whatever the setting says.
+The Settings row is left working rather than disabled, and its subtitle says
+which of the two situations you are in, because a control that demonstrably does
+nothing is indistinguishable from one that is failing.
+
+**Whose winter it is, is the interesting decision.** The obvious reading of "only
+during winter" is the viewer's — their clock, their home. The better one is the
+*subject's*: looking at Patagonia in July, it is winter there, and snowing on it
+is the version of this that knows something. It also degrades better, since a map
+centred on the equator has no winter to be in and no fact about the viewer would
+have told you that. So the hemisphere comes from `map.getCenter().lat`, and the
+answer is re-asked on `moveend`.
+
+The months are meteorological — Dec–Feb north, Jun–Aug south — rather than
+astronomical. A solstice-to-equinox winter would begin three weeks into December
+and end in the third week of March, and nobody thinks of the year that way; whole
+months are the version somebody can predict.
+
+**Two things are guarded and both are real.** `refreshSnow` in `src/main.js`
+compares against the last answer before touching the map, because `setSnow`
+rebuilds the particle system — calling it on every `moveend` restarts the fall
+from an empty sky, so the snow visibly begins again after every pan. And
+`applySnow` swallows everything: a MapLibre map has no such method, a style that
+has not parsed throws from inside it, and the whole feature is marked
+experimental in Mapbox's own type definitions, which is them reserving the right
+to rename these properties in a minor version. The failure mode is *no snow*,
+silently. It is never a broken basemap.
+
+There is a zoom ramp on the density, and it is a truthfulness decision rather
+than a performance one: at z3 the frame holds a third of a hemisphere, and snow
+across it is snow claimed for four climate zones at once. It fades in from
+`SNOW_MIN_ZOOM`, roughly where the map has stopped showing everywhere and started
+showing somewhere.
+
+The setting rides in the account's preferences beside the clock, by the same
+argument that put the clock there: an easter egg you went and found is a thing
+you decided, not a fact about the laptop you decided it at.
 
 ## What a basemap switch takes with it
 

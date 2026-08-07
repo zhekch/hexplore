@@ -705,6 +705,21 @@
           <input type="checkbox" id="edit-toggle" />
         </label>
 
+        <!-- Its own heading because it is its own kind of thing. Everything
+             above answers a question about the map; nothing under here does,
+             and putting snow in the same run of rows as the clock would make
+             the list read as if one of them were a mistake. -->
+        <div class="settings-heading">Easter eggs</div>
+
+        <label class="import-row">
+          <span>Snow<small id="settings-snow-note">Only on the 3D basemap</small></span>
+          <select id="settings-snow">
+            <option value="off">Never</option>
+            <option value="winter">In winter</option>
+            <option value="always">Always</option>
+          </select>
+        </label>
+
         <!-- The two that are about the map's ingredients rather than about you.
              Both used to be rows in the hub, which made a list of five doors
              where two of them belonged behind this one. In the same container
