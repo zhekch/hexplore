@@ -68,32 +68,6 @@ let loading = null;
 // Each pair has to be about the same size. See pairFineRegions().
 export const AREA_MATCH = [0.3, 3.2];
 
-/**
- * How much of a country has to have detailed boundaries before any of it is
- * drawn with them.
- *
- * **Two resolutions cannot tile.** Where a detailed region meets an overview
- * one, the two disagree about their shared border by up to the overview set's
- * ~1 km simplification — so the border is drawn twice, a hairline apart, and the
- * union of the two leaves a sliver of unfilled ground running between them.
- * Hungary is the case: Natural Earth counts its 24 city-counties as admin-1
- * units and geoBoundaries folds them into the counties around them, so 17 of our
- * 43 pair. Every one of those 17 shared a seam with a neighbour that had not,
- * and a poster of the country came out double-ruled and full of holes.
- *
- * `pairFineRegions` is still right to keep a partial answer — every shape it
- * returns is the right shape for what it names. This is the separate question of
- * whether a set of shapes can be laid down next to each other, and the answer is
- * all of them or none.
- *
- * Not 100%: France pairs 96 of 101, and the five it misses are Guyane,
- * Guadeloupe, Martinique, Mayotte and La Réunion — which their file simply does
- * not contain, and which share a border with nothing. A country losing its
- * detail over an island in another ocean would be the rule doing more harm than
- * the seams.
- */
-const FINE_COVERAGE_MIN = 0.9;
-
 let FINE = new Map(); // region id → detailed geometry
 const fineDone = new Set(); // iso codes fetched (or failed — don't retry a 404)
 const finePending = new Set();
@@ -129,6 +103,8 @@ function buildIndex() {
 export const regionsLoaded = () => REGIONS !== null;
 /** True once any country's detailed boundaries are in memory. */
 export const fineRegionsLoaded = () => FINE.size > 0;
+/** …and whether *this* country has any. Cheap: the per-country index is held. */
+export const hasFineRegions = (iso) => regionsOf(iso).some((r) => FINE.has(r.id));
 /** Which countries have been asked for already, so nothing is fetched twice. */
 export const fineCountryKnown = (iso) => fineDone.has(iso) || finePending.has(iso);
 
@@ -429,6 +405,56 @@ function byIdIndex() {
   return idIndex;
 }
 
+const boxesOverlap = (a, b) => !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
+
+/**
+ * The first region of a country that would be drawn beside a sharper neighbour,
+ * or null if the detailed set can be laid down without a seam anywhere.
+ *
+ * **Two resolutions cannot tile.** Where a detailed region meets an overview
+ * one, the two disagree about their shared border by up to the overview set's
+ * ~1 km simplification — so the border is drawn twice a hairline apart, and the
+ * union of the two leaves a sliver of unfilled ground running between them.
+ * Hungary is the case that shows it: Natural Earth counts its 24 city-counties
+ * as admin-1 units and geoBoundaries folds them into the counties around them,
+ * so 17 of our 43 pair — each of the 17 wrapped in one that did not — and a
+ * poster of the country came out double-ruled and full of holes.
+ *
+ * `pairFineRegions` is still right to keep a partial answer: every shape it
+ * returns is the right shape for what it names. This is the separate question of
+ * whether a set of shapes can be laid down next to each other.
+ *
+ * **A count is the wrong test for that, and it was the first one written.** "Nine
+ * tenths of the country paired" sounds like the same question and is not: the
+ * Netherlands pairs 12 of 15, and the three it misses are Bonaire, St. Eustatius
+ * and Saba — eight thousand kilometres away in the Caribbean, sharing a border
+ * with nothing. A ratio threw the whole country's detail away over them, so a
+ * poster of the Netherlands came out with blunt provinces inside a sharp
+ * coastline. What matters is whether an unpaired region *touches* a paired one,
+ * which is what this asks. France's five overseas départements pass for the same
+ * reason; Hungary's city-counties, which sit inside their counties, do not.
+ *
+ * Bounding boxes rather than geometry: two regions that share a border always
+ * have overlapping boxes, so this cannot miss a seam. It can invent one — two
+ * regions near each other but not touching — and that costs a country its
+ * detail rather than costing the picture its integrity, which is the right way
+ * round to be wrong.
+ */
+export function seamedRegion(iso, byId) {
+  const mine = regionsOf(iso);
+  if (!mine.length) return null;
+  const got = new Set(Object.keys(byId ?? {}));
+  const missing = mine.filter((r) => !got.has(r.id));
+  if (!missing.length) return null;
+  const paired = mine.filter((r) => got.has(r.id));
+  for (const m of missing) {
+    for (const p of paired) {
+      if (boxesOverlap(m.bbox, p.bbox)) return m.name;
+    }
+  }
+  return null;
+}
+
 /**
  * Ask our own server for one country's detailed boundaries. Never rejects: a
  * country nobody has boundaries for at our granularity keeps the overview
@@ -442,14 +468,13 @@ export async function loadFineRegions(iso) {
     const res = await fetch(`/api/regions/${encodeURIComponent(iso)}?r=${regionSetTag(iso)}`);
     if (!res.ok) return 0;
     const body = await res.json();
-    const got = Object.keys(body?.regions ?? {}).length;
-    const mine = regionsInCountry(iso);
-    if (mine && got < mine * FINE_COVERAGE_MIN) {
+    const seam = seamedRegion(iso, body?.regions);
+    if (seam) {
       // Loud, because this is a country quietly drawn blunter than the data
       // allows, and the next person to wonder why should not have to find it.
       console.info(
-        `[regions] ${iso}: ${got} of ${mine} regions have detailed boundaries — `
-        + 'keeping the overview set, which at least agrees with itself.',
+        `[regions] ${iso}: ${seam} has no detailed boundary and touches one that does`
+        + ' — keeping the overview set, which at least agrees with itself.',
       );
       return 0;
     }

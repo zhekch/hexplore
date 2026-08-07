@@ -22,6 +22,7 @@
 
 import {
   loadRegions, pairFineRegions, interiorPoints, regionAt, addFineRegions, fineRegionsVersion,
+  seamedRegion,
 } from '../../src/regions.js';
 
 let pass = 0;
@@ -57,6 +58,12 @@ await loadRegions([
     id: 'Fixture/Capital', name: 'Capital', country: 'Fixture', iso: 'FIX',
     bbox: [10.95, 50.95, 11.25, 51.25], geometry: poly([OUR_CAPITAL]),
   },
+  // An overseas one, half an ocean away and touching nothing — the Netherlands'
+  // Bonaire, France's Guyane, and the reason a coverage ratio is the wrong test.
+  {
+    id: 'Fixture/Island', name: 'Island', country: 'Fixture', iso: 'FIX',
+    bbox: [-40, 10, -39.8, 10.2], geometry: poly([box(-40, 10, -39.8, 10.2)]),
+  },
 ]);
 
 const theirProvince = [OUTER, THEIR_CAPITAL];
@@ -88,6 +95,22 @@ const wrongSize = pairFineRegions('FIX', [
 check(!wrongSize.has('Fixture/Province'),
   'a shape a thousandth of the size pairs with nothing',
   `paired: ${[...wrongSize.keys()].join(', ') || 'nothing'}`);
+
+console.log('\nmixing two resolutions is refused only where they would meet');
+// Two resolutions cannot tile: where a detailed region meets an overview one the
+// two disagree by up to a kilometre, so the border is ruled twice and the union
+// leaves a sliver between them. But that is a question about *seams*, not about
+// how much of the country paired — and a ratio was the first test written. The
+// Netherlands pairs 12 of 15 and the three it misses are in the Caribbean; a
+// 90% threshold threw the whole country's detail away over them.
+check(seamedRegion('FIX', { 'Fixture/Province': 1, 'Fixture/Capital': 1 }) === null,
+  'an unpaired region an ocean away is no seam at all',
+  String(seamedRegion('FIX', { 'Fixture/Province': 1, 'Fixture/Capital': 1 })));
+check(seamedRegion('FIX', { 'Fixture/Province': 1, 'Fixture/Island': 1 }) === 'Capital',
+  'one sitting inside a paired neighbour is',
+  String(seamedRegion('FIX', { 'Fixture/Province': 1, 'Fixture/Island': 1 })));
+check(seamedRegion('FIX', { 'Fixture/Province': 1, 'Fixture/Capital': 1, 'Fixture/Island': 1 }) === null,
+  'and a complete set never is');
 
 console.log('\nand arriving detail says so');
 // The signal anything holding *built* geometry watches, so that it can tell its

@@ -2668,17 +2668,21 @@ const exportStamp = () => `${areaGen}/${fineRegionsVersion()}`;
 // closer than a map ever is, and the overview boundaries' ~1 km simplification
 // is what puts a straight line across a lake. Where the detailed set has not
 // been fetched, `regionGeometry` falls back to the overview one on its own.
-function exportAreaFC(kind, mode) {
+function exportAreaFC(kind, mode, fine = true) {
   const stamp = exportStamp();
   if (exportCacheGen !== stamp) {
     exportCache.clear();
     exportCacheGen = stamp;
   }
-  const key = `${kind}|${mode}`;
+  // `fine` is in the key, not just in the build: the export asks for the blunt
+  // shapes while its frame holds a country whose detail has not arrived, and for
+  // the sharp ones the moment it has. Both answers are worth keeping — that is a
+  // slider drag either side of a fetch landing.
+  const key = `${kind}|${mode}|${fine ? 'fine' : 'coarse'}`;
   const held = exportCache.get(key);
   if (held) return held;
   if (exportCache.size >= EXPORT_CACHE_MAX) exportCache.clear();
-  const fc = buildAreaFC(kind, { mode, fine: true, record: false });
+  const fc = buildAreaFC(kind, { mode, fine, record: false });
   exportCache.set(key, fc);
   return fc;
 }

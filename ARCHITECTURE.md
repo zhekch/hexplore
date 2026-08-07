@@ -1198,6 +1198,25 @@ key is `${areaGen}/${fineRegionsVersion()}`. A version rather than a callback,
 because the thing that changed and the thing holding a stale answer have no
 reason to know about each other.
 
+**Past the country limit the picture goes uniformly blunt, not partly sharp.**
+`FINE_COUNTRY_LIMIT` was written as an all-or-nothing bail — "a sharp border
+beside a blunt one is worse than two blunt ones" — and it is not one. It can
+decline to *fetch* past ten countries; it cannot un-fetch what the map already
+pulled in while somebody was zooming around. So a preview past the limit drew
+whichever arbitrary subset happened to be in memory: Germany and France at
+national-survey detail beside a Belgium nobody had visited, at a kilometre, along
+the border they share. Two blunt neighbours look like a map; one blunt neighbour
+looks like a bug. `frameSharp` is set once per render by `frameIsSharp(cam)` —
+false unless every country in the frame that *could* be sharp is — and
+`fineCountryGeometry`, the division lines and the area fills all read it. The
+file is unaffected, because it fetches every country in its frame and so the flag
+is true by the time it draws; only the preview goes blunt, which is the trade the
+limit was always making. A country the admin-1 set does not subdivide is exempt:
+it has no detailed version and never will, so a frame containing Monaco would
+otherwise never be sharp anywhere. `scopeGeometry` is exempt too — the subject is
+always fetched first, and blunting it because a neighbour drawn at 30% behind it
+has not arrived would be the tail wagging the dog.
+
 **The outline only counts frame countries for a picture of everywhere.** That is
 the one scope whose outline is traced around `allCountries()`; every other scope
 strokes the selection's own shapes, which are asked for separately. The
@@ -2288,12 +2307,22 @@ a set of shapes can be laid down beside each other. Where a detailed region meet
 an overview one they disagree about their shared border by up to a kilometre, so
 the border is drawn twice a hairline apart and the union of the two leaves a
 sliver of unfilled ground running between them. Hungary is the case that showed
-it: 17 of 43 pair, and a poster of the country came out double-ruled and full of
-holes. `FINE_COVERAGE_MIN` (90%) is the gate — a country whose detailed set does
-not cover nearly all of it keeps the overview geometry throughout, which at least
-agrees with itself, and says so once in the console. Not 100%, because France
-misses only Guyane, Guadeloupe, Martinique, Mayotte and La Réunion — which their
-file does not contain and which share a border with nothing.
+it: 11 of 43 pair, each of them wrapped in one that did not, and a poster came
+out double-ruled and full of holes.
+
+**A coverage ratio is the wrong test for that, and it was the first one written.**
+"Nine tenths of the country paired" sounds like the same question and is not. The
+Netherlands pairs 12 of 15, and the three it misses are Bonaire, St. Eustatius
+and Saba — eight thousand kilometres away, sharing a border with nothing. A 90%
+threshold threw the country's whole detail away over them, so a poster of the
+Netherlands came out with blunt provinces inside a sharp coastline and orange
+spilling over the German border. `seamedRegion` asks the question that matters
+instead: does any unpaired region *touch* a paired one? Bounding boxes rather
+than geometry — two regions that share a border always have overlapping boxes, so
+it cannot miss a seam; it can invent one, and that costs a country its detail
+rather than costing the picture its integrity, which is the right way round to be
+wrong. France's five overseas départements pass for the same reason as the Dutch
+islands; Hungary's city-counties, which sit inside their counties, do not.
 
 **Nothing is *resolved* against the detailed set.** Which region a cell belongs to
 is decided once, on the overview geometry, so the answer cannot change under you

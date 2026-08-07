@@ -44,8 +44,8 @@ import {
   allCountries, countryAreaKm2, countryCount, countryGeometry, countryIso, loadCountries,
 } from './countries.js';
 import {
-  countriesInView, fineCountryOutline, loadFineRegions, loadRegions, regionAreaKm2, regionById,
-  regionGeometry, regionsLoaded, regionsOf,
+  countriesInView, fineCountryOutline, hasFineRegions, loadFineRegions, loadRegions, regionAreaKm2,
+  regionById, regionGeometry, regionsInCountry, regionsLoaded, regionsOf,
 } from './regions.js';
 import {
   allContinents, continentAreaKm2, continentGeometry, countriesInContinent,
@@ -462,6 +462,30 @@ export const SCOPE_KINDS = {
 export const isoOf = countryIso;
 
 /**
+ * Whether the detailed boundaries may be drawn *at all* for the frame being
+ * rendered — set once per render by `renderExport`, and false unless every
+ * country in the frame that could be sharp is.
+ *
+ * `FINE_COUNTRY_LIMIT` was written as an all-or-nothing bail for exactly this
+ * reason, and it is not one: it can decline to *fetch* past ten countries, and
+ * it cannot un-fetch what the map already pulled in while somebody was zooming
+ * around. So a preview past the limit drew whichever arbitrary subset happened
+ * to be in memory — Germany and France at national-survey detail beside a
+ * Belgium nobody had visited, at a kilometre, along the border they share. Two
+ * blunt neighbours look like a map. One blunt neighbour looks like a bug.
+ *
+ * The file is unaffected: it fetches every country in its frame (`all: true`),
+ * so this is true by the time it draws. Only the preview goes uniformly blunt,
+ * which is the trade the limit was always making — a picture being framed can be
+ * blunt; a picture being written is the thing itself.
+ *
+ * A module-level flag because `renderExport` is synchronous start to finish, so
+ * nothing can interleave with it, and threading a boolean through nine drawing
+ * functions would say less than this comment does.
+ */
+let frameSharp = true;
+
+/**
  * A country's outline at the best resolution in memory — its detailed regions
  * dissolved and trimmed back to the country proper, or the shipped outline.
  *
@@ -469,18 +493,51 @@ export const isoOf = countryIso;
  * purpose and `countries.json` does not, so an untrimmed dissolve puts French
  * Guiana back into the shape of France. See `fineCountryOutline`.
  */
-const fineCountryGeometry = (name) => fineCountryOutline(countryIso(name));
+const sharpCountryGeometry = (name) => fineCountryOutline(countryIso(name));
 
-/** One selected area's outline, at the best resolution in memory. */
+/** …and the same, held back unless the whole frame can be drawn that sharply. */
+const fineCountryGeometry = (name) => (frameSharp ? sharpCountryGeometry(name) : null);
+
+/**
+ * Is every country in the frame as sharp as it could be?
+ *
+ * A country the admin-1 set does not subdivide has no detailed version and never
+ * will, so it cannot be the one holding the picture back — a frame containing
+ * Monaco would otherwise never be sharp anywhere.
+ */
+function frameIsSharp(cam) {
+  if (!regionsLoaded()) return false;
+  const [w, s] = lngLatAt(cam, 0, cam.h);
+  const [e, n] = lngLatAt(cam, cam.w, 0);
+  // A frame straddling the antimeridian spans most of the world, which is not a
+  // scale at which any of this is visible.
+  if (!(w < e)) return false;
+  for (const c of allCountries()) {
+    const [cw, cs, ce, cn] = c.bbox;
+    if (ce < w || cw > e || cn < s || cs > n) continue;
+    if (!c.iso || !regionsInCountry(c.iso)) continue;
+    if (!hasFineRegions(c.iso)) return false;
+  }
+  return true;
+}
+
+/**
+ * One selected area's outline, at the best resolution in memory — and never held
+ * back by `frameSharp`. This is the *subject*: `ensureSharpBoundaries` always
+ * asks for the scope's own countries before anything else, so it is the one
+ * shape that is reliably sharp, and blunting it because a neighbour drawn at 30%
+ * behind it has not arrived would be the tail wagging the dog. It is also read
+ * by `frameOf`, which runs before there is a frame to judge.
+ */
 export function scopeGeometry(kind, id) {
   if (kind === 'continent') return continentGeometry(id);
-  if (kind === 'country') return fineCountryGeometry(id) ?? countryGeometry(id);
+  if (kind === 'country') return sharpCountryGeometry(id) ?? countryGeometry(id);
   // The region level stands a country in for itself where the admin-1 dataset
   // does not subdivide it (see WHOLE_COUNTRY in src/stats.js), and those ids
   // reach this far.
   if (String(id).startsWith(WHOLE_COUNTRY)) {
     const country = String(id).slice(WHOLE_COUNTRY.length);
-    return fineCountryGeometry(country) ?? countryGeometry(country);
+    return sharpCountryGeometry(country) ?? countryGeometry(country);
   }
   return regionGeometry(id, true);
 }
@@ -1261,7 +1318,7 @@ export function sizeOf(spec) {
  *   rather than values, because the map underneath can change while the dialog
  *   is open — a cell painted, a source removed — and a copy taken when the
  *   dialog opened would quietly export the map as it used to be:
- *   `{ cells(), meta(), accent(), rollUp(mode), areaFC(kind, mode), areaOf(kind, cellId) }`
+ *   `{ cells(), meta(), accent(), rollUp(mode), areaFC(kind, mode, fine), areaOf(kind, cellId) }`
  * @param {object} numbers from coverageOf
  * @param {{w:number,h:number}} [size] overrides the spec's own — the preview
  *   renders the same picture smaller
@@ -1288,6 +1345,9 @@ export function renderExport(canvas, spec, data, numbers, size = sizeOf(spec)) {
     return canvas;
   }
   const cam = cameraFor(spec, frame, size);
+  // Before anything is drawn from a boundary: all of them at the detailed
+  // resolution, or none of them. See frameSharp.
+  frameSharp = frameIsSharp(cam);
   // Whether this canvas is the picture or a stand-in for it. The dialog draws
   // the preview at `previewSize()` and the file at the spec's own size, so a
   // canvas narrower than the spec asks for is the one being dragged around.
@@ -1465,7 +1525,7 @@ function drawBlobs(ctx, spec, data, cam, size) {
 }
 
 function drawAreas(ctx, spec, data, cam) {
-  const fc = data.areaFC(spec.detail, spec.colorBy);
+  const fc = data.areaFC(spec.detail, spec.colorBy, frameSharp);
   const colorOf = areaColorOf(spec.colorBy, spec.accent);
   const flat = !isHeatMode(spec.colorBy);
   // Two neighbouring fills that share an edge do not meet on it: each is
@@ -1568,7 +1628,7 @@ export function divisionGeoms(detail, cam) {
   // The overview geometry is simplified to about a kilometre, so it is worth
   // reaching for the detailed set only once a kilometre is worth seeing. Same
   // judgement REGION_FINE_ZOOM makes for the map, in the units a picture has.
-  const wantFine = 1000 * cam.k > 0.5;
+  const wantFine = frameSharp && 1000 * cam.k > 0.5;
 
   const countries = allCountries().filter((c) => reaches(c.bbox));
   if (detail === 'country') {
