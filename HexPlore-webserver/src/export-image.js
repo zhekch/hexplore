@@ -1669,9 +1669,17 @@ export async function ensureSharpBoundaries(scope, { spec, data, size, all = fal
   // one missing from this list — so a picture of everywhere with nothing but its
   // own silhouette turned on never asked for a sharp boundary at all, and there
   // was nothing for landGeoms to find.
+  //
+  // Only for a picture of *everywhere*, though. That is the one case where the
+  // outline is traced around `allCountries()`; for any other scope it strokes
+  // the selection's own shapes, which the block above has already asked for. The
+  // difference matters because this list feeds FINE_COUNTRY_LIMIT: counting
+  // every country the frame touches for an outline that will not be drawn from
+  // them pushes a preview of one canton past ten and it then fetches nothing.
+  const outlinesTheWorld = !!spec?.outline && settled.kind === 'world';
   const wantsNeighbours = spec?.detail === 'region'
     || linesInside
-    || !!spec?.outline
+    || outlinesTheWorld
     || (spec?.surroundings ?? 0) > 0.001
     || (spec?.borders ?? 0) > 0.001;
   if (wantsNeighbours && data && size) {
@@ -1694,7 +1702,7 @@ export async function ensureSharpBoundaries(scope, { spec, data, size, all = fal
           for (const { iso } of countriesInView(lit, [w, s2, e, n])) isos.add(iso);
         }
         // Whatever the frame touches, when its outline is going to be drawn.
-        if (linesInside || spec.outline
+        if (linesInside || outlinesTheWorld
           || (spec.surroundings ?? 0) > 0.001 || (spec.borders ?? 0) > 0.001) {
           for (const c of allCountries()) {
             const [cw, cs, ce, cn] = c.bbox;

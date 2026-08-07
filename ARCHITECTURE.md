@@ -1185,6 +1185,26 @@ answers and an export panel left open should not quietly hold all of them.
 `ensureAreaFC` *clears*. A second reader cannot take it off the doorstep, so
 `markAreasDirty` bumps a counter alongside it and the export compares generations.
 
+**And the stamp has a second half, which is the half that was missed.**
+`ensureSharpBoundaries` calls `loadFineRegions` **directly**, for every country
+in the frame, and never goes through the map's path — the fetch has two callers
+who do not know about each other. So a cache keyed on `areaGen` alone went on
+serving the shapes it had built *before* the sharpening it had just asked for and
+waited on: the poster came out drawn from the overview geometry with the detailed
+set sitting in memory beside it, and the dialog said `Sharpening…` while it
+happened. `fineRegionsVersion()` in `src/regions.js` is bumped by
+`addFineRegions` whenever the detailed set actually grows, and the export's cache
+key is `${areaGen}/${fineRegionsVersion()}`. A version rather than a callback,
+because the thing that changed and the thing holding a stale answer have no
+reason to know about each other.
+
+**The outline only counts frame countries for a picture of everywhere.** That is
+the one scope whose outline is traced around `allCountries()`; every other scope
+strokes the selection's own shapes, which are asked for separately. The
+distinction matters because this list feeds `FINE_COUNTRY_LIMIT` — counting every
+country the frame touches, for an outline that will not be drawn from any of
+them, pushes a preview of one canton past ten, and past ten it fetches nothing.
+
 Two rendering bugs live next door to this, and both of them looked like data
 problems:
 

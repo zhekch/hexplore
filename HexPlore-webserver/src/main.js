@@ -86,7 +86,7 @@ import { activeDays, findHome } from './trips.js';
 import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
   loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView, fineCountryOutline,
-  regionById, regionTerm,
+  regionById, regionTerm, fineRegionsVersion,
 } from './regions.js';
 import { geometryAreaM2 } from './regions.js';
 import { countryAreaKm2, countryIso } from './countries.js';
@@ -2650,16 +2650,29 @@ function exportRollUp(mode) {
 // left open should not quietly hold all of them.
 const EXPORT_CACHE_MAX = 8;
 const exportCache = new Map();
-let exportCacheGen = -1;
+let exportCacheGen = '';
+
+// What the answers were built from: the lit set and the colouring (`areaGen`),
+// and the resolution of the boundaries themselves (`fineRegionsVersion`).
+//
+// The second half is the one that is easy to miss and was missed. The export
+// fetches its own detailed boundaries — `ensureSharpBoundaries` calls
+// `loadFineRegions` directly, for every country in the frame, and does not go
+// through the map's path at all. So a cache invalidated on the map's signal
+// alone went on serving the shapes it had built *before* the sharpening it had
+// just asked for and waited on. The poster came out drawn from the overview
+// geometry with the detailed set sitting in memory beside it.
+const exportStamp = () => `${areaGen}/${fineRegionsVersion()}`;
 
 // Always `fine`, which the map only asks for past z6: a poster is looked at far
 // closer than a map ever is, and the overview boundaries' ~1 km simplification
 // is what puts a straight line across a lake. Where the detailed set has not
 // been fetched, `regionGeometry` falls back to the overview one on its own.
 function exportAreaFC(kind, mode) {
-  if (exportCacheGen !== areaGen) {
+  const stamp = exportStamp();
+  if (exportCacheGen !== stamp) {
     exportCache.clear();
-    exportCacheGen = areaGen;
+    exportCacheGen = stamp;
   }
   const key = `${kind}|${mode}`;
   const held = exportCache.get(key);
@@ -5235,7 +5248,6 @@ function fetchFineRegions(iso, label) {
     .then((paired) => {
       if (!paired) return;
       areaFC.regionFine = EMPTY; // rebuild at the new resolution
-      areaGen++; // …and whatever the export built from the blunter shapes
       updateGrid(true);
       updateSelection(); // and the outlined shape, if one is being looked at
     })

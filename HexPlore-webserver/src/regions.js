@@ -375,6 +375,21 @@ export function pairFineRegions(iso, features) {
   return claimed;
 }
 
+// Bumped whenever the detailed set grows, so that anything holding geometry
+// *built* from it can tell that the answer it is holding is now the blunt one.
+//
+// A version rather than a callback, and lives here rather than beside any one
+// cache, because the fetch has two callers who do not know about each other: the
+// map sharpens the country you zoomed into, and the image export sharpens every
+// country in its frame. The export's own cache was invalidated on the map's
+// signal alone, so a poster saved after the export had fetched its own
+// boundaries was drawn from the coarse shapes it had cached before them —
+// sharpening happened, and nothing read it.
+let fineVersion = 0;
+
+/** How many times the detailed set has grown. See addFineRegions. */
+export const fineRegionsVersion = () => fineVersion;
+
 /** Take detailed geometry the server worked out: { "<id>": geometry, … }. */
 export function addFineRegions(byId) {
   fineOutlineMemo.clear();
@@ -402,6 +417,7 @@ export function addFineRegions(byId) {
       + ' — the server is holding an older regions.json than the browser. Restart it.',
     );
   }
+  if (n) fineVersion++;
   return n;
 }
 

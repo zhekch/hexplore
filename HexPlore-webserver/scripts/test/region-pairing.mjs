@@ -20,7 +20,9 @@
 //
 //   node scripts/test/region-pairing.mjs
 
-import { loadRegions, pairFineRegions, interiorPoints, regionAt } from '../../src/regions.js';
+import {
+  loadRegions, pairFineRegions, interiorPoints, regionAt, addFineRegions, fineRegionsVersion,
+} from '../../src/regions.js';
 
 let pass = 0;
 let fail = 0;
@@ -86,6 +88,20 @@ const wrongSize = pairFineRegions('FIX', [
 check(!wrongSize.has('Fixture/Province'),
   'a shape a thousandth of the size pairs with nothing',
   `paired: ${[...wrongSize.keys()].join(', ') || 'nothing'}`);
+
+console.log('\nand arriving detail says so');
+// The signal anything holding *built* geometry watches, so that it can tell its
+// answer is now the blunt one. The image export fetches its own boundaries — it
+// calls loadFineRegions directly, for every country in its frame — so a cache
+// keyed only on the map's own comings and goings served the shapes it had built
+// before the sharpening it had just waited on.
+const before = fineRegionsVersion();
+check(addFineRegions({ 'Fixture/Capital': poly([OUR_CAPITAL]) }) === 1, 'detail lands');
+check(fineRegionsVersion() > before, 'and the version moves',
+  `${before} → ${fineRegionsVersion()}`);
+const still = fineRegionsVersion();
+check(addFineRegions({ 'Nowhere/At all': poly([OUR_CAPITAL]) }) === 0, 'geometry for regions we do not have is ignored');
+check(fineRegionsVersion() === still, '…and does not move it', `${still} → ${fineRegionsVersion()}`);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
