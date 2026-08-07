@@ -857,6 +857,24 @@ export function createBlobLayer(map, id) {
     layerId,
     install,
     paint,
+    /**
+     * Let go of the map, because the map is about to stop existing.
+     *
+     * `upload()` leaves two things outstanding that both reach back for the
+     * source: an `idle` handler and a 2.5-second timer. A map switching *style*
+     * survives them — the source is rebuilt and the lookups find the new one —
+     * but a map being **removed** does not, and the timer fires a couple of
+     * seconds later into a torn-down `map.style` and throws. That is the one
+     * thing an engine switch does that a basemap switch never did; see
+     * switchEngine() in main.js, which is the only caller.
+     */
+    dispose() {
+      clearTimeout(pauseTimer);
+      pauseTimer = null;
+      if (stopUpload) map.off('idle', stopUpload);
+      stopUpload = null;
+      installed = false;
+    },
     isInstalled: () => installed && !!map.getLayer(layerId),
     setOpacity(v) {
       if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'raster-opacity', v);

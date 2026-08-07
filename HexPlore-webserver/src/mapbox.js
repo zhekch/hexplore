@@ -36,16 +36,28 @@ export const STANDARD_STYLE = 'mapbox://styles/mapbox/standard';
 // `setConfigProperty` call has to name it.
 export const BASEMAP_IMPORT = 'basemap';
 
-// --- Terrain ------------------------------------------------------------------
-// Standard brings buildings and trees; the ground under them is flat until it is
-// asked for. Exaggeration 1 — the real shape and no more of it. This is a map
-// about where somebody has been, and a doubled Alps would put the visited wash
-// on a slope nobody walked up. Set to 0 to switch terrain off and keep
-// everything else.
-export const TERRAIN_EXAGGERATION = 1;
-export const DEM_SOURCE = 'mapbox-dem';
-export const DEM_TILESET = 'mapbox://mapbox.mapbox-terrain-dem-v1';
-export const DEM_MAX_ZOOM = 14;
+// --- Terrain, which is Standard's business and not ours ------------------------
+//
+// **There is deliberately no `setTerrain` here.** There was, at exaggeration 1,
+// on the reasoning that a map about where you have been wants the ground's real
+// shape. It was wrong twice over.
+//
+// Standard already sets its own, and it is cleverer than a constant: the
+// exaggeration it publishes is
+//
+//     ["interpolate", ["linear"], ["zoom"], 6, 0, 7, 1, 12, 1, 13.7, 0]
+//
+// — no relief at world zoom, full relief through the range where you are looking
+// at a region, and faded back to flat by z13.7. Overriding that with a flat 1
+// held terrain on into the city zooms, and **that is what flattened the
+// bridges**: Standard models the Kornhausbrücke as a deck forty metres above the
+// Aare, and terrain drapes the road network onto the DEM instead, so the bridge
+// sank to river level and crossed the water as a painted stripe. Checked both
+// ways over that bridge.
+//
+// So the fix for the bridges was to stop asking. Hills at the zooms where hills
+// are the subject, structures standing up at the zooms where they are — which is
+// the answer we would have wanted, arrived at by leaving it alone.
 
 // --- Where the sun is ---------------------------------------------------------
 // Standard's four light presets, which are the control the published screenshots
@@ -60,6 +72,17 @@ export const LIGHT_PRESETS = [
   { key: 'night', label: 'Night', theme: 'dark' },
 ];
 const DEFAULT_PRESET = 'day';
+
+// --- What Standard draws of its own -------------------------------------------
+// Config on the imported basemap, set once its style has parsed. Each of these
+// is a published option with published values; `configureStandard` sets them
+// inside a try, because a style that is not Standard has no such import.
+//
+// `none` rather than the published default `circle`: the coloured discs behind
+// every POI icon are the loudest thing on a map whose subject is the ground
+// underneath them. Without them the icons keep their colour and their meaning
+// and stop reading as a scatter of buttons.
+const POI_BACKGROUND = 'none';
 
 const TOKEN_KEY = 'visited-map:mapbox-token:v1';
 const PRESET_KEY = 'visited-map:mapbox-light:v1';
@@ -148,7 +171,7 @@ export function tokenComplaint(token) {
 
 /**
  * Does this token work? Used by the dialog to say so before anyone has to
- * switch basemap — and reload the page — to find out.
+ * switch basemap to find out.
  *
  * Asks for **Standard itself** rather than for `/tokens/v2`, so what is checked
  * is the thing that will actually be fetched: a token restricted to the wrong
@@ -192,24 +215,9 @@ export async function checkMapboxToken(token) {
 export function configureStandard(map) {
   try {
     map.setConfigProperty(BASEMAP_IMPORT, 'lightPreset', lightPreset());
+    map.setConfigProperty(BASEMAP_IMPORT, 'backgroundPointOfInterestLabels', POI_BACKGROUND);
   } catch {
     // A style that is not Standard has no such import. Not worth failing over:
-    // the map is already drawn and this only decides where the sun is.
-  }
-  if (!TERRAIN_EXAGGERATION) return;
-  try {
-    if (!map.getSource(DEM_SOURCE)) {
-      map.addSource(DEM_SOURCE, {
-        type: 'raster-dem',
-        url: DEM_TILESET,
-        tileSize: 512,
-        maxzoom: DEM_MAX_ZOOM,
-      });
-    }
-    map.setTerrain({ source: DEM_SOURCE, exaggeration: TERRAIN_EXAGGERATION });
-  } catch (e) {
-    // Terrain is the one part of this that costs a second tile pyramid, and the
-    // one part the map is perfectly good without.
-    console.warn('Mapbox terrain could not be set up.', e);
+    // the map is already drawn and none of this decides whether it draws.
   }
 }

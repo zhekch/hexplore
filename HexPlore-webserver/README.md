@@ -388,9 +388,12 @@ token. Make one at
 public token is the right one — and paste it into **Export & settings →
 Settings → 3D basemap**. It is kept on that device and never sent to the server.
 
-**Time of day** appears under the basemaps while 3D is the one showing. Tilt with
-a right-button drag, or two fingers on a touchscreen, and zoom in past about z14
-to see the buildings stand up.
+**Time of day** appears under the basemaps while 3D is the one showing — dawn,
+day, dusk and night, and the last two turn the whole map dark. Tilt with a
+right-button drag, or two fingers on a touchscreen: 3D leans all the way to 85°,
+far enough to put the sky and the horizon on screen, where the other four stop at
+60° because they have no sky to show you. Zoom in past about z14 to see the
+buildings stand up.
 
 ## Rebuilding the map data
 

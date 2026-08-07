@@ -2691,9 +2691,13 @@ Three things the rebuild has to do by hand, each for its own reason. The
 library is fetched **before** anything is torn down, so a failed download leaves
 the map on screen alone. The popups are closed and forgotten, because they hold
 the map that made them and their elements live in the container about to be
-emptied. And `blobCur` is rebuilt, because `createBlobLayer(map, …)` is the one
-module in the app that captures a map — the painted sheet goes with it, and
-installGrid repaints it.
+emptied. And `blobCur` is **disposed and then rebuilt**, because
+`createBlobLayer(map, …)` is the one module in the app that captures a map. The
+rebuild is obvious; the dispose was not, and it threw. `upload()` leaves an
+`idle` handler and a 2.5-second timer outstanding, both of which reach back for
+the source — which a map changing *style* survives, because the lookup finds the
+new one, and a map being **removed** does not. The timer fired a couple of
+seconds after the switch already looked finished, into a torn-down `map.style`.
 
 `boot.js` exists for a smaller reason and it is worth stating, because the code
 looks like it wants to be one line shorter than it is. The library has to be in
@@ -2721,6 +2725,101 @@ deliberately not a branch at each of the seventeen `addLayer` call sites in
 main.js and the three overlay modules: those all say `map.addLayer(spec, before)`
 today and go on saying it. The wrapper copies the spec rather than writing `slot`
 into it, because `installGrid` builds some specs once and adds them per level.
+
+**The camera may lean to 85° there, and only there.** The 60° ceiling on the
+other four is not a taste — the horizon comes on screen at 71.6° for the field
+of view both libraries ship, and a basemap that has not been given a sky draws
+its background colour above it. Standard *has* a sky, a haze and a sun that moves
+with the light preset, so leaning past the horizon is the view it was made for.
+`maxPitch()` is the whole of the difference; `createMap` clamps the camera on the
+way back down, so returning to CARTO Dark from an 85° lean lands at 60. What it
+costs is at the far edge and `PITCH_REACH` already bounded it: past three screen
+heights the visited wash is not painted, so a hard lean shows the basemap running
+to its own horizon with no colour on it.
+
+**Terrain is Standard's business, and taking it over was a bug.** This file used
+to call `setTerrain` at a flat exaggeration of 1, on the reasoning that a map
+about where you have been wants the ground's real shape. Standard already sets
+its own, and it is cleverer than a constant:
+
+    ["interpolate", ["linear"], ["zoom"], 6, 0, 7, 1, 12, 1, 13.7, 0]
+
+— no relief at world zoom, full relief through the range where you are looking at
+a region, and faded back to flat by z13.7. Overriding that held terrain on into
+the city zooms, and **that is what flattened the bridges**: Standard models the
+Kornhausbrücke as a deck forty metres above the Aare, and terrain drapes the road
+network onto the DEM instead, so the bridge sank to river level and crossed the
+water as a painted stripe. Checked both ways over that bridge. There is no
+per-layer way out — draping is what terrain *is* for a line layer — so the fix
+was to stop asking, and the answer we wanted fell out: hills where hills are the
+subject, structures standing up where they are.
+
+**Which way a drag turns the map** differs between the libraries, and that had to
+be settled rather than left. Mapbox turns by the horizontal distance dragged and
+nothing else. MapLibre turns the map around its centre like a wheel — grab above
+the centre-line and drag right and it goes one way, grab below it and the same
+drag goes the other. Both are defensible; having both in one app is not, because
+the gesture is muscle memory and it should not change when the basemap does.
+`matchMapboxRotation()` replaces MapLibre's move function with Mapbox's own line,
+`(currentPoint.x - lastPoint.x) * 0.8`. It reaches inside the library, so it is
+read before it is written, the same way `dropLockOnZoom` reaches for
+`_watchState`.
+
+**What Standard is told to draw of itself** is `configureStandard()`: the light
+preset, and `backgroundPointOfInterestLabels: 'none'` — the coloured discs behind
+every POI icon are the loudest thing on a map whose subject is the ground under
+them, and without them the icons keep their colour and their meaning.
+
+### The train tracks on Mapbox, which took three shims
+
+The railway overlay is 288 layers of somebody else's MapLibre style, and every
+one of the three things it leans on is a MapLibre feature Mapbox has never had.
+All three shims are in `src/gl-engine.js`, so `src/rail.js` is untouched.
+
+- **Multiple sprites.** `map.addSprite(id, url)` fetches one atlas on demand and
+  names its images `spriteId:name`; the overlay uses four, and only downloads the
+  ones a switched-on group reads from — 2.25 MB that must not arrive for a layer
+  nobody asked for. A Mapbox style has one sprite, declared up front, and
+  `map.getSprite` is not a function, which is where `installRail` threw. The shim
+  fetches the atlas and its JSON, cuts each icon out with a canvas, and hands the
+  pieces to `addImage` under the keys the style already asks for. Two details it
+  is worth having got wrong once: the atlases are behind this app's session
+  cookie, so `credentials: 'omit'` gets a 401 and the icons silently never
+  arrive; and `sdf` has to be carried through, or every icon draws flat black.
+- **Global style state.** The style consults `["global-state", …]` **1,529
+  times** — it is how one stylesheet draws a light railway and a dark one, and
+  how a group is switched off without touching a layer. Mapbox cannot parse the
+  expression, so the shim resolves it to the value it would have had as each
+  layer is added, and remembers the layer as written so a later state change can
+  resolve it again. That is the real cost: MapLibre re-evaluates one property
+  where this walks every layer that mentions the key. Right for a group switched
+  once in a while, wrong for anything that changed per frame.
+- **`Style.addLayer` directly.** `addLayers()` in rail.js reaches past
+  `Map.addLayer` to add 288 layers without validating each one, which is a
+  visible wait either way it goes. On Mapbox that also reaches past the two
+  wrappers above, so the layers arrive before an anchor that does not exist,
+  reading an expression Mapbox cannot parse. Hence `fastAdd`, false on 3D.
+
+### Colours that survive an atmosphere
+
+Mapbox GL JS applies the style's fog to **everything in the scene**, ours
+included. A route a few hundred metres out at a lean is already being mixed
+toward the haze colour, and at dusk and night that haze is a dark desaturated
+blue — so routes and visited regions came out the colour of the sky. The line is
+still exactly the colour it was told to be; it is being fogged, which is right
+for something standing in the ground and wrong for an annotation drawn on it.
+
+There is no per-layer way to opt out, so the answer is to hand the layer a colour
+with enough saturation and light in it to survive the trip. `vivid()` does that
+in HSL, because that is the pair of words the problem is stated in, and the
+`lift` on the STYLES entry says how much: `[1.25, 0.06]` by day, `[1.55, 0.22]`
+after dark, with `cellAlpha` and `heatAlpha` raised alongside. Only the 3D entry
+has one — it is the only basemap in the app whose atmosphere touches our layers.
+
+One trap, and it cost a round of "why is nothing changing": `syncAccent()`
+returns early when the accent hex has not changed, which is exactly what happens
+when only the sun moved. Everything *derived* from the accent has changed, so
+`setLightPresetNow` repaints by hand rather than trusting it.
 
 Three smaller things Standard's opacity costs:
 

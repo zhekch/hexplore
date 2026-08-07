@@ -413,9 +413,17 @@ export const railLayerIds = () => (STYLE?.layers ?? []).map((l) => l.id);
  * stays false, `Style.update()` never runs, and the sources sit paused with
  * their tiles unrequested.
  */
-function addLayers(map, layers, before) {
+function addLayers(map, layers, before, fast = true) {
   const style = map.style;
-  if (typeof style?.addLayer !== 'function' || typeof map._update !== 'function') {
+  // `fast` is false on the 3D basemap, and it has to be. Reaching past
+  // `Map.addLayer` also reaches past the two wrappers Mapbox needs it to go
+  // through — the one that turns this app's anchors into Standard slots, and the
+  // one that resolves the `global-state` expressions this style consults 1,529
+  // times. Both are in src/gl-engine.js. Without them the layers are added
+  // before an anchor that does not exist, reading an expression Mapbox cannot
+  // parse; with them it is 288 ordinary addLayer calls and a wait nobody has
+  // complained about.
+  if (!fast || typeof style?.addLayer !== 'function' || typeof map._update !== 'function') {
     for (const layer of layers) map.addLayer(layer, before);
     return;
   }
@@ -461,7 +469,7 @@ function withFont(layer, font) {
  *   for, from the same call — put in the tile URL so the browser's own cache is
  *   keyed on it. See the note where the sources are added.
  */
-export function installRail(map, { font, theme, before, groups, technical = false, detail = {}, lang = null }) {
+export function installRail(map, { font, theme, before, groups, technical = false, detail = {}, lang = null, fastAdd = true }) {
   if (!STYLE || map.getLayer(STYLE.layers[0].id)) return;
 
   // Their sprites, under our namespace. Images resolve as `spriteId:name`
@@ -565,7 +573,7 @@ export function installRail(map, { font, theme, before, groups, technical = fals
       ? { ...withVisibility, filter: withVisibility.filter ? ['all', withVisibility.filter, extra] : extra }
       : withVisibility;
     return withFont(filtered, font);
-  }), before);
+  }), before, fastAdd);
 }
 
 /**

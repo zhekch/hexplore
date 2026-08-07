@@ -177,3 +177,207 @@ export function installAddLayerSlots(map) {
     return slot ? add({ ...spec, slot }, undefined) : add(spec, before);
   };
 }
+
+// --- Sprites the style did not declare ---------------------------------------
+//
+// The train-tracks overlay draws from four sprite sheets that are fetched only
+// if a switched-on group actually reads from one — 2.25 MB of atlas that must
+// not arrive for a layer nobody asked for. MapLibre has an API for exactly that,
+// `map.addSprite(id, url)`, and refers to the images as `spriteId:imageName`.
+//
+// **Mapbox GL JS has no such thing.** A style there has one sprite, declared up
+// front, and `map.getSprite` is not a function — which is precisely how this
+// failed: `installRail` threw on its first line and the overlay reported nothing
+// worse than "could not be loaded".
+//
+// The shim below does by hand what the API does: fetch the atlas and its JSON,
+// cut each icon out of it, and hand the pieces to `map.addImage` under the same
+// `spriteId:imageName` keys the rail style already asks for. Nothing in
+// src/rail.js knows the difference.
+//
+// One sheet at a time and only when asked, exactly as before — this is a shim
+// for the API, not a change of policy about what gets downloaded.
+
+/** `${url}@2x.png` on a retina screen, `${url}.png` elsewhere — MapLibre's rule. */
+const spriteFormat = () => ((window.devicePixelRatio || 1) > 1 ? '@2x' : '');
+
+function fetchImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    // Same-origin, so no `crossOrigin` — and deliberately not `'anonymous'`,
+    // which was the first version and fetched *without credentials*. The
+    // atlases are behind this app's session cookie, so that got a 401 and the
+    // icons silently never arrived. Set it only if the atlas ever moves off
+    // this origin, where a tainted canvas could not be read back at all.
+    if (new URL(url, location.href).origin !== location.origin) img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`sprite image ${url} could not be loaded`));
+    img.src = url;
+  });
+}
+
+async function addSpriteAsImages(map, id, url) {
+  const format = spriteFormat();
+  const [meta, atlas] = await Promise.all([
+    // `same-origin` credentials, for the same reason as the image above.
+    fetch(`${url}${format}.json`, { credentials: 'same-origin' }).then((r) => {
+      if (!r.ok) throw new Error(`sprite ${url} answered ${r.status}`);
+      return r.json();
+    }),
+    fetchImage(`${url}${format}.png`),
+  ]);
+  const cut = document.createElement('canvas');
+  const ctx = cut.getContext('2d', { willReadFrequently: true });
+  for (const [name, icon] of Object.entries(meta)) {
+    if (!icon?.width || !icon?.height) continue;
+    const key = `${id}:${name}`;
+    if (map.hasImage(key)) continue;
+    cut.width = icon.width;
+    cut.height = icon.height;
+    ctx.clearRect(0, 0, icon.width, icon.height);
+    ctx.drawImage(atlas, icon.x, icon.y, icon.width, icon.height, 0, 0, icon.width, icon.height);
+    map.addImage(key, ctx.getImageData(0, 0, icon.width, icon.height), {
+      pixelRatio: icon.pixelRatio ?? 1,
+      // An SDF icon is recoloured by `icon-color`, and the rail style leans on
+      // that heavily. Getting this wrong draws the icons in flat black.
+      sdf: !!icon.sdf,
+    });
+  }
+}
+
+/**
+ * Give a Mapbox map MapLibre's multi-sprite API.
+ *
+ * @param {object} map a Mapbox GL JS map
+ */
+export function installSpriteShim(map) {
+  if (typeof map.getSprite === 'function') return; // MapLibre already has it
+  const added = new Set();
+  map.getSprite = () => [...added].map((id) => ({ id }));
+  map.addSprite = (id, url) => {
+    if (added.has(id)) return;
+    added.add(id);
+    addSpriteAsImages(map, id, url).catch((e) => {
+      // Forgotten again so a later attempt can retry, and warned about rather
+      // than thrown: a sheet that will not load costs the icons that read from
+      // it, not the overlay and certainly not the map.
+      added.delete(id);
+      console.warn(`Sprite "${id}" could not be added.`, e);
+    });
+  };
+  map.removeSprite = (id) => added.delete(id);
+  // A style swap throws every image away, and the rail overlay's installer is
+  // idempotent precisely so it can put them back — but it asks `getSprite()`
+  // first, and a shim still claiming to hold them would talk it out of it.
+  map.on('style.load', () => added.clear());
+}
+
+// --- Style state the expressions read -----------------------------------------
+//
+// OpenRailwayMap's style is 288 layers that consult **global state** 1,529
+// times: `["global-state", "theme"]`, `["global-state", "showAbandoned…"]` and
+// so on, with a `state` block of defaults at the top. It is how one style draws
+// a light railway and a dark one, and how a group is switched off without
+// touching a layer. MapLibre has it; Mapbox GL JS has never heard of it, and a
+// style full of an expression it cannot parse is 288 layers it will not add.
+//
+// The shim resolves those expressions to the values they would have had, at the
+// moment each layer is added — and remembers the layer as it was written, so a
+// state change can resolve it again. That is the whole difference in cost:
+// MapLibre re-evaluates one state property, and here a change to `theme` walks
+// every layer that mentions it and re-sets what moved. Rail groups are switched
+// once in a while, so that is the right trade; it would be the wrong one for
+// something that changed per frame.
+const GLOBAL_STATE = 'global-state';
+
+/** Does this fragment consult global state at all — optionally, a given key? */
+function readsState(node, key) {
+  if (Array.isArray(node)) {
+    if (node[0] === GLOBAL_STATE) return key === undefined || node[1] === key;
+    return node.some((n) => readsState(n, key));
+  }
+  if (node && typeof node === 'object') return Object.values(node).some((v) => readsState(v, key));
+  return false;
+}
+
+/** The same fragment with every `["global-state", k]` replaced by its value. */
+function resolveState(node, state) {
+  if (Array.isArray(node)) {
+    // `null` rather than undefined: an unset key is a value the expression can
+    // still be typed against, where a hole in the array is a parse error.
+    if (node[0] === GLOBAL_STATE) return state[node[1]] ?? null;
+    return node.map((n) => resolveState(n, state));
+  }
+  if (node && typeof node === 'object') {
+    return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, resolveState(v, state)]));
+  }
+  return node;
+}
+
+/**
+ * Give a Mapbox map MapLibre's global style state.
+ *
+ * Wraps `addLayer`, so install it **after** `installAddLayerSlots` — this one
+ * resolves the spec and hands it on, and the slot wrapper underneath still gets
+ * to translate the anchor.
+ *
+ * @param {object} map a Mapbox GL JS map
+ */
+export function installGlobalStateShim(map) {
+  if (typeof map.setGlobalStateProperty === 'function') return; // MapLibre has it
+  const state = {};
+  // Layers as they were written, for the ones that actually read state. Kept so
+  // a later change to a key can be applied to a layer already on the map.
+  const unresolved = new Map();
+  const add = map.addLayer.bind(map);
+
+  map.addLayer = (spec, before) => {
+    if (!readsState(spec)) return add(spec, before);
+    unresolved.set(spec.id, spec);
+    return add(resolveState(spec, state), before);
+  };
+
+  map.setGlobalStateProperty = (key, value) => {
+    if (state[key] === value) return;
+    state[key] = value;
+    for (const [id, spec] of unresolved) {
+      if (!map.getLayer(id) || !readsState(spec, key)) continue;
+      const now = resolveState(spec, state);
+      if (now.filter !== undefined) map.setFilter(id, now.filter);
+      for (const [k, v] of Object.entries(now.paint ?? {})) map.setPaintProperty(id, k, v);
+      for (const [k, v] of Object.entries(now.layout ?? {})) map.setLayoutProperty(id, k, v);
+    }
+  };
+
+  map.getGlobalState = () => ({ ...state });
+  // A style swap drops every layer, so the specs describe nothing. The state
+  // itself stays: it is what the overlay was last told to draw, and it is set
+  // again on the way back in anyway.
+  map.on('style.load', () => unresolved.clear());
+}
+
+// --- Which way a drag turns the map -------------------------------------------
+//
+// The two libraries disagree, and it is not a bug in either. Mapbox turns by the
+// horizontal distance dragged and nothing else. MapLibre turns the map *around
+// its centre*, like a wheel: grab above the centre-line and drag right and the
+// map turns one way, grab below it and the same drag turns it the other. Both
+// are defensible; having both in one app is not, because the gesture is muscle
+// memory and it should not change when the basemap does.
+//
+// Mapbox's is the one this map keeps, so MapLibre's move function is replaced
+// with Mapbox's — `(currentPoint.x - lastPoint.x) * 0.8`, which is that library's
+// own line, copied.
+//
+// This reaches inside MapLibre, so it is read before it is written, the same way
+// `dropLockOnZoom` reaches for `_watchState`: a MapLibre that has renamed any of
+// this leaves the gesture alone rather than breaking the map.
+const ROTATE_DEGREES_PER_PIXEL = 0.8;
+
+export function matchMapboxRotation(map) {
+  const handler = map.dragRotate?._mouseRotate;
+  if (typeof handler?._moveFunction !== 'function') return;
+  handler._moveFunction = (lastPoint, currentPoint) => ({
+    bearingDelta: (currentPoint.x - lastPoint.x) * ROTATE_DEGREES_PER_PIXEL,
+  });
+}

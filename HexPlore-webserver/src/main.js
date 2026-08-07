@@ -41,7 +41,8 @@ import {
 } from './mapbox.js';
 import {
   LABEL_SLOT_ID, MAPBOX, STYLE_KEY, WASH_SLOT_ID, ctrlClass, engineForBasemap, engineNow,
-  installAddLayerSlots, isSlot, loadEngine,
+  installAddLayerSlots, installGlobalStateShim, installSpriteShim, isSlot, loadEngine,
+  matchMapboxRotation,
 } from './gl-engine.js';
 // The theme is not handed over separately: it only ever changes by switching
 // basemap, which replaces the style and rebuilds the overlay from scratch.
@@ -189,12 +190,30 @@ const ROTATE_ENABLED = true;
 // Levelling restores the original sheet to the pixel; `coverageTooLoose` is
 // what makes sure it actually does. The real fix is a tiled sheet rather than a
 // viewport-sized one; see ARCHITECTURE.md.
-const MAX_PITCH = (() => {
+// 60 on the four basemaps that have no sky. **85 on 3D, which has one** — and
+// that is the whole of the difference. The rule above is not "60 is a good
+// number", it is "do not let the horizon on screen unless something is drawing
+// what is above it", and Standard draws a sky, a haze and a sun that moves with
+// the light preset. Leaning past the horizon there is the view the basemap was
+// made for; leaning past it on CARTO Dark fills the top of the window with
+// #0e0e0e.
+//
+// What it costs is at the far edge, and it is the cost `PITCH_REACH` already
+// bounds: past three screen heights the visited wash simply is not painted, so a
+// hard lean shows the basemap running to its own horizon with no colour on it.
+// That was true at 60 and is more visible at 85; it is not new, and the fix for
+// it is the tiled sheet ARCHITECTURE.md describes.
+const MAX_PITCH_FLAT = 60;
+const MAX_PITCH_SKY = 85;
+// `?pitch=` overrides either, and still clamps to 85 — above that the camera is
+// under the ground.
+const PITCH_ASKED = (() => {
   const asked = new URLSearchParams(location.search).get('pitch');
-  if (asked === null) return 60;
+  if (asked === null) return null;
   const n = Number(asked);
-  return Number.isFinite(n) ? Math.min(85, Math.max(0, n)) : 60;
+  return Number.isFinite(n) ? Math.min(MAX_PITCH_SKY, Math.max(0, n)) : null;
 })();
+const maxPitch = () => PITCH_ASKED ?? (engine === MAPBOX ? MAX_PITCH_SKY : MAX_PITCH_FLAT);
 const TILE_INSET = 0.92; // unvisited tiles shrink to leave a glass gap
 // Vector region smoothing — used for the selection ring, and for regions only
 // on browsers that can't run the blob canvas (src/blob-canvas.js does the real
@@ -587,8 +606,24 @@ const STYLES = {
     get theme() {
       return presetTheme();
     },
-    cellAlpha: 1,
-    heatAlpha: 1,
+    // How hard Standard's atmosphere eats what we draw over it — see vivid().
+    // Mapbox GL JS fogs the whole scene, ours included, and the haze it mixes
+    // toward is a pale grey by day and a dark desaturated blue after dark. A
+    // route and a visited region were coming out the colour of the sky.
+    //
+    // Two numbers, `[saturation ×, lightness lift]`, and night gets much more of
+    // both: at day the haze is bright enough that lifting further would only
+    // wash the colour out, and at night nothing survives without it.
+    lift: () => (presetTheme() === 'dark' ? [1.55, 0.22] : [1.25, 0.06]),
+    // The wash is a layer opacity on top of that, and the same argument applies
+    // — a colour fogged toward the night sky needs to be laid on thicker before
+    // it reads as a colour at all.
+    get cellAlpha() {
+      return presetTheme() === 'dark' ? 1.35 : 1.1;
+    },
+    get heatAlpha() {
+      return presetTheme() === 'dark' ? 1.35 : 1.1;
+    },
     // Only reached if Mapbox GL JS itself cannot be loaded, which puts us back
     // on MapLibre with no Mapbox style to give it. Light, because that is the
     // theme the chrome has already been painted in by then.
@@ -817,12 +852,12 @@ function createMap(view = initialView) {
     center: view ? [view.lng, view.lat] : [15, 30],
     zoom: view?.zoom ?? 2.2,
     bearing: view?.bearing ?? 0,
-    pitch: Math.min(MAX_PITCH, view?.pitch ?? 0),
+    pitch: Math.min(maxPitch(), view?.pitch ?? 0),
     // Both stated rather than left to their defaults, because "the camera may not
     // lean" has to be true of the gesture as well as of the camera: a
     // right-button drag pitches as it rotates unless it is told not to.
-    maxPitch: MAX_PITCH,
-    pitchWithRotate: MAX_PITCH > 0,
+    maxPitch: maxPitch(),
+    pitchWithRotate: maxPitch() > 0,
     // Two, not 1.8, and not the 1 this briefly was. MapLibre asks for tiles at
     // floor(zoom), so anything below 2 is drawn on a basemap's z1 tiles, whose
     // coastlines are generalised far coarser than our own — see CONTINENT_ZOOM,
@@ -848,12 +883,25 @@ function createMap(view = initialView) {
 /** Build the map and put the Mapbox-only `addLayer` wrapper on it. */
 function freshMap(view) {
   const built = createMap(view);
-  // On Mapbox the two anchors this app inserts by — under the streets, under
-  // the labels — are slots rather than layer ids, because Standard's layers
-  // live inside an import and `getStyle().layers` comes back empty. One wrapper
-  // here rather than a branch at each of the seventeen `addLayer` calls; see
-  // src/gl-engine.js.
-  if (engine === MAPBOX) installAddLayerSlots(built);
+  if (engine === MAPBOX) {
+    // The two anchors this app inserts by — under the streets, under the labels
+    // — are slots rather than layer ids, because Standard's layers live inside
+    // an import and `getStyle().layers` comes back empty. One wrapper here
+    // rather than a branch at each of the seventeen `addLayer` calls.
+    installAddLayerSlots(built);
+    // Then the global style state the railway style consults 1,529 times, which
+    // wraps addLayer again — after the slots, so a resolved layer still gets its
+    // anchor translated on the way through.
+    installGlobalStateShim(built);
+    // And the multi-sprite API the train tracks are built on. All three in
+    // src/gl-engine.js, with the reasoning.
+    installSpriteShim(built);
+  } else {
+    // MapLibre turns the map around its centre and Mapbox turns it by the
+    // distance dragged, so the same gesture goes opposite ways on two basemaps
+    // of one map. Mapbox's is the one this keeps.
+    matchMapboxRotation(built);
+  }
   return built;
 }
 
@@ -877,13 +925,13 @@ onMapBuilt(() => map.addControl(
 // Tilting rides on the same handlers — `pitchWithRotate` above is what puts it
 // on the vertical axis of the turn gesture, and `touchPitch` is its two-finger
 // equivalent. Asked for by name rather than left to the default so that a
-// `MAX_PITCH` of 0 really does mean the camera cannot lean, by any route.
+// `maxPitch()` of 0 really does mean the camera cannot lean, by any route.
 onMapBuilt(() => {
   if (!ROTATE_ENABLED) {
     map.dragRotate.disable();
     map.touchZoomRotate.disableRotation();
   }
-  if (MAX_PITCH > 0) map.touchPitch?.enable();
+  if (maxPitch() > 0) map.touchPitch?.enable();
   else map.touchPitch?.disable();
   window.map = map; // handy in devtools
 });
@@ -1419,16 +1467,16 @@ function heatColorExpr() {
     return [
       'match',
       ['number', ['get', 'v'], TYPE_MAX],
-      ...TYPE_COLORS.flatMap((c, i) => [i, c]),
-      TYPE_OTHER_COLOR,
+      ...TYPE_COLORS.flatMap((c, i) => [i, lifted(c)]),
+      lifted(TYPE_OTHER_COLOR),
     ];
   }
   const ramp = heat?.ramp;
   // Opaque: what the accent's own opacity means is how strong the wash is, and
   // that is applied once, as layer opacity (see accentAlpha). Handing MapLibre
   // a translucent colour *as well* would apply it twice.
-  if (!ramp) return hexOpaque(accent);
-  const stops = ramp.flatMap((c, i) => [i / (ramp.length - 1), c]);
+  if (!ramp) return lifted(hexOpaque(accent));
+  const stops = ramp.flatMap((c, i) => [i / (ramp.length - 1), lifted(c)]);
   return [
     'case',
     ['<', ['number', ['get', 'v'], 0], 0], UNDATED_COLOR,
@@ -1436,17 +1484,107 @@ function heatColorExpr() {
   ];
 }
 
-function mixWithWhite(hex, t) {
-  const n = parseInt(hex.slice(1, 7), 16);
-  const mix = (c) => Math.round(c + (255 - c) * t);
-  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+/**
+ * `[r, g, b]` from either notation this file passes around.
+ *
+ * It used to be `parseInt(hex.slice(1, 7), 16)` in two places, which was true
+ * for as long as everything here started life as `#rrggbb`. `vivid()` returns
+ * `rgb(…)`, and its whole point is to be applied *before* the per-theme mix — so
+ * the mixes had to learn to read their own output.
+ */
+function channelsOf(color) {
+  if (color.startsWith('#')) {
+    const n = parseInt(color.slice(1, 7), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const m = color.match(/-?\d+(\.\d+)?/g) ?? [];
+  return [+m[0] || 0, +m[1] || 0, +m[2] || 0];
 }
 
-function mixWithBlack(hex, t) {
-  const n = parseInt(hex.slice(1, 7), 16);
-  const mix = (c) => Math.round(c * (1 - t));
-  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+function mixWithWhite(color, t) {
+  const mix = (c) => Math.round(c + (255 - c) * t);
+  return `rgb(${channelsOf(color).map(mix).join(', ')})`;
 }
+
+function mixWithBlack(color, t) {
+  const mix = (c) => Math.round(c * (1 - t));
+  return `rgb(${channelsOf(color).map(mix).join(', ')})`;
+}
+
+/**
+ * Push a colour away from grey and toward light, for a basemap that is eating it.
+ *
+ * Standard is the reason this exists. Mapbox GL JS applies the style's own
+ * atmosphere to **everything in the scene**, ours included: at a lean, a route
+ * a few hundred metres out is already being mixed toward the haze colour, and at
+ * dusk and night that haze is a dark desaturated blue. The line is still exactly
+ * the colour it was told to be — it is being fogged, which is correct for
+ * anything that is part of the ground and wrong for a route, which is an
+ * annotation drawn *on* the map rather than a thing standing in it.
+ *
+ * There is no per-layer way to opt out of it, so the answer is to hand the layer
+ * a colour with enough saturation and light in it to survive the trip. Done in
+ * HSL because that is the pair of words the problem is stated in: `sat`
+ * multiplies the saturation, `lift` moves the lightness that fraction of the way
+ * toward white.
+ *
+ * @param {string} color `#rrggbb` or `rgb(r, g, b)`
+ * @param {number} sat   1 leaves saturation alone; 1.4 is a noticeable lift
+ * @param {number} lift  0..1, the fraction of the remaining headroom to take
+ */
+function vivid(color, sat, lift) {
+  const [r255, g255, b255] = channelsOf(color);
+  const r = r255 / 255;
+  const g = g255 / 255;
+  const b = b255 / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let l = (max + min) / 2;
+  let s = 0;
+  let h = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  s = Math.min(1, s * sat);
+  l += (1 - l) * lift;
+  // Back again. The standard HSL→RGB, written out rather than imported because
+  // this is the only place in the app that needs it.
+  const hue = (t) => {
+    let x = t;
+    if (x < 0) x += 1;
+    if (x > 1) x -= 1;
+    if (x < 1 / 6) return p + (q - p) * 6 * x;
+    if (x < 1 / 2) return q;
+    if (x < 2 / 3) return p + (q - p) * (2 / 3 - x) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const ch = (t) => Math.round((s === 0 ? l : hue(t)) * 255);
+  return `rgb(${ch(h + 1 / 3)}, ${ch(h)}, ${ch(h - 1 / 3)})`;
+}
+
+/**
+ * How hard this basemap eats the colours drawn over it.
+ *
+ * `[saturation multiplier, lightness lift]`, applied by `vivid()`. Only the 3D
+ * basemap asks for anything: its atmosphere is the only one in the app that
+ * touches our layers, and it is much heavier once the sun is down.
+ */
+function colorLift() {
+  const lift = STYLES[styleKey]?.lift;
+  return typeof lift === 'function' ? lift() : (lift ?? null);
+}
+
+/** A colour as this basemap needs it to be to come through legibly. */
+const lifted = (color) => {
+  const l = colorLift();
+  return l ? vivid(color, l[0], l[1]) : color;
+};
 
 // A route line lightened toward white reads beautifully on the dark basemap and
 // vanishes on the pale one, so the core takes the opposite treatment per theme
@@ -1454,9 +1592,10 @@ function mixWithBlack(hex, t) {
 // The core line is the activity's colour lifted toward the basemap's own
 // contrast; the glow underneath is that colour untouched.
 const routeLineColor = () =>
-  routeColorExpr((hex) =>
-    (STYLES[styleKey].theme === 'light' ? mixWithBlack(hex, 0.3) : mixWithWhite(hex, 0.35)));
-const routeGlowColor = () => routeColorExpr((hex) => hex);
+  routeColorExpr((hex) => (STYLES[styleKey].theme === 'light'
+    ? mixWithBlack(lifted(hex), 0.3)
+    : mixWithWhite(lifted(hex), 0.35)));
+const routeGlowColor = () => routeColorExpr((hex) => lifted(hex));
 const routeGlowOpacity = () => {
   const strong = STYLES[styleKey].theme === 'light' ? 0.5 : 0.6;
   const soft = STYLES[styleKey].theme === 'light' ? 0.26 : 0.35;
@@ -5458,6 +5597,11 @@ async function switchEngine(key) {
     railPopup?.remove();
     airportPopup = null;
     railPopup = null;
+    // The blob layer leaves an `idle` handler and a 2.5-second timer
+    // outstanding, both of which reach back for their source. A style swap
+    // survives that; a map that no longer exists does not, and the timer throws
+    // into a torn-down style seconds after the switch looked finished.
+    blobCur.dispose();
     // Everything the map owns: its canvas, its controls, its sources, its
     // handlers. Ours go with them, which is why they are all replayable.
     map.remove();
@@ -6150,10 +6294,21 @@ function setLightPresetNow(key) {
       console.warn('Mapbox light preset could not be applied.', e);
     }
     presumeChrome();
+    // `syncAccent` first, for the case the theme flipped and the viewer keeps a
+    // different accent for light and dark — and then the repaint by hand,
+    // because it is not enough on its own here. It returns early when the accent
+    // itself has not changed, which is exactly what happens when only the sun
+    // moved: the colour is the same hex, and everything derived from it —
+    // `lifted()`, the wash's alpha, the route's contrast mix — is not. Left to
+    // syncAccent, dusk repainted nothing and the wash stayed at its daylight
+    // strength on a map that had just gone dark.
     syncAccent();
+    applyColors();
+    applyFade(fade.cur);
+    applyPrevFade(fade.prev);
+    repaintAccent();
   }
   updateLayersUi();
-  mapboxUi?.redraw();
 }
 
 function updateLayersUi() {
@@ -6558,6 +6713,9 @@ function addRailLayer() {
     font: styleFont(),
     theme: STYLES[styleKey].theme,
     before: RAIL_BEFORE(),
+    // The fast path reaches past Map.addLayer, and on Mapbox that is where the
+    // slot translation and the global-state resolution live. See addLayers().
+    fastAdd: engine !== MAPBOX,
     groups: railGroupsOn,
     technical: railTechnicalOn,
     detail: railDetailCeilings,
@@ -7390,11 +7548,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // has to be moved off it — which, from 3D, is a reload.
       if (!hasMapboxToken() && STYLES[styleKey]?.needsToken) setStyleKey('voyager');
     },
-    // The dialog's copy of the light row hands over to the same applier the one
-    // in the layers menu uses — only the map that is actually Standard can be
-    // relit, and only while it is the one on screen. Chosen from any other
-    // basemap this is a preference being set for later.
-    onPreset: (key) => setLightPresetNow(key),
   });
   personalUi = mountPersonal({
     onClose: () => settings?.open(),
