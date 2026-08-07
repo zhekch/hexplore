@@ -46,13 +46,19 @@
             <div class="menu-heading">
               <span>Appearance</span>
             </div>
-            <!-- Four now, so it wraps onto two rows like the heat modes rather
-                 than squeezing four labels into one. -->
+            <!-- Five now, so it wraps onto two rows like the heat modes rather
+                 than squeezing five labels into one.
+
+                 3D is last and is the only one that can fail to be available:
+                 it is Mapbox's, it needs the viewer's own token, and without
+                 one it opens the dialog that asks for it instead of switching
+                 basemap. main.js marks it `needs-token` while that is true. -->
             <div class="seg seg-wrap" id="style-seg">
               <button type="button" class="seg-btn" data-style="dark">Dark</button>
               <button type="button" class="seg-btn" data-style="terrain">Terrain</button>
               <button type="button" class="seg-btn" data-style="voyager">Light</button>
               <button type="button" class="seg-btn" data-style="satellite">Satellite</button>
+              <button type="button" class="seg-btn" data-style="mapbox">3D</button>
             </div>
 
             <div class="menu-subhead">
@@ -697,6 +703,30 @@
           </svg>
         </button>
 
+        <!-- The 3D basemap's token. Beside the two overlays above because it is
+             the same kind of thing — something the map is built out of, set
+             once — and not in the layers menu with the basemap picker, because
+             what it holds is a credential and the menu is for what you are
+             looking at right now. -->
+        <button type="button" class="sync-option" data-personal="mapbox">
+          <!-- A block seen in three-quarter view: the top face and two walls,
+               which is the least that reads as *extruded* at 18px. Flat-on it
+               would be a rectangle and the icon would say "buildings", not
+               "3D". -->
+          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 2.6 21 7v10l-9 4.4L3 17V7Z" />
+            <path d="m3 7 9 4.4L21 7" />
+            <path d="M12 11.4v10" />
+          </svg>
+          <span class="sync-option-text">
+            <b>3D basemap</b>
+            <small id="settings-mapbox-note">Needs a Mapbox token</small>
+          </span>
+          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m9 5 7 7-7 7" />
+          </svg>
+        </button>
+
         <button type="button" class="sync-option" data-personal="sources">
           <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 7h16" />
@@ -852,6 +882,58 @@
         <div class="modal-actions">
           <button type="button" class="modal-btn" id="airports-back">Back</button>
           <button type="button" class="modal-btn primary" id="airports-done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- The 3D basemap's token. The paragraph is most of the dialog on purpose:
+         this is the one place the app asks for a credential belonging to
+         somebody else's account, and "why" is a fair question. -->
+    <div class="modal-overlay" id="mapbox-overlay" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">3D basemap</div>
+            <div class="modal-sub">Buildings with height and ground with shape, from Mapbox. Choose <b>3D</b> in the layers menu once a token is in.</div>
+          </div>
+          <button class="cell-info-close" id="mapbox-close" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="ha-scroll">
+          <p class="ha-help">
+            Mapbox will not serve these tiles without an account, and this app does not have one —
+            so the basemap runs on <b>your</b> token, billed to you and free below Mapbox's monthly
+            allowance. Make one at
+            <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer noopener">account.mapbox.com</a>;
+            the default public token is the right one.
+          </p>
+          <label class="token-field">
+            <span>Public token</span>
+            <!-- Not type=password: a public token is not a secret, and hiding it
+                 would only make a paste impossible to check. `off` on both
+                 autocomplete and autocapitalize because a phone keyboard will
+                 otherwise capitalise the p in pk. -->
+            <input type="text" id="mapbox-token" placeholder="pk.eyJ1Ijoi…"
+              autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+          </label>
+          <div class="token-actions">
+            <button type="button" class="modal-btn primary" id="mapbox-save">Save</button>
+            <button type="button" class="modal-btn" id="mapbox-clear" hidden>Remove</button>
+          </div>
+          <div class="token-note" id="mapbox-note" hidden></div>
+          <div class="import-note">
+            The token is kept on this device only and is never sent to the HexPlore server. Removing
+            it here takes it off this device; revoking it is done at Mapbox.
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="modal-btn" id="mapbox-back">Back</button>
+          <button type="button" class="modal-btn primary" id="mapbox-done">Done</button>
         </div>
       </div>
     </div>

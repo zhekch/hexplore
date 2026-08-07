@@ -2626,6 +2626,84 @@ both libraries agree about. `view.js` imports nothing but `hexgrid.js`; it has
 no DOM and no MapLibre, which is why `scripts/test/view.mjs` can check the
 geometry in Node.
 
+### The 3D basemap, and the one it is not
+
+The fifth basemap is **3D** — `src/mapbox.js`, Mapbox's own tiles, extruded
+buildings and real ground. It needs the viewer's own access token, which is why
+it is the only entry in the picker that can be *unavailable*: `needsToken` on
+the `STYLES` entry is what lets the button be dimmed and, when pressed, open the
+dialog that asks for one instead of quietly doing nothing.
+
+**It is not Mapbox Standard**, and that is a decision rather than an oversight.
+Standard — the style with the 3D trees, the modelled landmarks and the
+dawn/day/dusk/night presets — is published as a style *import*:
+
+    { "imports": [ { "id": "basemap", "url": "mapbox://styles/mapbox/standard" } ] }
+
+Style imports are a Mapbox GL JS v3 feature. MapLibre 5.24 has no
+implementation of them, so that document renders as a style with zero layers and
+a blank screen. Rendering Standard means running mapbox-gl-js as the engine, and
+the engine is not a small thing to swap here: every overlay this app draws — the
+blob sheet, the railways, the airports, the photographs, the routes, the
+selection ring — is installed against the live style on `style.load`, and the
+licence mapbox-gl-js has shipped under since v2 would then govern the four
+basemaps that have nothing to do with Mapbox. The seam exists if it is ever
+worth it (`cameraOf` above, and the blob sheet is a `canvas` source, which both
+libraries have), but the price is the whole app for one style.
+
+So this takes the other road. Mapbox's **classic** styles are ordinary
+MapLibre-renderable documents — spec v8, one flat layer list — and the three
+things that make a map read as three-dimensional are built on top of one:
+
+- **Buildings.** A `fill-extrusion` over the `building` layer of
+  mapbox-streets-v8, which carries `height`, `min_height` and `extrude` for
+  exactly this. `extrude` is published as the *string* `'true'`; compared
+  against the boolean the filter matches nothing and the city comes out flat
+  with no error from anywhere. They grow in between z14 and z15.5 rather than
+  arriving at full height on one notch of the wheel.
+- **Ground.** `raster-dem` from mapbox-terrain-dem-v1 at exaggeration 1 — the
+  real shape and no more of it. A doubled Alps would put the visited wash on a
+  slope nobody walked up.
+- **Sky.** Because terrain plus a 60° lean is the one arrangement that can put
+  the horizon in play.
+
+Both terrain and sky are declared **in the style document**, not set on the map.
+That is what keeps `setStyleKey` free of a fifth code path: terrain set
+imperatively has to be torn down by hand on the way out, and terrain declared in
+the style is simply gone the moment another basemap is chosen.
+
+**The token never reaches our server.** It lives in localStorage under
+`visited-map:mapbox-token:v1` and goes onto requests through MapLibre's
+`transformRequest`, installed once on the map and returning `undefined` for
+every host that is not `api.mapbox.com` — so the other four basemaps cannot tell
+it is there. One hook rather than a token threaded through every URL, because
+the style, the sprite sheet, the glyph ranges, two TileJSON documents and every
+vector and DEM tile all need the same parameter and several of those URLs are
+built by MapLibre out of strings `mapbox.js` never sees. That is also why
+`resolveMapboxUrl` does *not* add the token: MapLibre builds the real sprite URL
+by concatenating `.json` and `@2x.png` onto whatever it is given, so a query
+string put on early lands in the middle of the filename.
+
+A **secret** token (`sk.`) is refused outright. Mapbox will serve tiles with
+one, which is precisely why it is worth catching: anything in a web page is
+public, and an `sk.` token carries account-management scope. The dialog also
+asks Mapbox whether the token works at the moment it is pasted, because a token
+can be wrong in four ways — mistyped, expired, scoped without `styles:read`, or
+URL-restricted to somebody else's domain — that all look identical from the map,
+which is to say like a basemap that silently falls back.
+
+**The visited colour needed no new rule.** Mapbox orders a style the way
+everyone does — background, landcover, landuse, water, aeroway, then
+`building-outline` and `building`, then tunnels, roads and bridges, then the
+labels — so `washAnchorIn()` finds `building-outline` and the wash lands above
+every fill that is ground and below every rooftop. The extrusions go in at the
+bottom of the *topmost run of symbol layers*, which is deliberate: that is where
+`labelStart()` anchors the railways, the airports and the photographs, so put
+them at the end of the list instead and every photo pin sinks inside a tower
+block. `scripts/test/mapbox.mjs` pins both against the real layer order of
+`mapbox/streets-v12`, and the URL rewriting against the shape of a real style —
+which is as far as a test can go without somebody's private token.
+
 ## What a basemap switch takes with it
 
 `setStyle` replaces the whole style, and everything the app added goes with it —
@@ -3763,7 +3841,7 @@ than from the `invert()` filter the raster icons need.
 **Hollow when the map is not following you, solid when it is.** That is the whole
 signal and deliberately the only one — the colour stays the ink of the map
 underneath, white on the dark basemaps and near-black on the light one. MapLibre's
-own answer is to turn the icon blue, which across four basemaps is four different
+own answer is to turn the icon blue, which across five basemaps is five different
 amounts of legible, and which spends a colour on a control that is not about your
 data. The three states are its classes: `-active` while the camera is locked to
 your position, `-background` once it has let the camera go but is still watching
@@ -4807,13 +4885,15 @@ prefix check also matched a sibling directory whose name merely started with it.
 
 ### Basemaps
 
-Four, picked in the menu: **Dark** (CARTO Dark Matter), **Terrain**, **Light**
-(CARTO Voyager) and **Satellite**. Two of them are built at load time rather
-than fetched as a URL — `src/basemap.js` takes somebody else's style JSON and
-rewrites the parts that are wrong, which MapLibre accepts anywhere it accepts a
-style URL.
+Five, picked in the menu: **Dark** (CARTO Dark Matter), **Terrain**, **Light**
+(CARTO Voyager), **Satellite**, and **3D** (Mapbox — see "The 3D basemap, and
+the one it is not", which is where everything about it lives). Three of them are
+built at load time rather than fetched as a URL — `src/basemap.js` and
+`src/mapbox.js` take somebody else's style JSON and rewrite the parts that are
+wrong, which MapLibre accepts anywhere it accepts a style URL. 3D is also the
+only one that can be *unavailable*: it runs on the viewer's own Mapbox token.
 
-**All four stack the same way**, and it took two bugs in opposite directions to
+**All five stack the same way**, and it took two bugs in opposite directions to
 get there. The map is three things: the basemap's ground, the visited wash over
 it, and the basemap's streets, railways and rooftops over *that*. A town should
 read as your colour with the streets still drawn through it.
@@ -4835,7 +4915,8 @@ first, the style's first label or the first layer it draws over the ground**
 Deliberately not the aeroways: CARTO files a runway among the water fills, and
 a runway there is ground the way a car park is. On Voyager the answer is still
 index 13, so Light — the one that already looked right — does not move.
-`scripts/test/layer-order.mjs` pins all three against the real layer order.
+`scripts/test/layer-order.mjs` pins all three against the real layer order, and
+`scripts/test/mapbox.mjs` does the same for Mapbox.
 
 The **selection ring** is the one thing exempt from all of this. It takes no
 `beforeId` at all, so it is added last and sits over everything the basemap and

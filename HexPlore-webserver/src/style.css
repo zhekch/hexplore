@@ -281,7 +281,7 @@ body {
    *only* signal: the colour stays the ink of the map underneath — white on the
    dark basemaps, black on the light one — because this button says where the
    camera is pointing, not what colour your visited ground is. MapLibre's own
-   answer here is to turn it blue, which on four basemaps is four different
+   answer here is to turn it blue, which on five basemaps is five different
    amounts of legible. */
 .maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active .maplibregl-ctrl-icon,
 .maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active-error .maplibregl-ctrl-icon {
@@ -712,6 +712,15 @@ body {
   height: 4px;
   border-radius: 50%;
   background: currentColor;
+}
+
+/* The 3D basemap before anyone has given it a token. Dimmed rather than
+   disabled, because pressing it is how you find out what it wants: it opens the
+   dialog that asks. A `disabled` button would answer the same question with
+   nothing at all, which is the arrangement this map keeps running into and
+   keeps deciding against. */
+#style-seg .seg-btn.needs-token {
+  opacity: 0.5;
 }
 
 /* Heat-map legend */
@@ -1784,6 +1793,82 @@ body {
   font-size: 12.5px;
   line-height: 1.5;
   color: rgba(255, 138, 122, 1);
+}
+
+/* --- The Mapbox token field ---------------------------------------------------
+   The same shape as the password field above without borrowing its colours:
+   that one is red because of what pressing the button next to it does, and this
+   one is an ordinary text box that happens to hold a long string. */
+.token-field {
+  display: block;
+  margin-top: 14px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.token-field input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(14, 14, 14, 0.5);
+  color: inherit;
+  /* A token is 90 characters of base64 with no word shape to it, so it is read
+     by comparing runs of letters against another window — which proportional
+     text makes needlessly hard. */
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.token-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.token-note {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.token-note[hidden] {
+  display: none;
+}
+
+.token-note.ok {
+  color: rgba(126, 220, 158, 1);
+}
+
+.token-note.bad {
+  color: rgba(255, 138, 122, 1);
+}
+
+[data-theme='light'] .token-field {
+  color: rgba(15, 23, 42, 0.6);
+}
+
+[data-theme='light'] .token-field input {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(15, 23, 42, 0.18);
+  color: #0f172a;
+}
+
+[data-theme='light'] .token-note {
+  color: rgba(15, 23, 42, 0.6);
+}
+
+[data-theme='light'] .token-note.ok {
+  color: rgba(21, 128, 61, 1);
+}
+
+[data-theme='light'] .token-note.bad {
+  color: rgba(178, 40, 24, 1);
 }
 
 .settings-danger-actions {

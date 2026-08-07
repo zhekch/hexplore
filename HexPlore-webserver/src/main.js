@@ -37,6 +37,7 @@ import {
   cellColorOf, cellStats, heatMetric, hotOf, isHeatMode as isHeatColoring,
 } from './coloring.js';
 import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
+import { hasMapboxToken, mapbox3dStyle, mapboxAuth } from './mapbox.js';
 // The theme is not handed over separately: it only ever changes by switching
 // basemap, which replaces the style and rebuilds the overlay from scratch.
 import {
@@ -72,6 +73,7 @@ import { mountExport } from './export-ui.js';
 import { mountPersonal } from './personal-ui.js';
 import { mountRail } from './rail-ui.js';
 import { mountAirports } from './airports-ui.js';
+import { mountMapbox } from './mapbox-ui.js';
 import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
 import { activeDays, findHome } from './trips.js';
@@ -556,6 +558,27 @@ const STYLES = {
     cellAlpha: 1,
     heatAlpha: 1,
   },
+  // The one basemap that can be *unavailable*. Mapbox serves nothing without an
+  // account, this app does not have one, and so the viewer's own token is what
+  // switches it on — `needsToken` is what lets the picker say so rather than
+  // leaving a button that silently does nothing. See src/mapbox.js.
+  //
+  // Its buildings have height and its ground has shape, which is the whole
+  // point of it; both are declared in the style document rather than set on the
+  // map, so switching away takes them with it and nothing here has to undo
+  // anything.
+  mapbox: {
+    label: '3D',
+    build: mapbox3dStyle,
+    needsToken: hasMapboxToken,
+    // Mapbox Streets is a light map — pale ground, beige buildings — so the
+    // wash and the routes take the light-basemap contrast rules, the same as
+    // Voyager.
+    theme: 'light',
+    cellAlpha: 1,
+    heatAlpha: 1,
+    fallback: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+  },
   satellite: {
     label: 'Satellite',
     build: satelliteStyle,
@@ -646,6 +669,12 @@ let airportGroupsChosen = (() => {
 
 let styleKey = localStorage.getItem(STYLE_KEY) ?? 'dark';
 if (!STYLES[styleKey]) styleKey = 'dark';
+// A basemap that needs a token, remembered from a visit when there was one.
+// Left alone it would open the map on the placeholder background and stay
+// there, because the build throws before it can fall back. Light rather than
+// the default Dark: 3D is a light basemap, and coming back to a map that has
+// changed colour as well as provider reads as two things having gone wrong.
+if (STYLES[styleKey].needsToken && !STYLES[styleKey].needsToken()) styleKey = 'voyager';
 // Apply the matching chrome colors before the map initializes to avoid a
 // white-on-light flash when the saved basemap is Voyager.
 document.documentElement.dataset.theme = STYLES[styleKey].theme;
@@ -732,6 +761,13 @@ const map = new maplibregl.Map({
   // Added by hand below so it can sit top-right, out of the geolocate button's
   // corner.
   attributionControl: false,
+  // The Mapbox basemap's access token, put on every request bound for Mapbox's
+  // API and nothing else — the style, its sprite sheet, its glyph ranges, both
+  // TileJSON documents and every vector and DEM tile, several of which are URLs
+  // MapLibre builds for itself out of strings src/mapbox.js never sees. It
+  // returns undefined for every other host, so the four basemaps that are not
+  // Mapbox's cannot tell this is installed.
+  transformRequest: mapboxAuth,
 });
 
 // The place names that title imported routes come from GeoNames, which is
@@ -5176,8 +5212,21 @@ function swapStyle(style) {
   map.setStyle(style);
 }
 
+// The 3D basemap's token dialog, mounted with the rest of the UI far below.
+// Declared up here because the basemap picker reaches for it: pressing a
+// basemap that has no token is how you are asked for one.
+let mapboxUi = null;
+
 function setStyleKey(key) {
   if (!STYLES[key] || key === styleKey) return;
+  // A basemap nobody has given a token to. Pressing it opens the dialog that
+  // asks for one rather than doing nothing: the button is the only place the
+  // 3D map is mentioned, so it has to be the way to find out what it wants.
+  if (STYLES[key].needsToken && !STYLES[key].needsToken()) {
+    setMenuOpen(false);
+    mapboxUi?.open();
+    return;
+  }
   styleKey = key;
   presumeChrome(); // before anything is fetched, let alone painted
   // Immediately, not once the new style lands: the wash on screen belongs to
@@ -5827,9 +5876,23 @@ function clearRailHover() {
 const dateShort = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
 const legendEndLabel = (sec) => (sec ? dateShort.format(new Date(sec * 1000)) : '');
 
+// The Settings row for the 3D basemap, which is the only door in that list
+// whose subtitle is a *state* rather than a description: whether this device
+// has a token is the whole question behind it, and someone who has already
+// answered it should not have to open the dialog to be told so.
+function updateMapboxNote() {
+  const note = document.getElementById('settings-mapbox-note');
+  if (note) note.textContent = hasMapboxToken() ? 'Mapbox token saved on this device' : 'Needs a Mapbox token';
+}
+
 function updateLayersUi() {
+  updateMapboxNote();
   for (const btn of layersMenu.querySelectorAll('[data-style]')) {
     btn.classList.toggle('active', btn.dataset.style === styleKey);
+    // Dimmed while it has no token, so the one basemap that can be unavailable
+    // looks it before it is pressed.
+    const gate = STYLES[btn.dataset.style]?.needsToken;
+    btn.classList.toggle('needs-token', !!gate && !gate());
   }
   for (const btn of layersMenu.querySelectorAll('[data-heat]')) {
     btn.classList.toggle('active', cellsOn && btn.dataset.heat === heatMode);
@@ -6484,7 +6547,7 @@ function installGrid() {
   // was: a dot per cell, threaded in the order they were first seen. This used
   // to be a 16% wash over the same hexagons, which was legible only against a
   // dark basemap and said nothing about direction. Solid dots with a dark rim
-  // read on all four basemaps, including a photograph.
+  // read on all five basemaps, including a photograph.
   //
   // No `beforeId` on any of the three: what a day or a trip actually was is the
   // one thing on screen you asked to see, so it goes over the basemap's own
@@ -6997,6 +7060,23 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     groups: () => airportGroupsChosen,
     onGroup: (key, on) => setAirportGroupOn(key, on),
   });
+  mapboxUi = mountMapbox({
+    onClose: () => personalUi?.open(),
+    // A token that has just been proved to work is a basemap that has just
+    // become available, and the picker is not on screen to notice. Switching
+    // straight to it would be presumptuous — the dialog can be reached from
+    // Settings by somebody who only wanted to paste a token — so the menu is
+    // brought up to date and the button stops being dimmed, which is the whole
+    // of what changed.
+    onToken: () => {
+      updateLayersUi();
+      updateMapboxNote();
+      // ...unless what just happened is that the token holding the basemap on
+      // screen was taken away. Then there is nothing left to draw and the map
+      // has to be moved off it.
+      if (!hasMapboxToken() && STYLES[styleKey]?.needsToken) setStyleKey('voyager');
+    },
+  });
   personalUi = mountPersonal({
     onClose: () => settings?.open(),
     home: () => homePlace,
@@ -7013,6 +7093,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     sources: sourcesUi,
     rail: railUi,
     airports: airportsUi,
+    mapbox: mapboxUi,
     onClearCache: () => clearOfflineCaches(),
     version: () => serverBuild(),
     username: () => username,

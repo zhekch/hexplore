@@ -33,7 +33,7 @@ const SOURCE = `${NS}-src`;
 
 // Violet, and chosen by elimination. The visited wash is the accent, which the
 // viewer picks and could be anything; a saved route is orange and a shown trip
-// is amber. This has to be none of those at a glance on four basemaps, and it
+// is amber. This has to be none of those at a glance on five basemaps, and it
 // has to survive being drawn over a satellite photograph, where a warm colour is
 // the one thing a photograph is guaranteed to contain.
 export const PHOTO_COLOR = '#c07bff';

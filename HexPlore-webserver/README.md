@@ -41,7 +41,8 @@ number of approaches that were tried and abandoned.
   have taken one, grouped where they pile up; tap for the picture and the time
   it was taken. No photo is ever uploaded — the app reads them off the device it
   is running on, which is also why this switch is not in the menu in a browser.
-- **Four basemaps** — dark, terrain, light, satellite. Colour the map with a
+- **Five basemaps** — dark, terrain, light, satellite, and a **3D** one with
+  buildings that have height and ground that has shape. Colour the map with a
   single accent, or shade each cell by **visits**, by **first seen**, or by
   **type** (a colour per app the data came from).
 - **Ask any area what it knows.** Tap a blob for when you were there, how many
@@ -368,7 +369,7 @@ counties separately here and folds them into counties there, so about half of it
 sharpens and the rest doesn't. The map declines rather than drawing you a shape
 that isn't the one it counted.
 
-**Looks.** Four basemaps (dark, terrain, light, satellite), one accent colour or
+**Looks.** Five basemaps (dark, terrain, light, satellite, 3D), one accent colour or
 a shading by **visits**, **first seen**, or **type** — a colour per app the data
 came from. Press whichever one is already on and the visited areas come off the
 map entirely, for a look at the ground underneath. Every colour has an
@@ -377,6 +378,15 @@ until the map underneath reads through it, or fade one activity's routes back
 without hiding them. Terrain and Satellite are
 kept to the same label and road density as Light, and roads on all of them fade
 out as you zoom away rather than shouting over the map.
+
+**3D** is Mapbox's, and it is the one basemap that needs something from you:
+Mapbox serves no tiles without an account and this app does not have one, so it
+runs on your own free access token. Make one at
+[account.mapbox.com](https://account.mapbox.com/access-tokens/) — the default
+public token is the right one — and paste it into **Export & settings →
+Settings → 3D basemap**. It is kept on that device and never sent to the
+server. Tilt the map with a right-button drag, or two fingers on a touchscreen,
+and zoom past about z14 for the buildings.
 
 ## Rebuilding the map data
 
@@ -431,7 +441,7 @@ allowed to connect to, and why each limit is where it is — is in
 
 - [MapLibre GL JS](https://maplibre.org/) — vector map rendering
 - [Vite](https://vite.dev/) — dev server / bundler
-- Basemaps: [CARTO](https://carto.com/basemaps/), [OpenFreeMap](https://openfreemap.org/), Esri World Imagery
+- Basemaps: [CARTO](https://carto.com/basemaps/), [OpenFreeMap](https://openfreemap.org/), Esri World Imagery, [Mapbox](https://www.mapbox.com/) (3D, your own token)
 - Railways: [OpenRailwayMap](https://www.openrailwaymap.org/) vector tiles
   ([openrailwaymap.app](https://openrailwaymap.app/), ODbL via OpenStreetMap)
 - Boundaries and lakes: [Natural Earth](https://www.naturalearthdata.com/) (public domain)
