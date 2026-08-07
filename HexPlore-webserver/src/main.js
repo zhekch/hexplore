@@ -1629,13 +1629,34 @@ const glowBlur = () => (engine === MAPBOX ? ROUTE_GLOW_BLUR_3D : 4);
 // **And a route you can still see behind a building.** A line is drawn on the
 // ground, so a tower between it and the camera hides it completely — which on a
 // leaning 3D map means a walk through a city is a dotted line of the gaps
-// between blocks. `line-occlusion-opacity` is Mapbox's answer: the opacity of
-// the part of the line that is behind something. Not 1, which would put the
-// route *in front of* the city and lose the depth that makes the basemap worth
-// having; enough to follow a line through a block and know it continues.
-const ROUTE_THROUGH_BUILDINGS = 0.4;
-const throughBuildings = () =>
-  (engine === MAPBOX ? { 'line-occlusion-opacity': ROUTE_THROUGH_BUILDINGS } : {});
+// between blocks.
+//
+// `line-occlusion-opacity` is Mapbox's answer — the opacity of the part of a
+// line that is behind something — and it comes with a restriction that is easy
+// to miss and silent when broken:
+//
+//   "The property is not supported when `line-opacity` has data-driven styling."
+//
+// Both route layers have exactly that. `routeLineOpacity()` scales by the
+// activity's own alpha and the glow's also asks whether the route is the
+// selected one, so both are data-driven and both had the property quietly
+// ignored. It was set, it read back correctly, and it did nothing.
+//
+// So the route gets a **third layer on this basemap only**: the same geometry
+// and the same per-activity colour — colour may be data-driven, only opacity may
+// not — at a flat opacity, with `line-occlusion-opacity: 1` so that the part
+// behind a building is drawn at exactly the same strength as the part in front
+// of one. On open ground the two crisp layers cover it and it is not visible as
+// anything of its own; behind a block it is all that is left, which is the
+// point. It sits under both, so it can never dull the line it is standing in
+// for.
+//
+// Deliberately faint. A route drawn through a city at full strength puts the
+// walk in front of the buildings and throws away the depth that makes this
+// basemap worth having; this is enough to follow a line through a block and
+// know that it continues.
+const ROUTE_GHOST_OPACITY = 0.45;
+const ROUTE_GHOST_ID = 'route-ghost';
 
 // --- Paint expressions -----------------------------------------------------
 // Region features: k=1 fill polygons, k=2 outline. Tile features carry a
@@ -1761,6 +1782,10 @@ function applyColors() {
     map.setPaintProperty('route-line', 'line-opacity', routeLineOpacity());
     map.setPaintProperty('route-glow', 'line-color', routeGlowColor());
     map.setPaintProperty('route-glow', 'line-opacity', routeGlowOpacity());
+    // Its opacity never moves — only its colour, which follows the activity.
+    if (map.getLayer(ROUTE_GHOST_ID)) {
+      map.setPaintProperty(ROUTE_GHOST_ID, 'line-color', routeLineColor());
+    }
   }
 }
 
@@ -3094,7 +3119,13 @@ function showCellInfoAt(lngLat) {
 // of their own on the server: clearing a cell never touches them, and they
 // never feed the heat maps — they're a record of one journey, not of coverage.
 const ROUTES_KEY = 'visited-map:routes:v1';
+// The two that answer a click. The ghost is deliberately not among them: it is
+// the part of a route you can see *through a building*, and a click that landed
+// on a wall should be about the wall.
 const ROUTE_LAYERS = ['route-glow', 'route-line'];
+/** Everything drawn for a route, ghost included, for showing and hiding. */
+const routeDrawLayers = () =>
+  (map.getLayer(ROUTE_GHOST_ID) ? [ROUTE_GHOST_ID, ...ROUTE_LAYERS] : ROUTE_LAYERS);
 
 let routesOn = localStorage.getItem(ROUTES_KEY) === 'on';
 let routeList = []; // newest first; carries `geom` only once routeGeom is true
@@ -3568,7 +3599,7 @@ function syncRoutes() {
   const src = map.getSource('routes');
   if (!src) return;
   src.setData(routesOn && routeGeom ? routesToFC(visibleRoutes()) : EMPTY);
-  for (const id of ROUTE_LAYERS) {
+  for (const id of routeDrawLayers()) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', routesOn ? 'visible' : 'none');
   }
   // Feature state doesn't survive setData, and a basemap switch rebuilds the
@@ -4234,6 +4265,10 @@ function repaintRouteColors() {
   map.setPaintProperty('route-line', 'line-opacity', routeLineOpacity());
   map.setPaintProperty('route-glow', 'line-color', routeGlowColor());
   map.setPaintProperty('route-glow', 'line-opacity', routeGlowOpacity());
+  // Its opacity never moves — only its colour, which follows the activity.
+  if (map.getLayer(ROUTE_GHOST_ID)) {
+    map.setPaintProperty(ROUTE_GHOST_ID, 'line-color', routeLineColor());
+  }
 }
 
 // --- Ctrl-paint: hold Ctrl and sweep the cursor to mark cells ----------------
@@ -5609,6 +5644,12 @@ async function switchEngine(key) {
     const view = {
       lng: c.lng, lat: c.lat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch(),
     };
+    // Leaving 3D lands flat. `createMap` already clamps 85° down to the 60° the
+    // other four allow, which is the arithmetic answer and the wrong one to look
+    // at: a lean is worth having over a city with buildings standing in it, and
+    // over CARTO Dark it is a foreshortened flat map with nothing up there to
+    // justify it. The camera is levelled rather than merely legalised.
+    if (next !== MAPBOX) view.pitch = 0;
     styleKey = key;
     try {
       localStorage.setItem(STYLE_KEY, key);
@@ -7107,6 +7148,21 @@ function installGrid() {
   // one can be widened through feature-state instead of a second layer.
   const beforeLabels = labelStart();
   map.addSource('routes', { type: 'geojson', data: EMPTY, promoteId: 'id' });
+  // Under both of the real ones, and only where there are buildings to hide
+  // behind — see ROUTE_GHOST_OPACITY.
+  if (engine === MAPBOX) {
+    map.addLayer({
+      id: ROUTE_GHOST_ID, type: 'line', source: 'routes',
+      layout: { ...lineLayout, visibility: routesOn ? 'visible' : 'none' },
+      paint: {
+        'line-color': routeLineColor(),
+        // Flat, and that is the whole reason this layer exists.
+        'line-opacity': ROUTE_GHOST_OPACITY,
+        'line-occlusion-opacity': 1,
+        'line-width': routeWidth(1),
+      },
+    }, beforeLabels);
+  }
   map.addLayer({
     id: 'route-glow', type: 'line', source: 'routes',
     layout: { ...lineLayout, visibility: routesOn ? 'visible' : 'none' },
@@ -7115,7 +7171,6 @@ function installGrid() {
       'line-opacity': routeGlowOpacity(),
       'line-width': routeWidth(glowScale()),
       'line-blur': glowBlur(),
-      ...throughBuildings(),
     },
   }, beforeLabels);
   map.addLayer({
@@ -7125,7 +7180,6 @@ function installGrid() {
       'line-color': routeLineColor(),
       'line-opacity': routeLineOpacity(),
       'line-width': routeWidth(1),
-      ...throughBuildings(),
     },
   }, beforeLabels);
 

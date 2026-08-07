@@ -2843,13 +2843,30 @@ STYLES entry now does, and it is much gentler for it: `[1.15, 0.02]` by day,
 **Two things a route needs that only this basemap can give it.** Its glow is
 wider and softer here — `ROUTE_GLOW_SCALE_3D`, `ROUTE_GLOW_BLUR_3D` — because
 Standard puts the line in a lit scene with texture and shadow under it, and the
-halo that reads as *drawn on* a flat basemap disappears into that one. And
-`line-occlusion-opacity` is set to 0.4: a line is drawn on the ground, so a
-tower between it and the camera hides it completely, and on a leaning 3D map a
-walk through a city becomes a dotted line of the gaps between blocks. Not 1,
-which would put the route in front of the city and throw away the depth that
-makes the basemap worth having — enough to follow a line through a block and
-know that it continues.
+halo that reads as *drawn on* a flat basemap disappears into that one. And a route behind a
+building is dimmed rather than gone — which took two goes and a line of the
+style spec.
+
+`line-occlusion-opacity` is Mapbox's property for it: the opacity of the part of
+a line that is behind something. Setting it on the two route layers did nothing
+at all, and the reason is one sentence in the spec — *"not supported when
+`line-opacity` has data-driven styling"*. Both have exactly that:
+`routeLineOpacity()` scales by the activity's own alpha, and the glow's asks
+whether the route is the selected one. The property was accepted, read back
+correctly, and silently ignored.
+
+So there is a **third route layer on this basemap only**, `route-ghost`: the same
+geometry and the same per-activity colour — colour may be data-driven, only
+opacity may not — at a flat 0.45, with `line-occlusion-opacity: 1` so the part
+behind a building draws at the same strength as the part in front. It sits under
+both real layers, so on open ground they cover it entirely and it is invisible as
+anything of its own; behind a block it is all that is left. Deliberately faint: a
+route drawn through a city at full strength puts the walk in front of the
+buildings and throws away the depth that makes this basemap worth having.
+
+It is not among `ROUTE_LAYERS`, which is what a click is tested against — the
+ghost is the part of a route you can see *through a wall*, and a click that
+landed on the wall should be about the wall.
 
 One trap, and it cost a round of "why is nothing changing": `syncAccent()`
 returns early when the accent hex has not changed, which is exactly what happens

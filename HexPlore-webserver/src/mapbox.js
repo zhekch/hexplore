@@ -95,6 +95,12 @@ const DEFAULT_PRESET = 'day';
 // and stop reading as a scatter of buttons.
 const POI_BACKGROUND = 'none';
 
+// Off. Standard labels every tram stop and bus stop it has, and in a city with a
+// dense network that is the same three or four names repeated across the screen
+// — "Zytglogge" five times over one junction in Bern. The stop icons stay; it is
+// the words that were the noise.
+const SHOW_TRANSIT_LABELS = false;
+
 const TOKEN_KEY = 'visited-map:mapbox-token:v1';
 const PRESET_KEY = 'visited-map:mapbox-light:v1';
 
@@ -227,6 +233,7 @@ export function configureStandard(map) {
   try {
     map.setConfigProperty(BASEMAP_IMPORT, 'lightPreset', lightPreset());
     map.setConfigProperty(BASEMAP_IMPORT, 'backgroundPointOfInterestLabels', POI_BACKGROUND);
+    map.setConfigProperty(BASEMAP_IMPORT, 'showTransitLabels', SHOW_TRANSIT_LABELS);
   } catch {
     // A style that is not Standard has no such import. Not worth failing over:
     // the map is already drawn and none of this decides whether it draws.
