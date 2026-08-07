@@ -46,20 +46,33 @@
             <div class="menu-heading">
               <span>Appearance</span>
             </div>
-            <!-- Five now, so it wraps onto two rows like the heat modes rather
-                 than squeezing five labels into one.
+            <!-- Five, laid out 3-2 rather than left to wrap. Wrapping put four
+                 on the first row and stranded 3D alone on the second, which
+                 reads as an afterthought rather than as a choice; the grid in
+                 style.css splits them evenly instead.
 
                  3D is last and is the only one that can fail to be available:
                  it is Mapbox's, it needs the viewer's own token, and without
                  one it opens the dialog that asks for it instead of switching
                  basemap. main.js marks it `needs-token` while that is true. -->
-            <div class="seg seg-wrap" id="style-seg">
+            <div class="seg seg-split" id="style-seg">
               <button type="button" class="seg-btn" data-style="dark">Dark</button>
               <button type="button" class="seg-btn" data-style="terrain">Terrain</button>
               <button type="button" class="seg-btn" data-style="voyager">Light</button>
               <button type="button" class="seg-btn" data-style="satellite">Satellite</button>
               <button type="button" class="seg-btn" data-style="mapbox">3D</button>
             </div>
+
+            <!-- Only while 3D is the basemap, because it is the only one that
+                 has a time of day: it is Standard's own light preset, and two
+                 of the four turn the whole map dark. Unhidden by main.js.
+
+                 The same control is in Settings beside the token, which is
+                 where you set it once; this is where you play with it, next to
+                 the basemap it belongs to and without leaving the map. Both
+                 rows are built from LIGHT_PRESETS. -->
+            <div class="menu-subhead" id="light-head" hidden><span>Time of day</span></div>
+            <div class="seg" id="light-seg" hidden></div>
 
             <div class="menu-subhead">
               <span>Detail</span>
@@ -935,9 +948,7 @@
 
           <div class="import-note">
             The token is kept on this device only and is never sent to the HexPlore server. Removing
-            it here takes it off this device; revoking it is done at Mapbox. Choosing <b>3D</b>, or
-            leaving it, reloads the page — it is drawn by a different map library, and the map comes
-            back where you left it.
+            it here takes it off this device; revoking it is done at Mapbox.
           </div>
         </div>
 

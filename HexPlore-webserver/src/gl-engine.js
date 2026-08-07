@@ -9,14 +9,12 @@
 // zero layers and a blank screen. There is no version of this where one library
 // draws all five.
 //
-// So the engine is **decided at boot, from the chosen basemap**, and switching
-// across the two families reloads the page. That is a real wart and it is the
-// cheap half of a trade: `main.js` builds its map at module scope and wires
-// twenty handlers around it inline, so swapping the engine in place means
-// tearing all of that down and standing it back up — the most expensive part of
-// the app to get wrong, for a transition that happens when somebody presses one
-// button. The page already restores its camera from localStorage on every load
-// (`savedView()`), so what you actually see is a flash and the same view back.
+// So the engine is **decided at boot, from the chosen basemap** — and changed
+// afterwards by rebuilding the map rather than by reloading the page. The
+// reload was the first answer and it was too slow to live with: it threw away
+// the session's cells, routes and boundaries and fetched them all again to
+// change which library was drawing. `switchEngine()` in main.js does it
+// properly, on the back of the `onMapBuilt` registry there.
 //
 // **Why not simply run Mapbox GL JS for everything** and delete this file: it is
 // proprietary since v2, and it is billed *per map load* rather than per tile —
@@ -95,7 +93,6 @@ export async function loadEngine(which) {
     // is every URL in Standard. Set before any Map is constructed; there is no
     // per-map option for it.
     gl.accessToken = mapboxToken();
-    mirrorControlClasses();
     loaded = { gl, engine: MAPBOX };
     return loaded;
   }
@@ -111,66 +108,25 @@ export async function loadEngine(which) {
 //
 // The two libraries build identical control DOM and name it differently:
 // `.maplibregl-ctrl-geolocate` against `.mapboxgl-ctrl-geolocate`, all the way
-// down. `src/style.css` restyles those controls fairly heavily — the geolocate
-// button is redrawn from scratch — and it does so through `:is()` pairs that
-// name both prefixes, which is why almost none of this file is needed.
+// down. That is answered in two places, and it is worth saying which does what.
 //
-// Almost. `:is()` handles every selector the app wrote; what it cannot handle is
-// the handful of places `main.js` reaches for a control **by class name** to
-// read its state — the geolocate button's three-state toggle is inspected with
-// `classList.contains('maplibregl-ctrl-geolocate-active')`, because MapLibre
-// publishes that state nowhere else. Rewriting those call sites to test both
-// prefixes would mean threading the engine through five functions that have no
-// other reason to know about it.
+// **Styling** is `style.css`, where every one of those selectors now names both
+// prefixes through an `:is()` pair. That costs nothing at runtime and cannot
+// drift, because there is still exactly one copy of each rule.
 //
-// So on Mapbox the control container is watched and every `mapboxgl-` class is
-// mirrored to its `maplibregl-` twin. The app then goes on asking the question
-// it has always asked, and this is the only file that knows there are two names
-// for everything.
+// **Reading and writing** is this function. `main.js` reaches for the geolocate
+// button by class in five places — MapLibre publishes its three-state toggle
+// nowhere else, so the state has to be read off the element and, in one case,
+// written back to it. Mirroring the names onto the element was tried first and
+// is worse in two ways that both bite: a `querySelector` running in the same
+// tick as `addControl` would not see a mirror delivered by a MutationObserver,
+// and `dropLockOnZoom` *removes* a state class, which a mirror would put
+// straight back because the library's own copy of it is still there.
 //
-// It is a no-op on MapLibre, where it is never called.
-const PREFIX = /\bmapboxgl-/;
-
-function mirrorOn(el) {
-  if (!(el instanceof Element)) return;
-  for (const name of [...el.classList]) {
-    if (!PREFIX.test(name)) continue;
-    const twin = name.replace('mapboxgl-', 'maplibregl-');
-    // Checked before adding: `classList.add` of a class already present writes
-    // nothing and so raises no mutation record, but the check is what makes
-    // that guarantee ours rather than the DOM's.
-    if (!el.classList.contains(twin)) el.classList.add(twin);
-  }
-}
-
-function mirrorTree(root) {
-  mirrorOn(root);
-  if (root instanceof Element) root.querySelectorAll('[class*="mapboxgl-"]').forEach(mirrorOn);
-}
-
-function mirrorControlClasses() {
-  const start = () => {
-    const container = document.getElementById('map');
-    if (!container) return;
-    mirrorTree(container);
-    new MutationObserver((records) => {
-      for (const record of records) {
-        if (record.type === 'attributes') mirrorOn(record.target);
-        else record.addedNodes.forEach(mirrorTree);
-      }
-    }).observe(container, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      // Only the attribute that carries the names. Without this filter the
-      // observer wakes on every `style` write MapLibre makes to the canvas
-      // during a gesture, which is a callback per frame for nothing.
-      attributeFilter: ['class'],
-    });
-  };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
-  else start();
-}
+// One library is live per page, so the prefix is simply a lookup — and what is
+// read and written is the name the library itself uses.
+export const ctrlClass = (suffix) =>
+  `${loaded?.engine === MAPBOX ? 'mapboxgl' : 'maplibregl'}-${suffix}`;
 
 // --- Where our layers go ------------------------------------------------------
 //

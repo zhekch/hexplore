@@ -653,8 +653,38 @@ body {
   padding: 3px;
 }
 
+/* `hidden` is only `display: none` at the bottom of the cascade, so any element
+   given a display of its own goes on showing while carrying the attribute. Both
+   of these have one, and both are hidden by hand — the time-of-day row exists
+   only while the 3D basemap is the one on the screen. */
+.seg[hidden],
+.menu-subhead[hidden] {
+  display: none;
+}
+
 .seg-wrap {
   flex-wrap: wrap;
+}
+
+/* Five choices split 3-2 rather than left to wrap.
+   `flex-wrap` fits as many as the row holds, which for the basemaps is four
+   and then one — and a lone button on a second row reads as an afterthought
+   rather than as one of five equal choices. Six columns is the smallest grid
+   that divides evenly into both: the first three take two each, the last two
+   take three each. */
+.seg-split {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+}
+
+.seg-split .seg-btn {
+  grid-column: span 2;
+}
+
+.seg-split .seg-btn:nth-child(4),
+.seg-split .seg-btn:nth-child(5) {
+  grid-column: span 3;
 }
 
 /* A segmented control following a row of its own (the coloring modes under

@@ -141,5 +141,8 @@ export function mountMapbox({ onClose, onToken, onPreset } = {}) {
     if (e.key === 'Escape' && !overlay.hidden) close();
   });
 
-  return { open, close };
+  // The layers menu carries the same four buttons, so a press there has to move
+  // these. Only the light row: the token field is not something the map can
+  // change under the person typing in it.
+  return { open, close, redraw: drawLight };
 }

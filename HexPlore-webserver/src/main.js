@@ -36,11 +36,12 @@ import {
 } from './coloring.js';
 import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
 import {
-  BASEMAP_IMPORT, STANDARD_STYLE, configureStandard, hasMapboxToken, presetTheme,
+  BASEMAP_IMPORT, LIGHT_PRESETS, STANDARD_STYLE, configureStandard, hasMapboxToken, lightPreset,
+  presetTheme, setLightPreset,
 } from './mapbox.js';
 import {
-  LABEL_SLOT_ID, MAPBOX, STYLE_KEY, WASH_SLOT_ID, engineForBasemap, engineNow,
-  installAddLayerSlots, isSlot,
+  LABEL_SLOT_ID, MAPBOX, STYLE_KEY, WASH_SLOT_ID, ctrlClass, engineForBasemap, engineNow,
+  installAddLayerSlots, isSlot, loadEngine,
 } from './gl-engine.js';
 // The theme is not handed over separately: it only ever changes by switching
 // basemap, which replaces the style and rebuilds the overlay from scratch.
@@ -703,7 +704,10 @@ presumeChrome();
 // awaits the library before importing it. Read synchronously here because the
 // whole of the rest of this file is written against `gl`, and a map built inside
 // a `.then()` would put seven thousand lines into a callback.
-const { gl, engine } = engineNow();
+// Both `let`, because switchEngine() replaces them: the library and the map
+// built from it change together, and everything below reads whichever pair is
+// current rather than the one this page opened on.
+let { gl, engine } = engineNow();
 // Standard is the only style MapLibre cannot draw, so if boot.js had to fall
 // back to it the basemap has to give up too — otherwise the map opens on a
 // placeholder background that never resolves into anything.
@@ -768,60 +772,104 @@ const tileColors = () =>
     : { fill: 'rgb(240, 246, 255)', line: 'rgb(235, 243, 255)' };
 
 // --- Map -----------------------------------------------------------------------
-const map = new gl.Map({
-  container: 'map',
-  // A built style can't be awaited here. Rather than load a *different* basemap
-  // and throw it away — a wasted fetch and a visible flash of the wrong map —
-  // the map comes up on a bare background in roughly the right colour, and the
-  // real style is set once it has been fetched and rewritten (see below).
-  style: STYLES[styleKey].url ?? placeholderStyle(STYLES[styleKey].theme),
-  center: initialView ? [initialView.lng, initialView.lat] : [15, 30],
-  zoom: initialView?.zoom ?? 2.2,
-  bearing: initialView?.bearing ?? 0,
-  pitch: Math.min(MAX_PITCH, initialView?.pitch ?? 0),
-  // Both stated rather than left to their defaults, because "the camera may not
-  // lean" has to be true of the gesture as well as of the camera: a
-  // right-button drag pitches as it rotates unless it is told not to.
-  maxPitch: MAX_PITCH,
-  pitchWithRotate: MAX_PITCH > 0,
-  // Two, not 1.8, and not the 1 this briefly was. MapLibre asks for tiles at
-  // floor(zoom), so anything below 2 is drawn on a basemap's z1 tiles, whose
-  // coastlines are generalised far coarser than our own — see CONTINENT_ZOOM,
-  // which is what gives the continent level room without going down there.
-  // The old 1.8 had the same problem and nobody had looked: it floors to 1 too.
-  minZoom: 2,
-  maxZoom: 17.5,
-  // Added by hand below so it can sit top-right, out of the geolocate button's
-  // corner.
-  attributionControl: false,
-  // Flat, and stated rather than assumed. Mapbox GL JS v3 draws a **globe**
-  // below about z6 unless told otherwise, and everything this app puts on the
-  // map is built for a rectangle of Mercator metres — `groundBox` in
-  // src/view.js is closed-form Mercator arithmetic, and the blob sheet is a
-  // canvas pinned to four lng/lat corners. On a globe the sheet would be
-  // stretched across a curved surface it was not painted for, at exactly the
-  // zooms where it covers a continent. MapLibre defaults to Mercator and
-  // accepts the same option, so this is said once for both.
-  projection: 'mercator',
-});
-// On Mapbox the two anchors this app inserts by — under the streets, under the
-// labels — are slots rather than layer ids, because Standard's layers live
-// inside an import and `getStyle().layers` comes back empty. One wrapper here
-// rather than a branch at each of the seventeen `addLayer` calls; see
-// src/gl-engine.js.
-if (engine === MAPBOX) installAddLayerSlots(map);
+//
+// The map is **rebuilt in place** when the basemap crosses between the two map
+// libraries — see switchEngine(). That is the whole reason for the shape of
+// what follows: a factory rather than one `new`, a `let` rather than a `const`,
+// and a registry rather than a run of statements.
+//
+// `onMapBuilt(fn)` runs `fn` now and remembers it. Everything below that has
+// something to say to a map object — a control to add, a handler to register, a
+// DOM element of the library's own to go looking for — says it inside one of
+// those, and `rewireMap()` says all of it again, in the same order, to a map
+// that has just replaced the last one. The order is the point: handlers for one
+// event fire in the order they were registered, and `installGrid` has to run
+// after the handler that sets `chromeStyleSeen`.
+//
+// The alternative was collecting three hundred lines into one function at the
+// bottom of the file, which would have moved every one of them away from the
+// comment that explains it.
+const mapWirers = [];
+let map = null;
+
+function onMapBuilt(fn) {
+  mapWirers.push(fn);
+  fn();
+}
+
+function rewireMap() {
+  for (const fn of mapWirers) fn();
+}
+
+/**
+ * @param {object|null} view where to point the camera, defaulting to the one
+ *   this visit opened on. A rebuild passes the camera the outgoing map had, so
+ *   swapping libraries does not also move the map.
+ */
+function createMap(view = initialView) {
+  return new gl.Map({
+    container: 'map',
+    // A built style can't be awaited here. Rather than load a *different* basemap
+    // and throw it away — a wasted fetch and a visible flash of the wrong map —
+    // the map comes up on a bare background in roughly the right colour, and the
+    // real style is set once it has been fetched and rewritten (see below).
+    style: STYLES[styleKey].url ?? placeholderStyle(STYLES[styleKey].theme),
+    center: view ? [view.lng, view.lat] : [15, 30],
+    zoom: view?.zoom ?? 2.2,
+    bearing: view?.bearing ?? 0,
+    pitch: Math.min(MAX_PITCH, view?.pitch ?? 0),
+    // Both stated rather than left to their defaults, because "the camera may not
+    // lean" has to be true of the gesture as well as of the camera: a
+    // right-button drag pitches as it rotates unless it is told not to.
+    maxPitch: MAX_PITCH,
+    pitchWithRotate: MAX_PITCH > 0,
+    // Two, not 1.8, and not the 1 this briefly was. MapLibre asks for tiles at
+    // floor(zoom), so anything below 2 is drawn on a basemap's z1 tiles, whose
+    // coastlines are generalised far coarser than our own — see CONTINENT_ZOOM,
+    // which is what gives the continent level room without going down there.
+    // The old 1.8 had the same problem and nobody had looked: it floors to 1 too.
+    minZoom: 2,
+    maxZoom: 17.5,
+    // Added by hand below so it can sit top-right, out of the geolocate button's
+    // corner.
+    attributionControl: false,
+    // Flat, and stated rather than assumed. Mapbox GL JS v3 draws a **globe**
+    // below about z6 unless told otherwise, and everything this app puts on the
+    // map is built for a rectangle of Mercator metres — `groundBox` in
+    // src/view.js is closed-form Mercator arithmetic, and the blob sheet is a
+    // canvas pinned to four lng/lat corners. On a globe the sheet would be
+    // stretched across a curved surface it was not painted for, at exactly the
+    // zooms where it covers a continent. MapLibre defaults to Mercator and
+    // accepts the same option, so this is said once for both.
+    projection: 'mercator',
+  });
+}
+
+/** Build the map and put the Mapbox-only `addLayer` wrapper on it. */
+function freshMap(view) {
+  const built = createMap(view);
+  // On Mapbox the two anchors this app inserts by — under the streets, under
+  // the labels — are slots rather than layer ids, because Standard's layers
+  // live inside an import and `getStyle().layers` comes back empty. One wrapper
+  // here rather than a branch at each of the seventeen `addLayer` calls; see
+  // src/gl-engine.js.
+  if (engine === MAPBOX) installAddLayerSlots(built);
+  return built;
+}
+
+map = freshMap();
 
 // The place names that title imported routes come from GeoNames, which is
 // CC BY 4.0 — the credit is required whether or not any route is on screen.
 // (Natural Earth, used for the country level and the lake names, is public
 // domain and asks for nothing.)
-map.addControl(
+onMapBuilt(() => map.addControl(
   new gl.AttributionControl({
     compact: true,
     customAttribution: '<a href="https://www.geonames.org/">GeoNames</a>',
   }),
   'top-right',
-);
+));
 // Right-button (or ctrl-) drag on a pointer, two fingers twisting on a touch
 // screen, shift-arrows on a keyboard. MapLibre enables all of these by default;
 // what this file used to do was turn them off.
@@ -830,33 +878,42 @@ map.addControl(
 // on the vertical axis of the turn gesture, and `touchPitch` is its two-finger
 // equivalent. Asked for by name rather than left to the default so that a
 // `MAX_PITCH` of 0 really does mean the camera cannot lean, by any route.
-if (!ROTATE_ENABLED) {
-  map.dragRotate.disable();
-  map.touchZoomRotate.disableRotation();
-}
-if (MAX_PITCH > 0) map.touchPitch?.enable();
-else map.touchPitch?.disable();
-window.map = map; // handy in devtools
+onMapBuilt(() => {
+  if (!ROTATE_ENABLED) {
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
+  }
+  if (MAX_PITCH > 0) map.touchPitch?.enable();
+  else map.touchPitch?.disable();
+  window.map = map; // handy in devtools
+});
 
 // Any user-initiated movement (or a geolocate flight) cancels the pending
 // IP fly-in.
 let userInteracted = false;
-map.on('movestart', (e) => {
+onMapBuilt(() => map.on('movestart', (e) => {
   if (e.originalEvent) userInteracted = true;
-});
+}));
 
 // "My location" button — browser geolocation (works on localhost; production
 // needs HTTPS). Clicking it pans to the viewer and shows the blue dot.
-const geolocate = new gl.GeolocateControl({
-  positionOptions: { enableHighAccuracy: true },
-  fitBoundsOptions: { maxZoom: 14 },
-  trackUserLocation: true,
-});
-// Where the browser last put you, so a second press can return there.
+//
+// Rebuilt with the map rather than handed to the new one: a control belongs to
+// the map that made its element, and that element goes with `map.remove()`.
+let geolocate = null;
+// Where the browser last put you, so a second press can return there. Survives
+// a rebuild, because where you are is not a fact about the map library.
 let lastFix = null;
-geolocate.on('geolocate', (e) => {
-  userInteracted = true;
-  if (Number.isFinite(e?.coords?.longitude)) lastFix = [e.coords.longitude, e.coords.latitude];
+onMapBuilt(() => {
+  geolocate = new gl.GeolocateControl({
+    positionOptions: { enableHighAccuracy: true },
+    fitBoundsOptions: { maxZoom: 14 },
+    trackUserLocation: true,
+  });
+  geolocate.on('geolocate', (e) => {
+    userInteracted = true;
+    if (Number.isFinite(e?.coords?.longitude)) lastFix = [e.coords.longitude, e.coords.latitude];
+  });
 });
 
 // MapLibre's tracking control is a three-state toggle: off → locked → (pan
@@ -867,14 +924,14 @@ geolocate.on('geolocate', (e) => {
 // Only the locked→off step is intercepted. Background→locked is MapLibre's
 // re-centre and is exactly right, so it is left alone.
 function keepGeolocateOn() {
-  const btn = document.querySelector('.maplibregl-ctrl-geolocate');
+  const btn = document.querySelector(`.${ctrlClass('ctrl-geolocate')}`);
   if (!btn || btn.dataset.stayPut) return;
   btn.dataset.stayPut = '1';
   btn.addEventListener(
     'click',
     (e) => {
-      const locked = btn.classList.contains('maplibregl-ctrl-geolocate-active')
-        && !btn.classList.contains('maplibregl-ctrl-geolocate-background');
+      const locked = btn.classList.contains(ctrlClass('ctrl-geolocate-active'))
+        && !btn.classList.contains(ctrlClass('ctrl-geolocate-background'));
       if (!locked) return; // first press, or re-centring from background
       e.stopPropagation();
       e.preventDefault();
@@ -899,23 +956,25 @@ function keepGeolocateOn() {
 // reaching inside the library, so it is read before it is written: a MapLibre
 // that has renamed it leaves the control alone rather than breaking the button.
 function dropLockOnZoom() {
-  const btn = document.querySelector('.maplibregl-ctrl-geolocate');
+  const btn = document.querySelector(`.${ctrlClass('ctrl-geolocate')}`);
   if (!btn) return;
   map.on('zoomstart', (e) => {
     // A gesture, not the control's own fly-to and not one of ours.
     if (!e.originalEvent || geolocate._watchState !== 'ACTIVE_LOCK') return;
     geolocate._watchState = 'BACKGROUND';
-    btn.classList.add('maplibregl-ctrl-geolocate-background');
-    btn.classList.remove('maplibregl-ctrl-geolocate-active');
+    btn.classList.add(ctrlClass('ctrl-geolocate-background'));
+    btn.classList.remove(ctrlClass('ctrl-geolocate-active'));
     geolocate.fire('trackuserlocationend');
     geolocate.fire('userlocationlostfocus');
   });
 }
 
 // Its own corner, so the attribution can have the top-right one to itself.
-map.addControl(geolocate, 'bottom-right');
-keepGeolocateOn();
-dropLockOnZoom();
+onMapBuilt(() => {
+  map.addControl(geolocate, 'bottom-right');
+  keepGeolocateOn();
+  dropLockOnZoom();
+});
 
 // --- The compass ---------------------------------------------------------------
 // Turning a map is easy to do by accident — a two-finger pinch that twists a
@@ -949,9 +1008,11 @@ compassBtn?.addEventListener('click', () => {
   releaseCameraLock();
   map.easeTo({ bearing: 0, pitch: 0, duration: 400 });
 });
-map.on('rotate', refreshCompass);
-map.on('pitch', refreshCompass);
-refreshCompass();
+onMapBuilt(() => {
+  map.on('rotate', refreshCompass);
+  map.on('pitch', refreshCompass);
+  refreshCompass();
+});
 
 // Show the dot without being asked.
 //
@@ -971,19 +1032,24 @@ refreshCompass();
 // that is the end of it. And it does not fight you: the first fix moves the
 // camera, but `userInteracted` is set by any pan or zoom before then, and the
 // tracking control drops to background the moment you move the map yourself.
-map.on('load', () => {
+// Only ever once per visit, which is why the flag is not inside the handler's
+// own scope: a rebuilt map fires `load` again, and re-triggering would fly the
+// camera back to your street in the middle of a basemap switch.
+let geolocateTriggered = false;
+onMapBuilt(() => map.on('load', () => {
   // A permission already granted resolves without a prompt; one still
   // undetermined shows the browser's own, which is the same dialog the button
   // would have raised. On iOS the app has usually settled this at launch
   // already — see WebViewController.requestLocationIfNeeded.
-  if (!navigator.geolocation) return;
+  if (!navigator.geolocation || geolocateTriggered) return;
+  geolocateTriggered = true;
   try {
     geolocate.trigger();
   } catch {
     // Triggering before the control has finished setting itself up throws
     // rather than warning. Nothing here is worth an unhandled error at boot.
   }
-});
+}));
 
 // On a phone that corner is where the layers button lives too, and two glass
 // pills stacked a gap apart read as clutter. Below the same breakpoint the
@@ -991,8 +1057,10 @@ map.on('load', () => {
 // so the two share one container; above it, put it back in the map's corner.
 // The control doesn't care where its element sits — it talks to the map, not
 // to its parent.
-const geoGroup = document.querySelector('.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group');
-const geoCorner = geoGroup?.parentElement ?? null;
+// Found again on every build rather than held: these are the map library's own
+// elements, and `map.remove()` takes them with it.
+let geoGroup = null;
+let geoCorner = null;
 const layersCluster = document.getElementById('layers-cluster');
 const phoneMq = window.matchMedia('(max-width: 560px)');
 
@@ -1002,18 +1070,22 @@ function placeGeolocate() {
   if (geoGroup.parentElement !== host) host.append(geoGroup);
 }
 phoneMq.addEventListener('change', placeGeolocate);
-placeGeolocate();
+onMapBuilt(() => {
+  geoGroup = document.querySelector(`.${ctrlClass('ctrl-bottom-right')} .${ctrlClass('ctrl-group')}`);
+  geoCorner = geoGroup?.parentElement ?? null;
+  placeGeolocate();
+});
 
 // Persist the camera so the next visit can resume where you left off
 // (only used when REMEMBER_VIEW is on).
 // The chrome's contrast is read inside a render, because that is the only
 // moment the drawing buffer is valid — see readChromeLuminance. Panning changes
 // what is underneath; so does a new basemap, and so does opening the menu.
-map.on('render', () => {
+onMapBuilt(() => map.on('render', () => {
   if (!chromeDue) return;
   chromeDue = false;
   applyChromeContrast();
-});
+}));
 
 // A reading taken the moment the basemap changes is a reading of the *old*
 // basemap: `styledata` fires while the new one is still tiles-in-flight, so
@@ -1030,14 +1102,14 @@ const askChromeAgain = () => {
   chromeSettleDue = true;
   refreshChrome();
 };
-map.on('styledata', askChromeAgain);
+onMapBuilt(() => map.on('styledata', askChromeAgain));
 // Which basemap the presumption is about. Reset by presumeChrome and set here,
 // so an idle that lands in the gap before a chosen style has even been fetched
 // cannot be mistaken for the chosen style having been drawn.
-map.on('style.load', () => {
+onMapBuilt(() => map.on('style.load', () => {
   chromeStyleSeen = true;
-});
-map.on('idle', () => {
+}));
+onMapBuilt(() => map.on('idle', () => {
   // Idle means every tile that was coming has come, so the basemap the chrome
   // presumed about is the one on screen and a reading may finally argue with
   // its declaration. Until then applyChromeContrast leaves the guess alone.
@@ -1049,7 +1121,7 @@ map.on('idle', () => {
   if (!chromeSettleDue) return;
   chromeSettleDue = false;
   refreshChrome();
-});
+}));
 
 /**
  * Write the camera down, so the next load opens where this one left off.
@@ -1079,17 +1151,17 @@ function rememberView() {
   }
 }
 
-map.on('moveend', () => {
+onMapBuilt(() => map.on('moveend', () => {
   askChromeAgain();
   rememberView();
-});
+}));
 
 // Tracks whether the basemap has become visible yet — before that, the
 // IP landing can be instant (no animation on a blank screen).
 let mapShown = false;
-map.once('load', () => {
+onMapBuilt(() => map.once('load', () => {
   mapShown = true;
-});
+}));
 
 // First visit: aim the camera at the viewer's approximate location. The
 // lookup runs in the browser (the API sees the viewer's public IP), so it
@@ -1292,7 +1364,9 @@ const heatMetricNow = () => heatMetric(heatMode);
 // keeps the vector path — those are real borders, not cells — and so does any
 // browser without canvas filters.
 const BLOBS = blobsSupported();
-const blobCur = createBlobLayer(map, 'blob');
+// The one module in the app that holds the map it was made for, so a rebuild
+// makes a new one. Nothing is lost that installGrid does not repaint.
+let blobCur = createBlobLayer(map, 'blob');
 // Which side of a transition the blob canvas is on. Hex→hex level changes
 // dissolve inside the canvas itself, so the layer just sits at full opacity
 // ('none'); only a crossing to or from the vector country level makes the
@@ -3395,9 +3469,9 @@ function showRouteInfo(route) {
 // to its background state — the blue dot stays and keeps updating, only the
 // camera is let go.
 function releaseCameraLock() {
-  const btn = document.querySelector('.maplibregl-ctrl-geolocate');
-  const locked = btn?.classList.contains('maplibregl-ctrl-geolocate-active')
-    && !btn.classList.contains('maplibregl-ctrl-geolocate-background');
+  const btn = document.querySelector(`.${ctrlClass('ctrl-geolocate')}`);
+  const locked = btn?.classList.contains(ctrlClass('ctrl-geolocate-active'))
+    && !btn.classList.contains(ctrlClass('ctrl-geolocate-background'));
   if (!locked) return;
   // Stopped first, because that guard is "is the camera moving right now" and
   // the answer is yes for a good while after the last flight — measured at
@@ -5286,22 +5360,13 @@ function setStyleKey(key) {
     mapboxUi?.open();
     return;
   }
-  // Crossing between the two map libraries, which cannot be done to a map that
-  // already exists — so the page is reloaded and the engine chosen again at
-  // boot. The camera is written down first and read back on the way up, so what
-  // this actually looks like is a flash and the same view returning. See
-  // src/gl-engine.js for why the alternative was not worth its price.
+  // Crossing between the two map libraries, which no `setStyle` can do: the map
+  // object itself has to be replaced. Everything else about the switch — the
+  // key, the chrome, the UI — is the same as any other, so switchEngine() does
+  // only the replacing and this function goes on being the one place a basemap
+  // changes.
   if (engineOf(key) !== engine) {
-    try {
-      localStorage.setItem(STYLE_KEY, key);
-    } catch {
-      // Without storage the reload would come back on the old basemap, which is
-      // a switch that visibly does nothing. Better to stay put and say why.
-      showToast('This browser will not remember the basemap, so 3D cannot be opened.');
-      return;
-    }
-    rememberView();
-    location.reload();
+    switchEngine(key);
     return;
   }
   styleKey = key;
@@ -5327,6 +5392,92 @@ function setStyleKey(key) {
   Promise.all([resolveStyle(key), styleSettled()]).then(([style]) => {
     if (style && styleKey === key) swapStyle(style);
   });
+}
+
+// A switch is in flight. Two presses in quick succession — 3D, then Light
+// before the first has finished — would otherwise tear down a map the first one
+// is still standing up.
+let switching = false;
+
+/**
+ * Change basemap *and* map library, by replacing the map rather than the page.
+ *
+ * The page reload this replaces was correct and much too slow: it threw away
+ * the session's cells, routes, boundaries and photographs and fetched every one
+ * of them again, to change which library was drawing the ground underneath.
+ * Nothing above the basemap needed to move.
+ *
+ * What makes it possible is `onMapBuilt` — everything this file has to say to a
+ * map object is remembered as it is said, so it can be said again to the next
+ * one. What makes it *safe* is that `installGrid` already rebuilds every layer
+ * this app draws on `style.load`, because an ordinary basemap switch has always
+ * dropped them; a new map fires that event exactly as a new style does, so the
+ * restoring path is the one that has been exercised on every switch since.
+ *
+ * The order matters in one respect: the library is fetched **before** anything
+ * is torn down, so a failed download leaves the map that is on screen alone.
+ */
+async function switchEngine(key) {
+  if (switching) return;
+  switching = true;
+  setMenuOpen(false);
+  try {
+    const next = engineOf(key);
+    let loadedGl;
+    try {
+      ({ gl: loadedGl } = await loadEngine(next));
+    } catch (e) {
+      console.warn(`Map engine "${next}" could not be loaded.`, e);
+      showToast('The 3D map library could not be loaded. Check the connection.');
+      return;
+    }
+
+    // From here the old map is going. Everything that has to survive is read
+    // off it first.
+    const c = map.getCenter();
+    const view = {
+      lng: c.lng, lat: c.lat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch(),
+    };
+    styleKey = key;
+    try {
+      localStorage.setItem(STYLE_KEY, key);
+    } catch {
+      /* the basemap simply will not be remembered next visit */
+    }
+    // Before the fetch, not after: the wash on screen belongs to the basemap
+    // being left, and on a switch into 3D at night the whole map changes tone.
+    presumeChrome();
+    syncAccent();
+    styleReady = false;
+    styleParsed = false;
+    updateLayersUi();
+
+    // Popups hold the map that made them, and their elements are inside the
+    // container about to be emptied.
+    airportPopup?.remove();
+    railPopup?.remove();
+    airportPopup = null;
+    railPopup = null;
+    // Everything the map owns: its canvas, its controls, its sources, its
+    // handlers. Ours go with them, which is why they are all replayable.
+    map.remove();
+
+    gl = loadedGl;
+    engine = next;
+    map = freshMap(view);
+    // Holds the map it was made for, so it cannot outlive one — see its
+    // declaration. The sheet it had is dropped and installGrid repaints it.
+    blobCur = createBlobLayer(map, 'blob');
+    rewireMap();
+    // A basemap that needs building is fetched and applied the same way it is
+    // for any other switch. Standard is a URL, so this is usually a no-op.
+    if (STYLES[key].build) {
+      const style = await resolveStyle(key);
+      if (style && styleKey === key) swapStyle(style);
+    }
+  } finally {
+    switching = false;
+  }
 }
 
 function setRail(on) {
@@ -5962,8 +6113,64 @@ function updateMapboxNote() {
   if (note) note.textContent = hasMapboxToken() ? 'Mapbox token saved on this device' : 'Needs a Mapbox token';
 }
 
+// The time-of-day row under the basemap picker, which exists only while 3D is
+// the basemap: it is Standard's own light preset, and no other basemap has a
+// sun to move. Built once from LIGHT_PRESETS — the same list the Settings copy
+// is built from — and shown or hidden by updateLayersUi().
+const lightHead = document.getElementById('light-head');
+const lightSeg = document.getElementById('light-seg');
+
+function buildLightRow() {
+  if (!lightSeg) return;
+  lightSeg.replaceChildren(...LIGHT_PRESETS.map((preset) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'seg-btn';
+    btn.dataset.light = preset.key;
+    btn.textContent = preset.label;
+    btn.addEventListener('click', () => setLightPresetNow(preset.key));
+    return btn;
+  }));
+}
+buildLightRow();
+
+/**
+ * Move the sun, and everything that follows from where it is.
+ *
+ * Shared by the two places that can ask — this row and the Settings dialog —
+ * because dusk and night turn the whole map dark, and the chrome, the visited
+ * wash and the routes all have to be told.
+ */
+function setLightPresetNow(key) {
+  setLightPreset(key);
+  if (engine === MAPBOX && styleKey === 'mapbox') {
+    try {
+      map.setConfigProperty(BASEMAP_IMPORT, 'lightPreset', key);
+    } catch (e) {
+      console.warn('Mapbox light preset could not be applied.', e);
+    }
+    presumeChrome();
+    syncAccent();
+  }
+  updateLayersUi();
+  mapboxUi?.redraw();
+}
+
 function updateLayersUi() {
   updateMapboxNote();
+  if (lightSeg && lightHead) {
+    // Hidden rather than disabled on the other four: a control for a thing that
+    // is not on the map is not a control, it is a question nobody asked.
+    const on = styleKey === 'mapbox';
+    lightHead.hidden = !on;
+    lightSeg.hidden = !on;
+    if (on) {
+      const now = lightPreset();
+      for (const btn of lightSeg.querySelectorAll('[data-light]')) {
+        btn.classList.toggle('active', btn.dataset.light === now);
+      }
+    }
+  }
   for (const btn of layersMenu.querySelectorAll('[data-style]')) {
     btn.classList.toggle('active', btn.dataset.style === styleKey);
     // Dimmed while it has no token, so the one basemap that can be unavailable
@@ -6425,9 +6632,9 @@ function stopRailDetailPolling() {
 }
 
 // Every tile MapLibre could not load says which source it belonged to.
-map.on('error', (e) => {
+onMapBuilt(() => map.on('error', (e) => {
   if (String(e?.sourceId ?? '').startsWith('hexplore-orm-')) noteRailTileFailure();
-});
+}));
 
 // Where the basemap's labels begin — the layer to sit *under* if you want to be
 // above every road, water and boundary but still let the place names win.
@@ -6800,7 +7007,7 @@ function installGrid() {
 
 // 'style.load' fires as soon as the style JSON is ready — before every tile —
 // and again after each setStyle().
-map.on('style.load', installGrid);
+onMapBuilt(() => map.on('style.load', installGrid));
 
 // The saved basemap may be one that has to be built (fetched and recoloured),
 // which the constructor above could not wait for.
@@ -7183,23 +7390,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // has to be moved off it — which, from 3D, is a reload.
       if (!hasMapboxToken() && STYLES[styleKey]?.needsToken) setStyleKey('voyager');
     },
-    // Only the map that is actually Standard can be relit, and only while it is
-    // the one on screen. Chosen from any other basemap this is a preference
-    // being set for later, which is why nothing here complains about it.
-    onPreset: (key) => {
-      if (engine !== MAPBOX || styleKey !== 'mapbox') return;
-      try {
-        map.setConfigProperty(BASEMAP_IMPORT, 'lightPreset', key);
-      } catch (e) {
-        console.warn('Mapbox light preset could not be applied.', e);
-      }
-      // Dusk and night turn the whole map dark, and everything the app decides
-      // from a theme has to follow: the chrome, and how the wash and the routes
-      // are lifted for contrast against it.
-      presumeChrome();
-      syncAccent();
-      updateLayersUi();
-    },
+    // The dialog's copy of the light row hands over to the same applier the one
+    // in the layers menu uses — only the map that is actually Standard can be
+    // relit, and only while it is the one on screen. Chosen from any other
+    // basemap this is a preference being set for later.
+    onPreset: (key) => setLightPresetNow(key),
   });
   personalUi = mountPersonal({
     onClose: () => settings?.open(),

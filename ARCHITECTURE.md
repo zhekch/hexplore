@@ -2667,13 +2667,33 @@ every time the app opened to look at CARTO Dark it would spend one of Mapbox's
 it is the thing being looked at keeps both the licence and the meter where they
 belong.
 
-**Crossing between the two reloads the page.** That is the honest cost. `main.js`
-builds its map at module scope and wires twenty handlers around it inline, so
-swapping the engine in place means tearing all of that down and standing it back
-up — the most expensive part of the app to get wrong, for a transition that
-happens when somebody presses one button. `setStyleKey` writes the basemap and
-calls `rememberView()` before reloading, and the page restores its camera on the
-way up, so what you see is a flash and the same view returning.
+**Crossing between the two rebuilds the map, not the page.** Reloading was the
+first answer and it was too slow to live with: it threw away the session's
+cells, routes, boundaries and photographs and fetched every one of them again,
+to change which library was drawing the ground underneath. Nothing above the
+basemap needed to move.
+
+`switchEngine()` replaces the map object instead. What makes that possible is
+the **`onMapBuilt` registry**: everything main.js has to say to a map — a
+control to add, a handler to register, one of the library's own DOM elements to
+go looking for — is said inside `onMapBuilt(fn)`, which runs `fn` now and
+remembers it, and `rewireMap()` says all of it again to the next map in the same
+order. Order is load-bearing: handlers for one event fire in registration order,
+and `installGrid` has to run after the handler that sets `chromeStyleSeen`.
+
+What makes it *safe* is that `installGrid` already rebuilds every layer this app
+draws on `style.load`, because an ordinary basemap switch has always dropped
+them. A new map fires that event exactly as a new style does, so the restoring
+path is the one that has been exercised on every switch since the app had two
+basemaps.
+
+Three things the rebuild has to do by hand, each for its own reason. The
+library is fetched **before** anything is torn down, so a failed download leaves
+the map on screen alone. The popups are closed and forgotten, because they hold
+the map that made them and their elements live in the container about to be
+emptied. And `blobCur` is rebuilt, because `createBlobLayer(map, …)` is the one
+module in the app that captures a map — the painted sheet goes with it, and
+installGrid repaints it.
 
 `boot.js` exists for a smaller reason and it is worth stating, because the code
 looks like it wants to be one line shorter than it is. The library has to be in
@@ -2718,15 +2738,21 @@ Three smaller things Standard's opacity costs:
   corners. MapLibre defaults to Mercator and takes the same option, so it is said
   once for both.
 
-**The class-name prefix.** The two libraries build identical control DOM and name
-it differently, `.maplibregl-ctrl-geolocate` against `.mapboxgl-ctrl-geolocate`,
-and `style.css` restyles those controls heavily. Every selector in it now names
-both through `:is()` pairs, which costs nothing and cannot drift because there is
-still one copy of each rule. What `:is()` could not fix is the handful of places
-main.js reads a control's *state* by class name — MapLibre publishes the
-geolocate button's three-state toggle nowhere else — so on Mapbox a
-`MutationObserver` mirrors every `mapboxgl-` class to its `maplibregl-` twin, and
-the app goes on asking the question it has always asked.
+**The class-name prefix**, answered in two places. The libraries build identical
+control DOM and name it differently, `.maplibregl-ctrl-geolocate` against
+`.mapboxgl-ctrl-geolocate`. *Styling* is `style.css`, where every one of those
+selectors now names both prefixes through an `:is()` pair — no runtime cost, and
+it cannot drift because there is still one copy of each rule. *Reading and
+writing* is `ctrlClass()`, because main.js reaches for the geolocate button by
+class in five places: MapLibre publishes its three-state toggle nowhere else, so
+the state is read off the element and, in `dropLockOnZoom`, written back to it.
+
+Mirroring the names onto the element with a `MutationObserver` was tried first
+and is worse in two ways that both bite. A `querySelector` running in the same
+tick as `addControl` — which is every one of those five — would not see a mirror
+delivered as a microtask. And `dropLockOnZoom` *removes* a state class, which a
+mirror puts straight back, because the library's own copy of it is still there.
+One library is live per page, so the prefix is simply a lookup.
 
 **The token is the viewer's own**, kept in localStorage under
 `visited-map:mapbox-token:v1` and never sent to our server. A public token (`pk.`)
