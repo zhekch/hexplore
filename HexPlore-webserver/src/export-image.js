@@ -809,24 +809,67 @@ function addGeometry(path, geometry, cam) {
   const py = (y) => (cam.y0 - y) * cam.k;
 
   for (const poly of asMulti(geometry)) {
-    const rings = poly.map(unwrapRing);
-    let x0 = Infinity;
-    let x1 = -Infinity;
-    let y0 = Infinity;
-    let y1 = -Infinity;
-    for (const [lng, lat] of rings[0]) {
-      const x = mercX(lng);
-      const y = toMercY(lat);
-      if (x < x0) x0 = x;
-      if (x > x1) x1 = x;
-      if (y < y0) y0 = y;
-      if (y > y1) y1 = y;
+    // Sized before it is unwrapped, not after: the test below throws most
+    // shapes away, and `unwrapRing` would have copied every point of each one
+    // first. At world scale most of a country dataset is islets of a fraction
+    // of a pixel.
+    //
+    // And sized in degrees, projecting four numbers at the end rather than
+    // every point in order to compare it. `mercX` is a multiply, but `mercY` is
+    // a sine and an arctanh, and this pass runs over every point of every shape
+    // in the frame before a single one is drawn.
+    let lng0 = Infinity;
+    let lng1 = -Infinity;
+    let lat0 = Infinity;
+    let lat1 = -Infinity;
+    // Whether this ring is one of the few that wrap past ±180°, which is the
+    // only reason `unwrapRing` exists. Answered in the pass that is happening
+    // anyway, because the answer decides whether to copy the ring at all.
+    let crosses = false;
+    const outer = poly[0];
+    for (let i = 0; i < outer.length; i++) {
+      const lng = outer[i][0];
+      const lat = outer[i][1];
+      if (i > 0 && Math.abs(lng - outer[i - 1][0]) > 180) crosses = true;
+      if (lng < lng0) lng0 = lng;
+      if (lng > lng1) lng1 = lng;
+      if (lat < lat0) lat0 = lat;
+      if (lat > lat1) lat1 = lat;
     }
-    if (!Number.isFinite(x0)) continue;
+    if (!Number.isFinite(lng0)) continue;
+    // Both projections are monotonic in their argument, so the extremes of the
+    // ring are the extremes of its bounds.
+    let x0 = mercX(lng0);
+    let x1 = mercX(lng1);
+    const y0 = toMercY(lat0);
+    const y1 = toMercY(lat1);
     // Too small to be a shape on this canvas. At world scale most of a country
     // dataset is islets of a fraction of a pixel, and each is still a path.
-    if ((x1 - x0) * cam.k < MIN_RING_PX && (y1 - y0) * cam.k < MIN_RING_PX) continue;
+    // Skipped for a wrapping ring, whose raw bounds span the world and so say
+    // nothing about its size.
+    if (!crosses && (x1 - x0) * cam.k < MIN_RING_PX && (y1 - y0) * cam.k < MIN_RING_PX) continue;
+    // Unwrapping shifts longitude only, so this test is sound either way.
     if (y1 < view.yMin || y0 > view.yMax) continue;
+
+    // The copy, and only where the seam makes it necessary.
+    //
+    // `unwrapRing` allocates a fresh pair for every point it is handed, so at
+    // world scale with the borders on it was two allocations per point across a
+    // couple of hundred thousand of them, on every frame of a drag — which the
+    // collector then had to take back. Almost no ring on Earth crosses the
+    // antimeridian, and the ones that do are known by the time we get here, so
+    // everything else is read straight out of the dataset.
+    let rings = poly;
+    if (crosses) {
+      rings = poly.map(unwrapRing);
+      x0 = Infinity;
+      x1 = -Infinity;
+      for (const [lng] of rings[0]) {
+        const x = mercX(lng);
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+      }
+    }
 
     // **One copy, and only one.** The world repeats every WORLD metres, and a
     // map draws every repeat that reaches the screen — which is right for a map
@@ -840,14 +883,31 @@ function addGeometry(path, geometry, cam) {
     // seam-straddling frames included — there was only ever one candidate.
     const dx = Math.round(((view.xMin + view.xMax) / 2 - (x0 + x1) / 2) / WORLD) * WORLD;
     if (x1 + dx < view.xMin || x0 + dx > view.xMax) continue;
+    // How many points this shape can possibly show, and therefore how many are
+    // worth projecting. MIN_STEP_PX below already refuses to *draw* a step
+    // shorter than a third of a pixel, but it has to project a point to find
+    // that out — and the projection is the expensive half. A shape 80 px across
+    // cannot use the 6,000 points a national survey recorded for it however the
+    // line is drawn, so most of them are skipped before `mercY` ever sees them.
+    //
+    // Sized from the shape on this canvas, so it is the picture that decides:
+    // a poster gives every shape a budget larger than its point count and the
+    // stride comes out 1, which is the exported image untouched. It is the
+    // preview, a few hundred pixels across, that thins.
+    const spanPx = ((x1 - x0) + (y1 - y0)) * cam.k;
+    const budget = Math.max(64, spanPx * 2);
     for (const ring of rings) {
       if (ring.length < 3) continue;
+      const stride = Math.max(1, Math.floor(ring.length / budget));
       let lastX = px(mercX(ring[0][0]) + dx);
       let lastY = py(toMercY(ring[0][1]));
       path.moveTo(lastX, lastY);
-      for (let i = 1; i < ring.length; i++) {
-        const x = px(mercX(ring[i][0]) + dx);
-        const y = py(toMercY(ring[i][1]));
+      // The closing point is always taken, whatever the stride lands on, so a
+      // thinned ring still ends where it began.
+      for (let i = stride; i < ring.length; i += stride) {
+        const at = Math.min(i, ring.length - 1);
+        const x = px(mercX(ring[at][0]) + dx);
+        const y = py(toMercY(ring[at][1]));
         // Sub-pixel step: the line already goes here. See MIN_STEP_PX.
         if (Math.abs(x - lastX) < MIN_STEP_PX && Math.abs(y - lastY) < MIN_STEP_PX) continue;
         path.lineTo(x, y);
@@ -1423,8 +1483,36 @@ export function divisionGeoms(detail, cam) {
     if (w < e) reaches = (bb) => bb && bb[2] >= w && bb[0] <= e && bb[3] >= s && bb[1] <= n;
   }
 
+  // How big a thing is on this canvas, from its bbox alone — no geometry
+  // touched. A bbox that straddles the seam is taken as "big", which it is.
+  const sizePx = (bb) => {
+    if (!bb) return Infinity;
+    const w = Math.abs(mercX(bb[2]) - mercX(bb[0]));
+    const h = Math.abs(toMercY(bb[3]) - toMercY(bb[1]));
+    return Math.max(w, h) * cam.k;
+  };
+  // A *region* smaller than this is not a shape on this canvas, and its borders
+  // are not lines — they are a smear the size of the thing they enclose.
+  // Skipping it here rather than inside addGeometry is the point: that test runs
+  // after `unwrapRing` has already copied every point of every ring. At world
+  // scale nearly all 4,553 admin-1 units are this small, which is what made
+  // zooming the preview out with the borders on stop responding altogether.
+  //
+  // Only regions. A country under two pixels is Luxembourg, and a world map
+  // without Luxembourg's border is a world map with a mistake in it — the
+  // country level is the picture at that scale, where the admin-1 level is
+  // noise. There are 250 countries and 4,553 regions, so it is also not where
+  // the time goes.
+  const MIN_REGION_PX = 6;
+  // The overview geometry is simplified to about a kilometre, so it is worth
+  // reaching for the detailed set only once a kilometre is worth seeing. Same
+  // judgement REGION_FINE_ZOOM makes for the map, in the units a picture has.
+  const wantFine = 1000 * cam.k > 0.5;
+
   const countries = allCountries().filter((c) => reaches(c.bbox));
-  if (detail === 'country') return countries.map((c) => fineCountryGeometry(c.id) ?? c.geometry);
+  if (detail === 'country') {
+    return countries.map((c) => (wantFine && fineCountryGeometry(c.id)) || c.geometry);
+  }
 
   const out = [];
   for (const c of countries) {
@@ -1434,8 +1522,13 @@ export function divisionGeoms(detail, cam) {
     // around it — which reads as a gap in the data rather than as a country
     // that is one region.
     const regions = c.iso ? regionsOf(c.iso) : [];
-    if (!regions.length) out.push(fineCountryGeometry(c.id) ?? c.geometry);
-    else for (const r of regions) if (reaches(r.bbox)) out.push(regionGeometry(r.id, true) ?? r.geometry);
+    if (!regions.length) out.push((wantFine && fineCountryGeometry(c.id)) || c.geometry);
+    else {
+      for (const r of regions) {
+        if (!reaches(r.bbox) || sizePx(r.bbox) < MIN_REGION_PX) continue;
+        out.push(regionGeometry(r.id, wantFine) ?? r.geometry);
+      }
+    }
   }
   return out;
 }
