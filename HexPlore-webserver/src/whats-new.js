@@ -38,6 +38,8 @@
 // counted separately and reported unconditionally. The setting governs the
 // coverage numbers, which are the part that is genuinely ambient.
 
+import { activeLocale, hasKey, t } from './i18n.js';
+
 // --- Tuning -------------------------------------------------------------------
 //
 // What "substantial" means, for the middle setting. Any one of these is enough.
@@ -71,9 +73,9 @@ export const HEALTH_SOURCE = 'apple-health';
  * within a week, and `never` is for people who find the whole idea intrusive.
  */
 export const BANNER_MODES = [
-  { key: 'never', label: 'Never' },
-  { key: 'substantial', label: 'After substantial changes' },
-  { key: 'always', label: 'Always' },
+  { key: 'never', label: t('whatsNew.never') },
+  { key: 'substantial', label: t('whatsNew.substantial') },
+  { key: 'always', label: t('whatsNew.always') },
 ];
 
 const DEFAULT_MODE = 'substantial';
@@ -173,7 +175,27 @@ export function forgetSnapshot() {
 
 // --- The difference -------------------------------------------------------------
 
-const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+/**
+ * "3 new places", by key.
+ *
+ * Two keys per phrase rather than one with a `{count}` and a rule, because the
+ * rule is not the same everywhere: English has two forms, Russian has three and
+ * picks between them on the last digit, Japanese has one. `Intl.PluralRules`
+ * knows all of that, so the *category* comes from it and the strings come from
+ * the locale file — which is the only arrangement where adding a language
+ * cannot require changing this function.
+ *
+ * English only defines `one` and `other`; a language that needs `few` or `many`
+ * adds those keys and they are found here without any code moving.
+ */
+const plural = (n, stem) => {
+  const rules = new Intl.PluralRules(activeLocale());
+  const form = rules.select(n);
+  // `other` is the fallback for a category this locale file has not filled in,
+  // and it is the one every language is guaranteed to define.
+  const key = hasKey(`${stem}.${form}`) ? `${stem}.${form}` : `${stem}.other`;
+  return t(key, { count: n.toLocaleString(activeLocale()) });
+};
 
 /**
  * What has changed between two snapshots.
@@ -209,14 +231,14 @@ export function changesSince(before, after) {
   const lines = [];
   // Ordered by how much a person would care, which is not the order they are
   // computed in: a new country is the headline of any week it happens in.
-  if (countries) lines.push(plural(countries, 'new country', 'new countries'));
-  if (regions) lines.push(plural(regions, 'new region', 'new regions'));
-  if (cells) lines.push(plural(cells, 'new place', 'new places'));
+  if (countries) lines.push(plural(countries, 'whatsNew.countries'));
+  if (regions) lines.push(plural(regions, 'whatsNew.regions'));
+  if (cells) lines.push(plural(cells, 'whatsNew.places'));
   // Rounded to whole kilometres: the coverage sweep answers in fractions and a
   // banner reading "+412.7 km²" claims a precision the cell grid does not have.
-  if (km2 >= 1) lines.push(`${Math.round(km2).toLocaleString()} km² more ground`);
-  if (streak) lines.push(`a ${after.streakDays}-day streak, your longest yet`);
-  else if (days) lines.push(plural(days, 'new day recorded', 'new days recorded'));
+  if (km2 >= 1) lines.push(t('whatsNew.ground', { km: Math.round(km2).toLocaleString(activeLocale()) }));
+  if (streak) lines.push(t('whatsNew.streak', { days: after.streakDays }));
+  else if (days) lines.push(plural(days, 'whatsNew.days'));
 
   const substantial = countries >= SUBSTANTIAL_AREAS
     || regions >= SUBSTANTIAL_AREAS
@@ -249,23 +271,38 @@ export function bannerFor(change, mode) {
   // The workout is the headline when there is one: it is the change that came
   // from something the person did, and the coverage is the consequence of it.
   const title = hasWorkouts
-    ? `${plural(change.workouts, 'new workout', 'new workouts')} from Apple Health`
-    : 'Your map has grown';
+    ? plural(change.workouts, 'whatsNew.workouts')
+    : t('whatsNew.title');
 
   // With a workout headline the coverage becomes the supporting detail — but
   // only if the setting asked for it. A person on `never` who has just been
   // for a ride gets the workout and nothing else, which is what `never` means.
-  const detail = wantsStats
-    ? sentence(change.lines)
-    : 'On the map now, with the ground it covered.';
+  const detail = wantsStats ? sentence(change.lines) : t('whatsNew.workouts.detail');
 
   return { show: true, title, detail };
 }
 
-/** "a, b and c" — an Oxford-comma-free list, because it is a caption. */
+/**
+ * "a, b and c".
+ *
+ * Both joiners come from the locale rather than being punctuation in the code:
+ * the separator carries its own spacing (a French locale wants a space before
+ * some marks, a Chinese one wants a different comma entirely) and the final
+ * conjunction is a word.
+ */
 function sentence(parts) {
   if (parts.length === 1) return capitalise(parts[0]);
-  return capitalise(`${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`);
+  const head = parts.slice(0, -1).join(t('whatsNew.listSeparator'));
+  return capitalise(`${head}${t('whatsNew.listAnd')}${parts.at(-1)}`);
 }
 
-const capitalise = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+/**
+ * Upper-case the first letter, in the locale's own way.
+ *
+ * `toLocaleUpperCase` rather than `toUpperCase` because Turkish disagrees about
+ * what the capital of `i` is, and getting that wrong is the canonical example
+ * of a program that assumed everybody's alphabet was its own. Languages with no
+ * case at all are unaffected: it returns the character it was given.
+ */
+const capitalise = (s) =>
+  (s ? s[0].toLocaleUpperCase(activeLocale()) + s.slice(1) : s);

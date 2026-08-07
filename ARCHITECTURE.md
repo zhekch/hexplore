@@ -2152,6 +2152,101 @@ than last, and that a trip marks every day of its span in the calendar including
 the silent ones. `scripts/test/stats.mjs` runs the same naming case against the
 real datasets.
 
+## Language
+
+`src/i18n.js` holds the machinery, `src/locales/en.js` holds English, and
+English is both the source language and the fallback every other one is measured
+against.
+
+### `t()` is synchronous, and `src/boot.js` is why it can be
+
+A great many strings in this app live in module-level constants — the palette
+labels in `src/export-image.js`, the source names in `src/locations.js`, the
+cadence titles, the caption fields. Those are evaluated the moment their module
+is imported, long before any promise could resolve. So either every one of them
+becomes a lazy `labelKey` read at render time — a very large refactor of code
+that is not otherwise wrong — or `t()` answers immediately.
+
+It answers immediately. `src/boot.js` already exists to `await` something before
+importing `main.js`: the map library, because Safari 14 has no top-level await
+and `main.js` builds its map at module scope. The locale is awaited in the same
+place, by the same trick, in parallel with the library — a few kilobytes against
+a megabyte, so it costs nothing. By the time any other module is evaluated the
+strings are in hand, and nothing else in the app has to know this happened.
+
+**Changing language therefore reloads the page**, for the same reason: a
+constant read at import time cannot be re-read. Half the app in the new language
+and half in the old is worse than a reload, and there is precedent a few files
+over — switching to a basemap that needs the other map library reloads too, and
+for the same underlying reason, which is that some decisions are made before the
+app runs.
+
+### Five ways to key a string in markup
+
+`data-i18n` sets an element's text; `data-i18n-placeholder`,
+`data-i18n-aria-label` and `data-i18n-title` set the attributes a string can
+hide in. The fifth earns its existence: **`data-i18n-text` writes only the first
+text node**, leaving element children alone.
+
+Most rows here are shaped `<span>Clock<small>Times follow this
+device</small></span>` — a label and its own note in one element — and
+`textContent` on that would delete the note. The obvious alternative is to wrap
+the label in a `<span>`, and that breaks the layout: `.import-row span` is a flex
+column, so a nested span inherits the rule and stacks the label's own letters.
+Writing the text node in place changes nothing about the tree.
+
+Everything is set with `textContent` and `nodeValue`, never `innerHTML`. A
+translation is a string in a file, a file can be edited by somebody who is not
+thinking about script tags, and nothing here needs markup.
+
+### The keys were generated, and that is the point
+
+`<where>.<what>`, where *where* is the nearest enclosing element with an id and
+*what* is a slug of the English text. Not elegant; the property that matters is
+that a key can be found from the string on screen *and* from the markup that
+holds it, with no lookup table in between. They were extracted from the markup
+mechanically because 391 hand-written keys is 391 chances to file one under the
+wrong dialog — and the extraction was verified by stripping the added attributes
+back out and checking the result matched the original byte for byte.
+
+### Plurals come from `Intl`, not from a rule in the code
+
+Two keys per phrase — `whatsNew.places.one`, `whatsNew.places.other` — with the
+*category* chosen by `Intl.PluralRules` for the active locale. English has two
+forms, Russian has three and picks on the last digit, Japanese has one. A
+language needing `few` or `many` adds those keys and they are found without any
+code moving; a missing category falls back to `other`, which every language
+defines.
+
+For the same reason `{name}` placeholders are named rather than positional: a
+count and its noun do not come in the same order in every language, and a `%s`
+that has to stay put is a sentence the translation cannot fix. Even the list
+joiner is a string — a French locale wants different spacing and a Chinese one a
+different comma.
+
+### What the test enforces
+
+`scripts/test/i18n.mjs` is what makes this safe to extend, because keys are
+referred to by name from two places no compiler checks. It fails on markup asking
+for a key nobody defined, on a key defined and no longer used, on a translation
+defining keys English has dropped, and on a `{placeholder}` that survives in
+English and not in a translation. The last two are vacuous while English is the
+only file — written now so the first translation to land is checked by a test
+that already existed, rather than by somebody noticing a raw key in a screenshot.
+
+A missing key renders as the key itself. That is deliberate: a key on screen is a
+bug and should look like one.
+
+### Where it is not done yet
+
+The markup is fully keyed. The strings still written in JavaScript — the route
+sport names, the import messages, the statistics panel's labels — are not, and
+they are the larger half. The machinery and the guard are in place, so each is a
+mechanical change: move the string into `src/locales/en.js`, call `t()`, and the
+test says whether anything was missed. **A language picker is only offered when
+more than one locale exists**, so nothing claims to be translated while that is
+still true.
+
 ## What changed while you were not looking
 
 `src/whats-new.js` is the arithmetic; `src/whats-new-ui.js` is the banner.

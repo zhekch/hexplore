@@ -57,7 +57,7 @@
          that is always on screen — the search and menu buttons below — stays in
          the markup unhidden, so it paints once and never moves. -->
     <div class="hud" id="hud" hidden>
-      <button class="hud-pencil" id="hud-pencil" type="button" aria-label="Edit visited areas" title="Edit visited areas">
+      <button data-i18n-title="hud-pencil.edit-visited-areas" data-i18n-aria-label="hud-pencil.edit-visited-areas" class="hud-pencil" id="hud-pencil" type="button" aria-label="Edit visited areas" title="Edit visited areas">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12 20h9" />
           <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
@@ -65,13 +65,13 @@
       </button>
       <div class="hud-panel" id="hud-panel" hidden>
         <div class="hud-title-row">
-          <div class="hud-title">Visited&nbsp;Map</div>
-          <button class="hud-done" id="hud-done" type="button">Done</button>
+          <div data-i18n="hud.visited-map" class="hud-title">Visited&nbsp;Map</div>
+          <button data-i18n="hud-done.done" class="hud-done" id="hud-done" type="button">Done</button>
         </div>
-        <div class="hud-row"><span>Cell size</span><b id="hud-size">–</b></div>
-        <div class="hud-row"><span>Level</span><b id="hud-res">–</b></div>
-        <div class="hud-row"><span>Visited</span><b id="hud-visited">0</b></div>
-        <div class="hud-hint" id="hud-hint">Tap a hexagon to mark it visited · tap again to clear</div>
+        <div class="hud-row"><span data-i18n="hud.cell-size">Cell size</span><b id="hud-size">–</b></div>
+        <div class="hud-row"><span data-i18n="hud.level">Level</span><b id="hud-res">–</b></div>
+        <div class="hud-row"><span data-i18n="hud.visited">Visited</span><b id="hud-visited">0</b></div>
+        <div data-i18n="hud-hint.tap-a-hexagon-to-mark" class="hud-hint" id="hud-hint">Tap a hexagon to mark it visited · tap again to clear</div>
       </div>
     </div>
 
@@ -80,7 +80,7 @@
         <div class="menu-scroll">
           <section class="menu-section">
             <div class="menu-heading">
-              <span>Appearance</span>
+              <span data-i18n="layers-menu.appearance">Appearance</span>
             </div>
             <!-- Five, laid out 3-2 rather than left to wrap. Wrapping put four
                  on the first row and stranded 3D alone on the second, which
@@ -92,10 +92,10 @@
                  one it opens the dialog that asks for it instead of switching
                  basemap. main.js marks it `needs-token` while that is true. -->
             <div class="seg seg-split" id="style-seg">
-              <button type="button" class="seg-btn" data-style="dark">Dark</button>
-              <button type="button" class="seg-btn" data-style="terrain">Terrain</button>
-              <button type="button" class="seg-btn" data-style="voyager">Light</button>
-              <button type="button" class="seg-btn" data-style="satellite">Satellite</button>
+              <button data-i18n="style-seg.dark" type="button" class="seg-btn" data-style="dark">Dark</button>
+              <button data-i18n="style-seg.terrain" type="button" class="seg-btn" data-style="terrain">Terrain</button>
+              <button data-i18n="style-seg.light" type="button" class="seg-btn" data-style="voyager">Light</button>
+              <button data-i18n="style-seg.satellite" type="button" class="seg-btn" data-style="satellite">Satellite</button>
               <button type="button" class="seg-btn" data-style="mapbox">3D</button>
             </div>
 
@@ -107,31 +107,31 @@
                  where you set it once; this is where you play with it, next to
                  the basemap it belongs to and without leaving the map. Both
                  rows are built from LIGHT_PRESETS. -->
-            <div class="menu-subhead" id="light-head" hidden><span>Time of day</span></div>
+            <div class="menu-subhead" id="light-head" hidden><span data-i18n="light-head.time-of-day">Time of day</span></div>
             <div class="seg" id="light-seg" hidden></div>
 
             <div class="menu-subhead">
-              <span>Detail</span>
+              <span data-i18n="layers-menu.detail">Detail</span>
             </div>
             <div class="seg" id="detail-seg">
-              <button type="button" class="seg-btn" data-detail="0">Tiniest</button>
-              <button type="button" class="seg-btn" data-detail="auto">Auto</button>
-              <button type="button" class="seg-btn" data-detail="region">Region</button>
-              <button type="button" class="seg-btn" data-detail="country">Country</button>
+              <button data-i18n="detail-seg.tiniest" type="button" class="seg-btn" data-detail="0">Tiniest</button>
+              <button data-i18n="detail-seg.auto" type="button" class="seg-btn" data-detail="auto">Auto</button>
+              <button data-i18n="detail-seg.region" type="button" class="seg-btn" data-detail="region">Region</button>
+              <button data-i18n="detail-seg.country" type="button" class="seg-btn" data-detail="country">Country</button>
             </div>
             <div class="detail-now" id="detail-now"></div>
 
             <div class="menu-subhead">
-              <span>Color by</span>
+              <span data-i18n="layers-menu.color-by">Color by</span>
             </div>
             <!-- Pressing whichever one is on takes the visited areas off the map
                  altogether, for a look at the ground underneath. The hint below
                  is how anyone finds that out, and the way back. -->
             <div class="seg seg-wrap" id="heat-seg">
-              <button type="button" class="seg-btn" data-heat="flat" title="Press again to hide the visited areas">Single</button>
-              <button type="button" class="seg-btn" data-heat="visits" title="Press again to hide the visited areas">Visits</button>
-              <button type="button" class="seg-btn" data-heat="type" title="Press again to hide the visited areas">Type</button>
-              <button type="button" class="seg-btn" data-heat="oldest" title="Press again to hide the visited areas">First seen</button>
+              <button data-i18n-title="hint.press-again-to-hide-the" data-i18n="heat-seg.single" type="button" class="seg-btn" data-heat="flat" title="Press again to hide the visited areas">Single</button>
+              <button data-i18n-title="hint.press-again-to-hide-the" data-i18n="heat-seg.visits" type="button" class="seg-btn" data-heat="visits" title="Press again to hide the visited areas">Visits</button>
+              <button data-i18n-title="hint.press-again-to-hide-the" data-i18n="heat-seg.type" type="button" class="seg-btn" data-heat="type" title="Press again to hide the visited areas">Type</button>
+              <button data-i18n-title="hint.press-again-to-hide-the" data-i18n="heat-seg.first-seen" type="button" class="seg-btn" data-heat="oldest" title="Press again to hide the visited areas">First seen</button>
             </div>
             <!-- Fixed height so switching modes swaps the picker for the legend
                  without the menu growing or shrinking under the cursor. -->
@@ -144,10 +144,10 @@
                    rather than a gradient. Same slot, same height. -->
               <div class="legend legend-keys" id="type-legend" hidden></div>
               <div class="menu-row" id="color-row">
-                <span>Visited color</span>
-                <button type="button" class="color-swatch" id="hud-color" aria-label="Visited color"></button>
+                <span data-i18n="color-row.visited-color">Visited color</span>
+                <button data-i18n-aria-label="hud-color.visited-color" type="button" class="color-swatch" id="hud-color" aria-label="Visited color"></button>
               </div>
-              <div class="menu-note" id="cells-off" hidden>Visited areas hidden.</div>
+              <div data-i18n="cells-off.visited-areas-hidden" class="menu-note" id="cells-off" hidden>Visited areas hidden.</div>
             </div>
 
             <!-- Just the switch. What the overlay draws, and whether it answers
@@ -155,7 +155,7 @@
                  — so they are in Settings, and this stays beside the other
                  "is this layer drawn" questions. -->
             <label class="menu-row">
-              <span>Train tracks<small>OpenRailwayMap</small></span>
+              <span data-i18n-text="layers-menu.train-tracks">Train tracks<small data-i18n="layers-menu.openrailwaymap">OpenRailwayMap</small></span>
               <input type="checkbox" id="rail-toggle" />
             </label>
 
@@ -163,15 +163,15 @@
                  the view and belongs here, while which kinds of airfield are
                  drawn is a setting you make once. -->
             <label class="menu-row">
-              <span>Airports<small>OurAirports</small></span>
+              <span data-i18n-text="layers-menu.airports">Airports<small data-i18n="layers-menu.ourairports">OurAirports</small></span>
               <input type="checkbox" id="airports-toggle" />
             </label>
           </section>
 
           <section class="menu-section">
-            <div class="menu-heading">Your map</div>
+            <div data-i18n="layers-menu.your-map" class="menu-heading">Your map</div>
             <label class="menu-row" id="routes-row">
-              <span>Saved routes<small id="routes-note">Import a GPX or KML track to save one</small></span>
+              <span data-i18n-text="routes-row.saved-routes">Saved routes<small data-i18n="routes-note.import-a-gpx-or-kml" id="routes-note">Import a GPX or KML track to save one</small></span>
               <input type="checkbox" id="routes-toggle" />
             </label>
             <!-- Folded away by default: these are per-activity controls and
@@ -179,7 +179,7 @@
                  menu if they were always on show. -->
             <button type="button" class="menu-expand" id="routes-options-toggle"
               aria-expanded="false" aria-controls="routes-options" hidden>
-              <span>Show and color by activity</span>
+              <span data-i18n="routes-options-toggle.show-and-color-by-activity">Show and color by activity</span>
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m6 9 6 6 6-6" />
@@ -195,7 +195,7 @@
                  anything but the coordinates. A switch that could never be
                  anything but off is worse than no switch — see src/photos.js. -->
             <label class="menu-row" id="photos-row" hidden>
-              <span>Photos<small id="photos-note">Where your pictures were taken</small></span>
+              <span data-i18n-text="photos-row.photos">Photos<small data-i18n="photos-note.where-your-pictures-were-taken" id="photos-note">Where your pictures were taken</small></span>
               <input type="checkbox" id="photos-toggle" />
             </label>
             <!-- Whether the ground answers a tap at all. On by default, because
@@ -205,7 +205,7 @@
                  reference overlays keep their own taps: those are things you
                  aimed at, not the ground you happened to touch. -->
             <label class="menu-row" id="cells-interactive-row">
-              <span>Tap for details<small>Cards about the areas you tap</small></span>
+              <span data-i18n-text="cells-interactive-row.tap-for-details">Tap for details<small data-i18n="cells-interactive-row.cards-about-the-areas-you">Cards about the areas you tap</small></span>
               <input type="checkbox" id="cells-interactive-toggle" />
             </label>
             <!-- Gap: above it is what's drawn on the map, below it the panels
@@ -214,7 +214,7 @@
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
               </svg>
-              <span>Routes and statistics</span>
+              <span data-i18n="stats-open.routes-and-statistics">Routes and statistics</span>
             </button>
             <!-- Two doors, split by which way the data is going. Everything
                  that brings where-you've-been *in* is behind the first, whether
@@ -227,7 +227,7 @@
                 <path d="m8 7 4-4 4 4" />
                 <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
               </svg>
-              <span>Import &amp; sync<small id="sync-menu-note">Files, Links, Phone</small></span>
+              <span data-i18n-text="sync-open.import-sync">Import &amp; sync<small data-i18n="sync-menu-note.files-links-phone" id="sync-menu-note">Files, Links, Phone</small></span>
             </button>
             <button type="button" class="menu-action" id="settings-open">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -235,13 +235,13 @@
                 <circle cx="16" cy="7" r="2" />
                 <circle cx="10" cy="17" r="2" />
               </svg>
-              <span>Export &amp; settings<small id="settings-menu-note">Backups</small></span>
+              <span data-i18n-text="settings-open.export-settings">Export &amp; settings<small data-i18n="settings-menu-note.backups" id="settings-menu-note">Backups</small></span>
             </button>
           </section>
 
           <div class="layers-account" id="layers-account" hidden>
             <span class="layers-account-name" id="account-name"></span>
-            <button type="button" class="layers-account-logout" id="account-logout">Log out</button>
+            <button data-i18n="account-logout.log-out" type="button" class="layers-account-logout" id="account-logout">Log out</button>
           </div>
         </div>
       </div>
@@ -257,7 +257,7 @@
              whose whole message is "north is that way" has nothing to say about
              a map that is already facing north, and the corner is better spent
              on the map. Pressing it puts the camera back. -->
-        <button class="layers-btn compass-btn" id="compass-btn" type="button" hidden aria-label="Face north" title="Face north and level the view">
+        <button data-i18n-title="compass-btn.face-north-and-level-the" data-i18n-aria-label="compass-btn.face-north" class="layers-btn compass-btn" id="compass-btn" type="button" hidden aria-label="Face north" title="Face north and level the view">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <!-- Two halves, because one arrow only says which way it points and
                  a needle says which way the map is turned. Three things about
@@ -273,13 +273,13 @@
             <path d="M12 20.6 7.6 12 16.4 12Z" fill="currentColor" opacity="0.35" />
           </svg>
         </button>
-        <button class="layers-btn" id="search-btn" type="button" aria-label="Search" title="Search places, trips and dates (⌘K)">
+        <button data-i18n-title="search-btn.search-places-trips-and-dates" data-i18n-aria-label="search-btn.search" class="layers-btn" id="search-btn" type="button" aria-label="Search" title="Search places, trips and dates (⌘K)">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="11" cy="11" r="6.5" />
             <path d="m20 20-4.4-4.4" />
           </svg>
         </button>
-        <button class="layers-btn" id="layers-btn" type="button" aria-label="Map layers" title="Map layers">
+        <button data-i18n-title="layers-btn.map-layers" data-i18n-aria-label="layers-btn.map-layers" class="layers-btn" id="layers-btn" type="button" aria-label="Map layers" title="Map layers">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 2 2 7l10 5 10-5-10-5Z" />
             <path d="M2 17l10 5 10-5" />
@@ -293,24 +293,24 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Routes and statistics</div>
-            <div class="modal-sub">How much ground your visited cells actually cover.</div>
+            <div data-i18n="stats.routes-and-statistics" class="modal-title">Routes and statistics</div>
+            <div data-i18n="stats.how-much-ground-your-visited" class="modal-sub">How much ground your visited cells actually cover.</div>
           </div>
-          <button class="cell-info-close" id="stats-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="stats-close.close" class="cell-info-close" id="stats-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
           </button>
         </div>
         <div class="seg seg-mini stats-tabs" id="stats-tabs">
-          <button type="button" class="seg-btn active" data-tab="routes">Routes</button>
-          <button type="button" class="seg-btn" data-tab="cells">Statistics</button>
+          <button data-i18n="stats-tabs.routes" type="button" class="seg-btn active" data-tab="routes">Routes</button>
+          <button data-i18n="stats-tabs.statistics" type="button" class="seg-btn" data-tab="cells">Statistics</button>
         </div>
         <div class="stats-body" id="stats-body">
-          <div class="stats-loading">Crunching your cells…</div>
+          <div data-i18n="stats-body.crunching-your-cells" class="stats-loading">Crunching your cells…</div>
         </div>
         <div class="modal-actions">
-          <button type="button" class="modal-btn primary" id="stats-done">Done</button>
+          <button data-i18n="stats-done.done" type="button" class="modal-btn primary" id="stats-done">Done</button>
         </div>
       </div>
     </div>
@@ -318,10 +318,10 @@
     <div class="cell-info" id="cell-info" hidden>
       <div class="cell-info-head">
         <div>
-          <div class="cell-info-title" id="cell-info-title">Visited</div>
+          <div data-i18n="cell-info-title.visited" class="cell-info-title" id="cell-info-title">Visited</div>
           <div class="cell-info-coord" id="cell-info-coord"></div>
         </div>
-        <button class="cell-info-close" id="cell-info-close" type="button" aria-label="Close">
+        <button data-i18n-aria-label="cell-info-close.close" class="cell-info-close" id="cell-info-close" type="button" aria-label="Close">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6 6 18" />
           </svg>
@@ -333,10 +333,10 @@
     <div class="cell-info" id="route-info" hidden>
       <div class="cell-info-head">
         <div>
-          <div class="cell-info-title" id="route-info-name">Route</div>
+          <div data-i18n="route-info-name.route" class="cell-info-title" id="route-info-name">Route</div>
           <div class="cell-info-coord" id="route-info-sub"></div>
         </div>
-        <button class="cell-info-close" id="route-info-close" type="button" aria-label="Close">
+        <button data-i18n-aria-label="route-info-close.close" class="cell-info-close" id="route-info-close" type="button" aria-label="Close">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6 6 18" />
           </svg>
@@ -358,9 +358,9 @@
         <option value="Flying"></option>
       </datalist>
       <div class="route-info-actions">
-        <button type="button" class="modal-btn" id="route-zoom">Zoom</button>
-        <button type="button" class="modal-btn" id="route-only">Only this</button>
-        <button type="button" class="modal-btn primary" id="route-more">More info</button>
+        <button data-i18n="route-zoom.zoom" type="button" class="modal-btn" id="route-zoom">Zoom</button>
+        <button data-i18n="route-only.only-this" type="button" class="modal-btn" id="route-only">Only this</button>
+        <button data-i18n="route-more.more-info" type="button" class="modal-btn primary" id="route-more">More info</button>
       </div>
     </div>
 
@@ -371,10 +371,10 @@
     <div class="cell-info photo-info" id="photo-info" hidden>
       <div class="cell-info-head">
         <div>
-          <div class="cell-info-title" id="photo-info-title">Photo</div>
+          <div data-i18n="photo-info-title.photo" class="cell-info-title" id="photo-info-title">Photo</div>
           <div class="cell-info-coord" id="photo-info-when"></div>
         </div>
-        <button class="cell-info-close" id="photo-info-close" type="button" aria-label="Close">
+        <button data-i18n-aria-label="photo-info-close.close" class="cell-info-close" id="photo-info-close" type="button" aria-label="Close">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6 6 18" />
           </svg>
@@ -393,7 +393,7 @@
              way, so without this a video is a photograph of the first moment of
              something; pressing it hands over to the app, which puts a real
              player in front of the page — see PhotoLibrary.play. -->
-        <button type="button" class="photo-play" id="photo-info-play" hidden aria-label="Play video">
+        <button data-i18n-aria-label="photo-info-play.play-video" type="button" class="photo-play" id="photo-info-play" hidden aria-label="Play video">
           <!-- Drawn around the middle of the box rather than nudged there with
                padding: a triangle's centre of area is a third of the way along
                it, so one drawn from edge to edge sits visibly right of centre
@@ -418,20 +418,20 @@
          they stack rather than share a corner. -->
     <div class="map-chips" id="map-chips">
       <div class="route-solo" id="trip-chip" hidden>
-        <span id="trip-chip-text">Showing a trip</span>
-        <button type="button" id="trip-chip-clear">Stop</button>
+        <span data-i18n="trip-chip-text.showing-a-trip" id="trip-chip-text">Showing a trip</span>
+        <button data-i18n="trip-chip-clear.stop" type="button" id="trip-chip-clear">Stop</button>
       </div>
       <div class="route-solo" id="route-solo" hidden>
-        <span id="route-solo-text">Showing one route</span>
-        <button type="button" id="route-solo-clear">Show all</button>
+        <span data-i18n="route-solo-text.showing-one-route" id="route-solo-text">Showing one route</span>
+        <button data-i18n="route-solo-clear.show-all" type="button" id="route-solo-clear">Show all</button>
       </div>
       <!-- Dropping the home pin. Same glass chip as the others, because it is
            the same kind of thing: what the map is doing right now, and the way
            out of it. -->
       <div class="route-solo" id="home-pick" hidden>
-        <span id="home-pick-text">Tap the map to put your home there</span>
-        <button type="button" id="home-pick-ok" hidden>Use this</button>
-        <button type="button" id="home-pick-cancel">Cancel</button>
+        <span data-i18n="home-pick-text.tap-the-map-to-put" id="home-pick-text">Tap the map to put your home there</span>
+        <button data-i18n="home-pick-ok.use-this" type="button" id="home-pick-ok" hidden>Use this</button>
+        <button data-i18n="home-pick-cancel.cancel" type="button" id="home-pick-cancel">Cancel</button>
       </div>
     </div>
 
@@ -439,10 +439,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Import locations</div>
-            <div class="modal-sub">KML, GPX, TCX, FIT, GeoJSON, CSV, a whole ZIP, Strava account export, or a JSON export from Google Timeline or Snapchat.</div>
+            <div data-i18n="import.import-locations" class="modal-title">Import locations</div>
+            <div data-i18n="import.kml-gpx-tcx-fit-geojson" class="modal-sub">KML, GPX, TCX, FIT, GeoJSON, CSV, a whole ZIP, Strava account export, or a JSON export from Google Timeline or Snapchat.</div>
           </div>
-          <button class="cell-info-close" id="import-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="import-close.close" class="cell-info-close" id="import-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -455,7 +455,7 @@
             <path d="m8 7 4-4 4 4" />
             <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
           </svg>
-          <span id="import-drop-text">Choose files or drop them here</span>
+          <span data-i18n="import-drop-text.choose-files-or-drop-them" id="import-drop-text">Choose files or drop them here</span>
           <input type="file" id="import-file" multiple
             accept=".json,.geojson,.kml,.gpx,.tcx,.fit,.xml,.csv,.tsv,.txt,.gz,.zip" hidden />
         </label>
@@ -465,7 +465,7 @@
             <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z" />
             <circle cx="12" cy="10" r="2.6" />
           </svg>
-          <span>Paste Komoot links</span>
+          <span data-i18n="import-komoot.paste-komoot-links">Paste Komoot links</span>
         </button>
 
         <!-- What used to be behind the ⓘ beside "Import locations" in the menu.
@@ -474,25 +474,25 @@
              It says what you can't guess from the file picker — that the big
              archives go in whole — rather than repeating the format list above
              it. -->
-        <p class="import-note" id="import-note">
-          You can download <b>Strava's archive</b> from Settings → My Account → Download your account. You can also download <b>Google Timeline</b> from Google Maps on mobile, or <b>Snapchat</b> from accounts.snapchat.com → My Data → <b>Export JSON Files</b> + <b>Ranking And Location</b>. Note not all footsteps data is sent by Snapchat.
+        <p data-i18n-text="import-note.you-can-download" class="import-note" id="import-note">
+          You can download <b data-i18n="import-note.strava-s-archive">Strava's archive</b> from Settings → My Account → Download your account. You can also download <b data-i18n="import-note.google-timeline">Google Timeline</b> from Google Maps on mobile, or <b data-i18n="import-note.snapchat">Snapchat</b> from accounts.snapchat.com → My Data → <b data-i18n="import-note.export-json-files">Export JSON Files</b> + <b data-i18n="import-note.ranking-and-location">Ranking And Location</b>. Note not all footsteps data is sent by Snapchat.
         </p>
 
         <div class="import-report" id="import-report" hidden></div>
         <div class="import-error" id="import-error" hidden></div>
 
         <label class="import-row" id="import-source-row" hidden>
-          <span>Record as</span>
+          <span data-i18n="import-source-row.record-as">Record as</span>
           <select id="import-source"></select>
         </label>
         <label class="import-row" id="import-routes-row" hidden>
-          <span>Save routes<small id="import-routes-note">Keeps the tracks themselves, drawn over the map</small></span>
+          <span data-i18n-text="import-routes-row.save-routes">Save routes<small data-i18n="import-routes-note.keeps-the-tracks-themselves-drawn" id="import-routes-note">Keeps the tracks themselves, drawn over the map</small></span>
           <input type="checkbox" id="import-routes" checked />
         </label>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="import-cancel">Back</button>
-          <button type="button" class="modal-btn primary" id="import-go" disabled>Import</button>
+          <button data-i18n="import-cancel.back" type="button" class="modal-btn" id="import-cancel">Back</button>
+          <button data-i18n="import-go.import" type="button" class="modal-btn primary" id="import-go" disabled>Import</button>
         </div>
       </div>
     </div>
@@ -501,10 +501,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Import &amp; sync</div>
-            <div class="modal-sub">All the ways to import and sync your data to the map.</div>
+            <div data-i18n="sync.import-sync" class="modal-title">Import &amp; sync</div>
+            <div data-i18n="sync.all-the-ways-to-import" class="modal-sub">All the ways to import and sync your data to the map.</div>
           </div>
-          <button class="cell-info-close" id="sync-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="sync-close.close" class="cell-info-close" id="sync-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -519,8 +519,8 @@
               <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
             </svg>
             <span class="sync-option-text">
-              <b>Files and links</b>
-              <small id="sync-files-note">GPX, KML, FIT, or a link</small>
+              <b data-i18n="sync.files-and-links">Files and links</b>
+              <small data-i18n="sync-files-note.gpx-kml-fit-or-a" id="sync-files-note">GPX, KML, FIT, or a link</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -534,8 +534,8 @@
               <path d="M12 20v-6" />
             </svg>
             <span class="sync-option-text">
-              <b>Home Assistant</b>
-              <small id="sync-ha-note">Not connected</small>
+              <b data-i18n="sync.home-assistant">Home Assistant</b>
+              <small data-i18n="sync-ha-note.not-connected" id="sync-ha-note">Not connected</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -550,8 +550,8 @@
               <path d="M5 21h6" />
             </svg>
             <span class="sync-option-text">
-              <b>Strava</b>
-              <small id="sync-strava-note">Not connected</small>
+              <b data-i18n="sync.strava">Strava</b>
+              <small data-i18n="sync-strava-note.not-connected" id="sync-strava-note">Not connected</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -564,8 +564,8 @@
               <path d="M11 18.5h2" />
             </svg>
             <span class="sync-option-text">
-              <b>Your phone</b>
-              <small id="sync-device-note">No phone syncing</small>
+              <b data-i18n="sync.your-phone">Your phone</b>
+              <small data-i18n="sync-device-note.no-phone-syncing" id="sync-device-note">No phone syncing</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -575,7 +575,7 @@
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn primary" id="sync-done">Done</button>
+          <button data-i18n="sync-done.done" type="button" class="modal-btn primary" id="sync-done">Done</button>
         </div>
       </div>
     </div>
@@ -587,10 +587,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Export &amp; settings</div>
-            <div class="modal-sub">Getting your map back out again, and how this instance looks after it.</div>
+            <div data-i18n="settings.export-settings" class="modal-title">Export &amp; settings</div>
+            <div data-i18n="settings.getting-your-map-back-out" class="modal-sub">Getting your map back out again, and how this instance looks after it.</div>
           </div>
-          <button class="cell-info-close" id="settings-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="settings-close.close" class="cell-info-close" id="settings-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -611,8 +611,8 @@
               <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
             </svg>
             <span class="sync-option-text">
-              <b>Settings</b>
-              <small>Home, clock, editing, sources and cached data</small>
+              <b data-i18n="settings.settings">Settings</b>
+              <small data-i18n="settings.home-clock-editing-sources-and">Home, clock, editing, sources and cached data</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -627,8 +627,8 @@
               <path d="m13.2 13.6 2-1.8a1.7 1.7 0 0 1 2.3 0l2.9 2.7" />
             </svg>
             <span class="sync-option-text">
-              <b>Export an image</b>
-              <small>A picture of where you have been, cut to a place</small>
+              <b data-i18n="settings.export-an-image">Export an image</b>
+              <small data-i18n="settings.a-picture-of-where-you">A picture of where you have been, cut to a place</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -642,8 +642,8 @@
               <path d="M4.5 12v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6" />
             </svg>
             <span class="sync-option-text">
-              <b>Backups</b>
-              <small id="settings-backup-note">Not set up</small>
+              <b data-i18n="settings.backups">Backups</b>
+              <small data-i18n="settings-backup-note.not-set-up" id="settings-backup-note">Not set up</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -652,7 +652,7 @@
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn primary" id="settings-done">Done</button>
+          <button data-i18n="settings-done.done" type="button" class="modal-btn primary" id="settings-done">Done</button>
         </div>
       </div>
     </div>
@@ -661,9 +661,9 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Settings</div>
+            <div data-i18n="personal.settings" class="modal-title">Settings</div>
           </div>
-          <button class="cell-info-close" id="personal-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="personal-close.close" class="cell-info-close" id="personal-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -674,26 +674,38 @@
           <div class="home-line">
             <span class="home-text">
               <b id="settings-home-name"></b>
-              <small>Home — everything on the map is measured from it</small>
+              <small data-i18n="personal.home-everything-on-the-map">Home — everything on the map is measured from it</small>
             </span>
-            <button type="button" class="home-set" id="settings-home-set">Change</button>
+            <button data-i18n="settings-home-set.change" type="button" class="home-set" id="settings-home-set">Change</button>
           </div>
           <label class="home-show">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M4 11 12 4l8 7" />
               <path d="M6 10v9h12v-9" />
             </svg>
-            <span>Show home on the map</span>
+            <span data-i18n="personal.show-home-on-the-map">Show home on the map</span>
             <input type="checkbox" id="settings-home-shown" />
           </label>
         </div>
 
+        <!-- The options are filled in from the locale registry rather than
+             written here, because the list of languages *is* the registry —
+             a second copy in the markup is a second thing to keep in step, and
+             the one it would disagree with is the one that decides what can
+             actually be loaded. Each is named in its own language: a list of
+             languages is the one list nobody wants translated, since whoever is
+             reading it is looking for the one they can read. -->
         <label class="import-row">
-          <span>Clock<small id="settings-clock-note">Times follow this device</small></span>
+          <span data-i18n-text="personal.language">Language<small data-i18n="settings-locale-note.the-language-the-app-is" id="settings-locale-note">The language the app is in</small></span>
+          <select id="settings-locale"></select>
+        </label>
+
+        <label class="import-row">
+          <span data-i18n-text="personal.clock">Clock<small data-i18n="settings-clock-note.times-follow-this-device" id="settings-clock-note">Times follow this device</small></span>
           <select id="settings-clock">
-            <option value="auto">Follow this device</option>
-            <option value="24">24-hour</option>
-            <option value="12">12-hour</option>
+            <option data-i18n="settings-clock.follow-this-device" value="auto">Follow this device</option>
+            <option data-i18n="settings-clock.24-hour" value="24">24-hour</option>
+            <option data-i18n="settings-clock.12-hour" value="12">12-hour</option>
           </select>
         </label>
 
@@ -701,11 +713,11 @@
              because "never" and "always" are both wrong for most people and the
              useful answer is the middle one. -->
         <label class="import-row">
-          <span>What's new<small id="settings-whats-new-note">A line on opening, when the map has grown</small></span>
+          <span data-i18n-text="personal.what-s-new">What's new<small data-i18n="settings-whats-new-note.a-line-on-opening-when" id="settings-whats-new-note">A line on opening, when the map has grown</small></span>
           <select id="settings-whats-new">
-            <option value="never">Never</option>
-            <option value="substantial">After substantial changes</option>
-            <option value="always">Always</option>
+            <option data-i18n="settings-whats-new.never" value="never">Never</option>
+            <option data-i18n="settings-whats-new.after-substantial-changes" value="substantial">After substantial changes</option>
+            <option data-i18n="settings-whats-new.always" value="always">Always</option>
           </select>
         </label>
 
@@ -713,7 +725,7 @@
              than what it shows, which is why it is last and why it is here
              rather than in the menu you open to change the view. -->
         <label class="import-row">
-          <span>Editing<small>Allows manual editing of the map</small></span>
+          <span data-i18n-text="personal.editing">Editing<small data-i18n="personal.allows-manual-editing-of-the">Allows manual editing of the map</small></span>
           <input type="checkbox" id="edit-toggle" />
         </label>
 
@@ -721,14 +733,14 @@
              above answers a question about the map; nothing under here does,
              and putting snow in the same run of rows as the clock would make
              the list read as if one of them were a mistake. -->
-        <div class="settings-heading">Easter eggs</div>
+        <div data-i18n="personal.easter-eggs" class="settings-heading">Easter eggs</div>
 
         <label class="import-row">
-          <span>Snow<small id="settings-snow-note">Only on the 3D basemap</small></span>
+          <span data-i18n-text="personal.snow">Snow<small data-i18n="settings-snow-note.only-on-the-3d-basemap" id="settings-snow-note">Only on the 3D basemap</small></span>
           <select id="settings-snow">
-            <option value="off">Never</option>
-            <option value="winter">In winter</option>
-            <option value="always">Always</option>
+            <option data-i18n="settings-snow.never" value="off">Never</option>
+            <option data-i18n="settings-snow.in-winter" value="winter">In winter</option>
+            <option data-i18n="settings-snow.always" value="always">Always</option>
           </select>
         </label>
 
@@ -753,8 +765,8 @@
             <path d="M5.5 5h13M5.5 10h13M5.5 15h13M5.5 20h13" />
           </svg>
           <span class="sync-option-text">
-            <b>Train tracks</b>
-            <small>What the railway overlay draws</small>
+            <b data-i18n="personal.train-tracks">Train tracks</b>
+            <small data-i18n="personal.what-the-railway-overlay-draws">What the railway overlay draws</small>
           </span>
           <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 5 7 7-7 7" />
@@ -771,8 +783,8 @@
             <path d="M12 2c1 1.1 1.3 2.9 1.3 5.1l8 5.6v1.9l-8-2.8v4.5l3 2.4v1.3L12 19l-4.3 1v-1.3l3-2.4v-4.5l-8 2.8v-1.9l8-5.6C10.7 4.9 11 3.1 12 2Z" />
           </svg>
           <span class="sync-option-text">
-            <b>Airports</b>
-            <small>Which airfields the overlay draws</small>
+            <b data-i18n="personal.airports">Airports</b>
+            <small data-i18n="personal.which-airfields-the-overlay-draws">Which airfields the overlay draws</small>
           </span>
           <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 5 7 7-7 7" />
@@ -795,8 +807,8 @@
             <path d="M12 11.4v10" />
           </svg>
           <span class="sync-option-text">
-            <b>3D basemap</b>
-            <small id="settings-mapbox-note">Needs a Mapbox token</small>
+            <b data-i18n="personal.3d-basemap">3D basemap</b>
+            <small data-i18n="settings-mapbox-note.needs-a-mapbox-token" id="settings-mapbox-note">Needs a Mapbox token</small>
           </span>
           <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 5 7 7-7 7" />
@@ -810,8 +822,8 @@
             <path d="M4 17h10" />
           </svg>
           <span class="sync-option-text">
-            <b>Sources</b>
-            <small id="settings-sources-note">Where does your data come from</small>
+            <b data-i18n="personal.sources">Sources</b>
+            <small data-i18n="settings-sources-note.where-does-your-data-come" id="settings-sources-note">Where does your data come from</small>
           </span>
           <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 5 7 7-7 7" />
@@ -830,10 +842,10 @@
             <path d="M20 5v6h-6" />
           </svg>
           <span class="sync-option-text">
-            <b>Reload cached data</b>
+            <b data-i18n="settings-clear-cache.reload-cached-data">Reload cached data</b>
             <!-- The handler writes progress here, and without it the button
                  threw on the first line and so never cleared anything at all. -->
-            <small id="settings-cache-note">Boundaries, tiles and the offline copy</small>
+            <small data-i18n="settings-cache-note.boundaries-tiles-and-the-offline" id="settings-cache-note">Boundaries, tiles and the offline copy</small>
           </span>
         </button>
         </div>
@@ -854,21 +866,21 @@
               <path d="M6 7l1 13h10l1-13" />
             </svg>
             <span class="sync-option-text">
-              <b>Delete account</b>
-              <small>Everything in your account, permanently</small>
+              <b data-i18n="account-delete-open.delete-account">Delete account</b>
+              <small data-i18n="account-delete-open.everything-in-your-account-permanently">Everything in your account, permanently</small>
             </span>
           </button>
 
           <form class="settings-danger-confirm" id="account-delete-form" hidden>
             <p class="settings-danger-warning" id="account-delete-warning"></p>
             <label class="settings-danger-field">
-              <span>Enter your password to confirm</span>
+              <span data-i18n="account-delete-form.enter-your-password-to-confirm">Enter your password to confirm</span>
               <input type="password" id="account-delete-password" autocomplete="current-password" />
             </label>
             <p class="settings-danger-error" id="account-delete-error" hidden></p>
             <div class="settings-danger-actions">
-              <button type="button" class="modal-btn" id="account-delete-cancel">Cancel</button>
-              <button type="submit" class="modal-btn danger" id="account-delete-confirm">Delete everything</button>
+              <button data-i18n="account-delete-cancel.cancel" type="button" class="modal-btn" id="account-delete-cancel">Cancel</button>
+              <button data-i18n="account-delete-confirm.delete-everything" type="submit" class="modal-btn danger" id="account-delete-confirm">Delete everything</button>
             </div>
           </form>
         </div>
@@ -880,8 +892,8 @@
         <div class="settings-version" id="settings-version" hidden></div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="personal-back">Back</button>
-          <button type="button" class="modal-btn primary" id="personal-done">Done</button>
+          <button data-i18n="personal-back.back" type="button" class="modal-btn" id="personal-back">Back</button>
+          <button data-i18n="personal-done.done" type="button" class="modal-btn primary" id="personal-done">Done</button>
         </div>
       </div>
     </div>
@@ -893,10 +905,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Train tracks</div>
-            <div class="modal-sub">What the railway overlay draws, and whether it answers a tap. Switch the overlay itself on from the layers menu.</div>
+            <div data-i18n="rail.train-tracks" class="modal-title">Train tracks</div>
+            <div data-i18n="rail.what-the-railway-overlay-draws" class="modal-sub">What the railway overlay draws, and whether it answers a tap. Switch the overlay itself on from the layers menu.</div>
           </div>
-          <button class="cell-info-close" id="rail-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="rail-close.close" class="cell-info-close" id="rail-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -905,25 +917,25 @@
 
         <div class="ha-scroll">
           <label class="import-row">
-            <span>Interactable<small>A tap on a railway opens a card about it, and the cursor says so</small></span>
+            <span data-i18n-text="rail.interactable">Interactable<small data-i18n="rail.a-tap-on-a-railway">A tap on a railway opens a card about it, and the cursor says so</small></span>
             <input type="checkbox" id="rail-interactive" />
           </label>
 
-          <div class="menu-subhead"><span>Show</span></div>
+          <div class="menu-subhead"><span data-i18n="rail.show">Show</span></div>
           <div id="rail-groups"></div>
 
           <!-- Last, and outside the list above, because it is not a group: a
                siding and the through line beside it are drawn by the same layer,
                so this one is a filter. -->
           <label class="import-row rail-technical-row">
-            <span>Technical infrastructure<small>Sidings, yard roads and crossovers; track that is disused, under construction, proposed or lifted; and the halts, junctions, yards and sites a timetable would not call a station</small></span>
+            <span data-i18n-text="rail.technical-infrastructure">Technical infrastructure<small data-i18n="rail.sidings-yard-roads-and-crossovers">Sidings, yard roads and crossovers; track that is disused, under construction, proposed or lifted; and the halts, junctions, yards and sites a timetable would not call a station</small></span>
             <input type="checkbox" id="rail-technical" />
           </label>
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="rail-back">Back</button>
-          <button type="button" class="modal-btn primary" id="rail-done">Done</button>
+          <button data-i18n="rail-back.back" type="button" class="modal-btn" id="rail-back">Back</button>
+          <button data-i18n="rail-done.done" type="button" class="modal-btn primary" id="rail-done">Done</button>
         </div>
       </div>
     </div>
@@ -936,10 +948,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Airports</div>
-            <div class="modal-sub">Which airfields the overlay draws. Switch the overlay itself on from the layers menu.</div>
+            <div data-i18n="airports.airports" class="modal-title">Airports</div>
+            <div data-i18n="airports.which-airfields-the-overlay-draws" class="modal-sub">Which airfields the overlay draws. Switch the overlay itself on from the layers menu.</div>
           </div>
-          <button class="cell-info-close" id="airports-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="airports-close.close" class="cell-info-close" id="airports-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -947,17 +959,17 @@
         </div>
 
         <div class="ha-scroll">
-          <div class="menu-subhead"><span>Show</span></div>
+          <div class="menu-subhead"><span data-i18n="airports.show">Show</span></div>
           <div id="airports-groups"></div>
           <!-- Unlike the railway's groups, which filter tiles that arrive
                anyway, each of these is its own download — hence the counts in
                the rows, and this line saying why they are there. -->
-          <div class="import-note">Each group is fetched the first time you switch it on, and kept for next time. Nothing is downloaded for a group that stays off.</div>
+          <div data-i18n="airports.each-group-is-fetched-the" class="import-note">Each group is fetched the first time you switch it on, and kept for next time. Nothing is downloaded for a group that stays off.</div>
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="airports-back">Back</button>
-          <button type="button" class="modal-btn primary" id="airports-done">Done</button>
+          <button data-i18n="airports-back.back" type="button" class="modal-btn" id="airports-back">Back</button>
+          <button data-i18n="airports-done.done" type="button" class="modal-btn primary" id="airports-done">Done</button>
         </div>
       </div>
     </div>
@@ -969,10 +981,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">3D basemap</div>
-            <div class="modal-sub">Buildings with height and ground with shape, from Mapbox. Press <b>Done</b> with a working token and the map switches straight to it.</div>
+            <div data-i18n="mapbox.3d-basemap" class="modal-title">3D basemap</div>
+            <div data-i18n-text="mapbox.buildings-with-height-and-ground" class="modal-sub">Buildings with height and ground with shape, from Mapbox. Press <b data-i18n="mapbox.done">Done</b> with a working token and the map switches straight to it.</div>
           </div>
-          <button class="cell-info-close" id="mapbox-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="mapbox-close.close" class="cell-info-close" id="mapbox-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -980,25 +992,25 @@
         </div>
 
         <div class="ha-scroll">
-          <p class="ha-help">
+          <p data-i18n-text="mapbox.mapbox-will-not-serve-these" class="ha-help">
             Mapbox will not serve these tiles without an account, and this app does not have one —
-            so the basemap runs on <b>your</b> token, billed to you and free below Mapbox's monthly
+            so the basemap runs on <b data-i18n="mapbox.your">your</b> token, billed to you and free below Mapbox's monthly
             allowance. Make one at
-            <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer noopener">account.mapbox.com</a>;
+            <a data-i18n="mapbox.account-mapbox-com" href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer noopener">account.mapbox.com</a>;
             the default public token is the right one.
           </p>
           <label class="token-field">
-            <span>Public token</span>
+            <span data-i18n="mapbox.public-token">Public token</span>
             <!-- Not type=password: a public token is not a secret, and hiding it
                  would only make a paste impossible to check. `off` on both
                  autocomplete and autocapitalize because a phone keyboard will
                  otherwise capitalise the p in pk. -->
-            <input type="text" id="mapbox-token" placeholder="pk.eyJ1Ijoi…"
+            <input data-i18n-placeholder="mapbox-token.pk-eyj1ijoi" type="text" id="mapbox-token" placeholder="pk.eyJ1Ijoi…"
               autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </label>
           <div class="token-note" id="mapbox-note" hidden></div>
 
-          <div class="import-note">
+          <div data-i18n="mapbox.the-token-is-saved-to" class="import-note">
             The token is saved to your HexPlore account, so every device you sign in on gets the 3D
             basemap without being asked again. Empty the box and press Done to take it off all of
             them; revoking it is done at Mapbox.
@@ -1011,8 +1023,8 @@
              field as well, which was two buttons for one intention with nothing
              to say which of them was the real one. -->
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="mapbox-cancel">Cancel</button>
-          <button type="button" class="modal-btn primary" id="mapbox-done">Done</button>
+          <button data-i18n="mapbox-cancel.cancel" type="button" class="modal-btn" id="mapbox-cancel">Cancel</button>
+          <button data-i18n="mapbox-done.done" type="button" class="modal-btn primary" id="mapbox-done">Done</button>
         </div>
       </div>
     </div>
@@ -1021,10 +1033,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Sources</div>
-            <div class="modal-sub">Everything that has put something on your map, and how to take one back off.</div>
+            <div data-i18n="sources.sources" class="modal-title">Sources</div>
+            <div data-i18n="sources.everything-that-has-put-something" class="modal-sub">Everything that has put something on your map, and how to take one back off.</div>
           </div>
-          <button class="cell-info-close" id="sources-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="sources-close.close" class="cell-info-close" id="sources-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -1032,9 +1044,9 @@
         </div>
 
         <div class="ha-scroll">
-          <p class="ha-help">
-            Clearing a cell says <b>I was never here</b>, whoever put it on the map. This says
-            something different: <b>stop trusting this way of finding out</b>. A cell another
+          <p data-i18n-text="sources.clearing-a-cell-says" class="ha-help">
+            Clearing a cell says <b data-i18n="sources.i-was-never-here">I was never here</b>, whoever put it on the map. This says
+            something different: <b data-i18n="sources.stop-trusting-this-way-of">stop trusting this way of finding out</b>. A cell another
             source also vouches for keeps that claim and stays.
           </p>
           <div class="ha-devices-list" id="sources-list"></div>
@@ -1042,8 +1054,8 @@
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="sources-back">Back</button>
-          <button type="button" class="modal-btn primary" id="sources-done">Done</button>
+          <button data-i18n="sources-back.back" type="button" class="modal-btn" id="sources-back">Back</button>
+          <button data-i18n="sources-done.done" type="button" class="modal-btn primary" id="sources-done">Done</button>
         </div>
       </div>
     </div>
@@ -1057,10 +1069,10 @@
       <div class="modal-card export-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Export an image</div>
-            <div class="modal-sub">A picture of where you have been, cut to the shape of a place.</div>
+            <div data-i18n="export.export-an-image" class="modal-title">Export an image</div>
+            <div data-i18n="export.a-picture-of-where-you" class="modal-sub">A picture of where you have been, cut to the shape of a place.</div>
           </div>
-          <button class="cell-info-close" id="export-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="export-close.close" class="cell-info-close" id="export-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -1076,24 +1088,24 @@
             </div>
             <div class="export-stage-foot">
               <span class="export-caption-note" id="export-note"></span>
-              <button type="button" class="export-refit" id="export-refit" hidden>Fit again</button>
+              <button data-i18n="export-refit.fit-again" type="button" class="export-refit" id="export-refit" hidden>Fit again</button>
             </div>
           </div>
 
           <div class="export-controls" id="export-controls">
             <div class="export-section">
-              <h4 class="export-heading">Shape</h4>
+              <h4 data-i18n="export-controls.shape" class="export-heading">Shape</h4>
               <div class="seg seg-mini" id="export-shape"></div>
               <label class="import-row">
-                <span>Proportions</span>
+                <span data-i18n="export-controls.proportions">Proportions</span>
                 <select id="export-preset"></select>
               </label>
               <label class="import-row" id="export-quality-row">
-                <span>Quality</span>
+                <span data-i18n="export-quality-row.quality">Quality</span>
                 <select id="export-scale"></select>
               </label>
               <label class="import-row">
-                <span>Exact pixels<small>Type the size you want instead</small></span>
+                <span data-i18n-text="export-controls.exact-pixels">Exact pixels<small data-i18n="export-controls.type-the-size-you-want">Type the size you want instead</small></span>
                 <input type="checkbox" id="export-custom" />
               </label>
               <div class="export-custom" id="export-custom-row" hidden>
@@ -1105,29 +1117,29 @@
             </div>
 
             <div class="export-section">
-              <h4 class="export-heading">What is in it</h4>
+              <h4 data-i18n="export-controls.what-is-in-it" class="export-heading">What is in it</h4>
               <div class="seg seg-mini seg-grid" id="export-scope"></div>
               <div class="export-picker" id="export-picker" hidden>
-                <input class="auth-input export-filter" id="export-filter" type="text"
+                <input data-i18n-placeholder="export-filter.filter" class="auth-input export-filter" id="export-filter" type="text"
                        placeholder="Filter" autocomplete="off" spellcheck="false" />
                 <div class="export-list" id="export-list"></div>
               </div>
-              <p class="export-hint" id="export-scope-hint">
+              <p data-i18n="export-scope-hint.everywhere-you-have-been-framed" class="export-hint" id="export-scope-hint">
                 Everywhere you have been, framed to fit. Pick places instead to cut the rest away.
               </p>
             </div>
 
             <div class="export-section">
-              <h4 class="export-heading">Detail</h4>
+              <h4 data-i18n="export-controls.detail" class="export-heading">Detail</h4>
               <div class="seg seg-mini seg-grid" id="export-detail"></div>
               <label class="import-row" id="export-cellsize-row">
-                <span>Cell size<small>Across, at the equator</small></span>
+                <span data-i18n-text="export-cellsize-row.cell-size">Cell size<small data-i18n="export-cellsize-row.across-at-the-equator">Across, at the equator</small></span>
                 <select id="export-cellsize"></select>
               </label>
             </div>
 
             <div class="export-section">
-              <h4 class="export-heading">Color by</h4>
+              <h4 data-i18n="export-controls.color-by" class="export-heading">Color by</h4>
               <div class="seg seg-mini seg-grid" id="export-colorby"></div>
               <!-- A div, not a label. A <button> is a labelable element, so a
                    <label> around one treats it as its control and dispatches a
@@ -1135,25 +1147,25 @@
                    shut it again in the same gesture. The map's own swatch
                    (#color-row above) is a div for exactly this reason. -->
               <div class="menu-row" id="export-accent-row">
-                <span>Visited color</span>
-                <button type="button" class="color-swatch" id="export-accent" aria-label="Visited color"></button>
+                <span data-i18n="export-accent-row.visited-color">Visited color</span>
+                <button data-i18n-aria-label="export-accent.visited-color" type="button" class="color-swatch" id="export-accent" aria-label="Visited color"></button>
               </div>
               <label class="import-row">
-                <span>Strength<small>How solid the visited areas sit</small></span>
+                <span data-i18n-text="export-controls.strength">Strength<small data-i18n="export-controls.how-solid-the-visited-areas">How solid the visited areas sit</small></span>
                 <input class="export-range" id="export-strength" type="range" min="10" max="100" step="5" />
               </label>
             </div>
 
             <div class="export-section">
-              <h4 class="export-heading">Look</h4>
+              <h4 data-i18n="export-controls.look" class="export-heading">Look</h4>
               <div class="seg seg-mini seg-grid" id="export-palette"></div>
               <div class="export-swatches">
-                <div class="export-swatch"><span>Background</span>
-                  <button type="button" class="color-swatch" data-color="background" aria-label="Background color"></button></div>
-                <div class="export-swatch"><span>Land</span>
-                  <button type="button" class="color-swatch" data-color="land" aria-label="Land color"></button></div>
-                <div class="export-swatch"><span>Outline</span>
-                  <button type="button" class="color-swatch" data-color="edge" aria-label="Outline color"></button></div>
+                <div class="export-swatch"><span data-i18n="export-controls.background">Background</span>
+                  <button data-i18n-aria-label="export-controls.background-color" type="button" class="color-swatch" data-color="background" aria-label="Background color"></button></div>
+                <div class="export-swatch"><span data-i18n="export-controls.land">Land</span>
+                  <button data-i18n-aria-label="export-controls.land-color" type="button" class="color-swatch" data-color="land" aria-label="Land color"></button></div>
+                <div class="export-swatch"><span data-i18n="export-controls.outline">Outline</span>
+                  <button data-i18n-aria-label="export-controls.outline-color" type="button" class="color-swatch" data-color="edge" aria-label="Outline color"></button></div>
               </div>
               <!-- The lines the picture is made of, as one strength and a
                    choice of which borders it buys. It was a switch for the
@@ -1162,22 +1174,22 @@
                    of it had a strength. The silhouette is unconditional; the
                    selector is about the borders inside it. -->
               <label class="import-row">
-                <span>Borders<small id="export-lines-note">Off</small></span>
+                <span data-i18n-text="export-controls.borders">Borders<small data-i18n="export-lines-note.off" id="export-lines-note">Off</small></span>
                 <input class="export-range" id="export-lines" type="range" min="0" max="100" step="5" />
               </label>
               <div class="seg seg-mini seg-grid seg-under" id="export-lines-which"></div>
               <label class="import-row">
-                <span>The rest of the world<small id="export-surroundings-note">Off</small></span>
+                <span data-i18n-text="export-controls.the-rest-of-the-world">The rest of the world<small data-i18n="export-surroundings-note.off" id="export-surroundings-note">Off</small></span>
                 <input class="export-range" id="export-surroundings" type="range" min="0" max="100" step="5" />
               </label>
               <label class="import-row">
-                <span>Their borders<small id="export-borders-note">Off</small></span>
+                <span data-i18n-text="export-controls.their-borders">Their borders<small data-i18n="export-borders-note.off" id="export-borders-note">Off</small></span>
                 <input class="export-range" id="export-borders" type="range" min="0" max="100" step="5" />
               </label>
             </div>
 
             <div class="export-section">
-              <h4 class="export-heading">
+              <h4 data-i18n-text="export-controls.caption" class="export-heading">
                 Caption
                 <label class="export-switch">
                   <input type="checkbox" id="export-caption-on" />
@@ -1185,42 +1197,42 @@
               </h4>
               <div id="export-caption-body">
                 <div class="export-place-row">
-                  <div class="export-anchor" id="export-anchor" role="group" aria-label="Where the caption sits"></div>
+                  <div data-i18n-aria-label="export-anchor.where-the-caption-sits" class="export-anchor" id="export-anchor" role="group" aria-label="Where the caption sits"></div>
                   <div class="export-place-side">
-                    <span class="export-sub">Where it sits</span>
-                    <span class="export-sub export-sub-dim">Tap a corner of the frame</span>
-                    <span class="export-sub export-align-label">Text alignment</span>
+                    <span data-i18n="export-caption-body.where-it-sits" class="export-sub">Where it sits</span>
+                    <span data-i18n="export-caption-body.tap-a-corner-of-the" class="export-sub export-sub-dim">Tap a corner of the frame</span>
+                    <span data-i18n="export-caption-body.text-alignment" class="export-sub export-align-label">Text alignment</span>
                     <div class="seg seg-mini export-align" id="export-align"></div>
                   </div>
                 </div>
                 <div class="export-fields" id="export-fields"></div>
                 <label class="import-row">
-                  <span>Title<small>Blank uses the names of the places</small></span>
+                  <span data-i18n-text="export-caption-body.title">Title<small data-i18n="export-caption-body.blank-uses-the-names-of">Blank uses the names of the places</small></span>
                 </label>
-                <input class="auth-input" id="export-title" type="text" placeholder="Switzerland" autocomplete="off" />
+                <input data-i18n-placeholder="export-title.switzerland" class="auth-input" id="export-title" type="text" placeholder="Switzerland" autocomplete="off" />
                 <label class="import-row">
-                  <span>Font</span>
+                  <span data-i18n="export-caption-body.font">Font</span>
                   <select id="export-font"></select>
                 </label>
                 <label class="import-row">
-                  <span>Text size</span>
+                  <span data-i18n="export-caption-body.text-size">Text size</span>
                   <input class="export-range" id="export-textsize" type="range" min="60" max="180" step="5" />
                 </label>
                 <div class="menu-row">
-                  <span>Text color</span>
-                  <button type="button" class="color-swatch" id="export-textcolor" aria-label="Text color"></button>
+                  <span data-i18n="export-caption-body.text-color">Text color</span>
+                  <button data-i18n-aria-label="export-textcolor.text-color" type="button" class="color-swatch" id="export-textcolor" aria-label="Text color"></button>
                 </div>
                 <label class="import-row">
-                  <span>Soft shadow<small>Keeps it readable over anything</small></span>
+                  <span data-i18n-text="export-caption-body.soft-shadow">Soft shadow<small data-i18n="export-caption-body.keeps-it-readable-over-anything">Keeps it readable over anything</small></span>
                   <input type="checkbox" id="export-shadow" />
                 </label>
                 <div id="export-shadow-body">
                   <div class="menu-row">
-                    <span>Shadow color<small id="export-shadow-auto">Follows the text</small></span>
-                    <button type="button" class="color-swatch" id="export-shadow-color" aria-label="Shadow color"></button>
+                    <span data-i18n-text="export-shadow-body.shadow-color">Shadow color<small data-i18n="export-shadow-auto.follows-the-text" id="export-shadow-auto">Follows the text</small></span>
+                    <button data-i18n-aria-label="export-shadow-color.shadow-color" type="button" class="color-swatch" id="export-shadow-color" aria-label="Shadow color"></button>
                   </div>
                   <label class="import-row">
-                    <span>Shadow strength</span>
+                    <span data-i18n="export-shadow-body.shadow-strength">Shadow strength</span>
                     <input class="export-range" id="export-shadow-strength" type="range" min="0" max="100" step="5" />
                   </label>
                 </div>
@@ -1232,9 +1244,9 @@
         <div class="import-error" id="export-error" hidden></div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="export-reset">Reset</button>
-          <button type="button" class="modal-btn" id="export-back">Back</button>
-          <button type="button" class="modal-btn primary" id="export-save">Save PNG</button>
+          <button data-i18n="export-reset.reset" type="button" class="modal-btn" id="export-reset">Reset</button>
+          <button data-i18n="export-back.back" type="button" class="modal-btn" id="export-back">Back</button>
+          <button data-i18n="export-save.save-png" type="button" class="modal-btn primary" id="export-save">Save PNG</button>
         </div>
       </div>
     </div>
@@ -1243,10 +1255,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Backups</div>
-            <div class="modal-sub">A copy of the whole map, taken by the server on a schedule.</div>
+            <div data-i18n="backup.backups" class="modal-title">Backups</div>
+            <div data-i18n="backup.a-copy-of-the-whole" class="modal-sub">A copy of the whole map, taken by the server on a schedule.</div>
           </div>
-          <button class="cell-info-close" id="backup-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="backup-close.close" class="cell-info-close" id="backup-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -1255,55 +1267,55 @@
 
         <div class="ha-scroll">
           <label class="import-row">
-            <span>Back up automatically</span>
+            <span data-i18n="backup.back-up-automatically">Back up automatically</span>
             <input type="checkbox" id="backup-enabled" checked />
           </label>
 
           <label class="import-row">
-            <span>How often</span>
+            <span data-i18n="backup.how-often">How often</span>
             <select id="backup-preset">
-              <option value="hourly">Every hour</option>
-              <option value="six">Every 6 hours</option>
-              <option value="daily" selected>Every day</option>
-              <option value="weekly">Every week</option>
-              <option value="monthly">Every month</option>
-              <option value="custom">Custom…</option>
+              <option data-i18n="backup-preset.every-hour" value="hourly">Every hour</option>
+              <option data-i18n="backup-preset.every-6-hours" value="six">Every 6 hours</option>
+              <option data-i18n="backup-preset.every-day" value="daily" selected>Every day</option>
+              <option data-i18n="backup-preset.every-week" value="weekly">Every week</option>
+              <option data-i18n="backup-preset.every-month" value="monthly">Every month</option>
+              <option data-i18n="backup-preset.custom" value="custom">Custom…</option>
             </select>
           </label>
 
           <label class="import-row" id="backup-time-row">
-            <span>At</span>
+            <span data-i18n="backup-time-row.at">At</span>
             <input type="time" id="backup-time" value="04:00" />
           </label>
 
           <label class="import-row" id="backup-weekday-row" hidden>
-            <span>On</span>
+            <span data-i18n="backup-weekday-row.on">On</span>
             <select id="backup-weekday">
-              <option value="1">Monday</option>
-              <option value="2">Tuesday</option>
-              <option value="3">Wednesday</option>
-              <option value="4">Thursday</option>
-              <option value="5">Friday</option>
-              <option value="6">Saturday</option>
-              <option value="0">Sunday</option>
+              <option data-i18n="backup-weekday.monday" value="1">Monday</option>
+              <option data-i18n="backup-weekday.tuesday" value="2">Tuesday</option>
+              <option data-i18n="backup-weekday.wednesday" value="3">Wednesday</option>
+              <option data-i18n="backup-weekday.thursday" value="4">Thursday</option>
+              <option data-i18n="backup-weekday.friday" value="5">Friday</option>
+              <option data-i18n="backup-weekday.saturday" value="6">Saturday</option>
+              <option data-i18n="backup-weekday.sunday" value="0">Sunday</option>
             </select>
           </label>
 
           <label class="import-row" id="backup-dom-row" hidden>
-            <span>On the</span>
+            <span data-i18n="backup-dom-row.on-the">On the</span>
             <select id="backup-dom">
-              <option value="1">1st</option>
-              <option value="5">5th</option>
-              <option value="10">10th</option>
-              <option value="15">15th</option>
-              <option value="20">20th</option>
-              <option value="25">25th</option>
-              <option value="28">28th</option>
+              <option data-i18n="backup-dom.1st" value="1">1st</option>
+              <option data-i18n="backup-dom.5th" value="5">5th</option>
+              <option data-i18n="backup-dom.10th" value="10">10th</option>
+              <option data-i18n="backup-dom.15th" value="15">15th</option>
+              <option data-i18n="backup-dom.20th" value="20">20th</option>
+              <option data-i18n="backup-dom.25th" value="25">25th</option>
+              <option data-i18n="backup-dom.28th" value="28">28th</option>
             </select>
           </label>
 
           <div class="ha-field" id="backup-cron-row" hidden>
-            <label class="ha-label" for="backup-cron">Schedule<small>Five fields: minute hour day month weekday. <code>0 4 * * *</code> is every day at 04:00; <code>*/15 * * * *</code> is every quarter of an hour.</small></label>
+            <label data-i18n-text="backup-cron-row.schedule" class="ha-label" for="backup-cron">Schedule<small data-i18n-text="backup-cron-row.five-fields-minute-hour-day">Five fields: minute hour day month weekday. <code>0 4 * * *</code> is every day at 04:00; <code>*/15 * * * *</code> is every quarter of an hour.</small></label>
             <input class="auth-input" id="backup-cron" type="text" placeholder="0 4 * * *"
               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
           </div>
@@ -1311,13 +1323,13 @@
           <div class="backup-when" id="backup-when"></div>
 
           <label class="import-row">
-            <span>Keep<small>Older copies are removed once there are more than this</small></span>
+            <span data-i18n-text="backup.keep">Keep<small data-i18n="backup.older-copies-are-removed-once">Older copies are removed once there are more than this</small></span>
             <select id="backup-keep">
-              <option value="3">3 backups</option>
-              <option value="7">7 backups</option>
-              <option value="14" selected>14 backups</option>
-              <option value="30">30 backups</option>
-              <option value="90">90 backups</option>
+              <option data-i18n="backup-keep.3-backups" value="3">3 backups</option>
+              <option data-i18n="backup-keep.7-backups" value="7">7 backups</option>
+              <option data-i18n="backup-keep.14-backups" value="14" selected>14 backups</option>
+              <option data-i18n="backup-keep.30-backups" value="30">30 backups</option>
+              <option data-i18n="backup-keep.90-backups" value="90">90 backups</option>
             </select>
           </label>
 
@@ -1328,9 +1340,9 @@
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="backup-back">Back</button>
-          <button type="button" class="modal-btn" id="backup-now">Back up now</button>
-          <button type="button" class="modal-btn primary" id="backup-save">Save</button>
+          <button data-i18n="backup-back.back" type="button" class="modal-btn" id="backup-back">Back</button>
+          <button data-i18n="backup-now.back-up-now" type="button" class="modal-btn" id="backup-now">Back up now</button>
+          <button data-i18n="backup-save.save" type="button" class="modal-btn primary" id="backup-save">Save</button>
         </div>
       </div>
     </div>
@@ -1339,10 +1351,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Strava</div>
-            <div class="modal-sub">Syncing all your activities from Strava.</div>
+            <div data-i18n="strava.strava" class="modal-title">Strava</div>
+            <div data-i18n="strava.syncing-all-your-activities-from" class="modal-sub">Syncing all your activities from Strava.</div>
           </div>
-          <button class="cell-info-close" id="strava-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="strava-close.close" class="cell-info-close" id="strava-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -1351,43 +1363,43 @@
 
         <div class="ha-scroll">
           <div class="ha-setup" id="strava-setup">
-            <p class="ha-help">
+            <p data-i18n="strava-setup.requires-a-subscription-and-needs" class="ha-help">
               Requires a subscription and needs generating credentials.
             </p>
             <ol class="ha-steps">
-              <li>Open <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener noreferrer">strava.com/settings/api</a> and create an app.</li>
-              <li>Set <b>Authorization Callback Domain</b> to <code id="strava-domain">localhost</code>.</li>
-              <li>Copy its Client ID and Client Secret in below.</li>
+              <li data-i18n-text="strava-setup.open">Open <a data-i18n="strava-setup.strava-com-settings-api" href="https://www.strava.com/settings/api" target="_blank" rel="noopener noreferrer">strava.com/settings/api</a> and create an app.</li>
+              <li data-i18n-text="strava-setup.set">Set <b data-i18n="strava-setup.authorization-callback-domain">Authorization Callback Domain</b> to <code data-i18n="strava-domain.localhost" id="strava-domain">localhost</code>.</li>
+              <li data-i18n="strava-setup.copy-its-client-id-and">Copy its Client ID and Client Secret in below.</li>
             </ol>
           </div>
 
           <div class="ha-field">
-            <label class="ha-label" for="strava-id">Client ID</label>
+            <label data-i18n="strava.client-id" class="ha-label" for="strava-id">Client ID</label>
             <input class="auth-input" id="strava-id" type="text" inputmode="numeric" placeholder="123456"
               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
           </div>
           <div class="ha-field">
-            <label class="ha-label" for="strava-secret">Client secret</label>
-            <input class="auth-input" id="strava-secret" type="password" placeholder="Paste the secret"
+            <label data-i18n="strava.client-secret" class="ha-label" for="strava-secret">Client secret</label>
+            <input data-i18n-placeholder="strava-secret.paste-the-secret" class="auth-input" id="strava-secret" type="password" placeholder="Paste the secret"
               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
           </div>
 
           <label class="import-row" id="strava-interval-row" hidden>
-            <span>Check every</span>
+            <span data-i18n="strava-interval-row.check-every">Check every</span>
             <select id="strava-interval">
-              <option value="15">15 minutes</option>
-              <option value="30">30 minutes</option>
-              <option value="60" selected>an hour</option>
-              <option value="180">3 hours</option>
-              <option value="720">12 hours</option>
+              <option data-i18n="strava-interval.15-minutes" value="15">15 minutes</option>
+              <option data-i18n="strava-interval.30-minutes" value="30">30 minutes</option>
+              <option data-i18n="strava-interval.an-hour" value="60" selected>an hour</option>
+              <option data-i18n="strava-interval.3-hours" value="180">3 hours</option>
+              <option data-i18n="strava-interval.12-hours" value="720">12 hours</option>
             </select>
           </label>
           <label class="import-row" id="strava-routes-row" hidden>
-            <span>Save routes<small>Keeps each activity's line, drawn over the map</small></span>
+            <span data-i18n-text="strava-routes-row.save-routes">Save routes<small data-i18n="strava-routes-row.keeps-each-activity-s-line">Keeps each activity's line, drawn over the map</small></span>
             <input type="checkbox" id="strava-routes" checked />
           </label>
           <label class="import-row" id="strava-enabled-row" hidden>
-            <span>Keep syncing<small>Off leaves the connection saved but idle</small></span>
+            <span data-i18n-text="strava-enabled-row.keep-syncing">Keep syncing<small data-i18n="strava-enabled-row.off-leaves-the-connection-saved">Off leaves the connection saved but idle</small></span>
             <input type="checkbox" id="strava-enabled" checked />
           </label>
 
@@ -1396,10 +1408,10 @@
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn danger" id="strava-forget" hidden>Disconnect</button>
-          <button type="button" class="modal-btn" id="strava-back">Back</button>
-          <button type="button" class="modal-btn" id="strava-sync" hidden>Sync now</button>
-          <button type="button" class="modal-btn primary" id="strava-save">Save</button>
+          <button data-i18n="strava-forget.disconnect" type="button" class="modal-btn danger" id="strava-forget" hidden>Disconnect</button>
+          <button data-i18n="strava-back.back" type="button" class="modal-btn" id="strava-back">Back</button>
+          <button data-i18n="strava-sync.sync-now" type="button" class="modal-btn" id="strava-sync" hidden>Sync now</button>
+          <button data-i18n="strava-save.save" type="button" class="modal-btn primary" id="strava-save">Save</button>
         </div>
       </div>
     </div>
@@ -1408,10 +1420,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Your phone</div>
-            <div class="modal-sub">Used to sync photo geolocations, workouts and your location in the background.</div>
+            <div data-i18n="device.your-phone" class="modal-title">Your phone</div>
+            <div data-i18n="device.used-to-sync-photo-geolocations" class="modal-sub">Used to sync photo geolocations, workouts and your location in the background.</div>
           </div>
-          <button class="cell-info-close" id="device-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="device-close.close" class="cell-info-close" id="device-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -1419,10 +1431,10 @@
         </div>
 
         <div class="ha-scroll">
-          <p class="ha-help" id="device-help">
+          <p data-i18n-text="device-help.everything-else-here-is-a" class="ha-help" id="device-help">
             Everything else here is a file you export or an address this server can go and read.
             A phone is neither: it moves, it sleeps, and it decides for itself when to speak. So it
-            is set up <b>on the phone</b> — Hexplore for iOS, Settings tab — and this page is where
+            is set up <b data-i18n="device-help.on-the-phone">on the phone</b> — Hexplore for iOS, Settings tab — and this page is where
             you see whether it is working.
           </p>
           <div class="ha-devices-list" id="device-list"></div>
@@ -1431,8 +1443,8 @@
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="device-back">Back</button>
-          <button type="button" class="modal-btn primary" id="device-refresh">Refresh</button>
+          <button data-i18n="device-back.back" type="button" class="modal-btn" id="device-back">Back</button>
+          <button data-i18n="device-refresh.refresh" type="button" class="modal-btn primary" id="device-refresh">Refresh</button>
         </div>
       </div>
     </div>
@@ -1441,10 +1453,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Komoot</div>
-            <div class="modal-sub">Paste one or more tour links — they're read straight from your browser, not through this server.</div>
+            <div data-i18n="komoot.komoot" class="modal-title">Komoot</div>
+            <div data-i18n="komoot.paste-one-or-more-tour" class="modal-sub">Paste one or more tour links — they're read straight from your browser, not through this server.</div>
           </div>
-          <button class="cell-info-close" id="komoot-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="komoot-close.close" class="cell-info-close" id="komoot-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -1452,8 +1464,8 @@
         </div>
 
         <div class="ha-field">
-          <label class="ha-label" for="komoot-url">Tour links<small>In Komoot: open the tour → Share → Copy link. Paste as many as you like, one per line. A private tour needs that share link, not the plain address.</small></label>
-          <textarea class="auth-input komoot-urls" id="komoot-url" rows="3" placeholder="https://www.komoot.com/tour/…&#10;https://www.komoot.com/tour/…"
+          <label data-i18n-text="komoot.tour-links" class="ha-label" for="komoot-url">Tour links<small data-i18n="komoot.in-komoot-open-the-tour">In Komoot: open the tour → Share → Copy link. Paste as many as you like, one per line. A private tour needs that share link, not the plain address.</small></label>
+          <textarea data-i18n-placeholder="komoot-url.https-www-komoot-com-tour" class="auth-input komoot-urls" id="komoot-url" rows="3" placeholder="https://www.komoot.com/tour/…&#10;https://www.komoot.com/tour/…"
             autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></textarea>
         </div>
 
@@ -1461,13 +1473,13 @@
         <div class="import-error" id="komoot-error" hidden></div>
 
         <label class="import-row" id="komoot-routes-row" hidden>
-          <span>Save route<small>Keeps the line itself, drawn over the map</small></span>
+          <span data-i18n-text="komoot-routes-row.save-route">Save route<small data-i18n="komoot-routes-row.keeps-the-line-itself-drawn">Keeps the line itself, drawn over the map</small></span>
           <input type="checkbox" id="komoot-routes" checked />
         </label>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="komoot-back">Back</button>
-          <button type="button" class="modal-btn primary" id="komoot-go" disabled>Look up</button>
+          <button data-i18n="komoot-back.back" type="button" class="modal-btn" id="komoot-back">Back</button>
+          <button data-i18n="komoot-go.look-up" type="button" class="modal-btn primary" id="komoot-go" disabled>Look up</button>
         </div>
       </div>
     </div>
@@ -1476,10 +1488,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Home Assistant</div>
-            <div class="modal-sub">Sync the data automatically from your Home Assistant instance.</div>
+            <div data-i18n="ha.home-assistant" class="modal-title">Home Assistant</div>
+            <div data-i18n="ha.sync-the-data-automatically-from" class="modal-sub">Sync the data automatically from your Home Assistant instance.</div>
           </div>
-          <button class="cell-info-close" id="ha-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="ha-close.close" class="cell-info-close" id="ha-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -1488,44 +1500,44 @@
 
         <div class="ha-scroll">
           <div class="ha-field">
-            <label class="ha-label" for="ha-url">Address<small>Where you open Home Assistant — this server has to be able to reach it</small></label>
-            <input class="auth-input" id="ha-url" type="text" placeholder="http://homeassistant.local:8123"
+            <label data-i18n-text="ha.address" class="ha-label" for="ha-url">Address<small data-i18n="ha.where-you-open-home-assistant">Where you open Home Assistant — this server has to be able to reach it</small></label>
+            <input data-i18n-placeholder="ha-url.http-homeassistant-local-8123" class="auth-input" id="ha-url" type="text" placeholder="http://homeassistant.local:8123"
               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
           </div>
           <div class="ha-field">
-            <label class="ha-label" for="ha-token">Long-lived access token<small>In Home Assistant: your profile → Security → bottom of the page</small></label>
-            <input class="auth-input" id="ha-token" type="password" placeholder="Paste the token"
+            <label data-i18n-text="ha.long-lived-access-token" class="ha-label" for="ha-token">Long-lived access token<small data-i18n="ha.in-home-assistant-your-profile">In Home Assistant: your profile → Security → bottom of the page</small></label>
+            <input data-i18n-placeholder="ha-token.paste-the-token" class="auth-input" id="ha-token" type="password" placeholder="Paste the token"
               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
           </div>
 
           <div class="ha-devices" id="ha-devices" hidden>
-            <div class="ha-devices-head">Devices to follow</div>
+            <div data-i18n="ha-devices.devices-to-follow" class="ha-devices-head">Devices to follow</div>
             <div class="ha-devices-list" id="ha-devices-list"></div>
             <div class="ha-devices-note" id="ha-devices-note"></div>
           </div>
 
           <label class="import-row" id="ha-interval-row" hidden>
-            <span>Check every</span>
+            <span data-i18n="ha-interval-row.check-every">Check every</span>
             <select id="ha-interval">
-              <option value="5">5 minutes</option>
-              <option value="15" selected>15 minutes</option>
-              <option value="30">30 minutes</option>
-              <option value="60">an hour</option>
-              <option value="180">3 hours</option>
+              <option data-i18n="ha-interval.5-minutes" value="5">5 minutes</option>
+              <option data-i18n="ha-interval.15-minutes" value="15" selected>15 minutes</option>
+              <option data-i18n="ha-interval.30-minutes" value="30">30 minutes</option>
+              <option data-i18n="ha-interval.an-hour" value="60">an hour</option>
+              <option data-i18n="ha-interval.3-hours" value="180">3 hours</option>
             </select>
           </label>
           <label class="import-row" id="ha-accuracy-row" hidden>
-            <span>Skip vague fixes<small>A cell is about 900 m across, so a loose fix can land in the wrong one</small></span>
+            <span data-i18n-text="ha-accuracy-row.skip-vague-fixes">Skip vague fixes<small data-i18n="ha-accuracy-row.a-cell-is-about-900">A cell is about 900 m across, so a loose fix can land in the wrong one</small></span>
             <select id="ha-accuracy">
-              <option value="0">Take them all</option>
-              <option value="100">Over 100 m</option>
-              <option value="250" selected>Over 250 m</option>
-              <option value="500">Over 500 m</option>
-              <option value="1000">Over 1 km</option>
+              <option data-i18n="ha-accuracy.take-them-all" value="0">Take them all</option>
+              <option data-i18n="ha-accuracy.over-100-m" value="100">Over 100 m</option>
+              <option data-i18n="ha-accuracy.over-250-m" value="250" selected>Over 250 m</option>
+              <option data-i18n="ha-accuracy.over-500-m" value="500">Over 500 m</option>
+              <option data-i18n="ha-accuracy.over-1-km" value="1000">Over 1 km</option>
             </select>
           </label>
           <label class="import-row" id="ha-enabled-row" hidden>
-            <span>Keep syncing<small>Off leaves the connection saved but idle</small></span>
+            <span data-i18n-text="ha-enabled-row.keep-syncing">Keep syncing<small data-i18n="ha-enabled-row.off-leaves-the-connection-saved">Off leaves the connection saved but idle</small></span>
             <input type="checkbox" id="ha-enabled" checked />
           </label>
 
@@ -1534,10 +1546,10 @@
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn danger" id="ha-forget" hidden>Disconnect</button>
-          <button type="button" class="modal-btn" id="ha-back">Back</button>
-          <button type="button" class="modal-btn" id="ha-sync" hidden>Sync now</button>
-          <button type="button" class="modal-btn primary" id="ha-save">Connect</button>
+          <button data-i18n="ha-forget.disconnect" type="button" class="modal-btn danger" id="ha-forget" hidden>Disconnect</button>
+          <button data-i18n="ha-back.back" type="button" class="modal-btn" id="ha-back">Back</button>
+          <button data-i18n="ha-sync.sync-now" type="button" class="modal-btn" id="ha-sync" hidden>Sync now</button>
+          <button data-i18n="ha-save.connect" type="button" class="modal-btn primary" id="ha-save">Connect</button>
         </div>
       </div>
     </div>
@@ -1550,10 +1562,10 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title">Where you live</div>
-            <div class="modal-sub">Trips are the days you spent away from here, so this decides what counts as one.</div>
+            <div data-i18n="home.where-you-live" class="modal-title">Where you live</div>
+            <div data-i18n="home.trips-are-the-days-you" class="modal-sub">Trips are the days you spent away from here, so this decides what counts as one.</div>
           </div>
-          <button class="cell-info-close" id="home-close" type="button" aria-label="Close">
+          <button data-i18n-aria-label="home-close.close" class="cell-info-close" id="home-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -1563,8 +1575,8 @@
         <div class="ha-status" id="home-current"></div>
 
         <div class="ha-field">
-          <label class="ha-label" for="home-search">Search for a town<small>Looked up on this machine, like everywhere else in the app</small></label>
-          <input class="auth-input" id="home-search" type="text" placeholder="Bern"
+          <label data-i18n-text="home.search-for-a-town" class="ha-label" for="home-search">Search for a town<small data-i18n="home.looked-up-on-this-machine">Looked up on this machine, like everywhere else in the app</small></label>
+          <input data-i18n-placeholder="home-search.bern" class="auth-input" id="home-search" type="text" placeholder="Bern"
             autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
         </div>
         <div class="home-hits" id="home-hits"></div>
@@ -1580,8 +1592,8 @@
         <div class="import-error" id="home-error" hidden></div>
 
         <div class="modal-actions">
-          <button type="button" class="modal-btn danger" id="home-clear" hidden>Use the guess</button>
-          <button type="button" class="modal-btn" id="home-back">Back</button>
+          <button data-i18n="home-clear.use-the-guess" type="button" class="modal-btn danger" id="home-clear" hidden>Use the guess</button>
+          <button data-i18n="home-back.back" type="button" class="modal-btn" id="home-back">Back</button>
         </div>
       </div>
     </div>
@@ -1596,15 +1608,15 @@
             <circle cx="11" cy="11" r="6.5" />
             <path d="m20 20-4.4-4.4" />
           </svg>
-          <input id="search-input" class="search-input" type="text" placeholder="Search a place, a route, or a date"
+          <input data-i18n-placeholder="search-input.search-a-place-a-route" id="search-input" class="search-input" type="text" placeholder="Search a place, a route, or a date"
             autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
-          <button type="button" class="search-cal-btn" id="search-cal-btn" aria-label="Calendar" title="Pick a day">
+          <button data-i18n-title="search-cal-btn.pick-a-day" data-i18n-aria-label="search-cal-btn.calendar" type="button" class="search-cal-btn" id="search-cal-btn" aria-label="Calendar" title="Pick a day">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="3" y="5" width="18" height="16" rx="3" />
               <path d="M8 3v4M16 3v4M3 10h18" />
             </svg>
           </button>
-          <button type="button" class="search-close" id="search-close" aria-label="Close">
+          <button data-i18n-aria-label="search-close.close" type="button" class="search-close" id="search-close" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -1613,11 +1625,11 @@
 
         <div class="search-calendar" id="search-calendar" hidden>
           <div class="cal-head">
-            <button type="button" class="cal-nav" id="search-cal-prev" aria-label="Previous month">
+            <button data-i18n-aria-label="search-cal-prev.previous-month" type="button" class="cal-nav" id="search-cal-prev" aria-label="Previous month">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
             </button>
             <div class="cal-title" id="search-cal-title"></div>
-            <button type="button" class="cal-nav" id="search-cal-next" aria-label="Next month">
+            <button data-i18n-aria-label="search-cal-next.next-month" type="button" class="cal-nav" id="search-cal-next" aria-label="Next month">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
             </button>
           </div>
@@ -1638,10 +1650,10 @@
         <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
       </svg>
       <span class="offline-text">
-        <b>Can't reach the server</b>
-        <small id="offline-detail">Anything you change now won't be saved.</small>
+        <b data-i18n="offline.can-t-reach-the-server">Can't reach the server</b>
+        <small data-i18n="offline-detail.anything-you-change-now-won" id="offline-detail">Anything you change now won't be saved.</small>
       </span>
-      <button type="button" class="offline-retry" id="offline-retry">Retry</button>
+      <button data-i18n="offline-retry.retry" type="button" class="offline-retry" id="offline-retry">Retry</button>
     </div>
 
     <!-- Somebody else's outage. Shaped like the banner above and coloured
@@ -1654,10 +1666,10 @@
         <path d="M12 16h.01" />
       </svg>
       <span class="offline-text">
-        <b>Train tracks are patchy</b>
+        <b data-i18n="rail.train-tracks-are-patchy">Train tracks are patchy</b>
         <small id="rail-bar-detail"></small>
       </span>
-      <button type="button" class="offline-retry" id="rail-bar-dismiss">Dismiss</button>
+      <button data-i18n="rail-bar-dismiss.dismiss" type="button" class="offline-retry" id="rail-bar-dismiss">Dismiss</button>
     </div>
 
     <!-- What changed since the last time this said anything. The only banner in
@@ -1676,8 +1688,8 @@
         <b id="whats-new-title"></b>
         <small id="whats-new-detail"></small>
       </span>
-      <button type="button" class="offline-retry" id="whats-new-open">Show me</button>
-      <button type="button" class="offline-retry offline-quiet" id="whats-new-dismiss">Dismiss</button>
+      <button data-i18n="whats-new-open.show-me" type="button" class="offline-retry" id="whats-new-open">Show me</button>
+      <button data-i18n="whats-new-dismiss.dismiss" type="button" class="offline-retry offline-quiet" id="whats-new-dismiss">Dismiss</button>
     </div>
 
     <!-- Asked once, ever. Everything in the Trips tab is measured from home, and
@@ -1692,11 +1704,11 @@
         <path d="M5.4 12.5V20h13.2v-7.5" />
       </svg>
       <span class="offline-text">
-        <b>Where do you live?</b>
-        <small>Your trips are measured from home. Right now that's a guess.</small>
+        <b data-i18n="home.where-do-you-live">Where do you live?</b>
+        <small data-i18n="home.your-trips-are-measured-from">Your trips are measured from home. Right now that's a guess.</small>
       </span>
-      <button type="button" class="offline-retry" id="home-bar-set">Set home</button>
-      <button type="button" class="offline-retry offline-quiet" id="home-bar-dismiss">Not now</button>
+      <button data-i18n="home-bar-set.set-home" type="button" class="offline-retry" id="home-bar-set">Set home</button>
+      <button data-i18n="home-bar-dismiss.not-now" type="button" class="offline-retry offline-quiet" id="home-bar-dismiss">Not now</button>
     </div>
 
     <!-- Shown while something is being fetched that the map is waiting on — the
@@ -1705,7 +1717,7 @@
          dialog, and the map underneath is still perfectly usable. -->
     <div class="busy" id="busy" hidden role="status" aria-live="polite">
       <span class="busy-ring" aria-hidden="true"></span>
-      <span class="busy-text" id="busy-text">Loading…</span>
+      <span data-i18n="busy-text.loading" class="busy-text" id="busy-text">Loading…</span>
     </div>
 
     <!-- What just happened, briefly. Undo's whole problem is that the thing it
@@ -1716,17 +1728,17 @@
 
     <div class="auth-overlay" id="auth-overlay" hidden>
       <form class="auth-card" id="auth-form">
-        <div class="auth-title">Visited&nbsp;Map</div>
-        <div class="auth-sub" id="auth-sub">Sign in to see your map</div>
-        <input class="auth-input" id="auth-username" type="text" name="username" placeholder="Username"
+        <div data-i18n="auth-form.visited-map" class="auth-title">Visited&nbsp;Map</div>
+        <div data-i18n="auth-sub.sign-in-to-see-your" class="auth-sub" id="auth-sub">Sign in to see your map</div>
+        <input data-i18n-placeholder="auth-username.username" class="auth-input" id="auth-username" type="text" name="username" placeholder="Username"
           autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40" />
-        <input class="auth-input" id="auth-password" type="password" name="password" placeholder="Password"
+        <input data-i18n-placeholder="auth-password.password" class="auth-input" id="auth-password" type="password" name="password" placeholder="Password"
           autocomplete="current-password" />
         <div class="auth-error" id="auth-error" hidden></div>
-        <button class="auth-submit" id="auth-submit" type="submit">Log in</button>
+        <button data-i18n="auth-submit.log-in" class="auth-submit" id="auth-submit" type="submit">Log in</button>
         <div class="auth-switch">
-          <span id="auth-switch-text">New here?</span>
-          <button type="button" class="auth-switch-btn" id="auth-switch-btn">Create an account</button>
+          <span data-i18n="auth-switch-text.new-here" id="auth-switch-text">New here?</span>
+          <button data-i18n="auth-switch-btn.create-an-account" type="button" class="auth-switch-btn" id="auth-switch-btn">Create an account</button>
         </div>
       </form>
     </div>

@@ -21,6 +21,11 @@ globalThis.localStorage = {
   removeItem: (k) => { delete stored[k]; },
 };
 
+// Before snow.js, because its mode labels are read at import time — the same
+// ordering src/boot.js guarantees in the browser. Without it the labels below
+// print as their keys, which passes and reads as nonsense.
+await (await import('../../src/i18n.js')).loadLocale('en');
+
 const {
   SNOW_MODES, applySnow, isSnowMode, isWinterAt, setSnowMode, snowMode, snowSpec, snowWanted,
 } = await import('../../src/snow.js');

@@ -14,6 +14,7 @@
 
 import { clockSource, localIs24Hour } from './clock.js';
 import { onBackdropClick } from './dismiss.js';
+import { t } from './i18n.js';
 
 /**
  * @param {object} opts
@@ -30,6 +31,9 @@ import { onBackdropClick } from './dismiss.js';
  *   show it at all — Mapbox can, the other four cannot
  * @param {() => string} [opts.whatsNew] how often to say what has changed
  * @param {(mode:string) => void} [opts.onWhatsNew]
+ * @param {() => Array<{key:string,label:string}>} [opts.locales] the languages that exist
+ * @param {() => string} [opts.locale] the one in force
+ * @param {(key:string) => void} [opts.onLocale] picking one reloads the page
  * @param {{open:Function}} [opts.sources] the Sources dialog, opened from here
  * @param {{open:Function}} [opts.rail] the Train tracks dialog, likewise
  * @param {{open:Function}} [opts.airports] the Airports dialog, likewise
@@ -41,7 +45,7 @@ import { onBackdropClick } from './dismiss.js';
  */
 export function mountPersonal({
   onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, snow, onSnow, snowPossible,
-  whatsNew, onWhatsNew,
+  whatsNew, onWhatsNew, locales, locale, onLocale,
   sources, rail, airports, mapbox, onClearCache, version, username, onDeleteAccount,
 }) {
   const $ = (id) => document.getElementById(id);
@@ -55,6 +59,20 @@ export function mountPersonal({
   const snowNote = $('settings-snow-note');
   const whatsNewSel = $('settings-whats-new');
   const whatsNewNote = $('settings-whats-new-note');
+  const localeSel = $('settings-locale');
+
+  // Filled once from the registry — the list of languages cannot change while
+  // the dialog is open, and rebuilding it on every `draw()` would throw away the
+  // selection mid-change.
+  for (const l of locales?.() ?? []) {
+    const opt = document.createElement('option');
+    opt.value = l.key;
+    opt.textContent = l.label; // in its own language, never translated
+    localeSel.append(opt);
+  }
+  // One language is not a choice. The row is hidden rather than shown as a
+  // select with a single entry, which reads as a control that is broken.
+  localeSel.closest('.import-row').hidden = (locales?.() ?? []).length < 2;
   const versionEl = $('settings-version');
 
   // Read on every opening rather than wired once: home can be changed from the
@@ -84,20 +102,19 @@ export function mountPersonal({
     // but it says which of the two situations you are in, because a switch that
     // demonstrably does nothing is indistinguishable from a broken one.
     snowSel.value = snow?.() ?? 'off';
-    snowNote.textContent = snowPossible?.()
-      ? 'Falls on the 3D basemap'
-      : 'Only on the 3D basemap — this one cannot show it';
+    snowNote.textContent = t(snowPossible?.() ? 'personal.snow.on' : 'personal.snow.off');
     // The note says what each answer actually means, because the words in the
     // list do not: "substantial" is a threshold somebody chose, and a person
     // deciding between three options deserves to know roughly where it sits.
     // The workouts sentence is on every one of them — including Never — because
     // that exception is exactly the thing somebody choosing Never would
     // otherwise be surprised by later.
+    localeSel.value = locale?.() ?? 'en';
     whatsNewSel.value = whatsNew?.() ?? 'substantial';
     whatsNewNote.textContent = {
-      never: 'Only new workouts are ever mentioned',
-      substantial: 'A new country or region, or a day out. Plus new workouts',
-      always: 'Anything at all that has changed, plus new workouts',
+      never: t('personal.whatsNew.never'),
+      substantial: t('personal.whatsNew.substantial'),
+      always: t('personal.whatsNew.always'),
     }[whatsNewSel.value] ?? '';
     // Hidden rather than shown empty or as "unknown": the whole value of this
     // line is that it can be trusted, and a placeholder where a build number
@@ -137,6 +154,10 @@ export function mountPersonal({
     onWhatsNew?.(whatsNewSel.value);
     draw();
   });
+  // No `draw()` after it: choosing a language reloads the page (see
+  // src/i18n.js), so there is nothing left to redraw and the dialog is about to
+  // be rebuilt from scratch in the language just chosen.
+  localeSel.addEventListener('change', () => onLocale?.(localeSel.value));
 
   // Each of these needs the whole dialog, so this one gets out of the way rather
   // than stacking a second overlay on top of itself — the same hand-off the home

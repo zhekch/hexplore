@@ -28,6 +28,8 @@
 // weeks into December and stop in the third week of March, and nobody thinks of
 // the year that way. Whole months are the version a person can predict.
 
+import { t } from './i18n.js';
+
 // --- Tuning -------------------------------------------------------------------
 
 // How much snow, and it is deliberately much less than Mapbox's own example.
@@ -65,11 +67,18 @@ const SNOW_FULL_ZOOM = 8;
 
 // --- The setting --------------------------------------------------------------
 
-/** The three answers. `winter` is the interesting one; the other two are escapes. */
+/**
+ * The three answers. `winter` is the interesting one; the other two are escapes.
+ *
+ * `label` is read at import time and so is in whatever language was loaded
+ * before this module was — which `src/boot.js` guarantees is the right one. See
+ * the note at the head of src/i18n.js for why that ordering exists and why
+ * changing language reloads.
+ */
 export const SNOW_MODES = [
-  { key: 'off', label: 'Never' },
-  { key: 'winter', label: 'In winter' },
-  { key: 'always', label: 'Always' },
+  { key: 'off', label: t('snow.never') },
+  { key: 'winter', label: t('snow.winter') },
+  { key: 'always', label: t('snow.always') },
 ];
 
 const DEFAULT_MODE = 'off';

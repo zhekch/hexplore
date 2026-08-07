@@ -23,6 +23,12 @@ globalThis.localStorage = {
   removeItem: (k) => { delete stored[k]; },
 };
 
+// The strings come from the locale, and `t()` answers with the key itself until
+// one is loaded — so this has to happen before whats-new.js is imported, exactly
+// as src/boot.js does it in the browser. Without it every assertion about a
+// sentence below would be comparing against "whatsNew.places.other".
+await (await import('../../src/i18n.js')).loadLocale('en');
+
 const {
   BANNER_MODES, bannerFor, bannerMode, changesSince, forgetSnapshot, isBannerMode,
   lastSnapshot, rememberSnapshot, setBannerMode, snapshotOf,

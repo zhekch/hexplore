@@ -18,7 +18,13 @@
 // main.js notices that it did not get the engine its basemap wanted, and moves
 // the basemap rather than showing a background that never resolves.
 
+// …and the same trick now carries a second passenger. `t()` in src/i18n.js is
+// synchronous, because half the strings in this app are in module-level
+// constants that are evaluated the moment their module is imported — so the
+// language has to be in hand before anything below is. This is the one place
+// that can wait for it, and it is already waiting.
 import { MAPBOX, MAPLIBRE, engineForBasemap, loadEngine, savedStyleKey } from './gl-engine.js';
+import { loadLocale } from './i18n.js';
 
 const wanted = engineForBasemap(savedStyleKey());
 
@@ -29,12 +35,20 @@ const wanted = engineForBasemap(savedStyleKey());
 // able to say so.
 const reveal = () => document.documentElement.classList.remove('booting');
 
-loadEngine(wanted)
-  .catch((e) => {
-    if (wanted === MAPLIBRE) throw e; // nothing left to fall back to
-    console.warn('Mapbox GL JS could not be loaded; falling back to MapLibre.', e);
-    return loadEngine(MAPLIBRE);
-  })
+// Both at once: they need nothing from each other, and the language file is a
+// few kilobytes against a map library's megabyte — waiting for it in series
+// would add its round trip to every load for no reason.
+Promise.all([
+  loadEngine(wanted)
+    .catch((e) => {
+      if (wanted === MAPLIBRE) throw e; // nothing left to fall back to
+      console.warn('Mapbox GL JS could not be loaded; falling back to MapLibre.', e);
+      return loadEngine(MAPLIBRE);
+    }),
+  // Never rejects — a language that will not load falls back to English inside
+  // `loadLocale`, because a page in the wrong language beats no page at all.
+  loadLocale(),
+])
   .then(() => import('./main.js'))
   .then(reveal)
   .catch((e) => {

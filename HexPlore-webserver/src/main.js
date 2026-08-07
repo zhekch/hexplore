@@ -49,6 +49,14 @@ import {
 import { applySnow, isSnowMode, setSnowMode, snowMode, snowWanted } from './snow.js';
 import { bannerMode, forgetSnapshot, isBannerMode, setBannerMode } from './whats-new.js';
 import { mountWhatsNew } from './whats-new-ui.js';
+import { LOCALES, applyTranslations, locale, setLocale, t } from './i18n.js';
+
+// The markup ships in English and is rewritten here, once, before anything is
+// on screen. Done at the top of the module rather than on DOMContentLoaded
+// because the document is still hidden at this point (see `booting` in
+// src/boot.js) — a page that painted first would flash English at somebody who
+// asked for something else.
+applyTranslations();
 // The theme is not handed over separately: it only ever changes by switching
 // basemap, which replaces the style and rebuilds the overlay from scratch.
 import {
@@ -3536,6 +3544,11 @@ const prefsPayload = () => ({
   // different banners at different times — a shared baseline would mean opening
   // the phone silently spent the laptop's news.
   whatsNew: bannerMode(),
+  // Which language. In the account for the plainest reason of all: the language
+  // you read is not a fact about a browser, and picking English again on the
+  // phone after choosing it on the laptop is the kind of thing that makes a
+  // setting feel like it did not take.
+  locale: locale(),
   // The 3D basemap's Mapbox token, for exactly the same reason and with a
   // stronger case: it is a thing you signed up for once, and pasting it again on
   // every device was the whole of what stood between them and the basemap. Sent
@@ -3666,6 +3679,11 @@ function adoptPrefs(prefs) {
   // Nothing to redraw: the banner has already been decided for this load, and a
   // frequency adopted mid-session is for the next one.
   if (isBannerMode(prefs.whatsNew)) setBannerMode(prefs.whatsNew);
+  // Adopted, but never acted on mid-session: `setLocale` would reload the page,
+  // and a page that reloads itself because a *sync* landed is a page that threw
+  // away whatever you were in the middle of. Stored now, in force next time —
+  // which is what the reload on the deciding device already did for that one.
+  if (prefs.locale && prefs.locale !== locale()) setLocale(prefs.locale, false);
   // The pair if the account has it; the single value if it was saved before
   // there were two, in which case it stands for both — the same reading
   // savedAccents() gives the old localStorage key, for the same reason.
@@ -8146,6 +8164,19 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       setBannerMode(mode);
       touchPrefs();
       pushPrefs();
+    },
+    locales: () => LOCALES,
+    locale: () => locale(),
+    // Pushed *before* the reload rather than after it. `setLocale` takes the
+    // page down, and a preference still sitting in the debounce when that
+    // happens is a preference that never left — the same trap the unload flush
+    // exists for, arrived at deliberately rather than by accident.
+    onLocale: async (key) => {
+      if (key === locale()) return;
+      setLocale(key, false);
+      touchPrefs();
+      await pushPrefs();
+      location.reload();
     },
     sources: sourcesUi,
     rail: railUi,
