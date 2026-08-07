@@ -68,6 +68,32 @@ let loading = null;
 // Each pair has to be about the same size. See pairFineRegions().
 export const AREA_MATCH = [0.3, 3.2];
 
+/**
+ * How much of a country has to have detailed boundaries before any of it is
+ * drawn with them.
+ *
+ * **Two resolutions cannot tile.** Where a detailed region meets an overview
+ * one, the two disagree about their shared border by up to the overview set's
+ * ~1 km simplification — so the border is drawn twice, a hairline apart, and the
+ * union of the two leaves a sliver of unfilled ground running between them.
+ * Hungary is the case: Natural Earth counts its 24 city-counties as admin-1
+ * units and geoBoundaries folds them into the counties around them, so 17 of our
+ * 43 pair. Every one of those 17 shared a seam with a neighbour that had not,
+ * and a poster of the country came out double-ruled and full of holes.
+ *
+ * `pairFineRegions` is still right to keep a partial answer — every shape it
+ * returns is the right shape for what it names. This is the separate question of
+ * whether a set of shapes can be laid down next to each other, and the answer is
+ * all of them or none.
+ *
+ * Not 100%: France pairs 96 of 101, and the five it misses are Guyane,
+ * Guadeloupe, Martinique, Mayotte and La Réunion — which their file simply does
+ * not contain, and which share a border with nothing. A country losing its
+ * detail over an island in another ocean would be the rule doing more harm than
+ * the seams.
+ */
+const FINE_COVERAGE_MIN = 0.9;
+
 let FINE = new Map(); // region id → detailed geometry
 const fineDone = new Set(); // iso codes fetched (or failed — don't retry a 404)
 const finePending = new Set();
@@ -400,6 +426,17 @@ export async function loadFineRegions(iso) {
     const res = await fetch(`/api/regions/${encodeURIComponent(iso)}?r=${regionSetTag(iso)}`);
     if (!res.ok) return 0;
     const body = await res.json();
+    const got = Object.keys(body?.regions ?? {}).length;
+    const mine = regionsInCountry(iso);
+    if (mine && got < mine * FINE_COVERAGE_MIN) {
+      // Loud, because this is a country quietly drawn blunter than the data
+      // allows, and the next person to wonder why should not have to find it.
+      console.info(
+        `[regions] ${iso}: ${got} of ${mine} regions have detailed boundaries — `
+        + 'keeping the overview set, which at least agrees with itself.',
+      );
+      return 0;
+    }
     return addFineRegions(body?.regions);
   } catch {
     return 0;

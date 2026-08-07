@@ -171,6 +171,16 @@ const LABEL_GATES = {
   place_country_minor: 3,
   place_country_major: 2,
   water_name: 5,
+  // Street names, on Light's own schedule. OpenFreeMap gives these no minzoom
+  // at all, so "A1" was drawn from halfway across the country — which is why
+  // they used to be dropped outright, and dropping them meant Terrain and
+  // Satellite had no street names at any zoom, including the zoom where you are
+  // looking at one street. Voyager names its major roads from z13 and works down
+  // to minor at z16; OpenFreeMap splits the same job two ways, so the motorway
+  // shields take the early gate and everything else waits until the map is
+  // showing a neighbourhood rather than a city.
+  highway_name_motorway: 13,
+  highway_name_other: 15,
 };
 
 // Roads. The motorway tier already carries a sensible gate upstream (z6); it is
@@ -285,16 +295,13 @@ function gateRoadClasses(layer) {
   ];
 }
 
-// Names and markings that a map of where you have been never needed. Street
-// names are unreadable at the zooms this map is mostly used at, and OpenFreeMap
-// gives them no minzoom either — so "A1" was being drawn from halfway across
-// the country.
-const LABEL_DROP = new Set([
-  'highway_name_other',
-  'highway_name_motorway',
-  'road_oneway',
-  'road_oneway_opposite',
-]);
+// Markings that a map of where you have been never needed. One-way arrows are
+// for driving down a street, not for recognising one you walked along.
+//
+// Street names were here too, and should not have been: unreadable *at the zooms
+// this map is mostly used at* is an argument for a minzoom, not for deleting the
+// layer. See LABEL_GATES.
+const LABEL_DROP = new Set(['road_oneway', 'road_oneway_opposite']);
 
 /**
  * Put a built style on the same zoom diet Light keeps. Returns the layers that
@@ -414,19 +421,16 @@ export async function satelliteStyle() {
     return bareSatellite();
   }
 
-  // Labels that belong on a photograph are the ones naming *places*. Street
-  // names and motorway shields do not: they are unreadable at the zooms this
-  // map is usually at, they clutter the imagery, and OpenFreeMap gives them no
-  // minzoom at all — so "A1" and every lane name were still being drawn from
-  // halfway across the country. One-way arrows go for the same reason.
-  // Belt and braces with LABEL_DROP in the diet: these are the four that must
-  // never reach a photograph, whatever the diet is tuned to next.
-  const DROP_LABELS = new Set([
-    'highway_name_other',
-    'highway_name_motorway',
-    'road_oneway',
-    'road_oneway_opposite',
-  ]);
+  // One-way arrows are markings rather than labels, and mean nothing over a
+  // photograph. Belt and braces with LABEL_DROP in the diet, whatever that is
+  // tuned to next.
+  //
+  // Street names are *not* dropped here any more. They were, on the grounds that
+  // they clutter the imagery — true from a country away and false at the zoom
+  // where you are trying to work out which street you walked down, which is the
+  // zoom a photograph is most worth having. The diet holds them back until then
+  // (see LABEL_GATES), which is the same answer the place names get.
+  const DROP_LABELS = new Set(['road_oneway', 'road_oneway_opposite']);
 
   // Over a photograph the road network has to be thinner still: the imagery is
   // the subject, and every lane drawn on top of it turns an aerial photo into a

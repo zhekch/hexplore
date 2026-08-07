@@ -1159,6 +1159,32 @@ detail for. That is not merely inconsistent: the blunt outlines are simplified
 along the border. `ensureSharpBoundaries` now also asks for every country whose
 lit regions fall inside the frame (`countriesInView`), bounded to ten.
 
+**The subject's own silhouette was the one shape that never asked.** Every place
+in `src/export-image.js` that draws a country edge reaches for the sharp geometry
+first — the surroundings, the borders, the divisions, `scopeGeometry` — except
+`landGeoms`, which took `c.geometry` flat. That is the shape *Draw the outline*
+strokes, so on a picture of everywhere the world's silhouette came out at the
+overview set's kilometre while the borders drawn on top of it were the national
+survey's: a coastline in visible straight runs, under a border that followed
+every inlet. And `spec.outline` was missing from `wantsNeighbours`, so a picture
+with nothing but its own outline turned on never fetched a sharp boundary at all.
+Both halves had to move; either alone leaves the outline blunt.
+
+**Single color is the expensive mode, and it is now cached.** Every heat mode
+gives each area its own feature carrying its own value, which is a walk over the
+cells and nothing else. The flat mode dissolves them — and dissolving a hundred
+regions of several thousand points each is polygon clipping measured in seconds.
+`exportAreaFC` was uncached on purpose, so that ran again on every frame of every
+slider drag: the panel was unusable in the mode it opens in while every other
+mode felt fine. It has a cache of its own now, keyed by kind *and* mode so it can
+never evict the map's own answer, dropped whenever `areaGen` moves, and capped at
+`EXPORT_CACHE_MAX` because three detail levels times four modes is twelve
+answers and an export panel left open should not quietly hold all of them.
+
+`areaGen` exists because `countryDirty` is a message to `ensureAreaFC` that
+`ensureAreaFC` *clears*. A second reader cannot take it off the doorstep, so
+`markAreasDirty` bumps a counter alongside it and the export compares generations.
+
 Two rendering bugs live next door to this, and both of them looked like data
 problems:
 
@@ -2223,6 +2249,20 @@ our region ids. Without it, every country already cached would have gone on bein
 served the worse answer forever — the same failure mode as the Italian province
 ids, which is what put the fingerprint there in the first place.
 
+**Two resolutions cannot tile, so a country takes them or it doesn't.**
+`pairFineRegions` is right to keep a partial answer — every shape it returns is
+the right shape for what it names — but that is a different question from whether
+a set of shapes can be laid down beside each other. Where a detailed region meets
+an overview one they disagree about their shared border by up to a kilometre, so
+the border is drawn twice a hairline apart and the union of the two leaves a
+sliver of unfilled ground running between them. Hungary is the case that showed
+it: 17 of 43 pair, and a poster of the country came out double-ruled and full of
+holes. `FINE_COVERAGE_MIN` (90%) is the gate — a country whose detailed set does
+not cover nearly all of it keeps the overview geometry throughout, which at least
+agrees with itself, and says so once in the console. Not 100%, because France
+misses only Guyane, Guadeloupe, Martinique, Mayotte and La Réunion — which their
+file does not contain and which share a border with nothing.
+
 **Nothing is *resolved* against the detailed set.** Which region a cell belongs to
 is decided once, on the overview geometry, so the answer cannot change under you
 when the fine one lands and the per-cell memo stays valid.
@@ -3030,6 +3070,22 @@ service which caching *helps*, and Mapbox is a commercial vendor metering exactl
 that.
 
 ## What a basemap switch takes with it
+
+**"My location" is put back when the map itself is replaced.** Crossing between
+the two map libraries replaces the map object, and a control belongs to the map
+that made its element — its user-location markers are created in `_finishSetupUI`
+and die with it. So the new control came up in its OFF state with the blue dot
+simply gone, looking exactly as it does before you have ever pressed it, and the
+only way to find out was to press it again. Where you are is not a fact about
+which library is drawing the ground.
+
+Two things make `restoreGeolocate` more than one line. The control sets itself up
+behind an async permissions check and `trigger()` before that is a no-op — but it
+*returns false*, so asking until it takes needs no private state and stops on its
+own. And a plain re-trigger would fly the camera to you, which is right if you
+were locked on and wrong if you had panned away: `dropToBackground` is applied
+before the first fix arrives, and the control only moves the camera while
+`ACTIVE_LOCK`.
 
 `setStyle` replaces the whole style, and everything the app added goes with it —
 sources, layers and images alike. `installGrid` rebuilds all of it on
@@ -5479,6 +5535,16 @@ splitting the classes and gating each, so `gateRoadClasses()` does the same
 inside the filter the layer already has — trunk early, primary at z8, secondary
 at z11, tertiary at z13. Zoom in a filter is only evaluated at integer zooms,
 which for a road appearing is the right granularity.
+
+**Street names are gated, not deleted.** They were deleted, and the reasoning —
+they are unreadable at the zooms this map is mostly used at, and OpenFreeMap gives
+them no minzoom, so "A1" was drawn from halfway across the country — is an
+argument for a `minzoom` and never was one for dropping the layer. It left Terrain
+and Satellite with no street names at any zoom, including the zoom where you are
+looking at one street, which on a photograph is exactly where they are most worth
+having. They are back in `LABEL_GATES` on Light's own schedule: motorway shields
+at z13, everything else at z15. The one-way arrows stay dropped — those are
+markings for driving down a street, not for recognising one you walked along.
 
 **Roads stop below `ROAD_MIN_ZOOM`, and arrive by `ROAD_FULL_ZOOM`.** Light
 keeps its network on the map at world zoom but barely visible; Terrain and

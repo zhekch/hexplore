@@ -1016,12 +1016,63 @@ function dropLockOnZoom() {
   map.on('zoomstart', (e) => {
     // A gesture, not the control's own fly-to and not one of ours.
     if (!e.originalEvent || geolocate._watchState !== 'ACTIVE_LOCK') return;
-    geolocate._watchState = 'BACKGROUND';
-    btn.classList.add(ctrlClass('ctrl-geolocate-background'));
-    btn.classList.remove(ctrlClass('ctrl-geolocate-active'));
-    geolocate.fire('trackuserlocationend');
-    geolocate.fire('userlocationlostfocus');
+    dropToBackground(btn);
   });
+}
+
+/**
+ * Keep the blue dot, let go of the camera — the state the control itself lands
+ * in when you pan away from yourself, reached by hand. Reaching for
+ * `_watchState` is reaching inside the library, so every caller reads it before
+ * writing it: a MapLibre that has renamed it leaves the control alone.
+ */
+function dropToBackground(btn) {
+  geolocate._watchState = 'BACKGROUND';
+  btn.classList.add(ctrlClass('ctrl-geolocate-background'));
+  btn.classList.remove(ctrlClass('ctrl-geolocate-active'));
+  geolocate.fire('trackuserlocationend');
+  geolocate.fire('userlocationlostfocus');
+}
+
+/** Whichever of the control's states the button is currently showing. */
+function geolocateState() {
+  const btn = document.querySelector(`.${ctrlClass('ctrl-geolocate')}`);
+  if (!btn?.classList.contains(ctrlClass('ctrl-geolocate-active'))) return 'off';
+  return btn.classList.contains(ctrlClass('ctrl-geolocate-background')) ? 'background' : 'locked';
+}
+
+/**
+ * Turn "my location" back on after the map underneath it was replaced.
+ *
+ * Switching between the two map libraries replaces the map object, and a control
+ * belongs to the map that made its element — so the new one comes up in its OFF
+ * state and the blue dot is simply gone. Nothing said so: the button looked
+ * exactly as it does before you have ever pressed it, and the only way to find
+ * out was to press it again. Where you are is not a fact about which library is
+ * drawing the ground.
+ *
+ * Two things make this awkward enough to be worth the words. The control sets
+ * itself up behind an async permissions check and `trigger()` before that is a
+ * no-op with a console warning — but it *returns false*, so asking until it
+ * takes needs no private state and stops on its own. And a plain re-trigger
+ * would fly the camera to you, which is right if you were locked on and wrong if
+ * you had panned away: BACKGROUND is set before the first fix arrives, and the
+ * control only moves the camera while ACTIVE_LOCK.
+ */
+function restoreGeolocate(was) {
+  if (was === 'off') return;
+  let tries = 0;
+  const ask = () => {
+    if (!geolocate || tries++ > 60) return;
+    if (!geolocate.trigger()) {
+      setTimeout(ask, 50);
+      return;
+    }
+    if (was !== 'background') return;
+    const btn = document.querySelector(`.${ctrlClass('ctrl-geolocate')}`);
+    if (btn) dropToBackground(btn);
+  };
+  ask();
 }
 
 // Its own corner, so the attribution can have the top-right one to itself.
@@ -1837,7 +1888,7 @@ function setHeatMode(next) {
   // The per-source tally is only built while Type is on, so switching into or
   // out of it is the one mode change that has to redo the roll-up.
   if (wasType !== !!HEAT_MODES[heatMode]?.categorical) recomputeLit();
-  countryDirty = true; // countries render dissolved or per-country by mode
+  markAreasDirty(); // countries render dissolved or per-country by mode
   applyColors();
   applyFade(fade.cur);
   applyPrevFade(fade.prev);
@@ -2099,7 +2150,7 @@ function recomputeLit(byType = HEAT_MODES[heatMode]?.categorical) {
 
   visibleCells = shown ?? visited;
   typeRollUpStale = !byType;
-  countryDirty = true; // the set of lit countries may have changed
+  markAreasDirty(); // the set of lit countries may have changed
 }
 
 // Fold ONE newly stored cell into litSets/litRange without rebuilding them.
@@ -2160,7 +2211,7 @@ function rollUpPainted(id) {
   // in a mode that would not read one. So any tally built earlier for the image
   // export is now one cell short of the truth, and says so.
   typeRollUpStale = true;
-  countryDirty = true;
+  markAreasDirty();
   return true;
 }
 
@@ -2273,6 +2324,17 @@ function useFineRegions() {
 // Which cache a request lands in.
 const areaCacheKey = (kind) => (kind === 'region' && useFineRegions() ? 'regionFine' : kind);
 let countryDirty = true;
+// Bumped alongside it, for readers that must not *consume* the flag.
+// `countryDirty` is a message to `ensureAreaFC` and is cleared by it; the image
+// export needs the same news without taking it off the map's doorstep.
+let areaGen = 0;
+
+/** The lit set, the colouring or the boundary data moved. Anything built from
+ *  them is now out of date. */
+function markAreasDirty() {
+  countryDirty = true;
+  areaGen++;
+}
 // Keyed by stored cell id, and never invalidated by an edit: a cell's centre
 // never moves, so the answer for "L/col/row" is the same every time it is
 // asked. Only a dataset arriving late clears them (see ensureAreaFC).
@@ -2526,7 +2588,7 @@ function ensureAreaFC(kind) {
       // The continent index and its dissolved outlines were built from whatever
       // the country dataset held a moment ago, which was nothing.
       forgetContinents();
-      countryDirty = true;
+      markAreasDirty();
       updateGrid(true);
     });
     return EMPTY;
@@ -2567,15 +2629,46 @@ function exportRollUp(mode) {
   return { litSets, litRange };
 }
 
-// Uncached on purpose. `ensureAreaFC` holds one answer per kind for the mode the
-// map is in, and an export asking for a different mode must not evict it — the
-// next pan would rebuild and re-tile the level under the user's hand.
+// Held, but never in the map's own slots. `ensureAreaFC` holds one answer per
+// kind for the mode the map is in, and an export asking for a different mode
+// must not evict it — the next pan would rebuild and re-tile the level under the
+// user's hand. So this is a cache of its own, keyed by kind *and* mode, and
+// dropped whenever anything it was built from moves.
 //
+// It has to be a cache because **Single color is the expensive one**. Every heat
+// mode gives each area its own feature carrying its own value, which is a walk
+// over the cells and nothing else. The flat mode dissolves them instead — and
+// dissolving a hundred regions of several thousand points each is polygon
+// clipping measured in seconds, not milliseconds. Rebuilt per call, that ran
+// again on every frame of every slider drag, so the panel was unusable in the
+// mode it opens in while every other mode felt fine. Nothing about the union
+// changes while a slider moves; it is the same shapes redrawn at a different
+// size.
+//
+// Capped rather than trusted: three detail levels times four modes is twelve
+// answers, each potentially a country's worth of geometry, and an export panel
+// left open should not quietly hold all of them.
+const EXPORT_CACHE_MAX = 8;
+const exportCache = new Map();
+let exportCacheGen = -1;
+
 // Always `fine`, which the map only asks for past z6: a poster is looked at far
 // closer than a map ever is, and the overview boundaries' ~1 km simplification
 // is what puts a straight line across a lake. Where the detailed set has not
 // been fetched, `regionGeometry` falls back to the overview one on its own.
-const exportAreaFC = (kind, mode) => buildAreaFC(kind, { mode, fine: true, record: false });
+function exportAreaFC(kind, mode) {
+  if (exportCacheGen !== areaGen) {
+    exportCache.clear();
+    exportCacheGen = areaGen;
+  }
+  const key = `${kind}|${mode}`;
+  const held = exportCache.get(key);
+  if (held) return held;
+  if (exportCache.size >= EXPORT_CACHE_MAX) exportCache.clear();
+  const fc = buildAreaFC(kind, { mode, fine: true, record: false });
+  exportCache.set(key, fc);
+  return fc;
+}
 
 // Initial (empty) light-up so litSets/countryDirty exist before the map draws;
 // hydrateVisited() re-runs this once the user's cells arrive from the server.
@@ -5142,6 +5235,7 @@ function fetchFineRegions(iso, label) {
     .then((paired) => {
       if (!paired) return;
       areaFC.regionFine = EMPTY; // rebuild at the new resolution
+      areaGen++; // …and whatever the export built from the blunter shapes
       updateGrid(true);
       updateSelection(); // and the outlined shape, if one is being looked at
     })
@@ -5760,6 +5854,7 @@ async function switchEngine(key) {
 
     // From here the old map is going. Everything that has to survive is read
     // off it first.
+    const tracking = geolocateState();
     const c = map.getCenter();
     const view = {
       lng: c.lng, lat: c.lat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch(),
@@ -5826,6 +5921,9 @@ async function switchEngine(key) {
     blobRole = 'none';
     fedFine = false;
     rewireMap();
+    // The new map's control is a new control, in its off state. See
+    // restoreGeolocate — the blue dot is not something a basemap switch decides.
+    restoreGeolocate(tracking);
     // A basemap that needs building is fetched and applied the same way it is
     // for any other switch. Standard is a URL, so this is usually a no-op.
     if (STYLES[key].build) {

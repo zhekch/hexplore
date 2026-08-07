@@ -739,9 +739,23 @@ export function frameOf(spec, data) {
   return frameFor(geoms, data.cells());
 }
 
-/** Which land the picture is a picture of. */
+/**
+ * Which land the picture is a picture of.
+ *
+ * At the sharp outline wherever it has been fetched, like every other country
+ * shape in this file. This was the one that took `c.geometry` flat, and it is
+ * the shape "Draw the outline" strokes — so on a picture of everywhere, the
+ * silhouette of the world came out at the overview set's ~1 km simplification
+ * while the borders drawn *on top of it* were the national survey's. A coastline
+ * in visible straight runs, under a border that followed every inlet.
+ *
+ * `scopeGeometry` already does this for a picture of somewhere in particular,
+ * which is why the two disagreed depending on what was selected.
+ */
 const landGeoms = (scope, geoms) =>
-  (scope.kind === 'world' ? allCountries().map((c) => c.geometry) : geoms);
+  (scope.kind === 'world'
+    ? allCountries().map((c) => fineCountryGeometry(c.id) ?? c.geometry)
+    : geoms);
 
 /** Where a point on the canvas is, in the world. */
 export function lngLatAt(cam, px, py) {
@@ -1651,8 +1665,13 @@ export async function ensureSharpBoundaries(scope, { spec, data, size, all = fal
   // is the same set and the same mismatch — a blunt canton border beside a sharp
   // one is more obvious as a line than it ever was as a fill.
   const linesInside = (spec?.divisions ?? 0) > 0.001 && spec?.detail !== 'blob';
+  // The outline is the fourth thing that draws a country's edge, and it was the
+  // one missing from this list — so a picture of everywhere with nothing but its
+  // own silhouette turned on never asked for a sharp boundary at all, and there
+  // was nothing for landGeoms to find.
   const wantsNeighbours = spec?.detail === 'region'
     || linesInside
+    || !!spec?.outline
     || (spec?.surroundings ?? 0) > 0.001
     || (spec?.borders ?? 0) > 0.001;
   if (wantsNeighbours && data && size) {
@@ -1675,7 +1694,8 @@ export async function ensureSharpBoundaries(scope, { spec, data, size, all = fal
           for (const { iso } of countriesInView(lit, [w, s2, e, n])) isos.add(iso);
         }
         // Whatever the frame touches, when its outline is going to be drawn.
-        if (linesInside || (spec.surroundings ?? 0) > 0.001 || (spec.borders ?? 0) > 0.001) {
+        if (linesInside || spec.outline
+          || (spec.surroundings ?? 0) > 0.001 || (spec.borders ?? 0) > 0.001) {
           for (const c of allCountries()) {
             const [cw, cs, ce, cn] = c.bbox;
             if (c.iso && ce >= w && cw <= e && cn >= s2 && cs <= n) isos.add(c.iso);
