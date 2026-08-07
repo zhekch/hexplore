@@ -1220,6 +1220,33 @@ export function mountExport({ onClose, data }) {
   async function download() {
     if (!numbers) return;
     fail(null);
+
+    // The detailed boundaries for everything in the frame, and this time waited
+    // for. The preview is allowed to be blunt — it is redrawn on every drag of a
+    // slider, and `FINE_COUNTRY_LIMIT` keeps that affordable by fetching nothing
+    // at all once the frame reaches more than ten countries. The file is not a
+    // preview: a European framing crosses that line easily, and the poster came
+    // out drawn entirely from the overview geometry.
+    //
+    // Asked at the file's own size, so the frame is the file's frame. Failures
+    // are ignored exactly as they are for the preview — a country nobody has
+    // boundaries for keeps the ones we shipped, and that is a picture rather
+    // than an error.
+    const save = $('export-save');
+    const said = save.textContent;
+    save.disabled = true;
+    save.textContent = 'Sharpening…';
+    try {
+      await ensureSharpBoundaries(spec.scope, { spec, data, size: sizeOf(spec), all: true });
+    } catch {
+      /* keep the overview geometry */
+    } finally {
+      save.disabled = false;
+      save.textContent = said;
+    }
+    // The preview is looking at the same shapes and can have them too.
+    draw();
+
     const off = document.createElement('canvas');
     try {
       renderExport(off, spec, data, numbers);

@@ -165,12 +165,21 @@ const FEATHER_REF_PX = 900;
 // cell radius of ramp is as soft as a shape can be and still be a shape.
 const MAX_FEATHER_CELLS = 0.5;
 
-// How many countries an export will fetch detailed boundaries for. Past this
-// the picture is at too small a scale for the detail to show and the fetch is
-// megabytes — see ensureSharpBoundaries. Ten rather than a handful, because the
+// How many countries the *preview* will fetch detailed boundaries for. Past
+// this the fetch is megabytes and the preview is redrawn on every drag of a
+// slider — see ensureSharpBoundaries. Ten rather than a handful, because the
 // frame around one canton routinely reaches four or five countries and every
 // one of them has to be as sharp as the subject or the border between them
 // shows which is which.
+//
+// The file has no limit: `ensureSharpBoundaries(..., { all: true })`. The
+// picture being saved is the thing itself, and a European framing reaches more
+// than ten countries easily — which is how a poster came to be drawn entirely
+// from the overview geometry while the dialog was insisting the detail was
+// available. This bail is all-or-nothing on purpose (a sharp border beside a
+// blunt one is worse than two blunt ones, because the blunt set is simplified
+// *outwards* and visibly cuts across its neighbour), so past ten it was not
+// falling back to a coarser picture — it was fetching nothing at all.
 const FINE_COUNTRY_LIMIT = 10;
 
 // Rings smaller than this on the finished canvas are skipped. At world scale a
@@ -1603,10 +1612,18 @@ export async function ensureGeography({ scope, detail } = {}) {
  * Never rejects: a country nobody has boundaries for keeps the overview
  * geometry, which is what the map has always drawn.
  *
+ * `all` lifts the country limit, and only the file asks for that. The limit is
+ * there because the preview is redrawn while somebody drags a slider, and
+ * waiting on fifty countries of national-survey geometry to answer a drag is
+ * not a trade worth making — a picture being framed can be blunt. A picture
+ * being *written* is the thing itself, and it is worth a few seconds and a few
+ * megabytes once. The half-world guard below still applies either way: past
+ * that scale the detail is smaller than a pixel and nobody is owed it.
+ *
  * @returns {Promise<boolean>} whether anything new arrived, so the caller knows
  *   to redraw
  */
-export async function ensureSharpBoundaries(scope, { spec, data, size } = {}) {
+export async function ensureSharpBoundaries(scope, { spec, data, size, all = false } = {}) {
   const settled = settleScope(scope);
   const isos = new Set();
 
@@ -1668,7 +1685,7 @@ export async function ensureSharpBoundaries(scope, { spec, data, size } = {}) {
     }
   }
 
-  if (!isos.size || isos.size > FINE_COUNTRY_LIMIT) return false;
+  if (!isos.size || (!all && isos.size > FINE_COUNTRY_LIMIT)) return false;
   await loadRegions();
   const added = await Promise.all([...isos].map((iso) => loadFineRegions(iso)));
   return added.some(Boolean);
