@@ -7253,6 +7253,17 @@ function installGrid() {
   const washBefore = washAnchor();
   basemapLabelStart = readLabelStart(); // …and under the place names — see labelStart().
   const lineLayout = { 'line-join': 'round', 'line-cap': 'round' };
+  // The glow is the same line six times as wide, and a round join is the one
+  // thing that does not scale with it. A round join fills the outside of a
+  // corner with a fan of triangles that overlap each other and the two segments
+  // meeting there; on an opaque stroke that is invisible, and on a translucent
+  // one every overlap composites twice. At a switchback — where a track doubles
+  // back on itself and the fan sweeps most of a half-circle — the doubled
+  // coverage reads as a hard-edged wedge sticking out of the route, in a colour
+  // neither the glow nor the line has. A bevel is one triangle and overlaps
+  // nothing, so the corner is chamfered instead: invisible inside a blur, where
+  // the spike was not.
+  const glowLayout = { ...lineLayout, 'line-join': 'bevel' };
   const isRegion = ['==', ['get', 'k'], 1];
   const isBoundary = ['==', ['get', 'k'], 2];
   const isLabel = ['==', ['get', 'k'], 3];
@@ -7392,7 +7403,7 @@ function installGrid() {
   // the answer to a different question.
   map.addSource('trip', { type: 'geojson', data: EMPTY, tolerance: 0 });
   map.addLayer({
-    id: 'trip-glow', type: 'line', source: 'trip', layout: lineLayout,
+    id: 'trip-glow', type: 'line', source: 'trip', layout: glowLayout,
     paint: { 'line-color': TRACK_COLOR, 'line-opacity': 0.4, 'line-width': 9, 'line-blur': 7 },
   });
   map.addLayer({
@@ -7436,7 +7447,7 @@ function installGrid() {
   }
   map.addLayer({
     id: 'route-glow', type: 'line', source: 'routes',
-    layout: { ...lineLayout, visibility: routesOn ? 'visible' : 'none' },
+    layout: { ...glowLayout, visibility: routesOn ? 'visible' : 'none' },
     paint: {
       'line-color': routeGlowColor(),
       'line-opacity': routeGlowOpacity(),

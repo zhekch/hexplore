@@ -103,8 +103,6 @@ function buildIndex() {
 export const regionsLoaded = () => REGIONS !== null;
 /** True once any country's detailed boundaries are in memory. */
 export const fineRegionsLoaded = () => FINE.size > 0;
-/** …and whether *this* country has any. Cheap: the per-country index is held. */
-export const hasFineRegions = (iso) => regionsOf(iso).some((r) => FINE.has(r.id));
 /** Which countries have been asked for already, so nothing is fetched twice. */
 export const fineCountryKnown = (iso) => fineDone.has(iso) || finePending.has(iso);
 

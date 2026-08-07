@@ -1201,28 +1201,55 @@ reason to know about each other.
 **Past the country limit the picture goes uniformly blunt, not partly sharp.**
 `FINE_COUNTRY_LIMIT` was written as an all-or-nothing bail — "a sharp border
 beside a blunt one is worse than two blunt ones" — and it is not one. It can
-decline to *fetch* past ten countries; it cannot un-fetch what the map already
-pulled in while somebody was zooming around. So a preview past the limit drew
-whichever arbitrary subset happened to be in memory: Germany and France at
-national-survey detail beside a Belgium nobody had visited, at a kilometre, along
-the border they share. Two blunt neighbours look like a map; one blunt neighbour
-looks like a bug. `frameSharp` is set once per render by `frameIsSharp(cam)` —
-false unless every country in the frame that *could* be sharp is — and
-`fineCountryGeometry`, the division lines and the area fills all read it. The
-file is unaffected, because it fetches every country in its frame and so the flag
-is true by the time it draws; only the preview goes blunt, which is the trade the
-limit was always making. A country the admin-1 set does not subdivide is exempt:
-it has no detailed version and never will, so a frame containing Monaco would
-otherwise never be sharp anywhere. `scopeGeometry` is exempt too — the subject is
-always fetched first, and blunting it because a neighbour drawn at 30% behind it
-has not arrived would be the tail wagging the dog.
+decline to *fetch* past the limit; it cannot un-fetch what the map already pulled
+in while somebody was zooming around. So a preview past the limit drew whichever
+arbitrary subset happened to be in memory: Germany and France at national-survey
+detail beside a Belgium nobody had visited, at a kilometre, along the border they
+share. Two blunt neighbours look like a map; one blunt neighbour looks like a bug.
+`frameSharp` is set once per render by `frameIsSharp(spec, data, cam)`, and
+`fineCountryGeometry`, the division lines and the area fills all read it.
+`scopeGeometry` is exempt — the subject is always fetched first, and blunting it
+because a neighbour drawn at 30% behind it has not arrived would be the tail
+wagging the dog.
+
+**What the flag asks is the hard part, and the first two answers were both
+wrong.** It began as *is every country in the frame already sharp*, and no frame
+in Europe can answer yes. Hungary can never be sharp — its detailed set pairs 11
+of our 43 regions and the rest would seam, so `loadFineRegions` correctly keeps
+the overview one — and a frame around Bern contains Hungary. One such country
+anywhere held the whole picture back. Meanwhile the *count* came from each
+country's own bounding box, and Russia's spans every longitude there is: a
+picture of the ground around Bern contained Russia, along with Spain and a dozen
+others whose land is nowhere near it. Twenty-two countries by that measure, so
+the fetch bailed and fetched nothing, so nothing was ever sharp, so the picture
+was drawn from the one dataset that **cannot dissolve cleanly** — and every
+border two cantons share came out ruled twice with a bay of bare land between
+them. Waiting for perfect uniformity bought a guaranteed defect.
+
+Both halves are fixed by asking a smaller question. `inFrame` tests the bounding
+box of each *piece* of a country, which drops Russia and Guyane from a frame
+neither is in — the Bern picture holds seven countries, not twenty-two.
+`frameIsSharp` then asks only *has the fetch taken responsibility for this frame*:
+the scale is one where the detail shows (`DETAIL_KM_PX`), and the frame is small
+enough that `ensureSharpBoundaries` asked for all of it. Both are decided from
+the camera, and both read the same list — `boundaryIsos`, which is the fetch's
+own list — so the render cannot veto detail the fetch collected. Everything then
+draws at the best resolution it has, and a country that will never have one
+carries the seam at its own border instead of exporting it to the rest of the
+map. `FINE_COUNTRY_LIMIT` is thirty because ten was chosen for the frame around a
+country and the frame around a *canton* holds twenty.
+
+`DETAIL_KM_PX` is where the two decisions meet: below half a pixel to the
+kilometre the overview set and the detailed one are the same picture, so nothing
+is fetched and nothing is drawn sharp; above it they are not, and not merely in
+sharpness — `build-regions.mjs` thins each region as a fraction of *its own*
+size, so two neighbours thin the border they share to different vertices and the
+dissolve opens a bay at every crossing. That is a defect in the overview data
+which no amount of drawing can repair, and the only cure is the detailed set.
 
 **The outline only counts frame countries for a picture of everywhere.** That is
 the one scope whose outline is traced around `allCountries()`; every other scope
-strokes the selection's own shapes, which are asked for separately. The
-distinction matters because this list feeds `FINE_COUNTRY_LIMIT` — counting every
-country the frame touches, for an outline that will not be drawn from any of
-them, pushes a preview of one canton past ten, and past ten it fetches nothing.
+strokes the selection's own shapes, which are asked for separately.
 
 Two rendering bugs live next door to this, and both of them looked like data
 problems:
@@ -2999,6 +3026,21 @@ everything in the scene, so a route a few hundred metres out at a lean is mixed
 toward the haze whatever its emissive strength. That is all the `lift` on the
 STYLES entry now does, and it is much gentler for it: `[1.15, 0.02]` by day,
 `[1.2, 0.05]` after dark. Only the 3D entry has one.
+
+**A glow joins its corners differently from the line it is a glow of.** Every
+other line on the map takes `lineLayout`, which is `round`/`round`; the two glows
+— `route-glow` and `trip-glow` — take `glowLayout`, which is the same with
+`line-join: bevel`. A round join fills the outside of a corner with a fan of
+triangles that overlap each other and the two segments meeting there. On an
+opaque stroke that is invisible. On a translucent one every overlap composites
+twice, and the glow is the same line up to six times as wide, so the overlap is
+six times as large: at a switchback — where a track doubles back on itself and
+the fan sweeps most of a half-circle — the doubled coverage came out as a
+hard-edged wedge sticking out of the route, in a colour neither the glow nor the
+line has. It looked like a rendering fault in the track and was a property of the
+corner. A bevel is one triangle and overlaps nothing, so the corner is chamfered
+instead — invisible inside a blur, where the spike was not. Only the glows: the
+line itself is a tenth as wide and nearly opaque, and wants its corners round.
 
 **Two things a route needs that only this basemap can give it.** Its glow is
 wider and softer here — `ROUTE_GLOW_SCALE_3D`, `ROUTE_GLOW_BLUR_3D` — because

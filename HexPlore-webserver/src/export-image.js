@@ -44,8 +44,8 @@ import {
   allCountries, countryAreaKm2, countryCount, countryGeometry, countryIso, loadCountries,
 } from './countries.js';
 import {
-  countriesInView, fineCountryOutline, hasFineRegions, loadFineRegions, loadRegions, regionAreaKm2,
-  regionById, regionGeometry, regionsInCountry, regionsLoaded, regionsOf,
+  countriesInView, fineCountryOutline, loadFineRegions, loadRegions, regionAreaKm2,
+  regionById, regionGeometry, regionsLoaded, regionsOf,
 } from './regions.js';
 import {
   allContinents, continentAreaKm2, continentGeometry, countriesInContinent,
@@ -167,20 +167,40 @@ const MAX_FEATHER_CELLS = 0.5;
 
 // How many countries the *preview* will fetch detailed boundaries for. Past
 // this the fetch is megabytes and the preview is redrawn on every drag of a
-// slider — see ensureSharpBoundaries. Ten rather than a handful, because the
-// frame around one canton routinely reaches four or five countries and every
-// one of them has to be as sharp as the subject or the border between them
-// shows which is which.
+// slider — see ensureSharpBoundaries.
+//
+// Thirty, and the number is not a taste. Ten was chosen for the frame around
+// one country, and a frame around one *canton* in Europe holds twenty: a
+// picture of the ground around Bern reaches France, Italy, Germany, Poland,
+// Croatia, Austria, Hungary, Czechia, Serbia, the Netherlands, Slovakia,
+// Bosnia, Switzerland, Belgium, Slovenia, Montenegro, Luxembourg,
+// Liechtenstein, San Marino and Monaco. So the bail fired on every picture
+// anyone would actually make, and fetched nothing at all — which is the worst
+// of the three outcomes, because the overview set is the one that cannot
+// dissolve cleanly (see DETAIL_KM_PX).
 //
 // The file has no limit: `ensureSharpBoundaries(..., { all: true })`. The
 // picture being saved is the thing itself, and a European framing reaches more
-// than ten countries easily — which is how a poster came to be drawn entirely
-// from the overview geometry while the dialog was insisting the detail was
-// available. This bail is all-or-nothing on purpose (a sharp border beside a
-// blunt one is worse than two blunt ones, because the blunt set is simplified
-// *outwards* and visibly cuts across its neighbour), so past ten it was not
-// falling back to a coarser picture — it was fetching nothing at all.
-const FINE_COUNTRY_LIMIT = 10;
+// than thirty countries easily.
+const FINE_COUNTRY_LIMIT = 30;
+
+// How small a kilometre may get before the detailed boundaries stop being worth
+// having, in pixels on the finished canvas.
+//
+// The overview set is simplified to about a kilometre, so below this the two
+// resolutions are the same picture. Above it they are not, and not merely in
+// sharpness: `build-regions.mjs` thins each region as a fraction of *its own*
+// size, so two neighbours thin the border they share to different vertices, the
+// two polylines cross back and forth, and dissolving them opens a bay at every
+// crossing. That is the ragged doubled border in a picture of cantons — it is
+// the overview data, not the drawing, and the only cure is the detailed set.
+//
+// So this is the threshold for two decisions that must agree: whether to fetch
+// the detail, and whether to draw from it.
+const DETAIL_KM_PX = 0.5;
+
+/** Is a kilometre big enough on this canvas for the overview set to show? */
+const detailShows = (cam) => 1000 * cam.k > DETAIL_KM_PX;
 
 // Rings smaller than this on the finished canvas are skipped. At world scale a
 // country dataset is mostly islets nobody can see, and each one is still a
@@ -462,22 +482,25 @@ export const SCOPE_KINDS = {
 export const isoOf = countryIso;
 
 /**
- * Whether the detailed boundaries may be drawn *at all* for the frame being
- * rendered — set once per render by `renderExport`, and false unless every
- * country in the frame that could be sharp is.
+ * Whether this render draws from the detailed boundaries — set once per render
+ * by `renderExport`.
  *
- * `FINE_COUNTRY_LIMIT` was written as an all-or-nothing bail for exactly this
- * reason, and it is not one: it can decline to *fetch* past ten countries, and
- * it cannot un-fetch what the map already pulled in while somebody was zooming
- * around. So a preview past the limit drew whichever arbitrary subset happened
- * to be in memory — Germany and France at national-survey detail beside a
- * Belgium nobody had visited, at a kilometre, along the border they share. Two
- * blunt neighbours look like a map. One blunt neighbour looks like a bug.
+ * It used to mean *is every country in the frame already sharp*, and that is a
+ * question nothing can answer yes to. Hungary can never be sharp (its detailed
+ * set pairs 11 of our 43 regions and the rest would seam, so `loadFineRegions`
+ * correctly keeps the overview one), and a frame around Bern contains Hungary.
+ * One such country anywhere in the picture held the whole picture back, so the
+ * subject was drawn from the overview set — the one that opens a bay along every
+ * border two of its regions share. Waiting for perfect uniformity bought a
+ * guaranteed defect.
  *
- * The file is unaffected: it fetches every country in its frame (`all: true`),
- * so this is true by the time it draws. Only the preview goes uniformly blunt,
- * which is the trade the limit was always making — a picture being framed can be
- * blunt; a picture being written is the thing itself.
+ * What it means now is *has the fetch taken responsibility for this frame*: the
+ * scale is one where the detail shows, and the frame is small enough that
+ * `ensureSharpBoundaries` asked for all of it. Both are decided from the camera,
+ * so this and the fetch cannot drift apart. Everything then draws at the best
+ * resolution it has, and a country that will never have one — Hungary, and a
+ * handful of others — carries the seam at its own border instead of exporting it
+ * to the rest of the map.
  *
  * A module-level flag because `renderExport` is synchronous start to finish, so
  * nothing can interleave with it, and threading a boolean through nine drawing
@@ -495,30 +518,73 @@ let frameSharp = true;
  */
 const sharpCountryGeometry = (name) => fineCountryOutline(countryIso(name));
 
-/** …and the same, held back unless the whole frame can be drawn that sharply. */
+/** …and the same, held back when this frame is not one the fetch covered. */
 const fineCountryGeometry = (name) => (frameSharp ? sharpCountryGeometry(name) : null);
 
 /**
- * Is every country in the frame as sharp as it could be?
+ * The bounding boxes of a country's *pieces*, cached by name.
  *
- * A country the admin-1 set does not subdivide has no detailed version and never
- * will, so it cannot be the one holding the picture back — a frame containing
- * Monaco would otherwise never be sharp anywhere.
+ * One box around the whole country is the wrong question to ask of a frame.
+ * Russia's spans every longitude there is, so a picture of the ground around
+ * Bern contained Russia; France's reaches Guyane and the Pacific. Both then
+ * counted against `FINE_COUNTRY_LIMIT` for a frame neither is in.
  */
-function frameIsSharp(cam) {
-  if (!regionsLoaded()) return false;
+const pieceBoxes = new Map();
+function boxesOf(c) {
+  let boxes = pieceBoxes.get(c.id);
+  if (boxes) return boxes;
+  boxes = [];
+  const g = c.geometry;
+  const polys = g?.type === 'Polygon' ? [g.coordinates] : g?.coordinates ?? [];
+  for (const rings of polys) {
+    const outer = rings?.[0];
+    if (!outer?.length) continue;
+    let w = 180; let s = 90; let e = -180; let n = -90;
+    for (const [x, y] of outer) {
+      if (x < w) w = x;
+      if (x > e) e = x;
+      if (y < s) s = y;
+      if (y > n) n = y;
+    }
+    boxes.push([w, s, e, n]);
+  }
+  pieceBoxes.set(c.id, boxes);
+  return boxes;
+}
+
+/** Does any piece of this country fall inside `[w, s, e, n]`? */
+function inFrame(c, [w, s, e, n]) {
+  const [cw, cs, ce, cn] = c.bbox;
+  if (ce < w || cw > e || cn < s || cs > n) return false;
+  return boxesOf(c).some((b) => !(b[2] < w || b[0] > e || b[3] < s || b[1] > n));
+}
+
+/**
+ * The lon/lat rectangle a camera shows, or null if it straddles the antimeridian
+ * — which is a frame spanning most of the world, and not a scale at which any of
+ * this is visible.
+ */
+function frameBox(cam) {
   const [w, s] = lngLatAt(cam, 0, cam.h);
   const [e, n] = lngLatAt(cam, cam.w, 0);
-  // A frame straddling the antimeridian spans most of the world, which is not a
-  // scale at which any of this is visible.
-  if (!(w < e)) return false;
-  for (const c of allCountries()) {
-    const [cw, cs, ce, cn] = c.bbox;
-    if (ce < w || cw > e || cn < s || cs > n) continue;
-    if (!c.iso || !regionsInCountry(c.iso)) continue;
-    if (!hasFineRegions(c.iso)) return false;
-  }
-  return true;
+  return w < e ? [w, s, e, n] : null;
+}
+
+/**
+ * Is this frame one the detailed boundaries were fetched for?
+ *
+ * The same list `ensureSharpBoundaries` works from, against the same limit, so
+ * the render cannot refuse to draw what the fetch collected.
+ *
+ * The file answers yes at any scale the detail shows at, because it fetches
+ * every country in its frame before it draws (`all: true`). Only the preview is
+ * bounded, which is the trade the limit was always making — a picture being
+ * framed can be blunt; a picture being written is the thing itself.
+ */
+function frameIsSharp(spec, data, cam) {
+  if (!regionsLoaded() || !detailShows(cam)) return false;
+  if (!cam.preview) return true;
+  return boundaryIsos(spec, data, cam).size <= FINE_COUNTRY_LIMIT;
 }
 
 /**
@@ -1345,9 +1411,6 @@ export function renderExport(canvas, spec, data, numbers, size = sizeOf(spec)) {
     return canvas;
   }
   const cam = cameraFor(spec, frame, size);
-  // Before anything is drawn from a boundary: all of them at the detailed
-  // resolution, or none of them. See frameSharp.
-  frameSharp = frameIsSharp(cam);
   // Whether this canvas is the picture or a stand-in for it. The dialog draws
   // the preview at `previewSize()` and the file at the spec's own size, so a
   // canvas narrower than the spec asks for is the one being dragged around.
@@ -1359,7 +1422,11 @@ export function renderExport(canvas, spec, data, numbers, size = sizeOf(spec)) {
   // like plenty of budget right up until you compare it with the four thousand
   // points a national survey recorded for one canton. The exported file came out
   // visibly polygonal.
+  //
+  // Read before frameSharp, which asks it: only the preview is bounded.
   cam.preview = size.w < sizeOf(spec).w;
+  // Before anything is drawn from a boundary. See frameSharp.
+  frameSharp = frameIsSharp(spec, data, cam);
 
   // The rest of the world, if it was asked for: everything the frame reaches,
   // dimmer than the subject. It is off by default because the point of the cut
@@ -1625,10 +1692,10 @@ export function divisionGeoms(detail, cam) {
   // noise. There are 250 countries and 4,553 regions, so it is also not where
   // the time goes.
   const MIN_REGION_PX = 6;
-  // The overview geometry is simplified to about a kilometre, so it is worth
-  // reaching for the detailed set only once a kilometre is worth seeing. Same
-  // judgement REGION_FINE_ZOOM makes for the map, in the units a picture has.
-  const wantFine = frameSharp && 1000 * cam.k > 0.5;
+  // The lines and the fills have to come from the same resolution or the border
+  // between two regions is ruled twice, so this is the render's own answer and
+  // not a second judgement — DETAIL_KM_PX is inside it.
+  const wantFine = frameSharp;
 
   const countries = allCountries().filter((c) => reaches(c.bbox));
   if (detail === 'country') {
@@ -1699,6 +1766,67 @@ export async function ensureGeography({ scope, detail } = {}) {
 }
 
 /**
+ * Every country whose own detailed boundaries this picture would draw from.
+ *
+ * One list, read by both the fetch and the render, because they are the same
+ * question asked at two moments and they must not answer it differently. They
+ * used to: the fetch counted the scope plus the frame, the render asked whether
+ * every country in the frame was sharp, and a spec that drew no neighbours had
+ * the render vetoing detail the fetch had already collected.
+ *
+ * Three things put another country's geometry in the picture. The area levels
+ * draw every lit region in the world and let the mask do the cutting, so a
+ * picture of one canton still has its neighbours' regions painted underneath the
+ * clip. The surroundings draw every country the frame reaches, and so does the
+ * outline when the subject is everywhere. The divisions are the same set again —
+ * a blunt canton border beside a sharp one is more obvious as a line than it
+ * ever was as a fill.
+ */
+function boundaryIsos(spec, data, cam) {
+  const settled = settleScope(spec?.scope);
+  const isos = new Set();
+
+  // Whatever was picked.
+  if (settled.kind !== 'world' && settled.kind !== 'continent') {
+    for (const id of settled.ids) {
+      const iso = settled.kind === 'country'
+        ? isoOf(id)
+        : regionById(id)?.iso ?? isoOf(String(id).replace(WHOLE_COUNTRY, ''));
+      if (iso) isos.add(iso);
+    }
+  }
+
+  const alphas = lineAlphas(spec);
+  const linesInside = alphas.inside > 0.001 && spec?.detail !== 'blob';
+  // The outline draws a country's edge too, but only for a picture of
+  // *everywhere*: that is the one case where it is traced around
+  // `allCountries()`, and for any other scope it strokes the selection's own
+  // shapes, which the block above has already asked for.
+  const outlinesTheWorld = alphas.outline > 0.001 && settled.kind === 'world';
+  const drawsEdges = linesInside || outlinesTheWorld
+    || (spec?.surroundings ?? 0) > 0.001 || (spec?.borders ?? 0) > 0.001;
+
+  // Below DETAIL_KM_PX the two resolutions are the same picture, and a frame
+  // straddling the antimeridian spans most of the world. Neither is worth
+  // several megabytes of national survey.
+  const box = cam && detailShows(cam) ? frameBox(cam) : null;
+  if (!box || !data) return isos;
+
+  if (spec?.detail === 'region') {
+    const lit = new Set();
+    for (const id of data.cells()) {
+      const region = data.areaOf('region', id);
+      if (region) lit.add(region);
+    }
+    for (const { iso } of countriesInView(lit, box)) isos.add(iso);
+  }
+  if (drawsEdges) {
+    for (const c of allCountries()) if (c.iso && inFrame(c, box)) isos.add(c.iso);
+  }
+  return isos;
+}
+
+/**
  * Fetch the detailed boundaries for the countries this picture is of.
  *
  * Bounded on purpose. One country, or a handful of cantons in two, is a couple
@@ -1716,88 +1844,18 @@ export async function ensureGeography({ scope, detail } = {}) {
  * waiting on fifty countries of national-survey geometry to answer a drag is
  * not a trade worth making — a picture being framed can be blunt. A picture
  * being *written* is the thing itself, and it is worth a few seconds and a few
- * megabytes once. The half-world guard below still applies either way: past
- * that scale the detail is smaller than a pixel and nobody is owed it.
+ * megabytes once. Past the limit nothing is fetched, and nothing is drawn sharp
+ * either (`frameIsSharp` counts the same list): a picture from one resolution
+ * is the point, and half a fetch would buy the seams without the sharpness.
  *
  * @returns {Promise<boolean>} whether anything new arrived, so the caller knows
  *   to redraw
  */
 export async function ensureSharpBoundaries(scope, { spec, data, size, all = false } = {}) {
-  const settled = settleScope(scope);
-  const isos = new Set();
-
-  // Whatever was picked.
-  if (settled.kind !== 'world' && settled.kind !== 'continent') {
-    for (const id of settled.ids) {
-      const iso = settled.kind === 'country'
-        ? isoOf(id)
-        : regionById(id)?.iso ?? isoOf(String(id).replace(WHOLE_COUNTRY, ''));
-      if (iso) isos.add(iso);
-    }
-  }
-
-  // …and whatever else is drawn *inside the frame*, which is the half that was
-  // missing and the one that showed.
-  //
-  // Two things put another country's geometry in the picture. The area levels
-  // draw every lit region in the world and let the mask do the cutting, so a
-  // picture of one canton still has its neighbours' regions painted underneath
-  // the clip. And the surroundings draw every country the frame reaches. Either
-  // way, sharp boundaries against blunt ones do not merely look inconsistent:
-  // the blunt ones are simplified *outwards* in places, so a national border
-  // cuts visibly across the detailed regions on the other side of it.
-  // The divisions are the third: they trace every unit the frame reaches, which
-  // is the same set and the same mismatch — a blunt canton border beside a sharp
-  // one is more obvious as a line than it ever was as a fill.
-  const alphas = lineAlphas(spec);
-  const linesInside = alphas.inside > 0.001 && spec?.detail !== 'blob';
-  // The outline is the fourth thing that draws a country's edge, and it was the
-  // one missing from this list — so a picture of everywhere with nothing but its
-  // own silhouette turned on never asked for a sharp boundary at all, and there
-  // was nothing for landGeoms to find.
-  //
-  // Only for a picture of *everywhere*, though. That is the one case where the
-  // outline is traced around `allCountries()`; for any other scope it strokes
-  // the selection's own shapes, which the block above has already asked for. The
-  // difference matters because this list feeds FINE_COUNTRY_LIMIT: counting
-  // every country the frame touches for an outline that will not be drawn from
-  // them pushes a preview of one canton past ten and it then fetches nothing.
-  const outlinesTheWorld = alphas.outline > 0.001 && settled.kind === 'world';
-  const wantsNeighbours = spec?.detail === 'region'
-    || linesInside
-    || outlinesTheWorld
-    || (spec?.surroundings ?? 0) > 0.001
-    || (spec?.borders ?? 0) > 0.001;
-  if (wantsNeighbours && data && size) {
-    const frame = frameOf(spec, data);
-    const cam = frame && cameraFor(spec, frame, size);
-    // A frame wider than half the world, or one straddling the seam, would ask
-    // for everything — and is not at a scale where any of this is visible
-    // anyway, so it simply does not ask.
-    const box = cam && cameraRect(cam);
-    if (box && box.xMax - box.xMin < WORLD / 2) {
-      const [w, s2] = lngLatAt(cam, 0, cam.h);
-      const [e, n] = lngLatAt(cam, cam.w, 0);
-      if (w < e) {
-        if (spec.detail === 'region') {
-          const lit = new Set();
-          for (const id of data.cells()) {
-            const region = data.areaOf('region', id);
-            if (region) lit.add(region);
-          }
-          for (const { iso } of countriesInView(lit, [w, s2, e, n])) isos.add(iso);
-        }
-        // Whatever the frame touches, when its outline is going to be drawn.
-        if (linesInside || outlinesTheWorld
-          || (spec.surroundings ?? 0) > 0.001 || (spec.borders ?? 0) > 0.001) {
-          for (const c of allCountries()) {
-            const [cw, cs, ce, cn] = c.bbox;
-            if (c.iso && ce >= w && cw <= e && cn >= s2 && cs <= n) isos.add(c.iso);
-          }
-        }
-      }
-    }
-  }
+  const asked = { ...(spec ?? {}), scope };
+  const frame = data && size ? frameOf(asked, data) : null;
+  const cam = frame ? cameraFor(asked, frame, size) : null;
+  const isos = boundaryIsos(asked, data, cam);
 
   if (!isos.size || (!all && isos.size > FINE_COUNTRY_LIMIT)) return false;
   await loadRegions();
