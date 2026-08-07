@@ -3640,8 +3640,11 @@ function renderRouteOptions() {
   if (!toggle || !box) return;
 
   const sports = sportsPresent();
-  // Nothing to sort by until there are at least two kinds of thing.
-  const worthShowing = routeList.length > 0 && sports.length > 1;
+  // Nothing to sort by until there are at least two kinds of thing — and
+  // nothing to sort at all while the routes are switched off. Every control
+  // inside this fold changes how the tracks are drawn, so with them hidden it
+  // is a chevron over an empty question.
+  const worthShowing = routesOn && routeList.length > 0 && sports.length > 1;
   toggle.hidden = !worthShowing;
   if (!worthShowing) {
     dropRoutePickers();

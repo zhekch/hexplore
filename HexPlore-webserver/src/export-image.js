@@ -890,15 +890,16 @@ function addGeometry(path, geometry, cam) {
     // cannot use the 6,000 points a national survey recorded for it however the
     // line is drawn, so most of them are skipped before `mercY` ever sees them.
     //
-    // Sized from the shape on this canvas, so it is the picture that decides:
-    // a poster gives every shape a budget larger than its point count and the
-    // stride comes out 1, which is the exported image untouched. It is the
-    // preview, a few hundred pixels across, that thins.
+    // **The preview only.** A stride is a guess — it drops points without
+    // looking at where they were, so it can flatten a headland that MIN_STEP_PX
+    // would have kept. That is a fair trade for something being dragged and no
+    // trade at all for a file somebody is going to print, so the picture itself
+    // is drawn from every point it has. See `cam.preview`.
     const spanPx = ((x1 - x0) + (y1 - y0)) * cam.k;
     const budget = Math.max(64, spanPx * 2);
     for (const ring of rings) {
       if (ring.length < 3) continue;
-      const stride = Math.max(1, Math.floor(ring.length / budget));
+      const stride = cam.preview ? Math.max(1, Math.floor(ring.length / budget)) : 1;
       let lastX = px(mercX(ring[0][0]) + dx);
       let lastY = py(toMercY(ring[0][1]));
       path.moveTo(lastX, lastY);
@@ -1243,6 +1244,18 @@ export function renderExport(canvas, spec, data, numbers, size = sizeOf(spec)) {
     return canvas;
   }
   const cam = cameraFor(spec, frame, size);
+  // Whether this canvas is the picture or a stand-in for it. The dialog draws
+  // the preview at `previewSize()` and the file at the spec's own size, so a
+  // canvas narrower than the spec asks for is the one being dragged around.
+  //
+  // Only the preview is allowed to thin anything (see the stride in
+  // addGeometry). Deciding that from the camera scale instead was wrong in a way
+  // that took a rendered poster to see: a 1080-pixel picture of a few regions
+  // gives each of them several hundred pixels, and several hundred pixels looks
+  // like plenty of budget right up until you compare it with the four thousand
+  // points a national survey recorded for one canton. The exported file came out
+  // visibly polygonal.
+  cam.preview = size.w < sizeOf(spec).w;
 
   // The rest of the world, if it was asked for: everything the frame reaches,
   // dimmer than the subject. It is off by default because the point of the cut
