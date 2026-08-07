@@ -2906,6 +2906,23 @@ Three smaller things Standard's opacity costs:
   corners. MapLibre defaults to Mercator and takes the same option, so it is said
   once for both.
 
+**A group of photographs opened empty here, and the two libraries disagreeing
+quietly is why.** `photoLeaves` asks the clustered source for everything inside a
+group. MapLibre answers with a promise — `getClusterLeaves(id, limit, offset)` —
+and Mapbox GL JS takes a **fourth argument and calls it back**, returning the
+source itself. So `await source.getClusterLeaves(…)` handed back a
+`GeoJSONSource`, `.map` was not a function, the function's own catch swallowed it
+and every cluster on the 3D basemap opened a card with nothing in it — which from
+the outside is a tap that did not land. Single photographs were unaffected,
+because they never go through that call, and that is what made it look like a
+hit-testing problem rather than an API one.
+
+It is asked both ways at once now: the callback is passed *and* the return value
+is checked for a `then`. MapLibre ignores the extra argument, Mapbox ignores the
+promise nobody reads, and whichever settles first wins. The test in
+`scripts/test/photos.mjs` mocks both shapes, because a mock of one of them is
+what let this ship.
+
 **The class-name prefix**, answered in two places. The libraries build identical
 control DOM and name it differently, `.maplibregl-ctrl-geolocate` against
 `.mapboxgl-ctrl-geolocate`. *Styling* is `style.css`, where every one of those
@@ -2922,15 +2939,43 @@ delivered as a microtask. And `dropLockOnZoom` *removes* a state class, which a
 mirror puts straight back, because the library's own copy of it is still there.
 One library is live per page, so the prefix is simply a lookup.
 
-**The token is the viewer's own**, kept in localStorage under
-`visited-map:mapbox-token:v1` and never sent to our server. A public token (`pk.`)
-is designed to sit in a web page. A **secret** one (`sk.`) is refused by name:
-Mapbox will serve tiles with it, which is exactly why it is worth catching, and
-GL JS's own refusal is an exception thrown deep inside a URL builder mid-render,
-far too late to tell anyone which box was wrong. The dialog also asks Mapbox
-whether a token works at the moment it is pasted, because a token can be wrong in
-four ways — mistyped, expired, scoped without `styles:read`, or URL-restricted to
-somebody else's domain — that all look identical from the map.
+**The token is the viewer's own, and it follows their account.** A **secret**
+token (`sk.`) is refused by name: Mapbox will serve tiles with it, which is
+exactly why it is worth catching, and GL JS's own refusal is an exception thrown
+deep inside a URL builder mid-render, far too late to tell anyone which box was
+wrong. The dialog also asks Mapbox whether a token works, because a token can be
+wrong in four ways — mistyped, expired, scoped without `styles:read`, or
+URL-restricted to somebody else's domain — that all look identical from the map.
+
+It lived in localStorage under `visited-map:mapbox-token:v1` and nowhere else for
+as long as the basemap has existed, on the argument that a credential belonging
+to somebody else's account should never touch our server — a promise the dialog
+made out loud. **That was the wrong trade for the only person it affects.** It
+meant pasting the same token again on the phone, again on the laptop, and again
+after every cache clear, to switch on a basemap they had already signed up for.
+It is a preference like any other now, and the price is worth stating: it sits in
+the `user_prefs` row in plain text and rides along in every backup file. For a
+**public** token that is fair — `pk.` is designed to sit in a web page, it is
+already in the query string of every tile the browser fetches, and anyone who can
+read that database can read the map it draws. It is also why refusing `sk.`
+matters more than it did.
+
+localStorage stays, as the device's copy rather than the only one, and two things
+need it: `boot.js` picks a map library from `hasMapboxToken()` synchronously,
+long before `/api/prefs` has answered anything, and the basemap has to keep
+working offline. **Logging out clears it**, which is the one part that is not
+tidiness — the token is billed to the account that just left, and leaving it
+behind would hand the next person to sign in on that browser somebody else's
+meter.
+
+**The dialog commits on Done and nowhere else.** There used to be a Save beside
+the field, a Remove next to it and a Done underneath, which is three buttons for
+one intention with nothing to say which was the real one. Done now asks Mapbox
+and *either* closes onto the 3D map or stays open saying what was wrong — the
+box still holding what was typed, which is the only state in which a complaint is
+worth printing. Cancel leaves with nothing changed, and emptying the box and
+pressing Done is what Remove was. An answer that arrives after the dialog was
+dismissed is dropped rather than switching the basemap under somebody who left.
 
 **And caching was considered and dropped.** It would buy nothing: GL JS is billed
 per map load, and a map load includes unlimited tile requests, so a tile cache
@@ -4874,6 +4919,24 @@ The note under the picker says which of the two `auto` resolved to **and where i
 read it** — "24-hour" from a device that said so, "12-hour, from your browser's
 language" from one that could not. "Automatic" being wrong is much easier to act
 on when the row admits what it was reading.
+
+**One preference can be lost for good, and it is the only one.** A colour picked
+twice is a colour picked twice; the Mapbox token is copied out of somebody's
+Mapbox account, and a device holding the only copy of it must not have that copy
+wiped by an account that has simply never heard of the setting. Every other key
+can be read as "absent means default" and `adoptPrefs` does exactly that. This
+one cannot, because `''` is a real answer — it is what emptying the box and
+pressing Done leaves behind, and a device syncing afterwards has to hear *that*
+rather than go on drawing with a token that was taken off the account.
+
+So the **key's presence**, not its value, is what says the account has an
+opinion. `remoteToken()` in `src/prefs.js` is that one rule, kept beside
+`reconcilePrefs` and tested with it: a string is an answer (including the empty
+one), anything else — a missing key, a `null`, junk from a hand-edited row — is
+silence. Silence beside a browser that *has* a token is the third case in
+`syncPrefs`'s `migrate` check, which adopts the account's copy and then pushes
+the token up, exactly as it does for an account written before the light and dark
+washes were told apart.
 
 **Preferences stopped being entirely opaque.** The server stored the preferences
 blob and gave it back without reading it. It now reads one key — `home` — because

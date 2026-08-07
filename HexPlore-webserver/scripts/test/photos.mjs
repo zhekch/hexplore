@@ -189,31 +189,61 @@ console.log('\nInstalling is idempotent, and clusters to the bottom of the map')
   check(setData === 1, 'it hands the existing source new data instead', String(setData));
 }
 
-console.log('\nA tap on a group opens all of it');
+// Both libraries, because they answer this call in two different shapes and the
+// difference is silent. MapLibre returns a promise; Mapbox GL JS takes a
+// callback and returns the source. Awaiting the call was written against
+// MapLibre, so on the 3D basemap it received a GeoJSONSource, `.map` was not a
+// function, and every group of photographs opened an empty card — which from the
+// outside is a tap that did nothing. Single photographs kept working, because
+// they never go through here, and that is exactly what made it hard to see.
+console.log('\nA tap on a group opens all of it, whichever library drew it');
 {
-  const map = (held) => ({
-    getSource: () => ({
-      getClusterLeaves: async (id, limit) => Array.from({ length: Math.min(limit, held) }, (_, n) => ({
-        // Deliberately out of order: supercluster answers in index order, and
-        // the strip in the card is a morning rather than a shuffle.
-        properties: { i: n, t: 1_700_000_000 + ((n * 37) % 900) },
-      })),
-    }),
-  });
+  // Deliberately out of order: supercluster answers in index order, and the
+  // strip in the card is a morning rather than a shuffle.
+  const leaves = (held, limit) => Array.from({ length: Math.min(limit, held) }, (_, n) => ({
+    properties: { i: n, t: 1_700_000_000 + ((n * 37) % 900) },
+  }));
 
-  // The cap used to be 48, which made a card of 4,000 photographs quietly a card
-  // of 48 — the group is the answer to the tap, and keeping most of it back is
-  // the card misreporting what is there.
-  const big = await photoLeaves(map(4000), 1, 4000);
-  check(big.length === 4000, 'a group of four thousand comes back whole', String(big.length));
-  // Newest first, because the card opens on the first of them: a group of
-  // photographs is a place you have been back to, and the one you want is
-  // almost always the last time rather than the first.
-  check(big.every((l, n) => n === 0 || big[n - 1].t >= l.t), 'and comes back newest first');
+  const maplibre = (held) => ({
+    getSource: () => ({ getClusterLeaves: async (id, limit) => leaves(held, limit) }),
+  });
+  const mapbox = (held) => {
+    const source = {
+      getClusterLeaves: (id, limit, offset, cb) => {
+        Promise.resolve().then(() => cb(null, leaves(held, limit)));
+        return source; // the library's own answer, and not a thenable
+      },
+    };
+    return { getSource: () => source };
+  };
+
+  for (const [name, map] of [['MapLibre', maplibre], ['Mapbox', mapbox]]) {
+    // The cap used to be 48, which made a card of 4,000 photographs quietly a
+    // card of 48 — the group is the answer to the tap, and keeping most of it
+    // back is the card misreporting what is there.
+    const big = await photoLeaves(map(4000), 1, 4000);
+    check(big.length === 4000, `${name}: a group of four thousand comes back whole`, String(big.length));
+    // Newest first, because the card opens on the first of them: a group of
+    // photographs is a place you have been back to, and the one you want is
+    // almost always the last time rather than the first.
+    check(big.every((l, n) => n === 0 || big[n - 1].t >= l.t), `${name}: and comes back newest first`);
+  }
+
   check(STRIP_CHUNK > 0 && STRIP_CHUNK < 4000,
     'the strip renders it in chunks rather than all at once', String(STRIP_CHUNK));
   check((await photoLeaves({ getSource: () => undefined }, 1, 10)).length === 0,
     'a group asked for after the layer went away is not an error');
+  // The callback's error argument is the only way Mapbox has of reporting one,
+  // and an unopenable group must stay a card that does not open rather than a
+  // rejection nobody is waiting on.
+  const failing = {
+    getSource: () => ({
+      getClusterLeaves: (id, limit, offset, cb) => {
+        Promise.resolve().then(() => cb(new Error('index is gone')));
+      },
+    }),
+  };
+  check((await photoLeaves(failing, 1, 10)).length === 0, 'nor is one the index cannot answer for');
 }
 
 console.log('\nThe card says when, whether it is one photograph or forty');

@@ -9,7 +9,7 @@
 //
 //   node scripts/test/prefs-sync.mjs
 
-import { reconcilePrefs } from '../../src/prefs.js';
+import { reconcilePrefs, remoteToken } from '../../src/prefs.js';
 
 let pass = 0;
 let fail = 0;
@@ -99,6 +99,26 @@ eq(
   '…but the copy is still adopted by a browser with nothing of its own',
 );
 eq(reconcilePrefs({}), 'idle', 'called with nothing, decides nothing');
+
+// --- The Mapbox token, which is the one preference that can be lost for good ---
+// A colour picked twice is a colour picked twice. A token is copied out of
+// somebody's Mapbox account, and a device holding the only copy of it must not
+// have that copy wiped by an account that has simply never heard of the setting.
+// Hence: the *key*, not the value, is what says the account has an opinion.
+eq(remoteToken({ mapboxToken: 'pk.abc' }), 'pk.abc', 'an account holding a token hands it over');
+eq(remoteToken({ mapboxToken: '  pk.abc  ' }), 'pk.abc', 'and it is trimmed on the way out');
+eq(remoteToken({ mapboxToken: '' }), '', 'an emptied token is an answer, not a silence');
+eq(
+  remoteToken({ updatedAt: T, accent: '#ff0000' }),
+  null,
+  'an account written before the token was synced has no opinion at all',
+);
+eq(remoteToken({}), null, 'nor has an empty one');
+eq(remoteToken(null), null, 'nor a missing blob');
+// Junk from the wire, or a hand-edited row: not a token, and not an instruction
+// to remove one either.
+eq(remoteToken({ mapboxToken: 42 }), null, 'a token that is not a string is not an opinion');
+eq(remoteToken({ mapboxToken: null }), null, 'and neither is an explicit null');
 
 console.log(`\n${fail ? 'FAILED' : 'passed'}: ${pass} ok, ${fail} failed`);
 process.exit(fail ? 1 : 0);

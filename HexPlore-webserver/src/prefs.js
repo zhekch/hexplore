@@ -39,3 +39,23 @@ export function reconcilePrefs({ localStamp = 0, dirty = false, remote } = {}) {
 
   return 'idle';
 }
+
+/**
+ * The Mapbox token the account holds, or null if the account has no opinion.
+ *
+ * Presence of the key is the whole signal, and it has to be, because `''` is a
+ * real answer: it is what emptying the box and pressing Done leaves behind, and
+ * a device syncing afterwards has to hear *that* rather than go on drawing with
+ * a token the person has taken off their account.
+ *
+ * An account whose preferences were written before the token was synced at all
+ * has no key, and that must not read as an instruction to wipe the token off a
+ * device that has one — on those devices the local copy is the only copy there
+ * is, and it goes up on the next push instead.
+ *
+ * @param {object|null} prefs the account's stored blob
+ * @returns {string|null}
+ */
+export function remoteToken(prefs) {
+  return typeof prefs?.mapboxToken === 'string' ? prefs.mapboxToken.trim() : null;
+}

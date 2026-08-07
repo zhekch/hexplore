@@ -907,7 +907,7 @@
         <div class="modal-head">
           <div>
             <div class="modal-title">3D basemap</div>
-            <div class="modal-sub">Buildings with height and ground with shape, from Mapbox. Choose <b>3D</b> in the layers menu once a token is in.</div>
+            <div class="modal-sub">Buildings with height and ground with shape, from Mapbox. Press <b>Done</b> with a working token and the map switches straight to it.</div>
           </div>
           <button class="cell-info-close" id="mapbox-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -933,20 +933,22 @@
             <input type="text" id="mapbox-token" placeholder="pk.eyJ1Ijoi…"
               autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </label>
-          <div class="token-actions">
-            <button type="button" class="modal-btn primary" id="mapbox-save">Save</button>
-            <button type="button" class="modal-btn" id="mapbox-clear" hidden>Remove</button>
-          </div>
           <div class="token-note" id="mapbox-note" hidden></div>
 
           <div class="import-note">
-            The token is kept on this device only and is never sent to the HexPlore server. Removing
-            it here takes it off this device; revoking it is done at Mapbox.
+            The token is saved to your HexPlore account, so every device you sign in on gets the 3D
+            basemap without being asked again. Empty the box and press Done to take it off all of
+            them; revoking it is done at Mapbox.
           </div>
         </div>
 
+        <!-- Done is the only button that commits, and it is the one that asks
+             Mapbox whether the token works: it either closes onto the 3D map or
+             stays open saying what was wrong. There used to be a Save beside the
+             field as well, which was two buttons for one intention with nothing
+             to say which of them was the real one. -->
         <div class="modal-actions">
-          <button type="button" class="modal-btn" id="mapbox-back">Back</button>
+          <button type="button" class="modal-btn" id="mapbox-cancel">Cancel</button>
           <button type="button" class="modal-btn primary" id="mapbox-done">Done</button>
         </div>
       </div>

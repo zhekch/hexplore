@@ -331,12 +331,32 @@ export function removePhotos(map) {
  * first one: a group of photographs is a place you have been back to, and the
  * one you want is almost always the last time rather than the first. It also
  * matches every other list of photographs anyone uses.
+ *
+ * **The two libraries disagree about how this answers**, and the disagreement is
+ * silent, which is what made it a bug rather than an error. MapLibre returns a
+ * promise: `getClusterLeaves(id, limit, offset)`. Mapbox GL JS takes a fourth
+ * argument, calls it back, and returns *the source* — so awaiting the call gave
+ * back a GeoJSONSource, `.map` was not a function, the catch below swallowed it
+ * and every group of photographs on the 3D basemap opened an empty card, which
+ * looks exactly like a tap that did not land. Single photographs were fine, and
+ * that is the tell: they never go near this function.
+ *
+ * So it is asked both ways at once. MapLibre ignores the extra argument and is
+ * answered by the promise; Mapbox ignores the promise nobody reads and is
+ * answered by the callback. Whichever settles first wins, and the other cannot
+ * settle twice.
  */
 export async function photoLeaves(map, clusterId, limit) {
   const source = map.getSource(SOURCE);
   if (!source) return [];
   try {
-    const leaves = await source.getClusterLeaves(clusterId, limit, 0);
+    const leaves = await new Promise((resolve, reject) => {
+      const returned = source.getClusterLeaves(clusterId, limit, 0, (err, features) => {
+        if (err) reject(err);
+        else resolve(features ?? []);
+      });
+      if (returned && typeof returned.then === 'function') returned.then(resolve, reject);
+    });
     return leaves
       .map((f) => ({ i: f.properties.i, t: f.properties.t, v: !!f.properties.v }))
       .sort((a, b) => b.t - a.t);

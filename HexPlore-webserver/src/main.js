@@ -37,7 +37,7 @@ import {
 import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
 import {
   BASEMAP_IMPORT, LIGHT_PRESETS, STANDARD_STYLE, configureStandard, hasMapboxToken, lightPreset,
-  presetTheme, setLightPreset,
+  mapboxToken, presetTheme, setLightPreset, setMapboxToken,
 } from './mapbox.js';
 import {
   LABEL_SLOT_ID, MAPBOX, STYLE_KEY, WASH_SLOT_ID, ctrlClass, engineForBasemap, engineNow,
@@ -100,7 +100,7 @@ import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
 import { busy } from './busy.js';
 import { routesToFC, totalLength, formatDistance, canonicalSport, duplicateRoutes } from './routes.js';
-import { reconcilePrefs } from './prefs.js';
+import { reconcilePrefs, remoteToken } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
 // The one place that asks the map where its camera is, and the only arithmetic
@@ -3279,6 +3279,12 @@ const prefsPayload = () => ({
   // be sitting at — picking 24-hour on the laptop should mean the phone agrees
   // without being told twice.
   clock: clockMode(),
+  // The 3D basemap's Mapbox token, for exactly the same reason and with a
+  // stronger case: it is a thing you signed up for once, and pasting it again on
+  // every device was the whole of what stood between them and the basemap. Sent
+  // even when it is `''`, because the key's presence is what tells a device the
+  // account has an opinion at all — see remoteToken() in src/prefs.js.
+  mapboxToken: mapboxToken(),
 });
 
 // Called here rather than beside its own definition: it fills in `hiddenTripIds`
@@ -3426,6 +3432,19 @@ function adoptPrefs(prefs) {
   repaintRouteColors();
   syncRoutes();
   syncHomeMarker();
+
+  // Last, and after the rows above have been reset rather than before: the
+  // Mapbox token is the one preference here that redraws the layers menu, and on
+  // an account that has taken it off it can also take the map off 3D entirely.
+  // Neither is a thing to do halfway through adopting the rest.
+  //
+  // Only when it has actually moved — `remoteToken` returns null for an account
+  // that has never held one, which must leave this device's own copy alone.
+  const token = remoteToken(prefs);
+  if (token !== null && token !== mapboxToken()) {
+    setMapboxToken(token);
+    mapboxTokenChanged();
+  }
 }
 
 /**
@@ -3450,14 +3469,18 @@ async function syncPrefs() {
     } catch {
       /* fine */
     }
-    // Two of these, both "the account is behind what this browser has, so send
+    // Three of these, all "the account is behind what this browser has, so send
     // it up rather than reset". The visited colour only started being synced
     // after the activity colours were, so an account can hold the second and
-    // not the first; and an account written before the light and dark washes
-    // were told apart holds one colour where there are now two. Either way the
-    // local copy goes up, which is the answer the person picking it meant.
+    // not the first; an account written before the light and dark washes were
+    // told apart holds one colour where there are now two; and an account
+    // written before the Mapbox token was synced at all holds no token beside a
+    // browser that has one, which is the only copy of it in existence. Either
+    // way the local copy goes up, which is the answer the person meant.
     const migrate =
-      (!isAccent(remote.accent) && accent !== DEFAULT_ACCENT) || (!remote.accents && isAccent(remote.accent));
+      (!isAccent(remote.accent) && accent !== DEFAULT_ACCENT)
+      || (!remote.accents && isAccent(remote.accent))
+      || (remoteToken(remote) === null && hasMapboxToken());
     adoptPrefs(remote);
     if (migrate) touchPrefs();
   } else if (verdict === 'push') {
@@ -6342,12 +6365,32 @@ const dateShort = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'nu
 const legendEndLabel = (sec) => (sec ? dateShort.format(new Date(sec * 1000)) : '');
 
 // The Settings row for the 3D basemap, which is the only door in that list
-// whose subtitle is a *state* rather than a description: whether this device
-// has a token is the whole question behind it, and someone who has already
-// answered it should not have to open the dialog to be told so.
+// whose subtitle is a *state* rather than a description: whether there is a
+// token is the whole question behind it, and someone who has already answered it
+// should not have to open the dialog to be told so.
 function updateMapboxNote() {
   const note = document.getElementById('settings-mapbox-note');
-  if (note) note.textContent = hasMapboxToken() ? 'Mapbox token saved on this device' : 'Needs a Mapbox token';
+  if (note) note.textContent = hasMapboxToken() ? 'Mapbox token saved to your account' : 'Needs a Mapbox token';
+}
+
+/**
+ * Everything that follows from the token changing, from wherever it changed —
+ * the dialog on this device, or another device pushing one into the account.
+ *
+ * The basemap picker is the visible half: 3D stops being dimmed, or goes back to
+ * being so. The invisible half is `gl.accessToken`, which Mapbox GL JS reads out
+ * of a module global when it resolves the `mapbox://` URLs in Standard.
+ * `loadEngine` sets it, and that only runs when the library is first reached
+ * for — so replacing a revoked token while looking at the 3D map would otherwise
+ * go on requesting tiles with the dead one.
+ */
+function mapboxTokenChanged() {
+  if (engine === MAPBOX) gl.accessToken = mapboxToken();
+  updateLayersUi(); // which calls updateMapboxNote() itself
+  // …unless what just happened is that the token holding the basemap on screen
+  // was taken away. Then there is nothing left to draw and the map has to be
+  // moved off it — which, from 3D, is a rebuild onto the other library.
+  if (!hasMapboxToken() && STYLES[styleKey]?.needsToken) setStyleKey('voyager');
 }
 
 // The time-of-day row under the basemap picker, which exists only while 3D is
@@ -7654,20 +7697,22 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   });
   mapboxUi = mountMapbox({
     onClose: () => personalUi?.open(),
-    // A token that has just been proved to work is a basemap that has just
-    // become available, and the picker is not on screen to notice. Switching
-    // straight to it would be presumptuous — the dialog can be reached from
-    // Settings by somebody who only wanted to paste a token — so the menu is
-    // brought up to date and the button stops being dimmed, which is the whole
-    // of what changed.
+    // The token is a preference now, so a change to it is pushed to the account
+    // like any other — which is what puts it on the phone without being pasted
+    // there. `pushPrefs` rather than waiting out the debounce: this one is worth
+    // a request of its own, because the next thing somebody does after pasting a
+    // token is pick up the other device.
     onToken: () => {
-      updateLayersUi();
-      updateMapboxNote();
-      // ...unless what just happened is that the token holding the basemap on
-      // screen was taken away. Then there is nothing left to draw and the map
-      // has to be moved off it — which, from 3D, is a reload.
-      if (!hasMapboxToken() && STYLES[styleKey]?.needsToken) setStyleKey('voyager');
+      mapboxTokenChanged();
+      touchPrefs();
+      pushPrefs();
     },
+    // Done with a working token means *show me the map I just paid for*. This
+    // used to be deliberately not done — the dialog can be reached from Settings
+    // by somebody who only wanted to paste a token, and switching under them
+    // looked presumptuous — but that reading had it backwards: the only reason
+    // to be in this dialog at all is the basemap on the other side of it.
+    onUse: () => setStyleKey('mapbox'),
   });
   personalUi = mountPersonal({
     onClose: () => settings?.open(),
@@ -8064,6 +8109,14 @@ const authState = mountAuth({
       localStorage.removeItem(COLORS_KEY);
     } catch {
       /* fine */
+    }
+    // The Mapbox token goes with them too, and this one is not a matter of
+    // tidiness: it is billed to the account that just left, and leaving it here
+    // would hand the next person to sign in on this browser somebody else's
+    // meter. It comes back from their own account when they sign in again.
+    if (hasMapboxToken()) {
+      setMapboxToken('');
+      mapboxTokenChanged();
     }
     homeAssistant?.clear();
     stravaUi?.clear();

@@ -21,11 +21,32 @@
 // What survived is the part that was never about rendering: whose token this is,
 // and how to tell somebody it does not work.
 //
-// **The token is the viewer's own.** Mapbox serves nothing without an account,
-// this app has never had one, and it is not going to bill somebody else's tiles
-// to it. A public token (`pk.`) is designed to sit in a web page, so localStorage
-// is exactly the right place for it — and it never goes near our server, which
-// is a promise the dialog makes out loud.
+// **The token is the viewer's own, and it follows their account.** Mapbox serves
+// nothing without an account, this app has never had one, and it is not going to
+// bill somebody else's tiles to it.
+//
+// It lived in localStorage and nowhere else for as long as the 3D basemap has
+// existed, on the argument that a credential belonging to somebody else's
+// account should never touch our server. That turned out to be the wrong trade
+// for the only person it affects: it meant pasting the same token again on the
+// phone, again on the laptop, and again after every cache clear, to switch on a
+// basemap they had already signed up for. So it is a preference like any other
+// now — put into the account's blob by main.js and adopted from it by every
+// device that signs in. `src/prefs.js` holds the one rule that is not obvious.
+//
+// What that costs is worth stating plainly, because the dialog used to promise
+// the opposite: the token sits in the `user_prefs` row in plain text and rides
+// along in every backup file the server takes. For a **public** token (`pk.`)
+// that is a fair price — it is designed to sit in a web page, it is already in
+// the query string of every tile this browser fetches, and anyone who can read
+// that database can read the map it draws. A **secret** token (`sk.`) is a
+// different object entirely, which is why `tokenComplaint` still refuses one by
+// name and why it matters more now than it did.
+//
+// localStorage stays, as the device's copy rather than the only one. Two things
+// need it: the map is built before the session is resolved — `boot.js` picks a
+// map library from `hasMapboxToken()` synchronously, long before `/api/prefs`
+// has answered anything — and the basemap has to keep working offline.
 
 const API = 'https://api.mapbox.com';
 

@@ -386,7 +386,10 @@ account and this app does not have one, so it runs on your own free access
 token. Make one at
 [account.mapbox.com](https://account.mapbox.com/access-tokens/) — the default
 public token is the right one — and paste it into **Export & settings →
-Settings → 3D basemap**. It is kept on that device and never sent to the server.
+Settings → 3D basemap**, then press **Done**: it is checked with Mapbox on the
+spot and the map switches straight to 3D. The token is saved to your account, so
+every device you sign in on gets the basemap without being asked again. Empty the
+box and press Done to take it off all of them.
 
 **Time of day** appears under the basemaps while 3D is the one showing — dawn,
 day, dusk and night, and the last two turn the whole map dark. Tilt with a
