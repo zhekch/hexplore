@@ -36,6 +36,51 @@ export const HEAT_NEIGHBOURHOOD = 2;
 // shade.
 export const HEAT_HOT_PERCENTILE = 0.98;
 
+// --- "First seen", and why it is not a straight line ----------------------------
+//
+// Dates are not spread evenly along their own span. One photograph from a decade
+// ago sets the far end of the scale and everything since — which is nearly all of
+// it — is squeezed into the near end. Measured on a real map of 7,631 dated cells
+// running 2014 to 2026, a straight line put **61% of them in the last of the
+// seven ramp colours**; the middle half of the data covered 19% of the ramp. Two
+// cells a year apart were the same colour, because a year is a twelfth of the
+// span and the ramp had already spent four fifths of itself on the 13% of cells
+// older than 2023.
+//
+// The obvious fix — bend the line with a logarithm, the way `visits` does — is a
+// trap, because the right amount of bend is a property of *one person's dates*.
+// Measured as how crowded the worst of the seven colours gets against an even
+// spread, over the real map above and six synthetic ones:
+//
+//                          real  uniform  one     recent+  two    steady  decade
+//                          map   5 years  summer  ancient  eras   growth  evenly
+//   straight line           4.3      1.1     1.1      7.0    3.9     3.1     1.1
+//   logarithm, k = 12       2.0      2.4     2.3      2.9    2.3     1.3     2.3
+//   rank (equalised)        1.0      1.0     1.0      1.0    1.0     1.0     1.0
+//   rank 0.7 + line 0.3     1.4      1.0     1.0      1.4    1.3     1.3     1.0
+//
+// A fixed logarithm fixes the map it was fitted to and makes evenly-spread maps
+// *worse than the straight line* — it bends hardest exactly where no bend was
+// wanted. So the scale is read off the dates themselves: a cell's position is
+// mostly its **rank** among the dates on the map, which spreads any distribution
+// evenly by construction and needs no constant at all. Where the dates already
+// are even, rank and a straight line are the same function, so this only does
+// anything where the straight line was failing.
+//
+// It is not *all* rank, because rank alone throws away how far apart the dates
+// are: a map with an old import and a recent year would run smoothly across the
+// six-year hole between them as though the two eras were adjacent. Keeping a
+// share of the straight line keeps a real gap looking like one. This is the only
+// number here, and unlike a curve constant it is not fitted to anybody's data —
+// it is how much of the ramp describes order rather than elapsed time.
+export const HEAT_AGE_RANK = 0.7;
+
+// How many breakpoints the rank is read off. The ramp has seven colours and is
+// quantized to 48 steps below, so sixty-four places to stand is already finer
+// than anything downstream can show, and it bounds what a roll-up has to carry
+// however many cells are on the map.
+const AGE_STOPS = 64;
+
 /**
  * 'flat' paints every visited region in the accent colour and merges them into
  * blobs. The other three give each cell its own colour from its rolled-up
@@ -69,8 +114,17 @@ export const HEAT_MODES = {
     label: 'First seen',
     legend: ['Long ago', 'Lately'],
     ramp: ['#5c2a3f', '#8a3d52', '#b35c5c', '#cf8560', '#dcb377', '#b9cf87', '#79c39b'],
-    value: (s, r) =>
-      !s.age ? UNDATED : r.maxAge > r.minAge ? (s.age - r.minAge) / (r.maxAge - r.minAge) : 1,
+    // Mostly where this date stands among the others, a little where it stands
+    // in time — see HEAT_AGE_RANK. A range with no `ageStops` (nobody built
+    // one, or nothing on the map is dated) falls back to the straight line,
+    // which is what this always was.
+    value: (s, r) => {
+      if (!s.age) return UNDATED;
+      if (!(r.maxAge > r.minAge)) return 1;
+      const line = (s.age - r.minAge) / (r.maxAge - r.minAge);
+      if (!r.ageStops) return line;
+      return HEAT_AGE_RANK * rankOf(r.ageStops, s.age) + (1 - HEAT_AGE_RANK) * line;
+    },
   },
 };
 
@@ -145,6 +199,49 @@ export function hotOf(entries) {
   if (!all.length) return 2;
   all.sort((a, b) => a - b);
   return Math.max(2, all[Math.min(all.length - 1, Math.floor(all.length * HEAT_HOT_PERCENTILE))]);
+}
+
+/**
+ * The dates on the map, as AGE_STOPS evenly-spaced quantiles — the ladder
+ * `oldest` reads a cell's rank off. Built beside `hotOf` because it answers the
+ * same question that one does, for the mode that ramps on dates instead of
+ * counts: what does this map's distribution actually look like?
+ *
+ * Null when nothing is dated, which is a real state — a map made entirely by
+ * hand has no first-seen anything, and every cell in it is UNDATED already.
+ *
+ * @param {Iterable<object>|Map} entries rolled-up cells or areas
+ * @returns {Float64Array|null}
+ */
+export function ageStopsOf(entries) {
+  const all = [];
+  for (const e of entries.values ? entries.values() : entries) if (e.age) all.push(e.age);
+  if (!all.length) return null;
+  all.sort((a, b) => a - b);
+  const stops = new Float64Array(AGE_STOPS);
+  for (let i = 0; i < AGE_STOPS; i++) {
+    stops[i] = all[Math.round((i / (AGE_STOPS - 1)) * (all.length - 1))];
+  }
+  return stops;
+}
+
+/**
+ * Where `age` stands among those quantiles, 0..1, interpolated between the two
+ * it falls between so that cells inside one bucket still separate.
+ */
+function rankOf(stops, age) {
+  const last = stops.length - 1;
+  if (age <= stops[0]) return 0;
+  if (age >= stops[last]) return 1;
+  let lo = 0;
+  let hi = last;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (stops[mid] <= age) lo = mid;
+    else hi = mid;
+  }
+  const span = stops[hi] - stops[lo];
+  return (lo + (span > 0 ? (age - stops[lo]) / span : 0)) / last;
 }
 
 /** Is this mode a heat map (per-cell colours) rather than the single-colour wash? */

@@ -34,7 +34,7 @@ import { sourceLabel } from './locations.js';
 import { mountColorPicker, hexAlpha, hexOpaque } from './color-picker.js';
 import {
   HEAT_MODES, HEAT_NEIGHBOURHOOD, TYPE_COLORS, TYPE_MAX, TYPE_OTHER_COLOR, UNDATED_COLOR,
-  cellColorOf, cellStats, heatMetric, hotOf, isHeatMode as isHeatColoring,
+  ageStopsOf, cellColorOf, cellStats, heatMetric, hotOf, isHeatMode as isHeatColoring,
 } from './coloring.js';
 import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
 import {
@@ -49,6 +49,7 @@ import {
 import { applySnow, isSnowMode, setSnowMode, snowMode, snowWanted } from './snow.js';
 import { bannerMode, forgetSnapshot, isBannerMode, setBannerMode } from './whats-new.js';
 import { mountWhatsNew } from './whats-new-ui.js';
+import { HEALTH_SOURCE } from './whats-new.js';
 import { LOCALES, applyTranslations, locale, setLocale, t } from './i18n.js';
 
 // The markup ships in English and is rewritten here, once, before anything is
@@ -2220,6 +2221,9 @@ function recomputeLit(byType = HEAT_MODES[heatMode]?.categorical) {
   litRange = litSets.map((lit) => {
     const r = { maxHits: 1, hotHits: 2, minTime: 0, maxTime: 0, minAge: 0, maxAge: 0 };
     r.hotHits = hotOf(lit);
+    // What the dates on this level actually look like, for the same reason
+    // `hotHits` exists: the ends of the range do not describe the middle.
+    r.ageStops = ageStopsOf(lit);
     for (const e of lit.values()) {
       if (e.hits > r.maxHits) r.maxHits = e.hits;
       if (e.time) {
@@ -2245,9 +2249,10 @@ function recomputeLit(byType = HEAT_MODES[heatMode]?.categorical) {
 //
 // The catch is litRange: `minTime` is a minimum over entry times and `maxAge` a
 // maximum over entry ages, and adding a cell can *raise* an entry's time or
-// *lower* its age. Neither composes incrementally. Cells painted by hand carry
-// no dates at all (markCell stores firstAt/lastAt as 0), so those two fields
-// stay untouched and the shortcut is exact — which is the only case this is
+// *lower* its age. Neither composes incrementally, and `ageStops` — the whole
+// distribution of dates, not just its ends — composes even less. Cells painted
+// by hand carry no dates at all (markCell stores firstAt/lastAt as 0), so all of
+// them stay untouched and the shortcut is exact, which is the only case this is
 // used for. Anything dated takes the slow path.
 function rollUpPainted(id) {
   // Whether a cell is drawn at all depends on which source speaks for it, and
@@ -2596,7 +2601,15 @@ function buildAreaFC(kind, { fine = false, mode = heatMode, record = true } = {}
   // color; otherwise they dissolve into one borderless shape.
   const heat = heatMetric(mode);
   if (heat) {
-    const range = { maxHits: 1, hotHits: hotOf(perArea), minTime: 0, maxTime: 0, minAge: 0, maxAge: 0 };
+    const range = {
+      maxHits: 1,
+      hotHits: hotOf(perArea),
+      // Areas get their own ladder: a country's first-seen is the earliest of
+      // everything inside it, so a hundred countries spread quite differently
+      // from the twenty thousand cells they are made of.
+      ageStops: ageStopsOf(perArea),
+      minTime: 0, maxTime: 0, minAge: 0, maxAge: 0,
+    };
     for (const e of perArea.values()) {
       if (e.hits > range.maxHits) range.maxHits = e.hits;
       if (e.time) {
@@ -8383,9 +8396,19 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   whatsNewUi = mountWhatsNew({
     stats: () => derived.stats(),
     routes: () => routeList,
-    onOpenStats: () => {
+    // "Show me" means show me the thing the sentence was about. When that is a
+    // single workout there is somewhere specific to go, and stopping at the list
+    // to make you pick the only entry in it is a step that answers nothing. Any
+    // more than one and the list *is* the answer, so it opens as it always did.
+    //
+    // routeList is newest first, which is what makes finding the one worth
+    // opening a search rather than a comparison: a workout that has just arrived
+    // is the latest one the phone recorded.
+    onOpenStats: (newWorkouts) => {
       setMenuOpen(false);
-      stats.open();
+      const only = newWorkouts === 1 ? routeList.find((r) => r?.source === HEALTH_SOURCE) : null;
+      if (only) stats.openRoute(only);
+      else stats.open();
     },
   });
 

@@ -2412,6 +2412,17 @@ than accumulated.
 `scripts/test/whats-new.mjs` pins all four of the decisions above, because every
 one of them is the sort of thing a later reader would "fix" back.
 
+**"Show me" goes where the sentence pointed.** The banner is told how many
+workouts it is about, and hands that number back when it is pressed: one, and it
+opens that route directly (`stats.openRoute`, the same door the route card on the
+map uses); more than one, and the Routes tab is the answer, because a list is what
+several of anything looks like. Stopping at the list to make you pick its only
+entry is a step that answers nothing. Which route is *the* new one needs no
+bookkeeping — `routeList` is newest first, so the first `apple-health` entry in it
+is the workout that just arrived. The count is read at press time rather than
+captured on the button, because the button outlives the sentence: a banner
+replaced by a later one must not open what the earlier one was about.
+
 ## Coverage
 
 Countries and their regions in one list (`coverageList` in `src/stats-ui.js`),
@@ -5471,6 +5482,44 @@ the ramp. Pinning the top at the 98th percentile and clamping past it takes the
 share of the map above the first third of the ramp from 2% to 18% at the finest
 level. Everything above the pin is the hottest colour, which is the honest
 answer — past a point, "more" stops being a distinction worth a shade.
+
+**First seen had the same disease and needed a different cure.** It ran a
+straight line from the earliest date on the map to the latest, and dates are not
+spread evenly along their own span: one photograph from 2014 owned the far end of
+a real map's scale, and **61% of its 7,631 dated cells landed in the last of the
+seven ramp colours**. The middle half of the data covered 19% of the ramp, so two
+cells a year apart were the same colour — a year being a twelfth of the span,
+against four fifths of the ramp already spent on the 13% of cells older than 2023.
+
+The obvious answer, bending the line with a logarithm the way `visits` does, is a
+trap, and measuring it is what shows why: *how much* bend is right is a property
+of one person's dates. Against the real map and six synthetic ones, scored by how
+crowded the worst of the seven colours gets versus an even spread —
+
+| | real map | uniform 5y | one summer | + ancient | two eras | growth | decade |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| straight line | 4.3 | 1.1 | 1.1 | 7.0 | 3.9 | 3.1 | 1.1 |
+| logarithm, k=12 | 2.0 | 2.4 | 2.3 | 2.9 | 2.3 | 1.3 | 2.3 |
+| rank (equalised) | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 |
+| **rank 0.7 + line 0.3** | 1.4 | 1.0 | 1.0 | 1.4 | 1.3 | 1.3 | 1.0 |
+
+— a fixed logarithm fixes the map it was fitted to and leaves evenly-spread maps
+*worse than the straight line*, bending hardest where no bend was wanted. So the
+scale is read off the dates themselves: `ageStopsOf` puts the distribution into
+64 quantiles beside `hotOf`, and a cell's position is mostly its **rank** among
+them (`HEAT_AGE_RANK`), which flattens any distribution by construction and needs
+no constant. Where the dates are already even, rank and a straight line are the
+same function — so this only acts where the straight line was failing.
+
+It is not *all* rank because rank alone discards how far apart the dates are: a
+map with an old import and a recent year would run smoothly across the six-year
+hole between them as though the eras were adjacent. Keeping three tenths of the
+straight line keeps a real gap looking like one. On the real map this takes the
+worst colour from 4.3× to 1.4× and the middle half of the cells from 19% of the
+ramp to 41%. The legend is unaffected: it labels the two ends with actual dates,
+which is what lets the ramp between them be an order rather than a duration.
+`scripts/test/heat-scale.mjs` pins the property rather than the numbers — no
+distribution may end up worse than a straight line would have left it.
 
 **It measures stays, and stays are what it should measure.** `hits` used to be
 arrivals, so a weekend that recorded 1,700 fixes and five weekends that recorded

@@ -26,7 +26,10 @@ const SHOW_MS = 14_000;
  *   could not be read — in which case nothing is said, rather than a banner
  *   describing a map from a failed request
  * @param {() => Array|null} opts.routes  the route list, for the workout count
- * @param {() => void} [opts.onOpenStats] where the banner goes when pressed
+ * @param {(newWorkouts: number) => void} [opts.onOpenStats] where the banner
+ *   goes when pressed, told how many workouts the sentence is about — one of
+ *   them is a different destination from several, because there is somewhere
+ *   specific to go
  */
 export function mountWhatsNew({ stats, routes, onOpenStats }) {
   const bar = document.getElementById('whats-new-bar');
@@ -37,6 +40,10 @@ export function mountWhatsNew({ stats, routes, onOpenStats }) {
   if (!bar) return { show: () => {}, hide: () => {} };
 
   let timer = null;
+  // What the banner currently on screen is about. Read when it is pressed
+  // rather than passed through the button, because the button outlives the
+  // sentence: a banner that has been replaced must not open the one before it.
+  let newWorkouts = 0;
 
   const hide = () => {
     clearTimeout(timer);
@@ -70,6 +77,7 @@ export function mountWhatsNew({ stats, routes, onOpenStats }) {
     if (wanted || !before) rememberSnapshot(now);
     if (!wanted) return;
 
+    newWorkouts = change.workouts;
     titleEl.textContent = title;
     detailEl.textContent = detail;
     bar.hidden = false;
@@ -79,7 +87,7 @@ export function mountWhatsNew({ stats, routes, onOpenStats }) {
 
   openBtn?.addEventListener('click', () => {
     hide();
-    onOpenStats?.();
+    onOpenStats?.(newWorkouts);
   });
   dismissBtn?.addEventListener('click', hide);
 
