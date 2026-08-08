@@ -228,17 +228,30 @@ const MIN_STEP_PX = 0.35;
 
 /**
  * Ready-made palettes. Each is a complete answer — background, land, the line
- * around it and the caption — because these four have to be picked against each
- * other, and a dialog of four independent colour wells is a machine for making
- * an unreadable poster. Every one of them can still be overridden.
+ * around it, the caption and the visited wash — because those five have to be
+ * picked against each other, and a dialog of five independent colour wells is a
+ * machine for making an unreadable poster. Every one of them can still be
+ * overridden.
  *
- * **They are all quiet, and that is the constraint rather than a taste.** The
- * subject of the picture is the visited wash, which arrives on top in one
- * saturated hue the person picked themselves; anything under it that competes
- * for the same attention turns the poster into two maps arguing. So every entry
- * below is a near-neutral or a single desaturated tone, and the distance between
- * `background` and `land` is small — enough to read as *there is ground there*,
- * never enough to read as data.
+ * **The four under the wash are all quiet, and that is the constraint rather
+ * than a taste.** The subject of the picture is the visited wash; anything under
+ * it competing for the same attention turns the poster into two maps arguing. So
+ * `background`, `land` and `edge` are each a near-neutral or a single
+ * desaturated tone, and the distance between `background` and `land` is small —
+ * enough to read as *there is ground there*, never enough to read as data.
+ *
+ * `accent` is the exception, and the reason the rest hold back. It is the only
+ * saturated colour on the page, and it is chosen by three rules:
+ *
+ * - **Against the temperature of the ground.** Warm paper takes a cool or deep
+ *   ink (Prussian blue on cream, verdigris on a sepia atlas); a cool or dark
+ *   ground takes a warm luminous one (gold on navy, sand on cyanotype). The wash
+ *   then separates by hue as well as by lightness, which is what stops it
+ *   reading as a darker patch of land.
+ * - **Past 3:1 against `land`.** The wash is a large shape rather than type, so
+ *   that is the honest threshold; most are well past it. Pinned by
+ *   `scripts/test/export-image.mjs`, because it is not visible from the hex.
+ * - **One hue each.** Twelve looks that all resolved to gold would be one look.
  *
  * The other rule is that `land` is not always the lighter of the two. `chart`
  * inverts it deliberately, the way a sea chart does: pale water, paler land, and
@@ -249,95 +262,131 @@ const MIN_STEP_PX = 0.35;
  * then the lights, then the darks, then the one that is not a colour at all.
  */
 export const PALETTES = {
+  // Navy and gold, which is the oldest answer there is to "one warm thing on a
+  // deep blue field" — and the warm end of the wash is what keeps the map from
+  // reading as more night sky.
   night: {
     label: 'Night',
     background: '#0b0d14',
     land: '#1b2030',
     edge: '#38405a',
     text: '#ffffff',
+    accent: '#f0b429',
   },
+  // Prussian blue on cream: the colour that was actually in the pen. Cream with
+  // a terracotta wash is the other obvious pairing and a far more tired one.
   paper: {
     label: 'Paper',
     background: '#f4f1ea',
     land: '#e2ddd1',
     edge: '#b9b2a2',
     text: '#1a1a1a',
+    accent: '#134b70',
   },
+  // Cool grey and white take a carmine, for the same reason a Swiss poster does:
+  // on a ground with no warmth in it at all, one deep red is the whole design.
   slate: {
     label: 'Slate',
     background: '#e8eaef',
     land: '#ffffff',
     edge: '#c2c8d4',
     text: '#141821',
+    accent: '#ae2b46',
   },
-  // An old atlas: paper that has gone brown and ink that was never black.
+  // An old atlas: paper that has gone brown and ink that was never black. The
+  // wash is verdigris — oxidised copper is what went green on plates this old.
   sepia: {
     label: 'Sepia',
     background: '#efe4cf',
     land: '#e0cfae',
     edge: '#a89069',
     text: '#3b2c1b',
+    accent: '#26645a',
   },
   // A sea chart, and the one palette whose land is lighter than its background.
+  // Magenta because that is the overprint colour a real chart uses for the
+  // things that are not the sea floor.
   chart: {
     label: 'Chart',
     background: '#d9e7ef',
     land: '#f7f2e4',
     edge: '#87a6b6',
     text: '#1d3441',
+    accent: '#b83367',
   },
-  // No colour at all, for the case where the wash should be the only hue on the
-  // page — and for a printer that is going to make this decision anyway.
+  // No colour at all under the wash, for the case where it should be the only
+  // hue on the page — and for a printer that is going to make this decision
+  // anyway. So the wash is the loudest blue here: one flat pigment on newsprint.
   ink: {
     label: 'Ink',
     background: '#fafafa',
     land: '#e8e8e8',
     edge: '#8f8f8f',
     text: '#111111',
+    accent: '#1f3ea6',
   },
-  // Night's neutral twin: the same picture with the blue taken out of it.
+  // Night's neutral twin: the same picture with the blue taken out of it. Jade
+  // rather than gold, so the two do not arrive as the same poster twice.
   carbon: {
     label: 'Carbon',
     background: '#101010',
     land: '#1e1e1e',
     edge: '#3d3d3d',
     text: '#f2f2f2',
+    accent: '#3ecb98',
   },
-  // Cyanotype. The one dark palette with a hue you would name.
+  // Cyanotype. The one dark palette with a hue you would name, and the wash is
+  // the warm sand a blueprint never has in it.
   blueprint: {
     label: 'Blueprint',
     background: '#0e253c',
     land: '#173653',
     edge: '#3d6f9e',
     text: '#dceaf7',
+    accent: '#e1b57f',
   },
+  // Deep green and a dusty rose, which is the pairing that stops a forest-dark
+  // poster reading as camouflage. The rose is muted on purpose: at full chroma
+  // it stops being antique and starts being sugar.
   moss: {
     label: 'Moss',
     background: '#0d1712',
     land: '#182a20',
     edge: '#314c3b',
     text: '#e6f0e8',
+    accent: '#cb7f8a',
   },
+  // Aubergine and citron. The complement of a violet this deep is a yellow-green
+  // that would be unbearable anywhere else and is the whole point here.
   plum: {
     label: 'Plum',
     background: '#160f1e',
     land: '#251a33',
     edge: '#453257',
     text: '#f0e8f7',
+    accent: '#bec96a',
   },
+  // The one palette named after a light source, so the wash is the light: warm
+  // on warm, separated by how much brighter it is rather than by hue.
   ember: {
     label: 'Ember',
     background: '#180f0a',
     land: '#2a1a12',
     edge: '#563325',
     text: '#f7e9e2',
+    accent: '#e8783f',
   },
+  // The accent that cannot see its ground: this one is dropped onto a slide, a
+  // photograph, anything. #8a5cd6 sits at the lightness where white and black
+  // are exactly as far away as each other (4.6:1 both ways), which is the most a
+  // colour can promise when it does not know what it will land on.
   none: {
     label: 'Transparent',
     background: 'transparent',
     land: '#8e97ad33',
     edge: '#8e97ad66',
     text: '#ffffff',
+    accent: '#8a5cd6',
   },
 };
 
@@ -475,14 +524,19 @@ export const DEFAULT_SPEC = {
   // Set once the preview has been dragged or zoomed: { cx, cy, zoom }. Not
   // remembered between sessions, because it is a framing of one selection.
   view: null,
-  // Regions, most-visited, on paper — which is not what the *map* defaults to,
-  // and deliberately so. The map opens on blobs in a single colour because it
-  // is a thing you read and edit at every zoom; a picture is looked at once, at
-  // one size, usually printed or posted. Blobs at poster scale are a soft wash
-  // that says "somewhere around here", where regions have edges you can name;
-  // and a flat wash throws away the one thing the data has that a shape does
-  // not, which is how often you went. Paper rather than night for the same
-  // reason: the commonest thing done with the result is to put it on a wall.
+  // Regions, one colour, on paper. Regions rather than blobs is where this still
+  // parts company with the *map*, and deliberately so: the map opens on blobs
+  // because it is a thing you read and edit at every zoom, while blobs at poster
+  // scale are a soft wash that says "somewhere around here" where regions have
+  // edges you can name. Paper rather than night for the same kind of reason —
+  // the commonest thing done with the result is to put it on a wall.
+  //
+  // The wash used to default to *Most visited*, on the argument that a flat one
+  // throws away how often you went. It does, and a poster is the wrong place to
+  // spend that: a heat ramp is seven colours the paper had no say in, and it
+  // overrules the one colour the look was built around. The ramps are one press
+  // away and the legend explains them; the picture you get without pressing
+  // anything is now a shape in a colour chosen against the paper it is on.
   //
   // These apply only to a dialog with nothing remembered — `export-ui.js` reads
   // the saved spec over the top, so anyone who has ever changed one of these
@@ -490,8 +544,10 @@ export const DEFAULT_SPEC = {
   detail: 'region',
   // A grid level, or 'auto' for the finest the picture can carry.
   cellSize: 'auto',
-  colorBy: 'visits',
-  accent: '#60acff',
+  colorBy: 'flat',
+  // Blank means "whatever the look says", which is the answer for anyone who has
+  // not picked one — see `accentOf`.
+  accent: '',
   strength: 1,
   palette: 'paper',
   colors: {}, // overrides on top of the palette
@@ -1419,6 +1475,21 @@ export function paletteOf(spec) {
   return { ...base, ...(spec.colors ?? {}) };
 }
 
+/**
+ * The colour the visited wash is painted in: the one that was picked, or the one
+ * the look came with.
+ *
+ * Blank rather than absent is the whole point — it is the same arrangement the
+ * caption's shadow uses. An empty `accent` means "whatever the look says", so
+ * every look changes the wash as it is chosen, and a colour picked by hand
+ * survives changing everything else about the picture until a look is chosen
+ * again. A spec cannot hold both answers at once, so it holds the override and
+ * resolves the default here.
+ */
+export function accentOf(spec) {
+  return spec?.accent || paletteOf(spec ?? {}).accent || PALETTES.night.accent;
+}
+
 /** The pixel size a spec asks for. */
 /** The preset a spec names, or the first of its family. */
 export function presetOf(spec) {
@@ -1471,7 +1542,7 @@ export function sizeOf(spec) {
  *   rather than values, because the map underneath can change while the dialog
  *   is open — a cell painted, a source removed — and a copy taken when the
  *   dialog opened would quietly export the map as it used to be:
- *   `{ cells(), meta(), accent(), rollUp(mode), areaFC(kind, mode, fine), areaOf(kind, cellId) }`
+ *   `{ cells(), meta(), rollUp(mode), areaFC(kind, mode, fine), areaOf(kind, cellId) }`
  * @param {object} numbers from coverageOf
  * @param {{w:number,h:number}} [size] overrides the spec's own — the preview
  *   renders the same picture smaller
@@ -1646,7 +1717,7 @@ function drawBlobs(ctx, spec, data, cam, size) {
     bb,
     level,
     cells,
-    colorOf: cellColorOf(spec.colorBy, spec.accent, litRange[level] ?? {}),
+    colorOf: cellColorOf(spec.colorBy, accentOf(spec), litRange[level] ?? {}),
     heat: isHeatMode(spec.colorBy),
     // The map's own rim settings are deliberately not used — see BLOB_RIM.
     edge: BLOB_RIM,
@@ -1680,7 +1751,7 @@ function drawBlobs(ctx, spec, data, cam, size) {
 
 function drawAreas(ctx, spec, data, cam) {
   const fc = data.areaFC(spec.detail, spec.colorBy, frameSharp);
-  const colorOf = areaColorOf(spec.colorBy, spec.accent);
+  const colorOf = areaColorOf(spec.colorBy, accentOf(spec));
   const flat = !isHeatMode(spec.colorBy);
   // Two neighbouring fills that share an edge do not meet on it: each is
   // antialiased against nothing, so half a pixel of background survives between
@@ -1693,7 +1764,7 @@ function drawAreas(ctx, spec, data, cam) {
     // k=1 is a fill; k=2 is the outline ring set and k=3 a continent's label,
     // and neither is what a poster wants under its own outline.
     if (f.properties?.k !== 1 || !f.geometry) continue;
-    const color = flat ? hexOpaque(spec.accent) : colorOf(Number(f.properties.v ?? 0));
+    const color = flat ? hexOpaque(accentOf(spec)) : colorOf(Number(f.properties.v ?? 0));
     const path = pathOf([f.geometry], cam);
     ctx.fillStyle = color;
     ctx.strokeStyle = color;

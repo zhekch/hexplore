@@ -110,6 +110,7 @@ export default {
   "device-refresh.refresh": "Refresh",
   "device.used-to-sync-photo-geolocations": "Used to sync photo geolocations, workouts and your location in the background.",
   "device.your-phone": "Your phone",
+  "export-accent-auto.follows-the-look": "Follows the look",
   "export-accent-row.visited-color": "Visited color",
   "export-accent.visited-color": "Visited color",
   "export-anchor.where-the-caption-sits": "Where the caption sits",

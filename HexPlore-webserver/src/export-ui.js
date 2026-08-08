@@ -20,7 +20,7 @@
 
 import {
   CAPTION_ANCHORS, CAPTION_FIELDS, CAPTION_FONTS, DEFAULT_SPEC, MAX_SIDE_PX, PALETTES, SCALES,
-  CELL_SIZES, SHAPES, SWATCH_PRESETS, cameraFor, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitBox, fitCamera,
+  CELL_SIZES, SHAPES, SWATCH_PRESETS, accentOf, cameraFor, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitBox, fitCamera,
   frameOf, isLightColor, lngLatAt, paletteOf, pickAt, presetOf, renderExport, scopeCountryOf,
   scopeName, sizeOf, visitedAreas,
 } from './export-image.js';
@@ -380,6 +380,10 @@ export function mountExport({ onClose, data }) {
       // customised.
       spec.colors = {};
       if (spec.caption.color) spec.caption.color = '';
+      // The wash included. It is the loudest thing on the picture and the four
+      // colours under it were chosen against it, so a look that changed
+      // everything *but* the wash would be half a look — see `accentOf`.
+      spec.accent = '';
     },
   );
 
@@ -801,7 +805,11 @@ export function mountExport({ onClose, data }) {
     strength.value = String(Math.round(spec.strength * 100));
 
     const palette = paletteOf(spec);
-    pickers.get('accent')?.set(spec.accent || '#60acff');
+    // The swatch shows the colour that will actually be painted, whether or not
+    // anyone picked it — same as the caption's shadow below. Pressing it is then
+    // an edit of what you can see rather than a jump to something else.
+    pickers.get('accent')?.set(accentOf(spec));
+    $('export-accent-auto').textContent = spec.accent ? 'Chosen' : 'Follows the look';
     for (const slot of ['background', 'land', 'edge']) {
       // A transparent background is a real value and the swatch shows it as
       // one — the picker draws over a checkerboard, which is the only honest
@@ -1345,9 +1353,6 @@ export function mountExport({ onClose, data }) {
     overlay.hidden = false;
     fail(null);
     areaCache.clear();
-    // The accent follows the map unless this dialog has been given one of its
-    // own. A poster of a map you have coloured teal should not open blue.
-    if (!localStorage.getItem(SPEC_KEY)) spec.accent = data.accent();
     numbers = null;
     coverageKey = '';
     sync();
@@ -1374,7 +1379,6 @@ export function mountExport({ onClose, data }) {
     // The places you picked are the one thing a Reset should not throw away —
     // they are the work, and everything else is a look.
     spec.scope = { kind, ids };
-    spec.accent = data.accent();
     save();
     sync();
     schedule();

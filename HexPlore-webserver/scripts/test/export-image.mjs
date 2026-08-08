@@ -17,7 +17,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  CAPTION_FIELDS, CELL_SIZES, MAX_PIXELS, PALETTES, SCALES, SHAPES,
+  CAPTION_FIELDS, CELL_SIZES, MAX_PIXELS, PALETTES, SCALES, SHAPES, accentOf,
   blobLevelFor, cameraFor, captionLines, circularSpan, coverageOf, divisionGeoms, exportFilename, fitCamera,
   fitBox, frameFor, isLightColor, lngLatAt, paletteOf, pickAt, presetOf, scopeAreaKm2, scopeGeometry,
   scopeName, sizeOf, unwrapRing, visitedAreas,
@@ -47,6 +47,25 @@ const luma = (color) => {
   return (r * 299 + g * 587 + b * 114) / 1000;
 };
 const lumaGap = (a, b) => Math.abs(luma(a) - luma(b));
+
+/**
+ * WCAG contrast ratio, 1:1 to 21:1. Not the `luma` above: that is the app's own
+ * cheap brightness, which is right for "is this colour light or dark" and wrong
+ * for "can you see one of these on the other" — the two colours in question can
+ * share a brightness and still be a visited wash you cannot find.
+ */
+const relLuma = (color) => {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(color).trim());
+  if (!m) return 1;
+  const [r, g, b] = m.slice(1)
+    .map((h) => parseInt(h, 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [hi, lo] = [relLuma(a), relLuma(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
 
 await Promise.all([loadCountries(await json('countries.json')), loadRegions(await json('regions.json'))]);
 
@@ -429,20 +448,36 @@ console.log('\nThe spec resolves to a picture');
 
 // --- The ready-made palettes ---------------------------------------------------
 // A palette is the one control that can make an unreadable poster in a single
-// press, because all four of its colours move at once and three of them are
-// behind the fourth. These are the two ways that goes wrong and neither is
+// press, because all five of its colours move at once and four of them are
+// behind the fifth. These are the three ways that goes wrong and none of them is
 // visible from reading the hex: type the same lightness as the paper it sits on,
-// and a coastline the same lightness as the ground either side of it.
+// a coastline the same lightness as the ground either side of it, and a visited
+// wash that sinks into the land it is drawn on.
 
 console.log('\nEvery palette is a poster you can actually read');
 {
   for (const [key, p] of Object.entries(PALETTES)) {
-    check(!!(p.label && p.background && p.land && p.edge && p.text),
-      `${key} answers all four questions`);
+    check(!!(p.label && p.background && p.land && p.edge && p.text && p.accent),
+      `${key} answers all five questions`);
 
-    // Transparent has no paper, so there is nothing for the caption to contrast
-    // against — what it lands on is decided by whatever the file is put on.
-    if (p.background === 'transparent') continue;
+    // Transparent has no paper, so neither the caption nor the wash has
+    // anything here to be read against — what they land on is decided by
+    // whatever the file is put on. Its wash is held to both extremes instead,
+    // which is the only promise a colour can make about ground it cannot see.
+    if (p.background === 'transparent') {
+      check(contrast(p.accent, '#ffffff') >= 4 && contrast(p.accent, '#000000') >= 4,
+        `${key}'s wash survives both a white and a black drop`,
+        `${contrast(p.accent, '#ffffff').toFixed(2)}:1 / ${contrast(p.accent, '#000000').toFixed(2)}:1`);
+      continue;
+    }
+
+    // The wash is the subject, so this one *is* a real contrast ratio — 3:1,
+    // the threshold for a shape rather than for type. It is the check the eye
+    // cannot do from a list of hex values, and the reason none of the five is
+    // picked on its own.
+    check(contrast(p.accent, p.land) >= 3,
+      `${key}'s visited wash separates from its land`,
+      `${contrast(p.accent, p.land).toFixed(2)}:1`);
 
     check(isLightColor(p.text) !== isLightColor(p.background),
       `${key}'s caption is the opposite lightness to its paper`);
@@ -453,6 +488,13 @@ console.log('\nEvery palette is a poster you can actually read');
     check(lumaGap(p.edge, p.land) >= 12,
       `${key}'s outline is visible against its land`, `gap ${lumaGap(p.edge, p.land).toFixed(1)}`);
   }
+
+  // Blank means "whatever the look says", and every look says something.
+  check(accentOf({ palette: 'sepia' }) === PALETTES.sepia.accent,
+    'a spec with no colour of its own is painted in the look\'s');
+  check(accentOf({ palette: 'sepia', accent: '#ff0000' }) === '#ff0000',
+    'and one that was picked by hand outlives the look it was picked under');
+  check(accentOf({}) === PALETTES.night.accent, 'a spec naming no look at all still has a colour');
 }
 
 // --- The box the preview is shown in -------------------------------------------

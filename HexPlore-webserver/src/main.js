@@ -8213,7 +8213,9 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       // the same accessors' roll-up paints. See hiddenSources.
       cells: () => visibleCells,
       meta: () => cellMeta,
-      accent: () => hexOpaque(accent),
+      // Not the map's accent. The picture's wash belongs to the look it is
+      // printed in — see `accentOf` in src/export-image.js — and the map's
+      // colour was chosen against a live basemap this poster does not have.
       rollUp: exportRollUp,
       areaFC: exportAreaFC,
       areaOf: areaOfCellMemo,
