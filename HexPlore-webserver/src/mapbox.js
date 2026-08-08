@@ -107,8 +107,9 @@ const DEFAULT_PRESET = 'day';
 
 // --- What Standard draws of its own -------------------------------------------
 // Config on the imported basemap, set once its style has parsed. Each of these
-// is a published option with published values; `configureStandard` sets them
-// inside a try, because a style that is not Standard has no such import.
+// is a published option with published values; `standardConfig` collects them
+// and `configureStandard` sets each inside its own try, because a style that is
+// not Standard has no such import.
 //
 // `none` rather than the published default `circle`: the coloured discs behind
 // every POI icon are the loudest thing on a map whose subject is the ground
@@ -121,6 +122,40 @@ const POI_BACKGROUND = 'none';
 // — "Zytglogge" five times over one junction in Bern. The stop icons stay; it is
 // the words that were the noise.
 const SHOW_TRANSIT_LABELS = false;
+
+// --- The two that were off, and are the reason a landmark looked like a shed ---
+//
+// Standard's best 3D work is opt-in, and nothing says so from inside the map: an
+// unset property draws the plain extrusion, which is a perfectly good building
+// and gives you no reason to suspect there was ever anything else. Both of these
+// are published as hidden by default.
+//
+// **Facades** are the intricate ones — modelled windows, walls, roofs, entrance
+// lights — and Mapbox's own words for switching them on are "must be toggled on
+// in Studio or enabled directly in the code using the `show3dFacades` property".
+// They exist in a *list of cities* rather than everywhere: Munich, Berlin,
+// Stuttgart, San Francisco, New York, Las Vegas, Helsinki and Tokyo at the time
+// of writing, more through 2026. So this changes nothing at all in Bern, and it
+// is still right — the map is not a map of Bern, and the alternative is finding
+// out in Tokyo that the setting existed all along.
+const SHOW_FACADES = true;
+
+// **Landmark icons** mark the buildings worth knowing at the zooms where the
+// model itself is too small to read — 6,500 of them across 450 cities. Their
+// labels are a separate property and stay off, which is the same call as the
+// transit labels above and made for the same reason: the icon is a landmark, the
+// word beside it is another name on a map that already has plenty. A landmark
+// icon is also nothing like a POI disc — there are a handful per city, not one
+// per café.
+const SHOW_LANDMARK_ICONS = true;
+const SHOW_LANDMARK_ICON_LABELS = false;
+
+// The models themselves are on by default — they are what every published
+// picture of Standard is showing. Stated anyway, because the two properties
+// above are the lesson that a default is a fact about this release and not a
+// promise about the next one, and an unknown property here costs one silent
+// no-op rather than anything.
+const SHOW_3D_LANDMARKS = true;
 
 const TOKEN_KEY = 'visited-map:mapbox-token:v1';
 const PRESET_KEY = 'visited-map:mapbox-light:v1';
@@ -148,6 +183,28 @@ export function setMapboxToken(token) {
 
 /** Is there a token to try at all? */
 export const hasMapboxToken = () => !!mapboxToken();
+
+/**
+ * Every config property this app has an opinion about, and what it wants.
+ *
+ * A list rather than a run of calls because the failure mode here is silence.
+ * `Style.setConfigProperty` looks the name up in the style's own schema and
+ * **returns without a word** if it is not there — so a property Mapbox has
+ * renamed, or one misspelled here, does exactly nothing and reports exactly
+ * nothing. Every name below is spelled the way the Standard reference spells
+ * it, and `scripts/test/mapbox.mjs` checks that each one is actually sent.
+ *
+ * Read at call time, because the light preset is a setting and the rest are not.
+ */
+export const standardConfig = () => ({
+  lightPreset: lightPreset(),
+  backgroundPointOfInterestLabels: POI_BACKGROUND,
+  showTransitLabels: SHOW_TRANSIT_LABELS,
+  show3dLandmarks: SHOW_3D_LANDMARKS,
+  show3dFacades: SHOW_FACADES,
+  showLandmarkIcons: SHOW_LANDMARK_ICONS,
+  showLandmarkIconLabels: SHOW_LANDMARK_ICON_LABELS,
+});
 
 /** Which light preset is chosen, falling back to the default for anything odd. */
 export function lightPreset() {
@@ -251,13 +308,18 @@ export async function checkMapboxToken(token) {
  * @param {object} map a Mapbox GL JS map whose style has loaded
  */
 export function configureStandard(map) {
-  try {
-    map.setConfigProperty(BASEMAP_IMPORT, 'lightPreset', lightPreset());
-    map.setConfigProperty(BASEMAP_IMPORT, 'backgroundPointOfInterestLabels', POI_BACKGROUND);
-    map.setConfigProperty(BASEMAP_IMPORT, 'showTransitLabels', SHOW_TRANSIT_LABELS);
-  } catch {
-    // A style that is not Standard has no such import. Not worth failing over:
-    // the map is already drawn and none of this decides whether it draws.
+  for (const [key, value] of Object.entries(standardConfig())) {
+    try {
+      map.setConfigProperty(BASEMAP_IMPORT, key, value);
+    } catch {
+      // A style that is not Standard has no such import. Not worth failing over:
+      // the map is already drawn and none of this decides whether it draws.
+      //
+      // One `try` each rather than one around the lot, so that a property this
+      // Standard has never heard of cannot take the light preset down with it —
+      // the sun would move on some builds and not others, which is the kind of
+      // bug that gets blamed on the sun.
+    }
   }
 
   if (!TERRAIN_EXAGGERATION) return;

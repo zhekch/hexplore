@@ -3227,10 +3227,46 @@ the gesture is muscle memory and it should not change when the basemap does.
 read before it is written, the same way `dropLockOnZoom` reaches for
 `_watchState`.
 
-**What Standard is told to draw of itself** is `configureStandard()`: the light
-preset, and `backgroundPointOfInterestLabels: 'none'` — the coloured discs behind
-every POI icon are the loudest thing on a map whose subject is the ground under
-them, and without them the icons keep their colour and their meaning.
+**What Standard is told to draw of itself** is `configureStandard()`, from the
+list in `standardConfig()`: the light preset, and
+`backgroundPointOfInterestLabels: 'none'` — the coloured discs behind every POI
+icon are the loudest thing on a map whose subject is the ground under them, and
+without them the icons keep their colour and their meaning. Transit labels are
+off, because Standard names every tram stop it has and that is "Zytglogge" five
+times over one junction.
+
+**Standard's best 3D work is opt-in, and its refusals are silent.** For a long
+time this map drew the Bundeshaus as a plain brown extrusion, which is a
+perfectly good building and gives nobody a reason to suspect there was ever
+anything else on offer. Two published properties were simply never set, both
+documented as hidden by default:
+
+- `show3dFacades` — the intricate ones, with modelled windows, walls, roofs and
+  entrance lights. Mapbox's own wording is that they "must be toggled on".
+- `showLandmarkIcons` — the icons that mark a landmark at the zooms where the
+  model is too small to read. `showLandmarkIconLabels` stays **off**, which is
+  the transit-labels call made again: the icon is the landmark, the word beside
+  it is one more name on a map that has plenty.
+
+`show3dLandmarks` is stated too, though it is on by default. The other two are
+the lesson that a default is a fact about one release rather than a promise.
+
+**What this does not do is change Bern.** Facades exist in a list of cities —
+Munich, Berlin, Stuttgart, San Francisco, New York, Las Vegas, Helsinki, Tokyo,
+with more through 2026 — and the bespoke landmark models in a few dozen. A city
+Mapbox has not modelled has nothing to switch on, and the switch is still right:
+the alternative is finding out in Tokyo that it was there all along.
+
+**Nothing here reports a name it does not recognise.**
+`Style.setConfigProperty` looks the key up in the style's own schema and returns
+without a word if it is absent, so a renamed property and a misspelled one are
+both invisible — the same plain extrusion, and an empty console. That is why
+each property is set in its own `try` rather than the six sharing one (a
+throw on one must not cost the map its sun), why the names are written exactly
+as the Standard reference writes them, and why `scripts/test/mapbox.mjs` checks
+that every one of them actually reaches the map. The schema itself cannot be
+checked from a test: it arrives with the style, which needs a token and a
+network.
 
 ### The train tracks on Mapbox, which took three shims
 

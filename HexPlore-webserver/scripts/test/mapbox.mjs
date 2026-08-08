@@ -32,8 +32,8 @@ globalThis.localStorage = {
 };
 
 const {
-  LIGHT_PRESETS, hasMapboxToken, lightPreset, mapboxToken, presetTheme, setLightPreset,
-  setMapboxToken, tokenComplaint,
+  BASEMAP_IMPORT, LIGHT_PRESETS, configureStandard, hasMapboxToken, lightPreset, mapboxToken,
+  presetTheme, setLightPreset, setMapboxToken, standardConfig, tokenComplaint,
 } = await import('../../src/mapbox.js');
 const {
   LABEL_SLOT_ID, WASH_SLOT_ID, ctrlClass, ctrlClasses, ctrlSelector, hasCtrlClass,
@@ -176,6 +176,72 @@ console.log('\nOur layers are drawn on the map, not lit by it');
 // the new map. Read under one prefix it matched nothing, the answer came back
 // "off", and the blue dot quietly did not return — twice, because the fix for
 // it was written on the wrong side of the load. So reading names both.
+
+// --- What Standard is told about itself -----------------------------------------
+//
+// Standard's best 3D work is opt-in and its refusals are silent:
+// `Style.setConfigProperty` looks the name up in the style's own schema and
+// returns without a word when it is not there. So a property never sent and a
+// property misspelled look identical from the outside — a plain extrusion where
+// a landmark should be, and nothing in the console. The Bundeshaus rendered as a
+// warehouse for exactly that reason: `show3dFacades` and `showLandmarkIcons` are
+// published as hidden by default and were never set.
+//
+// There is no way to check these names against Mapbox's schema from here — it
+// arrives with the style, which needs a token and a network. What can be checked
+// is that every one of them is actually sent, and that one the renderer does not
+// know cannot take the others down with it.
+
+console.log('\nStandard is told what to draw');
+{
+  const want = standardConfig();
+  check(want.show3dFacades === true, 'the detailed facades are asked for');
+  check(want.showLandmarkIcons === true, 'and the landmark icons');
+  check(want.showLandmarkIconLabels === false,
+    'but not their labels, which are words on a map that has enough of them');
+  check(want.lightPreset === lightPreset(), 'the light preset is read when it is set, not at import');
+
+  // Enough map to get through the terrain half without warning: a source that
+  // already exists, and a `setTerrain` that accepts one.
+  const fakeMap = (setConfigProperty) => ({
+    setConfigProperty,
+    getSource: () => ({}),
+    setTerrain: () => {},
+  });
+
+  const sent = [];
+  configureStandard(fakeMap((fragment, key, value) => sent.push([fragment, key, value])));
+  check(sent.length === Object.keys(want).length, 'every property reaches the map', `${sent.length} sent`);
+  check(sent.every(([fragment]) => fragment === BASEMAP_IMPORT),
+    'each one naming the import, which is the only one Standard has');
+  const missing = Object.entries(want)
+    .filter(([k, v]) => !sent.some(([, key, value]) => key === k && value === v));
+  check(missing.length === 0, 'with the value it was given', missing.map(([k]) => k).join(', '));
+
+  // The case that made this a loop rather than one try around the lot: an older
+  // Standard, or a renamed property, must not cost the map its sun.
+  const after = [];
+  configureStandard(fakeMap((fragment, key) => {
+    if (key === 'show3dFacades') throw new Error('no such property');
+    after.push(key);
+  }));
+  check(after.length === Object.keys(want).length - 1,
+    'a property this Standard has never heard of takes only itself down');
+  check(after.includes('lightPreset'), 'and the light preset is still set afterwards');
+
+  // Not a Mapbox map at all. `installGrid` only calls this on Mapbox, but the
+  // whole point of the trys is that being wrong about that costs nothing. The
+  // terrain half says so out loud, which is the one part of this that is meant
+  // to be noisy — it is the part the map is still a map without.
+  const warn = console.warn;
+  const warned = [];
+  console.warn = (...args) => warned.push(args[0]);
+  configureStandard({});
+  console.warn = warn;
+  check(warned.length === 1 && /terrain/i.test(warned[0]),
+    'a map with no config API at all is not a crash, and says so once about the terrain',
+    warned.join(' | '));
+}
 
 console.log('\nA control class is readable under either library');
 {
