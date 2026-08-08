@@ -128,6 +128,28 @@ export function tripRelevance(t, q) {
 }
 
 /**
+ * Was this trip happening during that month, or that year?
+ *
+ * A trip is a span, so this is an overlap and not a lookup: the fortnight that
+ * started on the 28th of August belongs to September as much as to August, and
+ * somebody typing "September 2023" is asking what they were doing then — not
+ * which trips happened to begin in it.
+ *
+ * Compared on the *prefix* of each end's day key, which is the whole reason
+ * dates are written biggest-part-first: `"2023-08" <= "2023-09"` is true and
+ * `"2023-10" <= "2023-09"` is not, with no arithmetic and no month lengths. Both
+ * ends are keyed by `dayKey`, the same function the calendar keys its days with,
+ * so a trip cannot land in one and not the other.
+ *
+ * @param {{start:number, end:number}} t a derived trip
+ * @param {string} period `YYYY` or `YYYY-MM`
+ */
+export function tripInPeriod(t, period) {
+  const n = period.length;
+  return dayKey(t.start).slice(0, n) <= period && dayKey(t.end).slice(0, n) >= period;
+}
+
+/**
  * @param {object} opts
  * @param {() => Array<object>} opts.trips    derived trips, newest first
  * @param {() => Array<object>} opts.routes   saved routes
@@ -164,6 +186,15 @@ export function mountSearch({
   let calOpen = false;
   let items = []; // what's currently listed, for keyboard selection
   let active = -1;
+
+  // On a screen wide enough to hold both, the calendar is not a panel you open
+  // — it is the right-hand half of the palette, and it is simply always there.
+  // The query has to match the one in src/style.css that lays the two out side
+  // by side: the CSS decides where the grid goes and this decides whether it
+  // exists, and a palette whose two halves disagree shows an empty column or a
+  // grid nothing can reach.
+  const twoColumn = window.matchMedia('(min-width: 720px) and (min-height: 560px)');
+  const calPinned = () => twoColumn.matches;
 
   // Trips live here rather than in a tab of their own. They used to be in both
   // — this palette listed them, and Routes and statistics listed them again
@@ -456,6 +487,35 @@ export function mountSearch({
     items.push({ el, pick: () => el.click() });
   }
 
+  /**
+   * A month or a year, answered with the trips inside it as well as the grid.
+   *
+   * Typing a date used to open the calendar and stop there, which is a complete
+   * answer only if you already know which day you want. "2023" is not a day and
+   * cannot become one by being shown January: the thing being asked for is the
+   * year's trips, and a grid that can only stand on one month at a time is the
+   * wrong shape to give them in.
+   */
+  function addPeriod(period) {
+    const [y, mo] = period.split('-');
+    const label = `${mo ? `${MONTHS[+mo - 1]} ` : ''}${y}`;
+    const put = hiddenTrips();
+    const list = trips().filter((t) => !put.has(t.id) && tripInPeriod(t, period));
+    if (!list.length) {
+      resultsEl.append(note(`No trips in ${label} — pick a day from the calendar for what else is on it.`));
+      return;
+    }
+    resultsEl.append(section(`Trips in ${label}`));
+    // The same controls the whole list carries, because this is the same list
+    // narrowed to a span — and a year is exactly the width at which "longest"
+    // and "furthest" start being the interesting questions.
+    resultsEl.append(tripControls());
+    // Every one of them is as good an answer as the others: nothing was typed
+    // that one trip could match better than another, so the chosen sort decides
+    // the order outright.
+    resultsEl.append(...tripList(list, new Map(list.map((t) => [t, 0]))));
+  }
+
   /** The trips section: all of them when nothing is typed, matches when it is. */
   function addTrips(q) {
     const put = hiddenTrips();
@@ -562,7 +622,7 @@ export function mountSearch({
       if (d) selectDay(asDate);
       else {
         renderCalendar();
-        resultsEl.replaceChildren(note(`${mo ? MONTHS[+mo - 1] + ' ' : ''}${y} — pick a day below.`));
+        addPeriod(asDate);
       }
       return;
     }
@@ -766,11 +826,19 @@ export function mountSearch({
   }
 
   function openCalendar(on) {
-    calOpen = on;
-    calEl.hidden = !on;
-    calBtn.classList.toggle('on', on);
-    if (on) renderCalendar();
+    // Asking to close it is a request the wide layout does not take: there is a
+    // column standing empty behind it.
+    calOpen = on || calPinned();
+    calEl.hidden = !calOpen;
+    calBtn.classList.toggle('on', calOpen);
+    if (calOpen) renderCalendar();
   }
+
+  // A window dragged across the breakpoint changes the answer to "is there a
+  // calendar", and the panel may well be open while it happens.
+  twoColumn.addEventListener('change', () => {
+    if (!overlay.hidden) openCalendar(calOpen);
+  });
 
   // --- Opening and closing ----------------------------------------------------
 
@@ -843,9 +911,14 @@ export function mountSearch({
       // The calendar wants them as much as the list does — the pills that show
       // a trip as one journey can't be drawn until the trips exist, and a
       // month opened before they arrived would keep its loose dots.
-      if (!calOpen) render(input.value);
-      else if (cal.selected()) selectDay(cal.selected());
-      else renderCalendar();
+      if (calOpen) renderCalendar();
+      // A day picked out of the grid is not something the query can reproduce,
+      // so it is re-read rather than re-searched. Everything else is, including
+      // a typed month — which now lists trips, and so has to be re-run for the
+      // same reason the grid does. This used to be an either/or on the calendar
+      // being closed, which in the wide layout is never.
+      if (cal.selected()) selectDay(cal.selected());
+      else render(input.value);
     },
   };
 }

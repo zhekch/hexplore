@@ -10,7 +10,7 @@
 //
 //   node scripts/test/search.mjs
 
-import { parseDateQuery, tripRelevance } from '../../src/search-ui.js';
+import { parseDateQuery, tripInPeriod, tripRelevance } from '../../src/search-ui.js';
 import { loadPlaces, searchPlaces, nearestTown } from '../../src/places.js';
 import { loadRegions, searchRegions } from '../../src/regions.js';
 import { loadCountries, searchCountries } from '../../src/countries.js';
@@ -189,6 +189,33 @@ check(tripRelevance(wi, zq) < tripRelevance(sm, zq), '…and being in it beats h
 check(tripRelevance(sm, fold('reykjavik')) === Infinity, 'and no match is no match');
 check(tripRelevance(zh, '') === 0 && tripRelevance(sm, '') === 0,
   'nothing typed ranks nothing — the list keeps the sort you chose');
+
+// A typed month or year answers with the trips inside it, and a trip is a span
+// rather than a date — so the question is whether the two overlap. The case
+// that decides it is the fortnight that starts in one month and ends in the
+// next: it belongs to both, because you were away in both.
+console.log('\nthe trips a month or a year contains');
+{
+  const at = (s) => Math.floor(new Date(`${s}T12:00:00`).getTime() / 1000);
+  const trip = (a, b) => ({ start: at(a), end: at(b) });
+  const august = trip('2023-08-03', '2023-08-11');
+  const across = trip('2023-08-28', '2023-09-09');
+  const later = trip('2024-02-01', '2024-02-05');
+
+  check(tripInPeriod(august, '2023-08'), 'a fortnight inside the month is in it');
+  check(!tripInPeriod(august, '2023-09'), '…and not in the next one');
+  check(tripInPeriod(across, '2023-08') && tripInPeriod(across, '2023-09'),
+    'one that runs from one month into the next is in both');
+  check(tripInPeriod(august, '2023') && tripInPeriod(across, '2023'),
+    'a bare year holds every month of it');
+  check(!tripInPeriod(later, '2023') && tripInPeriod(later, '2024'),
+    'and holds nothing from another year');
+  // The boundary the string comparison has to get right: December against the
+  // year it is in, and January against the year before it.
+  check(tripInPeriod(trip('2023-12-30', '2024-01-02'), '2023')
+    && tripInPeriod(trip('2023-12-30', '2024-01-02'), '2024'),
+    'new year at midnight is in both years');
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

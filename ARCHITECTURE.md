@@ -3474,13 +3474,61 @@ other line on the map takes `lineLayout`, which is `round`/`round`; the two glow
 triangles that overlap each other and the two segments meeting there. On an
 opaque stroke that is invisible. On a translucent one every overlap composites
 twice, and the glow is the same line up to six times as wide, so the overlap is
-six times as large: at a switchback — where a track doubles back on itself and
-the fan sweeps most of a half-circle — the doubled coverage came out as a
-hard-edged wedge sticking out of the route, in a colour neither the glow nor the
-line has. It looked like a rendering fault in the track and was a property of the
-corner. A bevel is one triangle and overlaps nothing, so the corner is chamfered
-instead — invisible inside a blur, where the spike was not. Only the glows: the
-line itself is a tenth as wide and nearly opaque, and wants its corners round.
+six times as large. A bevel is one triangle and overlaps nothing, so the corner
+is chamfered instead. Only the glows: the line itself is a tenth as wide and
+nearly opaque, and wants its corners round.
+
+### The spikes, which were never the corners
+
+That change was made against a row of hard-edged arrowheads sticking out of every
+bend of a route, in a colour neither the glow nor the line has, and it did not fix
+them. The corner was the wrong suspect. What follows is what it actually was,
+worked out by drawing a synthetic track with a known amount of noise on it and
+looking, rather than by reading the line bucket again.
+
+**The centreline is noisy, and the glow was a thread rather than a band.** Both
+libraries fade a blurred line from full strength at its centre to nothing at its
+outer edge over exactly `line-blur` pixels. The blur was a *count of pixels* — 4
+on the flat basemaps, 9 on Standard — against a width that runs from 5 px to
+35 px depending on the zoom, the basemap, and whether the route is the one you
+have open. Nine pixels of falloff on a glow twenty pixels wide leaves **one
+pixel** of it at full strength: not a band with a soft edge, which is what a glow
+is, but a bright thread with a gradient hung off it. A recorded track wobbles by
+a couple of pixels at anything below street zoom, so the thread wobbled with it
+and crossed itself, and every crossing composited twice. That is the shape the
+spikes had, and it is why no `line-join` touched them — the overlap is between
+whole *segments*, not at the corner between two. `bevel` and `round` were both
+tried against it and both drew the same shredded ribbon.
+
+At the other end the same count was larger than the glow it was blurring: 9 px of
+falloff on a glow 5.4 px wide at country zoom, which is a halo drawn at a third of
+the opacity it was given, fading out before it ever reached full strength. Nobody
+had noticed, because the failure of a glow is that you cannot see it.
+
+So the blur is a **fraction of the glow's own width** (`ROUTE_GLOW_EDGE`, 0.3),
+carried on the same zoom ramp the width is — so it follows the zoom, the hover and
+the selection, and the glow always keeps a body: the middle 40% solid, 30% of
+gradient either side. The two basemaps still differ in how *wide* the glow is,
+which is where that difference belongs; its softness now scales with it instead of
+being stated twice.
+
+**And the track is simplified per zoom** (`ROUTE_SIMPLIFY_PX`, 2 px). A GeoJSON
+source takes a `tolerance` in **screen pixels** — `_pixelsToTileUnits` in
+MapLibre, `EXTENT / tileSize` in Mapbox GL JS, both landing on geojson-vt — and
+applies it at every zoom, so detail finer than two pixels is dropped and zooming
+in brings the real shape back untouched. The default is 0.375 px, which is right
+for a drawn polygon and far too fine for a walked one: a fix every second with
+three metres of noise on it is a vertex per pixel at valley zoom, and half of them
+double back.
+
+It goes on the **source** rather than on the glow, so the crisp line and its halo
+are drawn from one geometry — a glow simplified on its own would leave the line
+wandering outside its own halo at every switchback. Two pixels because the core
+line is 2–3.4 px wide: smoothing by less than the line is thick cannot be seen,
+and there is nothing finer than that worth calling detail. The other sources here
+set `tolerance: 0` for the opposite reason — a hexagon, a house and a trip's dots
+are exact, and the `trip` source feeds a circle layer as well, where dropping a
+vertex would delete a day.
 
 **And the glow is the hover state.** `setHoveredRoute` writes one feature state,
 `hov`, and both of the glow's paint expressions already branch on it —
@@ -4909,6 +4957,32 @@ data. The three states are its classes: `-active` while the camera is locked to
 your position, `-background` once it has let the camera go but is still watching
 (hollow again — it is no longer following), and `-waiting` while it is asking.
 
+**Pressing it while it is already following you must not delete you.** Both
+libraries' tracking control is a three-state toggle — off → locked → (pan away) →
+background → off — so two presses without moving turn tracking off and take the
+blue dot with it. That is never what "show me where I am" was asking for, and on
+screen it reads as the button erasing your own location. `keepGeolocateOn` takes
+the locked→off press and re-centres instead; background→locked is the control's
+own re-centre and is left alone.
+
+**It listens on the document, because the button may not exist yet** — and that
+sentence is the whole of why this was fixed once and was still broken on the 3D
+basemap. MapLibre builds its control's UI inside `onAdd` and checks the
+permission afterwards, so a `querySelector` in the same tick as `addControl`
+finds the button. Mapbox GL JS does it the other way round: `onAdd` returns an
+empty container and `_setupUI` runs behind an async permissions check. The
+original version attached its listener to the button it had just looked up, found
+nothing on Mapbox, and returned — silently, because "no button" is
+indistinguishable from "nothing to do". Delegating from the document asks nothing
+about when the button was made, which is the only part of it either library ever
+promised. `dropLockOnZoom` had the same hole and is fixed the same way, by
+looking the button up inside its handler rather than beside the `map.on`.
+
+The press is stopped in the **capture** phase. The control's own handler sits on
+the button itself, and `stopPropagation` on the way down keeps the event from
+reaching the target at all — `stopImmediatePropagation` is not needed and would
+be a claim about listener order this has no business making.
+
 ## Asking the ground to be quiet
 
 **Tap for details**, under the layers menu's Photos row, and on by default.
@@ -5055,8 +5129,20 @@ remembers importing is the failure this dialog exists to avoid.
 
 ## A finger on a panel
 
-Four things a phone does to a panel that a desktop does not, all fixed centrally
+Five things a phone does to a panel that a desktop does not, all fixed centrally
 rather than per-dialog.
+
+**A second press is not a double-tap.** Pressing any button twice quickly — the
+arrows either side of a month, a segmented control being cycled through — zoomed
+the whole app and left it zoomed, because a browser cannot tell an impatient
+press from a request to magnify the page unless it is told. `touch-action:
+manipulation` on `html` and `body` gives up that one gesture and nothing else:
+panning and pinch-zoom are untouched, and it is intersected down the ancestor
+chain, so one declaration covers every control on the page. The map keeps its own
+double-tap zoom, because that one is MapLibre's handler rather than the browser's
+— the canvas container sets `touch-action: none` and does the gesture itself.
+Both `html` and `body` carry it: inside the iOS app this page is a web view whose
+host can reach either.
 
 **A dialog taller than the screen had nowhere to go.** `.modal-card` had a width
 cap and no height one, and Settings is a dozen rows, a token field, a sources
@@ -5708,6 +5794,28 @@ bare year are read; `3/4` is not, because no amount of guessing fixes which
 number is the day. A bare number that isn't a plausible year stays a text
 search — reading it as a date would swallow every search containing a number.
 
+**A month or a year is answered with its trips, not only with a grid.** Typing
+`September 2023` used to open the calendar on that month and say *pick a day
+below*, which is a complete answer only if you already know which day you want.
+It is a poor one for a month and no answer at all for a bare year: a grid can
+only stand on one month, and 2023 is twelve of them, so `2023` opened on January
+and reported nothing. `addPeriod` now lists the trips inside the span, under the
+same *Sort by* and *Filter by* controls the whole list carries — a year is
+exactly the width at which "longest" and "furthest" become the interesting
+questions.
+
+`tripInPeriod` decides what "inside" means, and the answer is **overlap**: a trip
+is a span, and the fortnight that started on the 28th of August belongs to
+September as much as to August. Somebody typing a month is asking what they were
+doing then, not which trips happened to begin in it. The comparison is on the
+*prefix* of each end's day key, which is the whole reason dates are written
+biggest-part-first — `"2023-08" <= "2023-09"` is true and `"2023-10" <=
+"2023-09"` is not, with no arithmetic and no month lengths. Both ends go through
+`dayKey`, the same function the grid keys its days with, so a trip cannot land in
+one and not the other. `scripts/test/search.mjs` covers the fortnight that
+crosses a month boundary and the New Year that crosses a year one, which are the
+two cases a naive "which month is it in" gets wrong.
+
 **The calendar is the app's own grid, not `<input type="date">`.** The native
 picker is an opaque OS panel that cannot show which days have anything on them,
 and that — *which weekend was that?* — is the only reason to open a calendar
@@ -5731,6 +5839,25 @@ carries its own copy of both — a field that filters the list by anywhere a tri
 went, and the same month grid. The palette keeps its own because it also answers
 for places, routes and whole countries, which the trips list has no business
 holding; what it no longer has is a monopoly on the calendar.
+
+**Given the width, the two stop taking turns.** On a screen at least 720 px wide
+and 560 px tall the palette is a row: the trips down the left, the month grid
+standing permanently on the right, and the button that used to summon it gone —
+a control that turns on something already on is a control that lies about what it
+does. Narrower than that, nothing changes: the grid is a panel you open above the
+answers, which is the only shape that fits a phone held upright.
+
+Both dimensions are asked about, because two columns need both. Width alone hands
+the layout to a phone held sideways, where the card is barely taller than the
+month grid and the list beside it would have four rows in it.
+
+The breakpoint is written twice, and that is the one thing to be careful of here:
+`src/style.css` decides where the grid goes and `calPinned` in `src/search-ui.js`
+decides whether it is open, and a palette whose two halves disagree shows either
+an empty column or a grid nothing can reach. `openCalendar` therefore refuses to
+close it in the wide layout rather than tracking a second flag, and `refresh`
+stopped branching on the calendar being shut — in the wide layout it never is,
+which quietly meant the list stopped re-rendering when the trips arrived.
 
 **The list keeps two columns down each side, and a row moves between them.**
 The outer one is the edge the section headings and the home card draw their

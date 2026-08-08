@@ -36,6 +36,25 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* A second tap is a second press, not a request to magnify the page.
+   Everything on this screen is a control, and none of it is a document read at
+   arm's length — so pressing a button twice quickly (the arrows either side of
+   a month, a segmented control you are cycling through) was zooming the whole
+   app and leaving it zoomed, because a browser cannot tell an impatient press
+   from a double-tap without being told.
+
+   `manipulation` gives up that one gesture and nothing else: panning and
+   pinch-zoom are untouched. The map keeps its own double-tap zoom because that
+   one is MapLibre's handler rather than the browser's — the canvas container
+   sets `touch-action: none` and does the gesture itself.
+
+   On html as well as body: touch-action is intersected up the ancestor chain,
+   and the pages this is hosted in (the iOS app's web view) can reach either. */
+html,
+body {
+  touch-action: manipulation;
+}
+
 .hud {
   position: fixed;
   top: calc(20px + var(--safe-t));
@@ -5316,6 +5335,20 @@ body {
   color: #fff;
 }
 
+/* Everything under the field. A column here, which is what the card was before
+   this wrapper existed — it earns its keep on a wide screen, where it becomes
+   the row that puts the calendar beside the list instead of over it.
+
+   `min-height: 0` because the list inside it scrolls: a flex item's floor is
+   its content, so without this the card grows to the height of every trip you
+   have ever taken and the scroll never happens. */
+.search-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 /* The gutter the whole palette is laid out from. A row's own padding is
    measured on top of it, so this is the one number that decides how far the
    card's glass edge stays clear of anything written on it — at 6px the list
@@ -5881,6 +5914,66 @@ body {
        whose top 59px belong to the status bar is taller than the space there
        is, and the card overflowed the bottom of it. */
     max-height: calc(88dvh - var(--safe-t) - var(--safe-b));
+  }
+}
+
+/* --- Two columns, when there is room for two ----------------------------------
+   Browsing trips by name and browsing them by date are the same question asked
+   twice, and stacking them made one of the two a panel you had to remember to
+   open — a grid behind a button, in a palette whose whole reason for having a
+   grid is that "which weekend was that?" cannot be typed.
+
+   Given the width, they stop taking turns: the trips run down the left and the
+   month stands permanently on the right. `src/search-ui.js` pins the grid open
+   at the same breakpoint (`calPinned`), so the two halves of this cannot drift.
+
+   Both dimensions are asked about, because two columns need both. Width alone
+   would hand this layout to a phone held sideways, where the card is barely
+   taller than the month grid and the list would have four rows in it. */
+@media (min-width: 720px) and (min-height: 560px) {
+  .search-card {
+    /* Two columns' worth: the list keeps the width it reads well at and the
+       grid is added beside it, rather than the two splitting 520px. */
+    width: min(880px, 100%);
+  }
+
+  .search-body {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .search-results {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .search-calendar {
+    /* Second in the markup's order, which is the order a narrow screen wants;
+       here it moves to the far side instead. The list is what you read, so it
+       gets the side the eye starts on. */
+    order: 2;
+    flex: none;
+    width: 304px;
+    /* The rule between them runs the height of the card rather than across it:
+       side by side, these are two columns, not two stacked sections. */
+    border-bottom: 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.09);
+    padding: 12px 14px;
+    /* The column stretches so the rule runs the whole height even when the
+       grid is six rows and the list is twenty; the grid itself still sits at
+       the top of it, which is where a month belongs. */
+    align-self: stretch;
+  }
+
+  [data-theme='light'] .search-calendar,
+  [data-chrome='light'] .search-card .search-calendar {
+    border-left-color: rgba(15, 23, 42, 0.1);
+  }
+
+  /* Nothing left to toggle. A button that turns on something already on is a
+     control that lies about what it does. */
+  .search-cal-btn {
+    display: none;
   }
 }
 

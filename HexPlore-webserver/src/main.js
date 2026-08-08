@@ -272,6 +272,55 @@ const ROUTE_HOVER_SCALE = 1.45;
 // light coming on rather than a redraw, short enough that sweeping across a
 // dozen tracks does not leave a trail of them still fading.
 const ROUTE_HOVER_MS = 160;
+// How much of a wiggle is worth drawing, in screen pixels — the whole of the
+// fix for the spikes that kept coming out of the glow at bends.
+//
+// A recorded track is a sampled thing with a few metres of noise on every fix,
+// so at anything below street zoom its vertices are a pixel apart and every
+// other one doubles back. The core line is a hairline and nearly opaque, so it
+// swallows that: overlapping opaque geometry looks like geometry. The glow is
+// the same line up to *twenty pixels* wide and half transparent, and there each
+// fold composites twice — a hard-edged wedge, brighter than either the glow or
+// the line, in the shape of an arrowhead. It reads as a rendering fault in the
+// track and is a property of the track.
+//
+// No `line-join` fixes it, and that is worth writing down because it looks like
+// a join problem: `bevel` and `round` were both tried against it and both show
+// the same shredded ribbon, because the overlap is between whole *segments*,
+// not at the corner between two.
+//
+// Both libraries take this option in **screen pixels** and apply it per zoom
+// (`_pixelsToTileUnits` in MapLibre, `EXTENT / tileSize` in Mapbox GL JS), which
+// is exactly the shape of the problem: detail finer than a pixel or two is noise
+// at every zoom, and zooming in brings the real shape back untouched. It has to
+// live on the source rather than on the glow, so the crisp line and its halo are
+// drawn from the same geometry — a glow simplified on its own would leave the
+// line wandering outside its own halo at every switchback.
+//
+// The default is 0.375 px, which is fine for a drawn polygon and far too fine
+// for a walked line.
+const ROUTE_SIMPLIFY_PX = 2;
+// How much of the glow is edge, as a fraction of its whole width — and the
+// second half of the same fix.
+//
+// This used to be a **count of pixels** (4 flat, 9 on the 3D basemap) against a
+// width that runs from 5 px to 35 px depending on the zoom, the basemap and
+// whether the route is the one you have open. Both libraries fade a blurred line
+// from full strength at the centre to nothing at the outer edge over exactly
+// this many pixels, so a blur of 9 on a glow 20 px wide leaves a *single pixel*
+// of it at full strength: not a band with a soft edge, which is what a glow is,
+// but a bright thread with a gradient hung off it. A track wobbles by a couple
+// of pixels, so the thread wobbles with it and crosses itself, and every
+// crossing composites twice — which is the shape the spikes actually had.
+//
+// And at the other end the count was larger than the glow: 9 px of falloff on a
+// glow 5.4 px wide at country zoom, which is a halo drawn at a third of the
+// opacity it was given, fading out before it ever reached full strength.
+//
+// A fraction has neither problem. It is the same softness at every zoom, in both
+// states and on both basemaps, and it always leaves a body — at 0.3 the middle
+// 40% of the glow is solid and only the outer 30% either side is gradient.
+const ROUTE_GLOW_EDGE = 0.3;
 
 // The trip or day being shown, drawn as a track of dots. Warm amber so it can
 // never be mistaken for a saved route (orange) or the visited wash (the accent,
@@ -993,30 +1042,48 @@ onMapBuilt(() => {
   });
 });
 
-// MapLibre's tracking control is a three-state toggle: off → locked → (pan
+// Both libraries' tracking control is a three-state toggle: off → locked → (pan
 // away) → background → off. That means pressing it twice without moving turns
 // tracking *off* and takes the blue dot with it, which is never what "show me
 // where I am" is asking for — the button appears to delete your own location.
 //
-// Only the locked→off step is intercepted. Background→locked is MapLibre's
-// re-centre and is exactly right, so it is left alone.
+// Only the locked→off step is intercepted. Background→locked is the control's
+// own re-centre and is exactly right, so it is left alone.
+//
+// **Listened for on the document, not on the button, because the button may not
+// exist yet.** MapLibre builds its control's UI inside `onAdd` and only checks
+// the permission afterwards, so a `querySelector` in the same tick as
+// `addControl` finds it. Mapbox GL JS does it the other way round — `onAdd`
+// returns an empty container and `_setupUI` runs behind an async permissions
+// check — so the same query found nothing at all, this bailed out on `!btn`,
+// and the 3D basemap kept the exact behaviour this exists to remove. Delegating
+// asks nothing about when the button was made, which is the only part of it
+// either library ever promised.
+//
+// Capture, and `stopPropagation` rather than `stopImmediatePropagation`: the
+// control's own handler is on the button itself, and stopping the event on the
+// way down keeps it from reaching the target at all.
+//
+// Registered once for the page rather than per map, for the same reason: it is
+// bound to nothing a rebuild replaces.
 function keepGeolocateOn() {
-  const btn = document.querySelector(`.${ctrlClass('ctrl-geolocate')}`);
-  if (!btn || btn.dataset.stayPut) return;
-  btn.dataset.stayPut = '1';
-  btn.addEventListener(
+  document.addEventListener(
     'click',
     (e) => {
-      const locked = btn.classList.contains(ctrlClass('ctrl-geolocate-active'))
-        && !btn.classList.contains(ctrlClass('ctrl-geolocate-background'));
-      if (!locked) return; // first press, or re-centring from background
+      const btn = e.target?.closest?.(ctrlSelector('ctrl-geolocate'));
+      // First press, or re-centring from background: both are the button doing
+      // what it says. `geolocateStateOf` is the table of which classes mean
+      // which state, and it reads both libraries' names for them.
+      if (!btn || geolocateStateOf(btn) !== 'locked') return;
       e.stopPropagation();
       e.preventDefault();
       if (lastFix) map.easeTo({ center: lastFix, duration: 500 });
     },
-    true, // capture: the control's own handler is on the button itself
+    true,
   );
 }
+keepGeolocateOn();
+
 // Zooming away from yourself should let go of you, and MapLibre's control does
 // not: `_onMoveStart` drops ACTIVE_LOCK to BACKGROUND for any movement the user
 // made — except one where `map.isZooming()` is true, which it exempts so that
@@ -1032,13 +1099,16 @@ function keepGeolocateOn() {
 // order and leaving the same state behind. Reaching for `_watchState` is
 // reaching inside the library, so it is read before it is written: a MapLibre
 // that has renamed it leaves the control alone rather than breaking the button.
+// The button is looked up inside the handler rather than beside the `map.on`,
+// for the reason `keepGeolocateOn` is delegated: on Mapbox GL JS it does not
+// exist yet when the control is added, and asking too early left the 3D basemap
+// tracking you through every zoom with nothing on screen saying so.
 function dropLockOnZoom() {
-  const btn = document.querySelector(`.${ctrlClass('ctrl-geolocate')}`);
-  if (!btn) return;
   map.on('zoomstart', (e) => {
     // A gesture, not the control's own fly-to and not one of ours.
     if (!e.originalEvent || geolocate._watchState !== 'ACTIVE_LOCK') return;
-    dropToBackground(btn);
+    const btn = document.querySelector(`.${ctrlClass('ctrl-geolocate')}`);
+    if (btn) dropToBackground(btn);
   });
 }
 
@@ -1110,7 +1180,6 @@ function restoreGeolocate(was) {
 // Its own corner, so the attribution can have the top-right one to itself.
 onMapBuilt(() => {
   map.addControl(geolocate, 'bottom-right');
-  keepGeolocateOn();
   dropLockOnZoom();
 });
 
@@ -1743,16 +1812,14 @@ const routeLineOpacity = () => ['*', routeAlphaExpr(), 0.95];
 //
 // Two things the 3D basemap needs and the flat four do not.
 //
-// **A wider, softer glow.** On a flat basemap the glow is haze around a crisp
-// line and 3.4× the core is plenty. Standard puts the route in a lit scene with
-// texture and shadow under it, and at that busy a background the same halo
-// disappears into the ground. Widening and blurring it further is what makes the
-// line read as *drawn on* the map rather than as one more thing in it — which is
-// the whole job of the glow, done harder because the background got harder.
+// **A wider glow.** On a flat basemap the glow is haze around a crisp line and
+// 3.4× the core is plenty. Standard puts the route in a lit scene with texture
+// and shadow under it, and at that busy a background the same halo disappears
+// into the ground. Widening it is what makes the line read as *drawn on* the map
+// rather than as one more thing in it — which is the whole job of the glow, done
+// harder because the background got harder.
 const ROUTE_GLOW_SCALE_3D = 6;
-const ROUTE_GLOW_BLUR_3D = 9;
 const glowScale = () => (engine === MAPBOX ? ROUTE_GLOW_SCALE_3D : ROUTE_GLOW_SCALE);
-const glowBlur = () => (engine === MAPBOX ? ROUTE_GLOW_BLUR_3D : 4);
 
 // **And a route you can still see behind a building.** A line is drawn on the
 // ground, so a tower between it and the camera hides it completely — which on a
@@ -7606,7 +7673,11 @@ function installGrid() {
   // a bug. `promoteId` makes the route's own id the feature id, so the selected
   // one can be widened through feature-state instead of a second layer.
   const beforeLabels = labelStart();
-  map.addSource('routes', { type: 'geojson', data: EMPTY, promoteId: 'id' });
+  // `tolerance` rather than the 0.375 px default, and it is the one thing
+  // standing between the glow and a row of spikes — see ROUTE_SIMPLIFY_PX.
+  map.addSource('routes', {
+    type: 'geojson', data: EMPTY, promoteId: 'id', tolerance: ROUTE_SIMPLIFY_PX,
+  });
   // Under both of the real ones, and only where there are buildings to hide
   // behind — see ROUTE_GHOST_OPACITY.
   if (engine === MAPBOX) {
@@ -7629,7 +7700,10 @@ function installGrid() {
       'line-color': routeGlowColor(),
       'line-opacity': routeGlowOpacity(),
       'line-width': routeWidth(glowScale(), ROUTE_HOVER_SCALE),
-      'line-blur': glowBlur(),
+      // The same ramp as the width, scaled down — so the edge stays the same
+      // share of the glow however wide the glow currently is. See
+      // ROUTE_GLOW_EDGE.
+      'line-blur': routeWidth(glowScale() * ROUTE_GLOW_EDGE, ROUTE_HOVER_SCALE),
       // The whole of the hover animation. Both properties are feature-state
       // expressions, so writing `hov` is enough to start them — nothing here
       // steps a value or holds a timer.

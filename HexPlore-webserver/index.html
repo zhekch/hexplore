@@ -1623,20 +1623,27 @@
           </button>
         </div>
 
-        <div class="search-calendar" id="search-calendar" hidden>
-          <div class="cal-head">
-            <button data-i18n-aria-label="search-cal-prev.previous-month" type="button" class="cal-nav" id="search-cal-prev" aria-label="Previous month">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
-            </button>
-            <div class="cal-title" id="search-cal-title"></div>
-            <button data-i18n-aria-label="search-cal-next.next-month" type="button" class="cal-nav" id="search-cal-next" aria-label="Next month">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
-            </button>
+        <!-- The list and the grid, in the order a narrow screen wants them:
+             the calendar is a panel you open above the answers. Given width to
+             put them side by side the CSS turns this row round, so the trips
+             run down the left and the month stands permanently on the right —
+             see "Two columns, when there is room" in src/style.css. -->
+        <div class="search-body">
+          <div class="search-calendar" id="search-calendar" hidden>
+            <div class="cal-head">
+              <button data-i18n-aria-label="search-cal-prev.previous-month" type="button" class="cal-nav" id="search-cal-prev" aria-label="Previous month">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
+              </button>
+              <div class="cal-title" id="search-cal-title"></div>
+              <button data-i18n-aria-label="search-cal-next.next-month" type="button" class="cal-nav" id="search-cal-next" aria-label="Next month">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+              </button>
+            </div>
+            <div class="cal-grid" id="search-cal-grid"></div>
           </div>
-          <div class="cal-grid" id="search-cal-grid"></div>
-        </div>
 
-        <div class="search-results" id="search-results"></div>
+          <div class="search-results" id="search-results"></div>
+        </div>
       </div>
     </div>
 
