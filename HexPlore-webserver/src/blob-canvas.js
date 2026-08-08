@@ -118,8 +118,20 @@ export const BLOB_LEVEL = 0.3;
 //    canvas and draw its rectangular edge across the map), so it is safe to
 //    turn all the way up. Scales with cell size, so it holds its shape relative
 //    to the blobs at every level.
+//
+//    The heat maps get the *tighter* of the two, which is what the reasoning
+//    above always said and what the code did not do: they shipped at 0.6
+//    against the wash's 0.3, and 0.6 is wide enough to stop being a cut at all.
+//    The band runs from `BLOB_LEVEL - edge` to `BLOB_LEVEL + edge`, so 0.6
+//    against a level of 0.3 clamps to [ALPHA_FLOOR, 0.9] — very nearly the
+//    whole alpha range, mapped almost linearly. Nothing was firmed up: a pixel
+//    came out roughly as opaque as the blur left it, and the blur only leaves
+//    full alpha in the middle of something large. Measured, that is what made
+//    Type and Most-visited look like fog — a seven-cell cluster peaked at 0.25
+//    alpha where the same cluster in the wash peaked at 1.00, purely because
+//    the wash still had a cut and the heat maps had given theirs away.
 export const BLOB_EDGE = 0.3; // single color
-export const BLOB_HEAT_EDGE = 0.6; // visits / recent / first seen
+export const BLOB_HEAT_EDGE = 0.2; // visits / recent / first seen
 // The band used by the shaping rounds — deliberately tight, see the loop in
 // paint(). Not a look knob.
 const SHAPE_EDGE = 0.1;
@@ -130,14 +142,58 @@ const SHAPE_EDGE = 0.1;
 //    pixels instead, so the fade from color to map is the same width at every
 //    zoom. Nothing is re-cut afterwards, so the tail keeps its true colors and
 //    simply runs out.
+//
+//    Same correction, and it mattered more than the edge did. A cell's radius on
+//    screen is between 2.2 and 6.7 CSS pixels at every level — that is what the
+//    zoom ladder is *for* — so a five-pixel feather was wider than the cell it
+//    was feathering, and it ran after the last cut with nothing to re-firm it.
+//    A heat map is the data itself; blurring it by a cell and a half is not a
+//    soft edge, it is a lower reading. One pixel, like the wash: the rim is
+//    already as gradual as BLOB_HEAT_EDGE makes it.
 export const BLOB_FEATHER_PX = 1; // single color
-export const BLOB_HEAT_FEATHER_PX = 5; // visits / recent / first seen
+export const BLOB_HEAT_FEATHER_PX = 1; // visits / recent / first seen
 // Cells are painted as discs, not hexagons: a disc has no orientation, so the
 // silhouette can never give the lattice away. The six neighbours of a cell all
 // sit √3·R away, so a radius above 0.87·R makes them overlap — comfortably
 // above that, or diagonal neighbours pinch into a string of beads instead of
 // flowing into one ribbon.
 const CELL_RADIUS = 0.9;
+
+// --- Cells with nothing around them ---------------------------------------------
+// The level-set cut cannot keep a feature narrower than the blur, and one cell
+// is narrower than the blur: a disc of 0.9·R blurred by a sigma of 1·R peaks at
+// about a third of full alpha, which is barely over BLOB_LEVEL, and the second
+// round then finishes it off. Measured over the whole zoom ladder, a lone cell
+// came out between alpha 0.00 and 0.08 while *any* cluster came out at 1.00. So
+// an isolated cell was never faint — it was erased, at every zoom and on every
+// display, and no amount of tuning the cut brings it back: lowering the level to
+// save it inflates every blob on the map instead.
+//
+// The ratio is what decides it, so the fix is to draw those cells at the size
+// the cut can hold rather than at their own. `SPARSE_GROW` is that size in cells
+// and `SPARSE_MIN_PX` is the floor underneath it, for the coarse sheets where a
+// cell is barely one pixel across and a multiple of nothing is still nothing.
+//
+// Applied only to cells with at most `SPARSE_NEIGHBOURS` lit neighbours, and
+// that is the part that makes it safe rather than a global inflation: every cell
+// along the edge of a real blob has at least two, so no blob anywhere changes
+// shape. What grows is a cell on its own, both halves of a pair, and the tip of
+// a one-cell-wide trail — where a rounder cap is the whole of the difference.
+//
+// It is the bargain MIN_CELL_PX already makes, and the one any map makes to keep
+// a city dot on screen: past the point where a thing is too small to draw
+// honestly, drawing it slightly too big beats drawing nothing at all.
+const SPARSE_NEIGHBOURS = 1;
+const SPARSE_GROW = 1.9;
+const SPARSE_MIN_PX = 2;
+
+// The six neighbours of a cell, by column parity. Flat-top, odd-q: odd columns
+// sit half a row north, so which two rows the next column along contributes
+// depends on which parity you are standing on. Column counts are even at every
+// level by construction (see BASE_COLS), so a world copy never changes a
+// column's parity and the canonical column can be asked directly.
+const NEIGHBOURS_ODD = [[0, -1], [0, 1], [-1, 0], [-1, 1], [1, 0], [1, 1]];
+const NEIGHBOURS_EVEN = [[0, -1], [0, 1], [-1, -1], [-1, 0], [1, -1], [1, 0]];
 
 // Smallest a cell is ever drawn, in canvas pixels. See the note in paint():
 // anything under a pixel rasterizes at partial alpha and the level-set cut
@@ -528,6 +584,19 @@ export function paintBlobSheet({
   // drawing nothing.
   const unit = Math.max(R * k, MIN_CELL_PX);
   const rPx = unit * CELL_RADIUS;
+  // What a cell with nothing around it is drawn at instead — see SPARSE_GROW.
+  const sparsePx = Math.max(rPx * SPARSE_GROW, SPARSE_MIN_PX);
+
+  // Has this cell got enough lit neighbours for the blur to leave it alone?
+  // Counted on the canonical column, which is the one the keys are written in,
+  // and stopped the moment the answer is no longer in doubt.
+  const sparse = (nc, row) => {
+    let n = 0;
+    for (const [dc, dr] of nc & 1 ? NEIGHBOURS_ODD : NEIGHBOURS_EVEN) {
+      if (cells.has(`${normCol(nc + dc, N)}/${row + dr}`) && ++n > SPARSE_NEIGHBOURS) return false;
+    }
+    return true;
+  };
 
   // Mercator → canvas pixels (y grows north in Mercator, down on canvas).
   const px = (x) => (x - bb.xMin) * k;
@@ -536,7 +605,7 @@ export function paintBlobSheet({
   // Grouping by color keeps this to one path per distinct shade instead of one
   // fill call per cell.
   const paths = new Map();
-  const margin = rPx + 2;
+  const margin = sparsePx + 2;
   const colMin = Math.floor((bb.xMin - R) / colSp);
   const colMax = Math.ceil((xMax + R) / colSp);
   // Bounds of the disc centres actually drawn. The sheet covers the padded
@@ -548,12 +617,18 @@ export function paintBlobSheet({
   let inkY0 = Infinity;
   let inkX1 = -Infinity;
   let inkY1 = -Infinity;
+  // Largest disc actually drawn, which is what the blur has to reach past.
+  let inkR = rPx;
 
   for (const [key, stat] of cells) {
     const sep = key.indexOf('/');
     const nc = +key.slice(0, sep);
     const row = +key.slice(sep + 1);
     const cyM = row * rowSp; // parity offset added per world copy below
+    // Asked once per canonical cell and only when one of its copies is on the
+    // sheet: six lookups is cheap, but the padded viewport holds a lot of cells
+    // and most repaints draw a fraction of what is stored.
+    let r = 0;
 
     // Every world-copy instance of this canonical column in the window.
     const kMin = Math.ceil((colMin - nc) / N);
@@ -564,11 +639,15 @@ export function paintBlobSheet({
       const cy = py(cyM + (col & 1 ? 0.5 * rowSp : 0));
       if (cx < -margin || cy < -margin || cx > w + margin || cy > h + margin) continue;
 
+      if (!r) {
+        r = sparse(nc, row) ? sparsePx : rPx;
+        if (r > inkR) inkR = r;
+      }
       const color = colorOf(stat);
       let path = paths.get(color);
       if (!path) paths.set(color, (path = new Path2D()));
-      path.moveTo(cx + rPx, cy);
-      path.arc(cx, cy, rPx, 0, Math.PI * 2);
+      path.moveTo(cx + r, cy);
+      path.arc(cx, cy, r, 0, Math.PI * 2);
       if (cx < inkX0) inkX0 = cx;
       if (cx > inkX1) inkX1 = cx;
       if (cy < inkY0) inkY0 = cy;
@@ -595,7 +674,7 @@ export function paintBlobSheet({
   // a shrinking one would save, and it removes the question of whether round two
   // can see everything round one wrote.
   const feather = Math.min(featherPx * featherScale, unit * maxFeatherCells);
-  let reach = rPx + 2;
+  let reach = inkR + 2;
   for (let round = 0; round < BLOB_ROUNDS; round++) {
     reach += 3 * boxRadius(clampSigma(unit * BLOB_BLUR * (round === 0 ? 1 : 0.62)));
   }

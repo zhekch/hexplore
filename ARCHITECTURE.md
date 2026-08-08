@@ -103,6 +103,46 @@ glass look. Click hexagons to mark places you've visited.
   heat maps, which want a tighter rim — there every pixel of ramp is also a fade
   toward transparent, so a wide edge makes the outermost cells read as a lower
   value than they hold.
+  **For a long time the heat pair was set the other way round**, at 0.6 and 5px
+  against the wash's 0.3 and 1px, and that is worth writing down because the
+  symptom did not look like a tuning mistake. The cut's band runs from
+  `BLOB_LEVEL - edge` to `BLOB_LEVEL + edge`, so an edge of 0.6 against a level
+  of 0.3 clamps to `[ALPHA_FLOOR, 0.9]` — very nearly the whole alpha range,
+  mapped almost linearly. That is not a cut at all: nothing was firmed up, every
+  pixel came out about as opaque as the blur left it, and the blur only leaves
+  full alpha in the middle of something large. Measured across the zoom ladder, a
+  seven-cell cluster peaked at alpha 0.25 in a heat map where the same cluster
+  peaked at 1.00 in the wash. The feather compounded it: a cell's on-screen
+  radius is between 2.2 and 6.7 CSS pixels at every level (that is what the zoom
+  ladder is for), so a 5px feather was wider than the cell it was feathering, and
+  it runs *after* the last cut with nothing left to re-firm it. Both are now what
+  the paragraph above always claimed: 0.2 and 1px, tighter than the wash.
+  **A cell with nothing around it is a special case, and it used to be erased.**
+  The level-set cut cannot keep a feature narrower than the blur, and one cell is
+  narrower than the blur: a disc of `CELL_RADIUS`·R blurred by a sigma of
+  `BLOB_BLUR`·R peaks at about a third of full alpha, which is barely over
+  `BLOB_LEVEL`, and the second round then finishes it off. Measured over the
+  whole zoom ladder and every display density, a lone cell came out between alpha
+  0.00 and 0.08 while *any* cluster came out at 1.00 — so an isolated cell was
+  never faint, it was gone, at every zoom, and tuning the cut does not rescue it:
+  lowering `BLOB_LEVEL` enough to save one cell inflates every blob on the map.
+  It is the *ratio* of disc to blur that decides it, which is why the failure did
+  not change with zoom.
+  So cells the blur would eat are drawn at the size the cut can hold rather than
+  at their own — `SPARSE_GROW` cell radii, floored at `SPARSE_MIN_PX` for the
+  coarse sheets where a multiple of almost nothing is still almost nothing. What
+  keeps that from being a global inflation is the test for *which* cells:
+  **at most `SPARSE_NEIGHBOURS` lit neighbours**, and every cell along the edge of
+  a real blob has at least two, so no blob anywhere changes shape. What grows is
+  a cell on its own, both halves of a pair, and the tip of a one-cell-wide trail,
+  where a rounder cap is the whole of the difference. It is the bargain
+  `MIN_CELL_PX` already makes: past the point where a thing is too small to draw
+  honestly, drawing it slightly too big beats drawing nothing.
+  The neighbour test needs the lattice, so it lives in the paint loop rather than
+  in the shaping: it is six `Map` lookups, asked once per canonical cell and only
+  when one of its world copies is actually on the sheet. Column counts are even at
+  every level by construction (see `BASE_COLS`), so a world copy never changes a
+  column's parity and the canonical column can be asked directly.
   The blur runs on `ctx.filter` where the browser has it and in JS where it
   doesn't — **WebKit has never shipped `CanvasRenderingContext2D.filter`**, and
   the obvious feature test says otherwise (assigning it there just makes an

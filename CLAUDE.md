@@ -73,6 +73,33 @@ would tread on each other.
   in a year; match that register rather than annotating the obvious.
 - **`npm test`** before you call something done — from inside
   `HexPlore-webserver/`, which is where `package.json` is.
+- **The Swift side has tests too, and they do run here.** `HexploreCore` holds
+  the port of the blob pipeline and pins it to the JavaScript with generated
+  vectors, so anything that moves a shaping constant should be checked against
+  it. Two things about this machine are needed to get there, and neither is
+  discoverable from the error it gives you:
+
+  ```sh
+  cd HexPlore-IOS/HexploreCore
+  DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
+    swift test --scratch-path ~/.cache/hexplore-swift
+  ```
+
+  - **`DEVELOPER_DIR`**, because `xcode-select -p` points at
+    `/Library/Developer/CommandLineTools`, which has no `metal` — the package
+    compiles a Metal shader, so without this it fails with *unable to spawn
+    process 'metal'*. Only **Xcode beta** is installed; there is a simulator
+    (iOS 27) but no `metal` on the default toolchain path.
+  - **`--scratch-path` outside the repo**, because building into
+    `.claude/worktrees/…/.build` makes codesign refuse the test bundle —
+    *resource fork, Finder information, or similar detritus not allowed*.
+    Clearing xattrs does not fix it; the bundle is rebuilt with them. Any
+    scratch directory outside the worktree does.
+
+  Changing the shaping constants also means regenerating the vectors:
+  `node HexPlore-IOS/Tools/gen-blob-vectors.mjs`, and updating
+  `BlobShaping.swift` to match — the test that compares the two is what catches
+  a port that has quietly drifted from the JavaScript.
 - **Move the version, every time.** Two numbers are shown in Settings and both
   exist to answer *which build am I actually looking at* — the question every
   confusing hour on this project has turned out to be. A number that does not

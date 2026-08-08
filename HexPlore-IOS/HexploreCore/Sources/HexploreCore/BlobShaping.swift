@@ -67,7 +67,12 @@ public enum BlobShaping {
     /// The heat maps want a tighter rim: there every pixel of ramp is also a
     /// fade toward transparent, so a wide edge makes the outermost cells read as
     /// a lower value than they hold.
-    public static let heatEdge = 0.6
+    ///
+    /// The band runs from ``level`` − edge to ``level`` + edge, so anything near
+    /// 0.6 against a level of 0.3 clamps to very nearly the whole alpha range
+    /// and stops being a cut at all — which is what the wide value this shipped
+    /// with did, and why the heat maps read as fog rather than as data.
+    public static let heatEdge = 0.2
     /// The band the intermediate shaping rounds run at. Not a look knob.
     public static let shapingEdge = 0.1
 
@@ -75,8 +80,14 @@ public enum BlobShaping {
     /// here works in units of a cell, and a cell's on-screen size swings 3×
     /// within a zoom level — so this last blur is measured in pixels instead,
     /// and the fade from colour to map is the same width at every zoom.
+    ///
+    /// A cell's radius on screen is between 2.2 and 6.7 points at every level —
+    /// that is what the zoom ladder is for — so the heat feather is held to the
+    /// wash's one point rather than to the five it shipped with, which was wider
+    /// than the cell it was feathering and ran after the last cut with nothing
+    /// left to firm it up again.
     public static let featherPx = 1.0
-    public static let heatFeatherPx = 5.0
+    public static let heatFeatherPx = 1.0
 
     /// How opaque the sheet sits on the basemap.
     public static let alpha = 0.3
@@ -92,6 +103,29 @@ public enum BlobShaping {
     /// rasterises at partial alpha and the level-set cut then deletes it, which
     /// is how a pinned fine level used to vanish as you zoomed out.
     public static let minCellPx = 0.85
+
+    // MARK: - Cells with nothing around them
+
+    /// The cut cannot keep a feature narrower than the blur, and one cell is
+    /// narrower than the blur: a disc of 0.9·R blurred by a sigma of 1·R peaks
+    /// at about a third of full alpha, barely over ``level``, and the second
+    /// round finishes it off. Measured across the zoom ladder, a lone cell came
+    /// out between alpha 0.00 and 0.08 where any cluster came out at 1.00 — so
+    /// an isolated cell was not faint, it was erased, and lowering the level to
+    /// rescue it would inflate every blob on the map instead.
+    ///
+    /// So a cell the blur would eat is drawn at the size the cut can hold: this
+    /// many cell radii, floored at ``sparseMinPx`` for the coarse sheets where a
+    /// multiple of almost nothing is still almost nothing.
+    ///
+    /// The caller decides which discs these apply to, because it is the only
+    /// side that knows the lattice. Only cells with at most
+    /// ``sparseNeighbours`` lit neighbours qualify, which is what keeps this
+    /// from being a global inflation: every cell along the edge of a real blob
+    /// has at least two, so no blob changes shape.
+    public static let sparseNeighbours = 1
+    public static let sparseGrow = 1.9
+    public static let sparseMinPx = 2.0
 
     // MARK: - The cut
 
