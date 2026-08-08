@@ -42,8 +42,8 @@ import {
   mapboxToken, presetTheme, setLightPreset, setMapboxToken,
 } from './mapbox.js';
 import {
-  LABEL_SLOT_ID, MAPBOX, STYLE_KEY, WASH_SLOT_ID, ctrlClass, engineForBasemap, engineNow,
-  installAddLayerSlots, installGlobalStateShim, installSpriteShim, isSlot, loadEngine,
+  LABEL_SLOT_ID, MAPBOX, STYLE_KEY, WASH_SLOT_ID, ctrlClass, ctrlSelector, engineForBasemap, engineNow,
+  hasCtrlClass, installAddLayerSlots, installGlobalStateShim, installSpriteShim, isSlot, loadEngine,
   matchMapboxRotation,
 } from './gl-engine.js';
 import { applySnow, isSnowMode, setSnowMode, snowMode, snowWanted } from './snow.js';
@@ -1055,11 +1055,21 @@ function dropToBackground(btn) {
   geolocate.fire('userlocationlostfocus');
 }
 
-/** Whichever of the control's states the button is currently showing. */
+/**
+ * Whichever of the control's states the button is currently showing.
+ *
+ * Under **both** libraries' class names, unlike everything else here, because
+ * this is the one call made while the two disagree about which of them is
+ * live: `switchEngine` reads it after the incoming library has loaded and
+ * before the outgoing map is taken down. Asking `ctrlClass` there returns the
+ * arriving library's prefix and matches nothing at all, so the answer was
+ * always "off" — and `restoreGeolocate('off')` returns immediately, which is
+ * the blue dot silently not coming back. See `ctrlClasses` in src/gl-engine.js.
+ */
 function geolocateState() {
-  const btn = document.querySelector(`.${ctrlClass('ctrl-geolocate')}`);
-  if (!btn?.classList.contains(ctrlClass('ctrl-geolocate-active'))) return 'off';
-  return btn.classList.contains(ctrlClass('ctrl-geolocate-background')) ? 'background' : 'locked';
+  const btn = document.querySelector(ctrlSelector('ctrl-geolocate'));
+  if (!hasCtrlClass(btn, 'ctrl-geolocate-active')) return 'off';
+  return hasCtrlClass(btn, 'ctrl-geolocate-background') ? 'background' : 'locked';
 }
 
 /**

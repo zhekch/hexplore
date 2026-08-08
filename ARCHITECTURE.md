@@ -1370,36 +1370,74 @@ wants.
 ### The ready-made palettes
 
 `PALETTES` in `src/export-image.js` is twelve complete answers rather than twelve
-background colours. Each names all four — `background`, `land`, `edge`, `text` —
-because those four are picked *against* each other, and four independent colour
-wells is a machine for producing a poster nobody can read. Choosing one clears
-whatever was overridden on top of the last, so "Paper" never arrives still
-wearing a dark land somebody nudged an hour ago.
+background colours. Each names all five — `background`, `land`, `edge`, `text`
+and `accent` — because those five are picked *against* each other, and five
+independent colour wells is a machine for producing a poster nobody can read.
+Choosing one clears whatever was overridden on top of the last, so "Paper" never
+arrives still wearing a dark land somebody nudged an hour ago.
 
-**They are all quiet, and that is a constraint rather than a taste.** The subject
-of the picture is the visited wash, which lands on top in one saturated hue the
-person chose themselves. Anything underneath competing for the same attention
-turns the poster into two maps arguing with each other, so every entry is a
-near-neutral or a single desaturated tone, and the distance between `background`
-and `land` is deliberately small — enough to read as *there is ground there*,
-never enough to read as data. That is why there is no palette here with a hue you
+**The four under the wash are all quiet, and that is a constraint rather than a
+taste.** The subject of the picture is the visited wash. Anything underneath
+competing for the same attention turns the poster into two maps arguing with each
+other, so `background`, `land` and `edge` are each a near-neutral or a single
+desaturated tone, and the distance between `background` and `land` is
+deliberately small — enough to read as *there is ground there*, never enough to
+read as data. That is why there is no palette here whose *paper* has a hue you
 would call bright, and why adding one would be a mistake rather than an
 improvement.
+
+**`accent` is the exception, and the reason the rest hold back.** It is the one
+saturated colour on the page, and it is part of the look rather than a separate
+decision — picking "Sepia" moves the wash to verdigris the same press that turns
+the paper brown. Three rules decide it:
+
+- *Against the temperature of the ground.* Warm paper takes a cool or deep ink —
+  Prussian blue on cream, verdigris on the sepia atlas — and a cool or dark
+  ground takes a warm luminous one: gold on navy, sand on the cyanotype. The wash
+  then separates by hue as well as by lightness, which is what stops it reading
+  as a darker patch of land rather than as the subject.
+- *Past 3:1 against `land`.* A real contrast ratio this time, at the threshold
+  for a shape rather than for type.
+- *One hue each.* Twelve looks that all resolved to gold would be one look.
 
 `chart` is the one that breaks the other assumption: its land is *lighter* than
 its background, the way a sea chart's is. The coastline is legible because those
 two are close rather than because they are far apart, which is the same
-restraint applied from the other side.
+restraint applied from the other side. Its wash is magenta for the same reason —
+that is the overprint colour a real chart uses.
 
 `none` is not a colour scheme. It is a transparent background with the land and
 the outline carried at low alpha, for dropping the shape onto something else — so
 it is the one palette whose caption contrast cannot be checked, because what the
-type will land on is decided by whatever the file is put on.
+type will land on is decided by whatever the file is put on. Its accent is the
+one colour here picked by arithmetic rather than by eye: `#8a5cd6` sits where
+white and black are exactly as far away as each other, 4.6:1 in both directions,
+which is the most a colour can promise about ground it cannot see.
 
-Two of those rules are pinned by `scripts/test/export-image.mjs`: the caption is
-always the opposite lightness to the paper, and the outline never disappears into
-the land. Neither is visible from reading the hex values, and both are one typo
-away in a list this long.
+**The wash used to follow the map's own accent**, on the argument that a poster
+of a map you had coloured teal should not open blue. That was the right answer
+when the dialog had one hard-coded hue and no opinion about paper; it is the
+wrong one now, because the colour the look proposes was chosen against the paper
+it will be printed on and the map's was chosen against a live basemap this
+picture does not have. `accentOf(spec)` is where the two answers meet: a blank
+`accent` means "whatever the look says", a hex means somebody picked it, and the
+swatch shows the resolved colour with *Follows the look* or *Chosen* under it —
+the same arrangement the caption's shadow already used. Picking any look clears
+the override, which is what makes the look a look rather than four fifths of one.
+
+`colorBy` defaults to *Single color* for the same reason, where it used to open
+on *Most visited*. A heat ramp is seven colours the paper had no say in, and it
+overrules the one colour the look was built around; the ramps are one press away
+and carry a legend, so nothing is hidden by making the first picture a shape in a
+colour that belongs to the page. *Regions* rather than blobs is the one export
+default that still parts company with the map, and that one has not changed.
+
+Four of those rules are pinned by `scripts/test/export-image.mjs`: the caption is
+always the opposite lightness to the paper, the outline never disappears into the
+land, every wash clears 3:1 against the ground it is drawn on, and the
+transparent one clears 4:1 against both black and white. None of them is visible
+from reading the hex values, and all of them are one typo away in a list this
+long.
 
 ### Six colours, one picker
 
@@ -3369,6 +3407,24 @@ delivered as a microtask. And `dropLockOnZoom` *removes* a state class, which a
 mirror puts straight back, because the library's own copy of it is still there.
 One library is live per page, so the prefix is simply a lookup.
 
+**Except for the one moment a basemap switch is made of**, and that moment is
+where the prefix was read. `switchEngine` loads the incoming library *first*, so
+a failed download leaves the map on screen alone — and `loadEngine` sets the
+module's `loaded` as it resolves. From there until the new map is built,
+`ctrlClass()` names the library that is arriving while every control in the DOM
+still belongs to the one that is leaving, and any selector built from it matches
+nothing at all.
+
+`geolocateState()` is the only call inside that window, because reading the
+outgoing control's state is the whole point of being there — and it read under
+one prefix, matched nothing, and answered "off". `restoreGeolocate('off')`
+returns immediately, so the fix below shipped and the blue dot went on
+disappearing exactly as it had before. Reading now names both prefixes
+(`ctrlClasses`, `ctrlSelector`, `hasCtrlClass`); *writing* still goes through
+`ctrlClass`, because a class written under the wrong name is one the library
+never looks at, which fails silently in the other direction. Pinned by
+`scripts/test/mapbox.mjs`.
+
 **The token is the viewer's own, and it follows their account.** A **secret**
 token (`sk.`) is refused by name: Mapbox will serve tiles with it, which is
 exactly why it is worth catching, and GL JS's own refusal is an exception thrown
@@ -3446,6 +3502,22 @@ astronomical. A solstice-to-equinox winter would begin three weeks into December
 and end in the third week of March, and nobody thinks of the year that way; whole
 months are the version somebody can predict.
 
+**The renderer validates before it applies, and that made the whole feature
+nothing.** `direction` was written `[-40, 55]`, which is the bearing the snow
+should blow along and the one way the style spec forbids writing it: its minimum
+is 0. `Snow.set` runs the spec validator first and *returns* if there are errors,
+so not one of the settings below it ever reached the renderer — no snow, on any
+basemap, in any month, at any zoom. It fires an error on the map rather than
+throwing, so the guard in `applySnow` had nothing to catch and went on reporting
+snow as on. It is `[320, 55]` now, which is the same bearing.
+
+The test that would have caught it is the one that was missing: everything in
+`scripts/test/snow.mjs` was this app's opinion of its own constants. It now
+validates `snowSpec()` against **Mapbox's own style spec**, out of the installed
+package, so the next constant nudged past a limit fails there rather than on a
+phone in December. Restating the vendor's limits in our own assertions would
+have been the same mistake in a new place.
+
 **Two things are guarded and both are real.** `refreshSnow` in `src/main.js`
 compares against the last answer before touching the map, because `setSnow`
 rebuilds the particle system — calling it on every `moveend` restarts the fall
@@ -3483,6 +3555,14 @@ own. And a plain re-trigger would fly the camera to you, which is right if you
 were locked on and wrong if you had panned away: `dropToBackground` is applied
 before the first fix arrives, and the control only moves the camera while
 `ACTIVE_LOCK`.
+
+**It then went on not working, for a reason one line above it.** The state it is
+handed is read while the incoming library has already been loaded and the
+outgoing map is still on screen — the one window in which the class-name prefix
+names the wrong library. See *The class-name prefix* above: the answer was
+always "off", and "off" is the one value `restoreGeolocate` does nothing with.
+Nothing about the restore itself was wrong, which is why it survived a reading
+of the restore.
 
 `setStyle` replaces the whole style, and everything the app added goes with it —
 sources, layers and images alike. `installGrid` rebuilds all of it on
@@ -4771,8 +4851,27 @@ remembers importing is the failure this dialog exists to avoid.
 
 ## A finger on a panel
 
-Three things a phone does to a panel that a desktop does not, all fixed
-centrally rather than per-dialog.
+Four things a phone does to a panel that a desktop does not, all fixed centrally
+rather than per-dialog.
+
+**A dialog taller than the screen had nowhere to go.** `.modal-card` had a width
+cap and no height one, and Settings is a dozen rows, a token field, a sources
+list and a danger zone: on a phone it came out about 900px tall in 750px of
+overlay. The overlay is `position: fixed`, so what hung off the top and bottom
+could not be reached by scrolling the page either — the version line and the
+delete button were not below the fold, they were unreachable.
+
+The cap is `max-height: 100%`, which is the overlay's content box with its
+padding already taken off, plus `overflow-y: auto` and the `min-height: 0` that
+lets a grid item shrink below its content at all — the same clause, on the other
+axis, as the `min-width: 0` that stopped the routes tab hanging off both edges.
+It goes on **every** dialog rather than on Settings, because any of them can
+outgrow a short window and a card that scrolls only when it has to is invisible
+until it is needed. The rail is hidden, as it is on `.menu-scroll` and
+`.ha-scroll`: a track down the inside edge of a glass card reads as a seam in it.
+Inner lists still scroll first and hand over when they run out, which is the next
+paragraph, and which needed nothing new — the walk up the tree simply finds one
+more scroller now.
 
 **A touch scroll belongs to the scroller it started in, for the whole gesture.**
 That is iOS, and it has no `overscroll-behavior` to turn it off — reach the end of

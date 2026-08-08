@@ -1551,6 +1551,32 @@ body {
      so on a narrow phone the card stayed wider than the screen and — being
      centred — hung off BOTH edges at once. */
   min-width: 0;
+  /* And the same thing on the other axis, which Settings does on every phone:
+     that dialog is a dozen rows, a token field, a sources list and a danger
+     zone, and it was simply taller than the screen. The overlay is
+     `position: fixed`, so what hung off the top and bottom could not be
+     reached by scrolling the page either — the version line and the delete
+     button were unreachable rather than merely below the fold.
+
+     `100%` is the overlay's content box, padding already taken off, so the card
+     is capped at exactly the room there is and the scrim stays visible around
+     it. `min-height: 0` for the reason `min-width: 0` is there: a grid item
+     will not shrink below its content otherwise, and the cap would do nothing.
+
+     Every dialog gets this, not just Settings — any of them can outgrow a short
+     window, and a card that scrolls when it has to and does not when it doesn't
+     is invisible until it is needed. Inner lists still scroll first and hand
+     over when they run out; that is src/scroll-chain.js, which walks ancestors
+     and now finds this one. */
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  /* A flick that reaches the end of the card stops there rather than scrolling
+     the map behind the scrim. */
+  overscroll-behavior: contain;
+  /* No rail, the same call as .menu-scroll and .ha-scroll: a track down the
+     inside edge of a glass card reads as a seam in it. */
+  scrollbar-width: none;
   box-sizing: border-box;
   padding: 22px 22px 18px;
   border-radius: 26px;
@@ -1570,6 +1596,12 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
   color: rgba(255, 255, 255, 0.92);
   animation: hud-pop 0.22s ease;
+}
+
+.modal-card::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .modal-head {

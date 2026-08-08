@@ -128,6 +128,32 @@ export async function loadEngine(which) {
 export const ctrlClass = (suffix) =>
   `${loaded?.engine === MAPBOX ? 'mapboxgl' : 'maplibregl'}-${suffix}`;
 
+// ...except for one moment, and it is the moment a basemap switch is made of.
+//
+// "One library is live per page" stopped being true the day the map could be
+// rebuilt instead of the page: `switchEngine` loads the incoming library
+// *first*, so that a failed download leaves the map on screen alone — and
+// `loadEngine` sets `loaded` as it resolves. From there until the new map is
+// built, `ctrlClass` names the library that is arriving while the DOM still
+// belongs to the one that is leaving, and every selector built from it matches
+// nothing.
+//
+// That window is exactly where the outgoing control's state has to be read, so
+// reading is done under both names. Writing still goes through `ctrlClass`: a
+// class written under the wrong prefix would be a class the library never looks
+// at, which fails silently in the other direction.
+const PREFIXES = ['maplibregl', 'mapboxgl'];
+
+/** Both libraries' names for one control class. */
+export const ctrlClasses = (suffix) => PREFIXES.map((p) => `${p}-${suffix}`);
+
+/** A selector matching that class whichever library built the element. */
+export const ctrlSelector = (suffix) => ctrlClasses(suffix).map((c) => `.${c}`).join(', ');
+
+/** Is this element carrying that control class, under either library's name? */
+export const hasCtrlClass = (el, suffix) =>
+  ctrlClasses(suffix).some((c) => el?.classList?.contains(c));
+
 // --- Where our layers go ------------------------------------------------------
 //
 // Everything this app draws is inserted relative to the basemap: the visited

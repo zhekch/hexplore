@@ -54,7 +54,15 @@ const CENTER_THINNING = 0.4;
 
 // Which way it blows, as Mapbox's [azimuth°, elevation°]. Straight down would be
 // a screensaver; a slant is what makes it read as falling.
-const DIRECTION = [-40, 55];
+//
+// **320, not −40.** They are the same bearing and only one of them is legal:
+// the style spec gives `direction` a minimum of 0, and `Snow.set` validates
+// before it applies anything — an out-of-range value makes it fire an error on
+// the map and return, so *none* of the settings below ever reached the
+// renderer and there was simply no snow. Nothing threw, so the guard in
+// `applySnow` had nothing to catch and reported it as on. Pinned by
+// scripts/test/snow.mjs, which validates this object against Mapbox's own spec.
+const DIRECTION = [320, 55];
 
 // Below this zoom there is no snow at all, and it fades in over the next few.
 //

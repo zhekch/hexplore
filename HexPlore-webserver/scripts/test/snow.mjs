@@ -154,5 +154,44 @@ console.log('\nThe specification itself');
   check(spec.vignette < 0.5, 'and the vignette is restrained enough not to read as a dirty lens');
 }
 
+// --- Against Mapbox's own specification -----------------------------------------
+//
+// Everything above is this file's opinion of the settings. This asks the
+// renderer's, and it is the check that was missing: `direction` was [-40, 55],
+// which is the right bearing written the one way the spec forbids — its minimum
+// is 0. `Snow.set` validates before it applies, so an out-of-range number meant
+// *nothing* was applied and there was no snow at all, on any basemap, in any
+// month. It fires an error on the map rather than throwing, so `applySnow`'s
+// try/catch saw nothing wrong and went on reporting snow as on.
+//
+// Reading the vendor's spec rather than restating it is the whole point: the
+// next tuning constant nudged past a limit fails here instead of on a phone in
+// December.
+
+console.log('\nAnd Mapbox will actually accept it');
+{
+  const styleSpec = (await import('mapbox-gl/dist/style-spec/index.cjs')).default;
+  const spec = styleSpec.v8 ?? styleSpec.latest;
+  const errorsFor = (snow) => styleSpec
+    .validate({ version: 8, sources: {}, layers: [], snow })
+    .filter((e) => String(e.message).startsWith('snow'));
+
+  const errors = errorsFor(snowSpec());
+  check(errors.length === 0, 'every property is one the renderer will take',
+    errors.map((e) => e.message).join('; '));
+
+  // Every property named here has to be one that exists, in the version that is
+  // installed: these are experimental in Mapbox's own types, which is them
+  // reserving the right to rename one in a minor release. A property that is no
+  // longer called this is a property that silently does nothing.
+  const unknown = Object.keys(snowSpec()).filter((k) => !(k in spec.snow));
+  check(unknown.length === 0, 'and every one of them is a property this Mapbox has',
+    unknown.join(', '));
+
+  // The check checking the check: with the bug put back, this has to fail.
+  check(errorsFor({ ...snowSpec(), direction: [-40, 55] }).length > 0,
+    'a bearing written as a negative is caught rather than shrugged at');
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

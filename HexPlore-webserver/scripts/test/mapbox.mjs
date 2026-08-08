@@ -36,7 +36,8 @@ const {
   setMapboxToken, tokenComplaint,
 } = await import('../../src/mapbox.js');
 const {
-  LABEL_SLOT_ID, WASH_SLOT_ID, installAddLayerSlots, isSlot,
+  LABEL_SLOT_ID, WASH_SLOT_ID, ctrlClass, ctrlClasses, ctrlSelector, hasCtrlClass,
+  installAddLayerSlots, isSlot,
 } = await import('../../src/gl-engine.js');
 
 let pass = 0;
@@ -161,6 +162,44 @@ console.log('\nOur layers are drawn on the map, not lit by it');
   eq(last().paint['line-emissive-strength'], 1, 'alongside the one added');
   map.addLayer({ id: 'own', type: 'line', paint: { 'line-emissive-strength': 0.25 } });
   eq(last().paint['line-emissive-strength'], 0.25, 'a layer that asked to be half-lit stays half-lit');
+}
+
+// --- Control classes across a library switch ------------------------------------
+//
+// The two libraries build identical control DOM under different names, and for
+// one moment during a basemap switch the app holds one of each: `switchEngine`
+// loads the incoming library before taking the outgoing map down, so from then
+// until the new map exists, `ctrlClass` names the library that is arriving and
+// the buttons on screen still belong to the one that is leaving.
+//
+// That is the moment the geolocate control's state is read, to be put back on
+// the new map. Read under one prefix it matched nothing, the answer came back
+// "off", and the blue dot quietly did not return — twice, because the fix for
+// it was written on the wrong side of the load. So reading names both.
+
+console.log('\nA control class is readable under either library');
+{
+  const both = ctrlClasses('ctrl-geolocate');
+  check(both.includes('maplibregl-ctrl-geolocate') && both.includes('mapboxgl-ctrl-geolocate'),
+    'both libraries\' names for the same control', both.join(', '));
+  check(both.includes(ctrlClass('ctrl-geolocate')),
+    'including whichever one is live, so nothing is lost by reading widely');
+
+  const sel = ctrlSelector('ctrl-geolocate');
+  check(sel === '.maplibregl-ctrl-geolocate, .mapboxgl-ctrl-geolocate',
+    'and a selector that matches an element either of them built', sel);
+
+  // A stand-in for the button, since there is no DOM here. What matters is that
+  // the answer does not depend on which library happens to be loaded.
+  const btn = (...names) => ({ classList: { contains: (c) => names.includes(c) } });
+  check(hasCtrlClass(btn('maplibregl-ctrl-geolocate-active'), 'ctrl-geolocate-active'),
+    'a MapLibre button reads as active');
+  check(hasCtrlClass(btn('mapboxgl-ctrl-geolocate-active'), 'ctrl-geolocate-active'),
+    'and so does a Mapbox one, in the same call');
+  check(!hasCtrlClass(btn('maplibregl-ctrl-geolocate'), 'ctrl-geolocate-active'),
+    'a button that is merely there is not tracking you');
+  check(!hasCtrlClass(null, 'ctrl-geolocate-active'),
+    'and no button at all is not a crash');
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
