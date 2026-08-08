@@ -2352,6 +2352,118 @@ test says whether anything was missed. **A language picker is only offered when
 more than one locale exists**, so nothing claims to be translated while that is
 still true.
 
+## The first five minutes
+
+`src/intro.js` decides; `src/intro-ui.js` is the deck of cards.
+
+A map with nothing on it is the one screen here that cannot explain itself.
+Every other empty state has a heading above it saying what would be there — no
+routes yet, no trips yet — but the map's empty state *is the product*: a grey
+world somebody is apparently meant to know what to do with. The two questions
+people actually arrive with are "what is this for" and "where does the data come
+from", and neither is answerable from a grid of hexagons.
+
+So they are answered once, in front of the map, across seven cards
+(`INTRO_PAGES`): what it is, what it reads out of your history, where that comes
+from, whose machine it is on — and only then does it ask for anything.
+
+**It is not an interface tour.** Nothing in it points at a button and says "this
+is the menu". You already know how a map works. What is worth saying is the part
+no amount of poking will tell you: that a *trip* is derived and has a definition,
+that workouts arrive from four different places, that the server it is talking to
+is yours.
+
+### Three hosts, one deck
+
+The whole of the difference between a browser, the iPhone app and the Mac app is
+**what can be asked for**. A page cannot open a photo library or a health store,
+and there is no HealthKit on a Mac at all, so `permissionsFor()` hands back three
+rows, two, or one. Both wordings for the two cards that differ are written out in
+`index.html` and the stylesheet hides the wrong one — a sentence assembled at
+runtime is a sentence no translator ever sees (see [Language](#language)).
+
+`hostKindOf()` reads two signals the app already had:
+
+- `data-client="ios"` on the document, stamped by the server for a User-Agent
+  carrying `HexploreiOS` (`indexForClient` in `server/index.js`).
+- the `hexploreLocation` message handler, which **only the Mac app registers** —
+  the iPhone's WebKit delivers positions perfectly well and needs no shim (see
+  [The button that says where you are](#the-button-that-says-where-you-are)).
+
+The Mac is therefore identified by its geolocation bridge rather than by the
+`HexploreMac` tag it also sets, because the server does not rewrite the document
+for that tag and there is nothing on the page to read.
+
+### Asking is done by asking
+
+None of the three rows calls a "request permission" API, because for two of them
+no such thing exists on this side of the bridge.
+
+- **Photographs.** The way to ask for a library is to ask it a question:
+  `loadPhotos()` is the same scan the overlay uses, and answering it runs
+  `PhotoLibrary.authorize()` in the app, so iOS puts its sheet up in front of the
+  answer. What comes back is either a library — and the row then says how many of
+  your photographs turned out to know where they were, which is the first
+  evidence anybody gets that the idea works — or the reason there isn't one.
+- **Position.** `navigator.geolocation`, which is right in all three hosts: in a
+  browser it is the only one there is, on the iPhone WebKit raises the app's
+  prompt behind it, and on the Mac the app has already replaced the API with a
+  shim onto CoreLocation. The fix is kept, and the fix stays where it is.
+- **Apple Health.** There is no way to raise HealthKit's sheet from a page. The
+  app asks when the switch in its own Settings tab is thrown, and nothing here
+  can throw it — so this row is honest about being directions rather than a
+  control, and it does not report that as a refusal.
+
+### A replay is a fresh reading, not a recording
+
+Settings ▸ Replay the introduction exists for the person who skipped it on the
+first morning, or who has just been handed an account by whoever set the server
+up. Every actionable step re-reads the world on the way in, so it says "home is
+already Zurich" instead of asking again.
+
+`alreadyGranted()` weighs two kinds of evidence, and the second is the better
+one: what this device remembers answering, and **what is on the map**. A source
+named `apple-photos` means photographs have already become cells. That is not a
+permission check, it is better than one — it is the permission having produced
+the thing it was for.
+
+### Seen once, per person
+
+`shouldIntro()` takes the higher of two copies (`seenVersion`), because they
+disagree in both directions: a browser that finished the deck offline says so
+locally, and a second browser that has never seen anything hears it from the
+account. The account's copy rides in the preferences (`intro`); the local mirror
+is keyed **by account name**, because a browser is not a person and a bare flag
+would mean the second person to register on a shared laptop is silently never
+introduced to anything.
+
+Skipping counts the same as finishing. Somebody who threw the deck away on the
+first card has answered the question, and asking every morning until they sit
+through it is the behaviour of a pop-up.
+
+A version rather than a flag, so that rewriting the cards can decide for itself
+whether it is worth showing again — the same trade the service worker's cache
+name makes.
+
+### Two things it takes over
+
+**The map, for one card.** Choosing home needs somewhere to point at, and the map
+is behind all this. The curtain lifts — the whole deck scales up and out, which
+reads as the map arriving rather than the cards leaving — `beginHomePick(…, {bare:
+true})` runs the pick with the map's own chrome hidden, and the curtain comes back
+down on the answer. Hiding the menu and the search button is the point: there is
+exactly one thing to do on that screen, and a menu is an invitation to do
+something else. Cancelling is a whole answer and is acknowledged rather than
+argued with. This replaced a banner that used to make the same offer across the
+top of the map, which had to wait for enough cells to justify itself and then
+interrupted whatever you were doing.
+
+**The "what's new" banner, for one load.** On a first-ever sign-in it is asked to
+move its baseline and say nothing (`show({quiet: true})`). A line about how much
+the map has grown is a strange thing to tell somebody who has not yet been told
+what the map is — and the baseline still has to move, or the *next* open reports
+the whole map as news. See the section below for why that distinction matters.
+
 ## What changed while you were not looking
 
 `src/whats-new.js` is the arithmetic; `src/whats-new-ui.js` is the banner.

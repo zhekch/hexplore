@@ -4087,33 +4087,6 @@ body {
   color: #7a1c12;
 }
 
-/* --- "Where do you live?" --------------------------------------------------
-   An offer, in the shape the other two banners use and in neither of their
-   colours. Red says your edits are not being saved and amber says a layer you
-   switched on is incomplete; nothing is wrong here, so this one is the map's own
-   glass. It is shown once ever — see askHomeOnce() in src/main.js — which is
-   what lets it sit in the same prominent spot as an actual alarm.
-
-   Below the light-theme block above rather than beside `.rail-bar`, because
-   `[data-theme='light'] .offline-bar` matches this element too and at the same
-   specificity: written any earlier, every rule here would lose to the red. */
-.home-bar {
-  background: rgba(20, 20, 20, 0.86);
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #e6ecf7;
-  /* Under the dialogs (z 90), where the other two banners are deliberately over
-     them. "The server has gone" belongs on top of whatever you have open,
-     because it decides whether anything you do in there is saved. An offer does
-     not: it floated across the title of the export dialog, which is a banner
-     interrupting something you chose to open. It waits. */
-  z-index: 80;
-}
-
-.home-bar svg,
-.home-bar .offline-text small {
-  color: rgba(255, 255, 255, 0.7);
-}
-
 /* What changed since last time. The only banner here that is good news, so it
    is neither red nor amber — and it takes the home bar's z-index rather than
    the offline bar's for the same reason that one does: it is an observation,
@@ -4161,35 +4134,6 @@ body {
 .offline-quiet:hover {
   background: rgba(255, 255, 255, 0.12);
   opacity: 1;
-}
-
-[data-theme='light'] .home-bar {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(15, 23, 42, 0.16);
-  color: rgba(15, 23, 42, 0.94);
-}
-
-/* The light theme's own ink, rather than a slate of this banner's invention —
-   two near-identical dark blues on one screen is the sort of thing nobody can
-   name and everybody can see. */
-[data-theme='light'] .home-bar .offline-text b {
-  color: rgba(15, 23, 42, 0.94);
-}
-
-[data-theme='light'] .home-bar svg,
-[data-theme='light'] .home-bar .offline-text small {
-  color: rgba(15, 23, 42, 0.58);
-}
-
-[data-theme='light'] .home-bar .offline-retry {
-  border-color: rgba(15, 23, 42, 0.16);
-  background: rgba(15, 23, 42, 0.08);
-  color: rgba(15, 23, 42, 0.94);
-}
-
-[data-theme='light'] .home-bar .offline-quiet {
-  border-color: transparent;
-  background: none;
 }
 
 /* --- One route, opened from the Routes list ------------------------------- */
@@ -7383,4 +7327,1042 @@ html[data-client='ios'] .hud {
 
 [data-theme='light'] .export-refit:hover {
   background: rgba(15, 23, 42, 0.14);
+}
+
+/* --- The introduction ------------------------------------------------------
+   A deck of cards in front of the map, once, on the first sign-in. The logic —
+   whether it runs, which permissions this host can even offer — is in
+   src/intro.js; the deck and its gestures are in src/intro-ui.js.
+
+   ## It does not follow the basemap's theme
+
+   Everything else in this app does: `data-theme` says whether the map under the
+   chrome is light or dark, and the chrome has to be legible against it. This is
+   not chrome. It is a curtain drawn completely across the map, so the only
+   thing behind it is its own backdrop, and there is nothing for a light variant
+   to be legible against. One scene, and it is the dark one — which is also the
+   app's own colour, the one the loading screen paints before anything has run.
+
+   The one exception is `.intro-pick` at the bottom of this section, which
+   appears *with the curtain lifted* and does have a map beneath it.
+
+   ## The colours mean something
+
+   Violet is photographs and amber is routes, everywhere in this app — the
+   overlay's points are `--photo`, a saved route is orange. The illustrations
+   keep to that, so the picture of a workout and the workout on the map two
+   minutes later are the same colour by the time anyone notices. Mint is this
+   section's own, for the things that are neither. */
+.intro {
+  position: fixed;
+  inset: 0;
+  /* Over everything, including the search palette at 130. It is not a dialog
+     competing with the app's own surfaces; while it is up it *is* the app. */
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: calc(20px + var(--safe-t)) calc(18px + var(--safe-r)) calc(18px + var(--safe-b))
+    calc(18px + var(--safe-l));
+  box-sizing: border-box;
+  background: #08080d;
+  color: rgba(255, 255, 255, 0.92);
+  overflow: hidden;
+  /* The whole surface is one gesture. Without this a drag across a card is a
+     browser pull-to-refresh on iOS and a rubber-band on the Mac. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  --intro-a: #86dfcd;
+  --intro-b: #c07bff;
+  --intro-c: #ffb26b;
+  --intro-dim: rgba(255, 255, 255, 0.62);
+}
+
+.intro[hidden] {
+  display: none;
+}
+
+/* Coming and going. The curtain scales *up* on the way out rather than fading,
+   so the last frame of the introduction is the map arriving rather than the
+   cards leaving — the same trick the home step uses in reverse. */
+.intro.intro-in {
+  animation: intro-enter 0.5s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.intro.intro-out {
+  animation: intro-leave 0.42s cubic-bezier(0.5, 0, 0.75, 0) forwards;
+  pointer-events: none;
+}
+
+@keyframes intro-enter {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes intro-leave {
+  to {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
+/* Two soft lights, off-centre and unmoving. A gradient rather than a picture
+   because it has to survive every screen shape without a single art decision
+   being made twice. */
+.intro-glow {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 42% at 24% 22%, rgba(134, 223, 205, 0.16), transparent 70%),
+    radial-gradient(44% 46% at 78% 76%, rgba(192, 123, 255, 0.16), transparent 72%);
+}
+
+/* Over the cards, not behind them.
+
+   It is earlier in the markup than the deck — it has to be, or it would be
+   inside the element it is meant to fall in front of — and source order alone
+   put every piece of paper behind the card it was celebrating. Nothing was
+   visibly wrong; the confetti simply never appeared. */
+.intro-confetti {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.intro-confetti[hidden] {
+  display: none;
+}
+
+.intro-skip {
+  position: absolute;
+  top: calc(14px + var(--safe-t));
+  right: calc(16px + var(--safe-r));
+  z-index: 3;
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.intro-skip:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* --- The deck ------------------------------------------------------------- */
+/* A fixed box the cards are absolutely positioned inside, rather than a flow
+   the current card sizes. Two reasons, and the second is the one that forced
+   it: a stack whose height follows whichever card is in front jumps by a
+   hundred pixels between two of them, and the card *behind* the front one has
+   to be laid out at the same size to peek out from under it by a constant
+   amount. */
+.intro-deck {
+  position: relative;
+  /* Below the confetti and above nothing in particular. Stated so that the
+     cards' own z-indices stay a private argument inside the deck rather than
+     competing with the chrome around it. */
+  z-index: 1;
+  width: min(480px, 100%);
+  height: min(660px, 100%);
+  flex: 0 1 auto;
+}
+
+.intro-card {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 30px 28px 26px;
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
+  box-shadow:
+    0 30px 70px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transform-origin: 50% 100%;
+  transition:
+    transform 0.52s cubic-bezier(0.22, 1, 0.3, 1),
+    opacity 0.34s ease;
+  will-change: transform;
+}
+
+/* Mid-drag the card is following a finger, and a transition would put it a
+   frame and a half behind one. */
+.intro-card.intro-dragging {
+  transition: none;
+}
+
+/* Which card is in front of which.
+
+   This is not decoration and it does not follow from the transforms: the cards
+   are siblings in source order, so without it the *second* one paints over the
+   first simply for being later in the markup, and the introduction opens with
+   two cards of text on top of each other. The discarded card is highest of all,
+   because it has to be seen leaving. */
+.intro-card[data-state='done'] {
+  z-index: 4;
+}
+
+.intro-card[data-state='live'] {
+  z-index: 3;
+}
+
+.intro-card[data-state='next'] {
+  z-index: 2;
+}
+
+.intro-card[data-state='deep'] {
+  z-index: 1;
+}
+
+/* Behind the front one, and the one after that. Only two are ever drawn: a
+   deeper stack is invisible under the second card and costs a backdrop-filter
+   each, which is the most expensive thing on this screen. */
+.intro-card[data-state='next'] {
+  transform: translate3d(0, 16px, 0) scale(0.945);
+  opacity: 0.5;
+}
+
+.intro-card[data-state='deep'] {
+  transform: translate3d(0, 28px, 0) scale(0.9);
+  opacity: 0;
+  visibility: hidden;
+}
+
+.intro-card[data-state='live'] {
+  transform: translate3d(0, 0, 0) scale(1);
+  opacity: 1;
+  cursor: grab;
+}
+
+.intro-card[data-state='live']:active {
+  cursor: grabbing;
+}
+
+/* Discarded — thrown off to the left, which is the direction the gesture went.
+   Kept in the tree rather than removed so that swiping back brings this exact
+   card home instead of building a new one and losing whatever was on it. */
+.intro-card[data-state='done'] {
+  transform: translate3d(-135%, 0, 0) rotate(-9deg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.intro-card[data-state='next'],
+.intro-card[data-state='deep'],
+.intro-card[data-state='done'] {
+  pointer-events: none;
+}
+
+/* Only the front card has anything to read on it.
+
+   The card behind is a *shape* — an edge peeking out at the bottom to say there
+   is more — and it needs no words to do that job. Left showing, its heading
+   came through the front card's glass: `backdrop-filter` blurs a backdrop, and
+   a blurred 30px heading is still perfectly readable, so the introduction
+   opened with two titles on top of each other and the second one soft.
+
+   Not applied to a discarded card, which fades and rotates away as a whole and
+   should be seen leaving with its contents. */
+.intro-card[data-state='next'] .intro-scroll,
+.intro-card[data-state='deep'] .intro-scroll {
+  opacity: 0;
+}
+
+/* Cards are as long as they need to be, and two of them are longer than a
+   phone. The card scrolls; the deck never does. */
+.intro-scroll {
+  flex: 1;
+  min-height: 0;
+  transition: opacity 0.32s ease;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* Room for the dots and the chevron, which float over the bottom of the deck
+     rather than pushing the content up on the cards that do not need it. */
+  padding-bottom: 6px;
+  scrollbar-width: none;
+}
+
+.intro-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* --- Words ---------------------------------------------------------------- */
+.intro-title {
+  margin: 0 0 12px;
+  font-size: clamp(24px, 5.4vw, 31px);
+  line-height: 1.16;
+  letter-spacing: -0.022em;
+  font-weight: 640;
+}
+
+.intro-h3 {
+  margin: 0 0 5px;
+  font-size: 16px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  font-weight: 620;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.intro-body {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.52;
+  color: var(--intro-dim);
+}
+
+.intro-body i {
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.intro-body:last-child {
+  margin-bottom: 0;
+}
+
+/* The one sentence on the privacy card that is a question rather than an
+   explanation, and the hinge the whole deck turns on: everything before it is
+   description and everything after it asks for something. */
+.intro-lede {
+  margin: 18px 0 0;
+  font-size: 17px;
+  line-height: 1.4;
+  font-weight: 560;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* --- Illustrations -------------------------------------------------------- */
+.intro-art {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0 22px;
+}
+
+.intro-art svg {
+  width: min(280px, 82%);
+  height: auto;
+}
+
+.intro-art-sm svg {
+  width: 108px;
+}
+
+.intro-topic {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.intro-topic:last-child {
+  margin-bottom: 0;
+}
+
+.intro-topic .intro-art {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.intro-topic-text {
+  min-width: 0;
+}
+
+/* The shared vocabulary every illustration is drawn in: one stroke weight, one
+   join, and colour by role rather than by picture. */
+.intro-stroke,
+.intro-lines,
+.intro-dash,
+.intro-dash-cut,
+.intro-route,
+.intro-bars,
+.intro-spark,
+.intro-cut,
+.intro-check,
+.intro-cloud,
+.intro-screen,
+.intro-hex-faint,
+.intro-accent-a-stroke {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.intro-stroke,
+.intro-cloud,
+.intro-screen {
+  stroke: rgba(255, 255, 255, 0.44);
+  stroke-width: 2;
+}
+
+.intro-lines {
+  stroke: rgba(255, 255, 255, 0.26);
+  stroke-width: 2;
+}
+
+.intro-dash,
+.intro-dash-cut {
+  stroke: rgba(255, 255, 255, 0.38);
+  stroke-width: 2;
+  stroke-dasharray: 4 6;
+}
+
+.intro-hex-faint {
+  stroke: rgba(255, 255, 255, 0.13);
+  stroke-width: 1.4;
+}
+
+.intro-hex-lit {
+  fill: var(--intro-a);
+  fill-opacity: 0.24;
+  stroke: var(--intro-a);
+  stroke-width: 1.5;
+}
+
+.intro-accent-a {
+  fill: var(--intro-a);
+  fill-opacity: 0.22;
+  stroke: var(--intro-a);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.intro-accent-a-stroke {
+  stroke: var(--intro-a);
+  stroke-width: 2;
+}
+
+.intro-accent-b {
+  fill: var(--intro-b);
+  fill-opacity: 0.24;
+  stroke: var(--intro-b);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.intro-accent-c {
+  fill: var(--intro-c);
+  fill-opacity: 0.2;
+  stroke: var(--intro-c);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.intro-accent-c-fill {
+  fill: var(--intro-c);
+  stroke: none;
+}
+
+/* The hole in a map pin, and in the two disc icons that borrow its shape. It
+   has to be the card's own background rather than transparent: the pin is a
+   filled shape, and a transparent punch shows the illustration behind it. */
+.intro-punch {
+  fill: #14141c;
+  stroke: none;
+}
+
+.intro-route {
+  stroke: var(--intro-c);
+  stroke-width: 2.6;
+}
+
+.intro-bars {
+  stroke: rgba(255, 255, 255, 0.24);
+  stroke-width: 2.4;
+}
+
+/* The days a trip is made of, under the arc that goes away and comes back.
+   Filled rather than stroked, and it has to say so: an SVG shape with no fill
+   declared is black, which on this card is invisible. */
+.intro-dots-row {
+  fill: rgba(255, 255, 255, 0.3);
+  stroke: none;
+}
+
+.intro-check {
+  stroke: var(--intro-a);
+  stroke-width: 3;
+}
+
+.intro-spark {
+  stroke: var(--intro-c);
+  stroke-width: 1.8;
+}
+
+.intro-cut {
+  stroke: rgba(255, 120, 120, 0.75);
+  stroke-width: 2.2;
+  fill: none;
+  stroke-linecap: round;
+}
+
+.intro-screen {
+  stroke-width: 1.4;
+}
+
+/* --- Rows that ask for something ------------------------------------------ */
+.intro-perms {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.intro-perm,
+.intro-source {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 14px;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.intro-source {
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.intro-perm-art {
+  flex: 0 0 auto;
+  display: flex;
+}
+
+.intro-perm-art svg {
+  width: 24px;
+  height: 24px;
+}
+
+.intro-perm-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.intro-perm-text b {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+}
+
+.intro-perm-text small {
+  font-size: 12.8px;
+  line-height: 1.42;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.intro-perm-btn {
+  flex: 0 0 auto;
+  appearance: none;
+  padding: 8px 15px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.95);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 560;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    transform 0.14s ease,
+    opacity 0.18s ease;
+}
+
+.intro-perm-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.intro-perm-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.intro-perm-btn:disabled {
+  cursor: default;
+}
+
+/* Settled, either way. The row goes quiet rather than green-and-loud: it has
+   nothing left to ask, and a wall of ticks reads as a checklist somebody is
+   being marked against. */
+.intro-perm.is-done {
+  background: rgba(134, 223, 205, 0.07);
+  border-color: rgba(134, 223, 205, 0.24);
+}
+
+.intro-perm.is-done .intro-perm-btn,
+.intro-perm.is-refused .intro-perm-btn {
+  border-color: transparent;
+  background: none;
+  padding-right: 4px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12.8px;
+}
+
+.intro-perm.is-done .intro-perm-btn {
+  color: var(--intro-a);
+}
+
+.intro-perm.is-busy .intro-perm-btn {
+  opacity: 0.55;
+}
+
+/* --- Home, and the answers it might already have -------------------------- */
+.intro-home {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.intro-home-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.intro-btn {
+  appearance: none;
+  padding: 12px 20px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.96);
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 570;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    transform 0.14s ease;
+}
+
+.intro-btn:hover {
+  background: rgba(255, 255, 255, 0.19);
+}
+
+.intro-btn:active {
+  transform: scale(0.97);
+}
+
+.intro-btn-go {
+  border-color: rgba(134, 223, 205, 0.4);
+  background: rgba(134, 223, 205, 0.16);
+  color: #d6fff4;
+}
+
+.intro-btn-go:hover {
+  background: rgba(134, 223, 205, 0.24);
+}
+
+/* "You have already done this one" — the sentence that makes a replay feel
+   like it was paying attention rather than starting over. */
+.intro-known {
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 13px;
+  background: rgba(134, 223, 205, 0.08);
+  border: 1px solid rgba(134, 223, 205, 0.22);
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: rgba(214, 255, 244, 0.92);
+}
+
+.intro-known[hidden] {
+  display: none;
+}
+
+.intro-note {
+  margin: 12px 0 0;
+  font-size: 13.2px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.intro-note[hidden] {
+  display: none;
+}
+
+/* --- The closing numbers -------------------------------------------------- */
+.intro-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.intro-tile {
+  padding: 15px 14px;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.intro-tile b {
+  display: block;
+  font-size: 25px;
+  line-height: 1.1;
+  /* One line, always. "24,817 km²" wrapped onto two and made its tile taller
+     than the three beside it, which turned a tidy row of numbers into a
+     staircase. `intro-ui.js` adds `.is-long` when the number is wide enough to
+     need it, because the threshold is a property of the string rather than of
+     the box. */
+  white-space: nowrap;
+  font-weight: 660;
+  letter-spacing: -0.028em;
+  /* Digits that do not shuffle sideways while they count. */
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+.intro-tile b.is-long {
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.intro-tile small {
+  display: block;
+  margin-top: 5px;
+  font-size: 12.4px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* --- The gesture, and how far through it you are -------------------------- */
+.intro-foot {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+  flex: 0 0 auto;
+}
+
+.intro-dots {
+  display: flex;
+  gap: 7px;
+}
+
+.intro-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition:
+    background 0.3s ease,
+    width 0.3s cubic-bezier(0.22, 1, 0.3, 1);
+}
+
+/* The current one is a lozenge rather than a brighter dot: the shape reads at a
+   glance where six dots of slightly different greys do not. */
+.intro-dot.is-here {
+  width: 20px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.intro-dot.is-past {
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.intro-next {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    transform 0.16s ease,
+    opacity 0.2s ease;
+}
+
+.intro-next svg {
+  width: 19px;
+  height: 19px;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.intro-next:hover {
+  background: rgba(255, 255, 255, 0.17);
+}
+
+.intro-next:active {
+  transform: scale(0.92);
+}
+
+.intro-next[hidden] {
+  display: none;
+}
+
+/* Said once, late, on the first card only — see HINT_MS in src/intro.js. */
+.intro-hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(78px + var(--safe-b));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 15px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.72);
+  animation: intro-hint-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1);
+  pointer-events: none;
+}
+
+.intro-hint[hidden] {
+  display: none;
+}
+
+.intro-hint svg {
+  width: 32px;
+  height: 12px;
+  overflow: visible;
+}
+
+.intro-hint-arrow {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.8);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: intro-nudge 1.7s ease-in-out infinite;
+}
+
+@keyframes intro-hint-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+}
+
+@keyframes intro-nudge {
+  0%,
+  100% {
+    transform: translateX(3px);
+  }
+
+  50% {
+    transform: translateX(-3px);
+  }
+}
+
+/* --- Which host is reading this ------------------------------------------- */
+/* Both wordings for the two cards that differ live in index.html, and this is
+   what picks one. See the comment above the markup for why they are not built
+   in JavaScript. */
+.intro[data-host='web'] [data-intro-host='app'],
+.intro[data-host='web'] [data-intro-host='ios'],
+.intro[data-host='mac'] [data-intro-host='web'],
+.intro[data-host='mac'] [data-intro-host='ios'],
+.intro[data-host='ios'] [data-intro-host='web'] {
+  display: none;
+}
+
+/* --- Choosing home, with the map to itself -------------------------------- */
+/* The one part of the introduction that happens on the map rather than over it.
+   The deck folds away, the map's own chrome goes with it — there is exactly one
+   thing to do here and a menu button is an invitation to do something else —
+   and this bar is what is left. */
+body.intro-picking .hud,
+body.intro-picking .layers {
+  display: none;
+}
+
+.intro-pick {
+  position: fixed;
+  left: 50%;
+  bottom: calc(26px + var(--safe-b));
+  transform: translateX(-50%);
+  z-index: 190;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* On a narrow screen something has to give, and it must not be the sentence.
+     "Tap where you live" broken across two lines beside a button reads as a
+     squeezed layout; the same words on one line with the buttons underneath
+     reads as a design. */
+  flex-wrap: wrap;
+  gap: 14px;
+  box-sizing: border-box;
+  max-width: calc(100vw - 32px);
+  padding: 12px 14px 12px 20px;
+  border-radius: 20px;
+  background: rgba(16, 16, 22, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 14.5px;
+  animation: intro-pick-in 0.42s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.intro-pick[hidden] {
+  display: none;
+}
+
+@keyframes intro-pick-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 18px);
+  }
+}
+
+.intro-pick > span {
+  white-space: nowrap;
+}
+
+.intro-pick-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.intro-pick-btn {
+  appearance: none;
+  padding: 9px 15px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.13);
+  color: inherit;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 560;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.intro-pick-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.intro-pick-btn[hidden] {
+  display: none;
+}
+
+.intro-pick-quiet {
+  border-color: transparent;
+  background: none;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.intro-pick-quiet:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* This one *does* have a map behind it, so it is the one part of the
+   introduction that follows the basemap. */
+[data-theme='light'] .intro-pick {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(15, 23, 42, 0.14);
+  color: rgba(15, 23, 42, 0.94);
+}
+
+[data-theme='light'] .intro-pick-btn {
+  border-color: rgba(15, 23, 42, 0.16);
+  background: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='light'] .intro-pick-quiet {
+  border-color: transparent;
+  background: none;
+  color: rgba(15, 23, 42, 0.55);
+}
+
+/* --- Small screens -------------------------------------------------------- */
+@media (max-height: 700px) {
+  .intro-art {
+    margin-bottom: 16px;
+  }
+
+  .intro-art svg {
+    width: min(210px, 66%);
+  }
+
+  .intro-art-sm svg {
+    width: 92px;
+  }
+}
+
+@media (max-width: 420px) {
+  .intro-card {
+    padding: 24px 20px 20px;
+    border-radius: 26px;
+  }
+
+  .intro-topic {
+    gap: 11px;
+  }
+
+  .intro-art-sm svg {
+    width: 82px;
+  }
+}
+
+/* Nothing here is load-bearing, so the whole lot is dropped rather than
+   softened: a card that slides is a card that has been thrown, and somebody who
+   has asked for less motion is asking not to be thrown at. The deck still
+   works — it cuts from one card to the next. */
+@media (prefers-reduced-motion: reduce) {
+  .intro.intro-in,
+  .intro.intro-out,
+  .intro-hint,
+  .intro-pick {
+    animation: none;
+  }
+
+  .intro-card {
+    transition:
+      opacity 0.2s ease,
+      visibility 0.2s;
+  }
+
+  .intro-card[data-state='done'] {
+    transform: translate3d(0, 0, 0);
+  }
+
+  .intro-card[data-state='next'],
+  .intro-card[data-state='deep'] {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  .intro-hint-arrow {
+    animation: none;
+  }
 }

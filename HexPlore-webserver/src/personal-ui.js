@@ -38,6 +38,7 @@ import { t } from './i18n.js';
  * @param {{open:Function}} [opts.rail] the Train tracks dialog, likewise
  * @param {{open:Function}} [opts.airports] the Airports dialog, likewise
  * @param {{open:Function}} [opts.mapbox] the 3D basemap's token dialog, likewise
+ * @param {() => void} [opts.onReplayIntro] show the introduction again
  * @param {() => Promise<boolean>} [opts.onClearCache] throw the offline copy away
  * @param {() => string|null} [opts.version] the build the server reports
  * @param {() => string|null} [opts.username] whose account this is
@@ -46,7 +47,7 @@ import { t } from './i18n.js';
 export function mountPersonal({
   onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, snow, onSnow, snowPossible,
   whatsNew, onWhatsNew, locales, locale, onLocale,
-  sources, rail, airports, mapbox, onClearCache, version, username, onDeleteAccount,
+  sources, rail, airports, mapbox, onReplayIntro, onClearCache, version, username, onDeleteAccount,
 }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('personal-overlay');
@@ -174,6 +175,15 @@ export function mountPersonal({
 
   // Throw away everything cached and come back fresh. Nothing to confirm:
   // everything it drops is derived, so the cost is one slower load.
+  // The introduction, on request. This dialog gets out of the way completely
+  // rather than leaving itself open behind a full-screen takeover — the same
+  // hand-off the home picker above does, and for a stronger version of the same
+  // reason: the deck's home step needs the map, and the map is behind this.
+  $('settings-intro')?.addEventListener('click', () => {
+    close();
+    onReplayIntro?.();
+  });
+
   const clearCacheBtn = $('settings-clear-cache');
   const cacheNote = $('settings-cache-note');
   // The note is optional and the clearing is not. It used to be written to

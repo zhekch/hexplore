@@ -848,6 +848,25 @@
             <small data-i18n="settings-cache-note.boundaries-tiles-and-the-offline" id="settings-cache-note">Boundaries, tiles and the offline copy</small>
           </span>
         </button>
+
+        <!-- The introduction, again. It is shown once and then never volunteers
+             itself, which is right for a thing nobody wants twice and wrong for
+             the one person who does — somebody who skipped it on the first
+             morning, or who has just been handed an account by whoever set the
+             server up. It is not a recording: every step reads the state of the
+             map first, so a replay says "home is already Zurich" rather than
+             asking again. See src/intro-ui.js. -->
+        <button type="button" class="sync-option" id="settings-intro">
+          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 16.6v-5.2" />
+            <path d="M12 8.1h.01" />
+          </svg>
+          <span class="sync-option-text">
+            <b data-i18n="settings-intro.replay-the-introduction">Replay the introduction</b>
+            <small data-i18n="settings-intro-note.what-this-is-and-what" id="settings-intro-note">What this is, and what to feed it</small>
+          </span>
+        </button>
         </div>
 
         <!-- Closing the account. Last in the dialog and visually apart from it,
@@ -1699,25 +1718,6 @@
       <button data-i18n="whats-new-dismiss.dismiss" type="button" class="offline-retry offline-quiet" id="whats-new-dismiss">Dismiss</button>
     </div>
 
-    <!-- Asked once, ever. Everything in the Trips tab is measured from home, and
-         until one is set that is a guess off the cells you visit most — right
-         often enough to be the default and wrong in a way nobody could debug.
-         So the offer is made where the answer matters and then never again:
-         being nagged about an optional setting is worse than not knowing it
-         exists. Neither red nor amber — nothing is wrong. -->
-    <div class="offline-bar home-bar" id="home-bar" hidden role="status" aria-live="polite">
-      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M3 10.6 12 3.5l9 7.1" />
-        <path d="M5.4 12.5V20h13.2v-7.5" />
-      </svg>
-      <span class="offline-text">
-        <b data-i18n="home.where-do-you-live">Where do you live?</b>
-        <small data-i18n="home.your-trips-are-measured-from">Your trips are measured from home. Right now that's a guess.</small>
-      </span>
-      <button data-i18n="home-bar-set.set-home" type="button" class="offline-retry" id="home-bar-set">Set home</button>
-      <button data-i18n="home-bar-dismiss.not-now" type="button" class="offline-retry offline-quiet" id="home-bar-dismiss">Not now</button>
-    </div>
-
     <!-- Shown while something is being fetched that the map is waiting on — the
          detailed region boundaries, which come one country at a time and can
          take a moment on a first look. No panel behind it: it is a status, not a
@@ -1732,6 +1732,383 @@
          did. A sibling of the offline bar on purpose: when both are up, the CSS
          moves this one out of its way. -->
     <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+
+    <!-- The introduction. Seven cards, shown once, in front of everything.
+         See src/intro.js for what decides it appears and src/intro-ui.js for
+         the deck itself.
+
+         Two of these cards say different things depending on where the page is
+         running — a browser cannot open a photo library, and there is no
+         HealthKit on a Mac — and both variants are written out here rather than
+         built in JavaScript. That is on purpose: every string in this app is
+         keyed for translation from the markup (see scripts/test/i18n.mjs), and
+         a sentence assembled at runtime is a sentence no translator ever sees.
+         `data-intro-host` marks which host each variant belongs to and the
+         stylesheet hides the rest. -->
+    <section class="intro" id="intro" hidden data-host="web" role="dialog" aria-modal="true"
+      aria-label="Introduction">
+      <div class="intro-glow" aria-hidden="true"></div>
+      <canvas class="intro-confetti" id="intro-confetti" hidden aria-hidden="true"></canvas>
+
+      <button data-i18n="intro.skip" type="button" class="intro-skip" id="intro-skip">Skip</button>
+
+      <div class="intro-deck" id="intro-deck">
+        <!-- 1 · What this is ------------------------------------------------- -->
+        <article class="intro-card" data-page="what">
+          <div class="intro-scroll">
+            <div class="intro-art">
+              <svg viewBox="0 0 164 115" fill="none" aria-hidden="true">
+                <defs>
+                  <path id="ihex" d="M 0 -9.2 L 7.97 -4.6 L 7.97 4.6 L 0 9.2 L -7.97 4.6 L -7.97 -4.6 Z" />
+                </defs>
+                <g class="intro-hex-faint">
+                  <use href="#ihex" x="14" y="16" /><use href="#ihex" x="29.9" y="16" /><use href="#ihex" x="45.9" y="16" />
+                  <use href="#ihex" x="61.8" y="16" /><use href="#ihex" x="77.7" y="16" /><use href="#ihex" x="93.7" y="16" />
+                  <use href="#ihex" x="109.6" y="16" /><use href="#ihex" x="125.5" y="16" /><use href="#ihex" x="141.5" y="16" />
+                  <use href="#ihex" x="22" y="29.8" /><use href="#ihex" x="37.9" y="29.8" /><use href="#ihex" x="53.8" y="29.8" />
+                  <use href="#ihex" x="69.8" y="29.8" /><use href="#ihex" x="85.7" y="29.8" /><use href="#ihex" x="101.6" y="29.8" />
+                  <use href="#ihex" x="117.6" y="29.8" /><use href="#ihex" x="133.5" y="29.8" /><use href="#ihex" x="149.4" y="29.8" />
+                  <use href="#ihex" x="14" y="43.6" /><use href="#ihex" x="29.9" y="43.6" /><use href="#ihex" x="77.7" y="43.6" />
+                  <use href="#ihex" x="93.7" y="43.6" /><use href="#ihex" x="109.6" y="43.6" /><use href="#ihex" x="125.5" y="43.6" />
+                  <use href="#ihex" x="141.5" y="43.6" /><use href="#ihex" x="22" y="57.4" /><use href="#ihex" x="37.9" y="57.4" />
+                  <use href="#ihex" x="117.6" y="57.4" /><use href="#ihex" x="133.5" y="57.4" /><use href="#ihex" x="149.4" y="57.4" />
+                  <use href="#ihex" x="14" y="71.2" /><use href="#ihex" x="29.9" y="71.2" /><use href="#ihex" x="45.9" y="71.2" />
+                  <use href="#ihex" x="61.8" y="71.2" /><use href="#ihex" x="125.5" y="71.2" /><use href="#ihex" x="141.5" y="71.2" />
+                  <use href="#ihex" x="22" y="85" /><use href="#ihex" x="37.9" y="85" /><use href="#ihex" x="53.8" y="85" />
+                  <use href="#ihex" x="69.8" y="85" /><use href="#ihex" x="85.7" y="85" /><use href="#ihex" x="101.6" y="85" />
+                  <use href="#ihex" x="133.5" y="85" /><use href="#ihex" x="149.4" y="85" />
+                  <use href="#ihex" x="14" y="98.8" /><use href="#ihex" x="29.9" y="98.8" /><use href="#ihex" x="45.9" y="98.8" />
+                  <use href="#ihex" x="61.8" y="98.8" /><use href="#ihex" x="77.7" y="98.8" /><use href="#ihex" x="93.7" y="98.8" />
+                  <use href="#ihex" x="109.6" y="98.8" /><use href="#ihex" x="125.5" y="98.8" /><use href="#ihex" x="141.5" y="98.8" />
+                </g>
+                <g class="intro-hex-lit">
+                  <use href="#ihex" x="45.9" y="43.6" /><use href="#ihex" x="61.8" y="43.6" />
+                  <use href="#ihex" x="53.8" y="57.4" /><use href="#ihex" x="69.8" y="57.4" />
+                  <use href="#ihex" x="85.7" y="57.4" /><use href="#ihex" x="101.6" y="57.4" />
+                  <use href="#ihex" x="77.7" y="71.2" /><use href="#ihex" x="93.7" y="71.2" />
+                  <use href="#ihex" x="109.6" y="71.2" /><use href="#ihex" x="117.6" y="85" />
+                </g>
+              </svg>
+            </div>
+            <h2 data-i18n="intro.what.title" class="intro-title">Everywhere you've been, on one map</h2>
+            <p data-i18n="intro.what.body" class="intro-body">The world is a grid of hexagons. Anywhere you've
+              actually set foot gets filled in. That's the whole idea — everything else is just ways of
+              working out where that was.</p>
+          </div>
+        </article>
+
+        <!-- 2 · Trips, and workouts ------------------------------------------ -->
+        <article class="intro-card" data-page="trips">
+          <div class="intro-scroll">
+            <h2 data-i18n="intro.trips.title" class="intro-title">It reads your history back to you</h2>
+
+            <div class="intro-topic">
+              <div class="intro-art intro-art-sm">
+                <svg viewBox="0 0 132 84" fill="none" aria-hidden="true">
+                  <path class="intro-stroke" d="M 12 40 L 26 28 L 40 40" />
+                  <path class="intro-stroke" d="M 17 38 V 56 H 35 V 38" />
+                  <path class="intro-dash" d="M 34 26 C 58 -2, 96 4, 108 26" />
+                  <path class="intro-dash" d="M 104 44 C 92 70, 56 74, 38 58" />
+                  <g class="intro-accent-b">
+                    <path d="M 108 16 c 6.6 0 12 5.4 12 12 0 9-12 22-12 22 S 96 37 96 28 c 0-6.6 5.4-12 12-12 z" />
+                    <circle class="intro-punch" cx="108" cy="28" r="4.4" />
+                  </g>
+                  <g class="intro-dots-row">
+                    <circle cx="52" cy="72" r="2.6" /><circle cx="64" cy="72" r="2.6" />
+                    <circle cx="76" cy="72" r="2.6" /><circle cx="88" cy="72" r="2.6" />
+                  </g>
+                </svg>
+              </div>
+              <div class="intro-topic-text">
+                <h3 data-i18n="intro.trips.trip-title" class="intro-h3">Trips work themselves out</h3>
+                <p data-i18n="intro.trips.trip-body" class="intro-body">A trip is a run of days you didn't come
+                  home. Nothing to name, nothing to file — it's read off the dates and the distances, so
+                  <i>Iceland, last August</i> is already in there waiting for you.</p>
+              </div>
+            </div>
+
+            <div class="intro-topic">
+              <div class="intro-art intro-art-sm">
+                <svg viewBox="0 0 132 84" fill="none" aria-hidden="true">
+                  <path class="intro-route" d="M 12 62 C 30 62, 28 26, 48 26 S 68 54, 86 46 S 104 16, 122 22" />
+                  <circle class="intro-accent-c-fill" cx="12" cy="62" r="4.6" />
+                  <g class="intro-accent-c">
+                    <path class="intro-stroke" d="M 122 22 V 8" />
+                    <path d="M 122 8 L 138 12 L 122 17 Z" transform="translate(-16 0)" />
+                  </g>
+                  <g class="intro-bars">
+                    <path d="M 14 78 V 72" /><path d="M 28 78 V 66" /><path d="M 42 78 V 60" />
+                    <path d="M 56 78 V 68" /><path d="M 70 78 V 63" /><path d="M 84 78 V 70" />
+                    <path d="M 98 78 V 62" /><path d="M 112 78 V 56" />
+                  </g>
+                </svg>
+              </div>
+              <div class="intro-topic-text">
+                <h3 data-i18n="intro.trips.workout-title" class="intro-h3">And workouts arrive as lines</h3>
+                <p data-i18n="intro.trips.workout-body" class="intro-body">Rides, runs, ski days, long walks —
+                  drawn as the route you actually took. Pull them from Strava, Komoot or Apple Health, or drop
+                  in a GPX you found in a folder.</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- 3 · Where the data comes from ------------------------------------ -->
+        <article class="intro-card" data-page="import">
+          <div class="intro-scroll">
+            <h2 data-i18n="intro.import.title" class="intro-title">So where does it all come from?</h2>
+
+            <div class="intro-topic">
+              <div class="intro-art intro-art-sm">
+                <svg viewBox="0 0 132 84" fill="none" aria-hidden="true">
+                  <rect class="intro-stroke" x="34" y="8" width="50" height="68" rx="9" />
+                  <rect class="intro-screen" x="40" y="18" width="38" height="48" rx="4" />
+                  <path class="intro-accent-a" d="M 40 58 L 52 44 L 60 52 L 68 40 L 78 58 Z" />
+                  <circle class="intro-accent-c-fill" cx="68" cy="28" r="4" />
+                  <path class="intro-stroke" d="M 53 12 h 12" />
+                  <g class="intro-accent-b">
+                    <path d="M 100 14 c 6.6 0 12 5.4 12 12 0 9-12 22-12 22 S 88 35 88 26 c 0-6.6 5.4-12 12-12 z" />
+                    <circle class="intro-punch" cx="100" cy="26" r="4.4" />
+                  </g>
+                  <path class="intro-dash" d="M 82 40 C 90 44, 94 46, 98 50" />
+                </svg>
+              </div>
+              <div class="intro-topic-text">
+                <h3 data-i18n="intro.import.photos-title" class="intro-h3">Your photos already know</h3>
+                <p data-i18n="intro.import.photos-web" data-intro-host="web" class="intro-body">Every picture
+                  you've taken quietly recorded where you took it. The iPhone and Mac apps can read that —
+                  twenty years of camera roll, straight onto the map, without a single photo leaving the
+                  device. A browser can't reach your library, so that part needs the app.</p>
+                <p data-i18n="intro.import.photos-app" data-intro-host="app" class="intro-body">Every picture
+                  you've taken quietly recorded where you took it, and this app reads it straight off the
+                  library — no photo goes anywhere. There's no rush: it's a switch in the layers menu whenever
+                  you fancy it.</p>
+                <p data-i18n="intro.import.background-ios" data-intro-host="ios" class="intro-body">Leave the
+                  iPhone app installed and it'll keep the map going by itself, logging where you get to from
+                  today onwards.</p>
+              </div>
+            </div>
+
+            <div class="intro-topic">
+              <div class="intro-art intro-art-sm">
+                <svg viewBox="0 0 132 84" fill="none" aria-hidden="true">
+                  <rect class="intro-stroke" x="14" y="20" width="38" height="48" rx="5"
+                    transform="rotate(-8 33 44)" />
+                  <rect class="intro-stroke" x="26" y="14" width="38" height="48" rx="5" />
+                  <path class="intro-lines" d="M 34 26 h 22 M 34 34 h 22 M 34 42 h 14" />
+                  <path class="intro-accent-a-stroke" d="M 74 44 h 26 m -8 -8 l 8 8 l -8 8" />
+                  <g class="intro-accent-a">
+                    <path d="M 118 24 L 128.4 30 L 128.4 42 L 118 48 L 107.6 42 L 107.6 30 Z" />
+                  </g>
+                </svg>
+              </div>
+              <div class="intro-topic-text">
+                <h3 data-i18n="intro.import.files-title" class="intro-h3">Or bring an export</h3>
+                <p data-i18n="intro.import.files-body" class="intro-body">Google Timeline, Snapchat, Garmin, a
+                  pile of GPX files. Drop the whole thing in and it'll work out what it's looking at. More on
+                  those in a moment.</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- 4 · Whose machine this is ---------------------------------------- -->
+        <article class="intro-card" data-page="privacy">
+          <div class="intro-scroll">
+            <div class="intro-art">
+              <svg viewBox="0 0 164 115" fill="none" aria-hidden="true">
+                <path class="intro-stroke" d="M 22 56 L 60 24 L 98 56" />
+                <path class="intro-stroke" d="M 32 50 V 96 H 88 V 50" />
+                <g class="intro-accent-a">
+                  <rect x="44" y="60" width="32" height="10" rx="3" />
+                  <rect x="44" y="76" width="32" height="10" rx="3" />
+                </g>
+                <circle class="intro-punch" cx="50" cy="65" r="2" />
+                <circle class="intro-punch" cx="50" cy="81" r="2" />
+                <path class="intro-cloud" d="M 122 44 a 13 13 0 0 1 24 4 a 10 10 0 0 1 -2 20 h -24 a 12 12 0 0 1 2 -24 z" />
+                <path class="intro-dash-cut" d="M 96 74 H 124" />
+                <g class="intro-cut">
+                  <path d="M 104 66 L 118 82 M 118 66 L 104 82" />
+                </g>
+              </svg>
+            </div>
+            <h2 data-i18n="intro.privacy.title" class="intro-title">This is your machine, not ours</h2>
+            <p data-i18n="intro.privacy.body" class="intro-body">There's no company behind this. Nothing is
+              sent anywhere — no analytics, no telemetry, nobody quietly counting. The map, the photos, the
+              routes and the account all stop at the server you're running this on.</p>
+            <p data-i18n="intro.privacy.ready" class="intro-lede">Right. Shall we get your data in?</p>
+          </div>
+        </article>
+
+        <!-- 5 · The three things only the host can grant ---------------------- -->
+        <article class="intro-card" data-page="permissions">
+          <div class="intro-scroll">
+            <h2 data-i18n="intro.perm.title" class="intro-title">A few things to say yes to</h2>
+            <p data-i18n="intro.perm.body-app" data-intro-host="app" class="intro-body">These are asked by the
+              phone, not by us — and every one of them is optional. You can change your mind later in iOS
+              Settings.</p>
+            <p data-i18n="intro.perm.body-web" data-intro-host="web" class="intro-body">In a browser there's
+              only one of these to give. Photos and workouts need the iPhone or Mac app, which can reach
+              things a web page simply cannot.</p>
+
+            <div class="intro-perms" id="intro-perms">
+              <div class="intro-perm" id="intro-perm-photos" data-perm="photos" data-intro-host="app">
+                <span class="intro-perm-art" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <rect class="intro-stroke" x="3" y="5" width="18" height="14" rx="3" />
+                    <path class="intro-accent-a-stroke" d="M 5 16 L 10 11 L 13 14 L 16 11 L 19 15" />
+                    <circle class="intro-accent-c-fill" cx="15.5" cy="9" r="1.6" />
+                  </svg>
+                </span>
+                <span class="intro-perm-text">
+                  <b data-i18n="intro.perm.photos.title">Your photos</b>
+                  <small data-i18n="intro.perm.photos.body">So it can read where each one was taken. The
+                    pictures themselves stay exactly where they are.</small>
+                </span>
+                <button data-i18n="intro.perm.allow" type="button" class="intro-perm-btn">Allow</button>
+              </div>
+
+              <div class="intro-perm" id="intro-perm-location" data-perm="location">
+                <span class="intro-perm-art" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path class="intro-accent-b" d="M 12 2.6 c 4 0 7.2 3.2 7.2 7.2 0 5.4-7.2 12-7.2 12 S 4.8 15.2 4.8 9.8 c 0-4 3.2-7.2 7.2-7.2 z" />
+                    <circle class="intro-punch" cx="12" cy="9.8" r="2.7" />
+                  </svg>
+                </span>
+                <span class="intro-perm-text">
+                  <b data-i18n="intro.perm.location.title">Where you are</b>
+                  <small data-i18n="intro.perm.location.body">So the map can find you — including in a minute,
+                    when it asks where you live.</small>
+                </span>
+                <button data-i18n="intro.perm.allow" type="button" class="intro-perm-btn">Allow</button>
+              </div>
+
+              <div class="intro-perm" id="intro-perm-health" data-perm="health" data-intro-host="ios">
+                <span class="intro-perm-art" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path class="intro-accent-c" d="M 12 20.6 S 3.2 14.6 3.2 8.9 A 4.7 4.7 0 0 1 12 6.4 a 4.7 4.7 0 0 1 8.8 2.5 c 0 5.7-8.8 11.7-8.8 11.7 z" />
+                  </svg>
+                </span>
+                <span class="intro-perm-text">
+                  <b data-i18n="intro.perm.health.title">Apple Health</b>
+                  <small data-i18n="intro.perm.health.body">So finished workouts turn up on the map on their
+                    own, routes and all.</small>
+                </span>
+                <button data-i18n="intro.perm.allow" type="button" class="intro-perm-btn">Allow</button>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- 6 · The exports it can't ask for, and home ----------------------- -->
+        <article class="intro-card" data-page="sources">
+          <div class="intro-scroll">
+            <h2 data-i18n="intro.sources.title" class="intro-title">Anything else you've got lying around</h2>
+            <p data-i18n="intro.sources.body" class="intro-body">Both of these are free to ask for and take a
+              day or two to arrive. When they do, the Sync menu is where they go in.</p>
+
+            <div class="intro-source">
+              <span class="intro-perm-art" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <circle class="intro-stroke" cx="12" cy="12" r="8.6" />
+                  <path class="intro-accent-a-stroke" d="M 12 7.2 V 12 l 3.4 2.4" />
+                </svg>
+              </span>
+              <span class="intro-perm-text">
+                <b data-i18n="intro.sources.google.title">Google Timeline</b>
+                <small data-i18n="intro.sources.google.body">takeout.google.com → Location History. It's one
+                  enormous JSON file and often the single best thing you can feed this.</small>
+              </span>
+            </div>
+
+            <div class="intro-source">
+              <span class="intro-perm-art" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path class="intro-accent-c" d="M 12 3 c 3.6 0 5.6 2.6 5.6 6 0 2.4 1.2 3.4 2.4 4.2 -0.6 1.4-2.4 1.4-3.4 1.8 -0.4 1.6-1 3.6-4.6 3.6 s -4.2-2-4.6-3.6 c -1-0.4-2.8-0.4-3.4-1.8 1.2-0.8 2.4-1.8 2.4-4.2 0-3.4 2-6 5.6-6 z" />
+                </svg>
+              </span>
+              <span class="intro-perm-text">
+                <b data-i18n="intro.sources.snapchat.title">Snapchat</b>
+                <small data-i18n="intro.sources.snapchat.body">Settings → My Data. There's a location history
+                  buried in there that most people have no idea exists.</small>
+              </span>
+            </div>
+
+            <div class="intro-home" id="intro-home">
+              <h3 data-i18n="intro.home.title" class="intro-h3">One last question: where do you live?</h3>
+              <p data-i18n="intro.home.body" class="intro-body">Everything about trips is measured from home —
+                what counts as away, how far you got, whether a week is a holiday or just a week. Point at it
+                and that's that.</p>
+              <p class="intro-known" id="intro-home-known" hidden></p>
+              <div class="intro-home-actions">
+                <button data-i18n="intro.home.set" type="button" class="intro-btn" id="intro-home-set">Show me
+                  the map</button>
+              </div>
+              <p class="intro-note" id="intro-home-note" hidden></p>
+            </div>
+          </div>
+        </article>
+
+        <!-- 7 · What you're starting with ------------------------------------ -->
+        <article class="intro-card" data-page="done">
+          <div class="intro-scroll">
+            <div class="intro-art intro-art-sm">
+              <svg viewBox="0 0 132 84" fill="none" aria-hidden="true">
+                <path class="intro-accent-a" d="M 66 12 L 88.5 25 L 88.5 51 L 66 64 L 43.5 51 L 43.5 25 Z" />
+                <path class="intro-check" d="M 55 38 L 63 46 L 78 30" />
+                <g class="intro-spark">
+                  <path d="M 24 26 v 8 M 20 30 h 8" />
+                  <path d="M 108 50 v 6 M 105 53 h 6" />
+                  <path d="M 100 18 v 5 M 97.5 20.5 h 5" />
+                </g>
+              </svg>
+            </div>
+            <h2 data-i18n="intro.done.title" class="intro-title">That's the tour</h2>
+            <p class="intro-body" id="intro-done-line" data-i18n="intro.done.body">Here's what you're starting
+              with.</p>
+            <div class="intro-tiles" id="intro-tiles"></div>
+            <div class="intro-home-actions">
+              <button data-i18n="intro.done.finish" type="button" class="intro-btn intro-btn-go"
+                id="intro-done">Take me to the map</button>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <!-- The gesture, admitted late and only once. See HINT_MS in src/intro.js. -->
+      <div class="intro-hint" id="intro-hint" hidden aria-hidden="true">
+        <svg viewBox="0 0 44 16" fill="none">
+          <path class="intro-hint-arrow" d="M 40 8 H 8 m 7 -7 l -7 7 l 7 7" />
+        </svg>
+        <span data-i18n="intro.hint">Swipe left to carry on</span>
+      </div>
+
+      <div class="intro-foot">
+        <div class="intro-dots" id="intro-dots"></div>
+        <button data-i18n-aria-label="intro.next" type="button" class="intro-next" id="intro-next"
+          aria-label="Next">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M 9 5 l 7 7 l -7 7" />
+          </svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Choosing home from inside the introduction, with the deck folded away
+         and the map's own chrome with it. Deliberately not the `#home-pick` bar
+         above: that one shares a screen with the menu, the search and the
+         layers panel and has to say which of them you are meant to ignore. This
+         one has the map to itself, so it can ask the question and nothing
+         else. -->
+    <div class="intro-pick" id="intro-pick" hidden>
+      <span data-i18n="intro-pick-text.tap-where-you-live" id="intro-pick-text">Tap where you live</span>
+      <div class="intro-pick-actions">
+        <button data-i18n="intro-pick-cancel.not-now" type="button" class="intro-pick-btn intro-pick-quiet"
+          id="intro-pick-cancel">Not now</button>
+        <button data-i18n="intro-pick-ok.this-is-home" type="button" class="intro-pick-btn" id="intro-pick-ok"
+          hidden>This is home</button>
+      </div>
+    </div>
 
     <div class="auth-overlay" id="auth-overlay" hidden>
       <form class="auth-card" id="auth-form">

@@ -57,8 +57,15 @@ export function mountWhatsNew({ stats, routes, onOpenStats }) {
    * read — the workout count comes from one and everything else from the other,
    * and a banner built from half of them would report a ride that arrived as no
    * change at all.
+   *
+   * @param {{quiet?: boolean}} [how] `quiet` moves the baseline and says
+   *   nothing. That is not the same as not calling this at all, and the
+   *   difference matters exactly once: on a first-ever sign-in, where the
+   *   introduction is on screen and a banner over the top of it would be
+   *   announcing changes to a map that did not exist an hour ago. The baseline
+   *   still has to move, or the *next* open reports the whole map as news.
    */
-  const show = () => {
+  const show = ({ quiet = false } = {}) => {
     const now = snapshotOf(stats?.(), routes?.());
     // No coverage answer means the request failed or has not landed. Nothing is
     // said and — importantly — the baseline is not moved: the next open should
@@ -75,7 +82,7 @@ export function mountWhatsNew({ stats, routes, onOpenStats }) {
     // when a real change went unmentioned for being too small: that is what
     // lets four quiet days add up to one worth a sentence.
     if (wanted || !before) rememberSnapshot(now);
-    if (!wanted) return;
+    if (!wanted || quiet) return;
 
     newWorkouts = change.workouts;
     titleEl.textContent = title;

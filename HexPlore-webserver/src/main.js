@@ -96,6 +96,8 @@ import { mountAirports } from './airports-ui.js';
 import { mountMapbox } from './mapbox-ui.js';
 import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
+import { mountIntro } from './intro-ui.js';
+import { INTRO_SEEN_KEY, INTRO_VERSION, hostKind, shouldIntro } from './intro.js';
 import { activeDays, findHome } from './trips.js';
 import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
@@ -3494,6 +3496,11 @@ let statsUi = null; // set by mountStats()
 let whatsNewUi = null; // set by mountWhatsNew()
 let backupUi = null; // set by mountBackup()
 let homeUi = null; // set by mountHome()
+let introUi = null; // set by mountIntro()
+// Whether this load is somebody's first. Read by the "what's new" banner, which
+// has nothing to say to a map that has only just appeared and would be saying it
+// over the top of the introduction anyway.
+let introShowing = false;
 let selectedRoute = null;
 let hoveredRoute = null;
 
@@ -3595,6 +3602,11 @@ let pushViewTimer = null;
 // list is measured from it.
 let homePlace = null; // { lng, lat, name } | null = use the guess
 
+// Which introduction this person has already been through, as its version
+// number. Read from this browser to begin with and raised by whatever the
+// account turns out to know — see `seenVersion` in src/intro.js.
+let introSeen = 0;
+
 // Trips you put away. They are derived, not stored, so there is nothing to
 // delete — the list skips them and can be told to stop. It follows the account
 // rather than the device, because a trip you decided was a commute is a
@@ -3645,6 +3657,12 @@ const prefsPayload = () => ({
   // even when it is `''`, because the key's presence is what tells a device the
   // account has an opinion at all — see remoteToken() in src/prefs.js.
   mapboxToken: mapboxToken(),
+  // Which introduction has been sat through. In the account because it is a
+  // fact about a *person* — what a trip is does not become news again on a
+  // second device — with this browser's own copy beside it only to survive a
+  // push that never landed. The two are merged rather than reconciled, and the
+  // higher number wins: see `seenVersion` in src/intro.js.
+  intro: introSeen,
 });
 
 // Called here rather than beside its own definition: it fills in `hiddenTripIds`
@@ -3769,6 +3787,10 @@ function adoptPrefs(prefs) {
   // Nothing to redraw: the banner has already been decided for this load, and a
   // frequency adopted mid-session is for the next one.
   if (isBannerMode(prefs.whatsNew)) setBannerMode(prefs.whatsNew);
+  // Only ever upwards. An account that has seen the introduction and a browser
+  // that has must not be able to un-see it for each other — which is exactly
+  // what a plain assignment would do to a device whose push has not landed yet.
+  introSeen = Math.max(introSeen, Number(prefs.intro) || 0);
   // Adopted, but never acted on mid-session: `setLocale` would reload the page,
   // and a page that reloads itself because a *sync* landed is a page that threw
   // away whatever you were in the middle of. Stored now, in force next time —
@@ -3865,10 +3887,34 @@ async function syncPrefs() {
     pushPrefs();
   }
   // Here rather than on the map's own load, because this is the first moment
-  // anything knows whether a home has been set — and the answer is read off the
-  // account's copy rather than off `homePlace`, which the 'push' branch above
-  // never filled in.
-  askHomeOnce(remote);
+  // anything knows what the *account* has already been told — and that has to
+  // be read off the account's own copy rather than off the adopted state, which
+  // the 'push' branch above never filled in.
+  //
+  // Awaited by nothing: the deck is a curtain over a map that is still drawing,
+  // and holding the sign-in open until it has decided would be a blank screen
+  // for the sake of a screen that covers it anyway.
+  offerIntro(remote);
+}
+
+/**
+ * Show the introduction, if this person has not had it.
+ *
+ * Both copies count, and the higher one wins — a browser that has seen it and
+ * could not push says so locally, a second browser hears it from the account.
+ * `shouldIntro` is the whole of that argument and it is tested; this is the
+ * part that knows about the deck.
+ */
+function offerIntro(remote) {
+  introSeen = Math.max(introSeen, introSeenLocally());
+  if (!shouldIntro({ remote, local: introSeen })) return;
+  // The banner about what has changed since last time is suppressed for this
+  // load, not skipped: `whats-new` still moves its baseline (see `onAuthed`), so
+  // tomorrow reports what happened today rather than reporting the whole map as
+  // news. What it must not do is greet a first-ever sign-in with a summary of
+  // changes since a map that did not exist, over the top of the introduction.
+  introShowing = true;
+  introUi?.open();
 }
 
 const sportKey = (route) => route.sport || ROUTE_NO_SPORT;
@@ -4326,53 +4372,56 @@ function syncHomeMarker() {
   if (at && map.getLayer('home-icon')) map.moveLayer('home-icon');
 }
 
-// --- Asking where you live, once -----------------------------------------------
+// --- Asking where you live -------------------------------------------------------
 //
-// Everything in the Trips tab is measured from home — what counts as away, how
-// far a trip went, whether a run of days is a trip at all — and until somebody
-// says otherwise that is a guess off the cells visited most. The guess is right
-// often enough to be the default and wrong in a way nobody could debug from the
-// outside, so it is worth offering to correct, and the offer has to be made
-// where it can be seen rather than four taps into a settings panel.
+// There used to be a banner here, shown once ever, offering to correct the guess
+// the Trips tab measures everything from. It is gone: the question is now the
+// second-to-last card of the introduction (see src/intro-ui.js), which is a
+// better place for it in every respect. It is asked while the map already has
+// somebody's attention rather than across the top of whatever they were doing;
+// it can hand over the whole screen instead of competing with a menu; and it is
+// asked *before* there is any history for the answer to be wrong about, rather
+// than after a banner has had to wait for enough cells to justify itself.
 //
-// **Once, ever, and remembered here rather than in the account.** Being asked
-// again on the laptop about a question answered on the phone is the same nag
-// twice; but so is being asked again on the *same* browser, and a flag in the
-// preferences would be a fifth thing for the reconcile to lose. What is being
-// remembered is "this browser has already made the offer", which is a fact about
-// the browser. Saying no is a whole answer: nothing asks a second time, and
-// Settings ▸ Home is where it lives from then on.
-const HOME_ASKED_KEY = 'visited-map:home-asked:v1';
-
-function closeHomeBar() {
-  const bar = document.getElementById('home-bar');
-  if (bar) bar.hidden = true;
-}
+// What is left here is the machinery it hands to: `beginHomePick` below, which
+// both the dialog and the introduction drive, and `introHomePick` which is the
+// introduction's own bare version of it.
 
 /**
- * Offer to set a home, if there is any point in offering.
+ * What this browser remembers about who has been through the introduction.
  *
- * @param {object|null} prefs the account's own copy — not `homePlace`, which a
- *   browser whose local preferences won the reconcile never had filled in, and
- *   which would then read as "no home" on an account that has one.
+ * **Keyed by account, not stored as a single flag.** This is a map several
+ * people can share a browser for — the account deletion warning a few hundred
+ * lines down says so out loud — and a bare flag here would mean the second
+ * person to register on a laptop is silently never introduced to anything. The
+ * key is a fact about a person, so the copy of it has to be too.
+ *
+ * It exists beside the account's own copy to survive a push that never landed:
+ * without it a browser that finished the deck offline would be handed it again
+ * on the next load, which is the one thing an introduction must never do. See
+ * `seenVersion` in src/intro.js for how the two are merged.
  */
-function askHomeOnce(prefs) {
-  const bar = document.getElementById('home-bar');
-  if (!bar || localStorage.getItem(HOME_ASKED_KEY)) return;
-  const set = prefs?.home;
-  if (set && Number.isFinite(+set.lng) && Number.isFinite(+set.lat)) return;
-  // Nothing to measure from and nothing to measure: an account with no history
-  // yet has no trips for a home to be the origin of, and the first thing it
-  // should be asked is not this.
-  if (!visited.size) return;
-  // Spent on being shown, not on being answered. A banner that reappears until
-  // it gets the answer it wants is the thing this is written to avoid.
+function introSeenLocally() {
   try {
-    localStorage.setItem(HOME_ASKED_KEY, '1');
+    const held = JSON.parse(localStorage.getItem(INTRO_SEEN_KEY) ?? '{}');
+    return Number(held?.[username ?? '']) || 0;
   } catch {
-    /* private mode: it may be offered again there, which is the lesser fault */
+    return 0;
   }
-  bar.hidden = false;
+}
+
+/** Note that it has been seen, in both places at once. */
+function rememberIntroSeen() {
+  introSeen = INTRO_VERSION;
+  try {
+    const held = JSON.parse(localStorage.getItem(INTRO_SEEN_KEY) ?? '{}') ?? {};
+    held[username ?? ''] = INTRO_VERSION;
+    localStorage.setItem(INTRO_SEEN_KEY, JSON.stringify(held));
+  } catch {
+    /* private mode: the account's copy below is the one that has to hold */
+  }
+  touchPrefs();
+  pushPrefs();
 }
 
 // Picking a home by pointing at it. "The middle of the map" was a guess about a
@@ -4380,26 +4429,102 @@ function askHomeOnce(prefs) {
 // took its centre — and it produced a home called "The middle of the map",
 // which is not a place. Now the dialog steps out of the way, the next tap drops
 // a pin you can move, and confirming names it after whatever is nearest.
-const homePick = { on: false, at: null, done: null };
+//
+// Two bars ask it, and which one is on screen is the whole of `bare`. The
+// dialog's version shares the map with a menu, a search button and a layers
+// panel, so it has to say which of them you are meant to ignore. The
+// introduction's has the map to itself — its own chrome is hidden for the
+// duration — so it can ask the question and nothing else. Everything below the
+// bar is the same code either way: the same tap, the same pin, the same naming
+// off the nearest town.
+const homePick = { on: false, at: null, done: null, bare: false };
 
-function beginHomePick(onDone) {
+/** The three elements of whichever bar is asking. */
+const pickEls = () => {
+  const ns = homePick.bare ? 'intro-pick' : 'home-pick';
+  return {
+    bar: document.getElementById(ns),
+    ok: document.getElementById(`${ns}-ok`),
+    text: document.getElementById(`${ns}-text`),
+  };
+};
+
+/**
+ * @param {(home: object|null) => void} onDone
+ * @param {{bare?: boolean}} [how] `bare` is the introduction's version: the
+ *   map's own chrome goes away with the deck, so there is exactly one thing on
+ *   screen to do and no menu inviting you to do something else.
+ */
+function beginHomePick(onDone, { bare = false } = {}) {
   homePick.on = true;
   homePick.at = null;
   homePick.done = onDone ?? null;
-  document.getElementById('home-pick').hidden = false;
-  document.getElementById('home-pick-ok').hidden = true;
-  document.getElementById('home-pick-text').textContent = 'Tap the map to put your home there';
+  homePick.bare = bare;
+  const { bar, ok, text } = pickEls();
+  bar.hidden = false;
+  ok.hidden = true;
+  text.textContent = bare ? t('intro-pick-text.tap-where-you-live') : t('home-pick-text.tap-the-map-to-put');
+  if (bare) document.body.classList.add('intro-picking');
   map.getCanvas().style.cursor = 'crosshair';
   syncHomeMarker();
+}
+
+/**
+ * The introduction's home step: lift the map's chrome, go to where the person
+ * actually is, and ask.
+ *
+ * Flying there first is most of what makes this answerable. "Point at your
+ * house" on a map showing the whole of Europe is a minute of pinching; on a map
+ * already centred within a few hundred metres of it, it is one tap. A browser
+ * that will not say where it is (refused, or plain http — `navigator.geolocation`
+ * needs a secure context) simply gets the map it already had, which is a slower
+ * version of the same question rather than a broken one.
+ */
+function introHomePick(onDone) {
+  beginHomePick(async (picked) => {
+    // Saved here rather than by the deck. The introduction is a screen, not a
+    // second owner of the account's preferences — and this is the same three
+    // lines the Settings dialog's own picker runs, for the same reason: home is
+    // what every trip is measured from, so it has to reach the server before
+    // anything asks for a trip list again.
+    if (picked) {
+      homePlace = picked;
+      syncHomeMarker();
+      touchPrefs();
+      await pushPrefs();
+    }
+    onDone?.(picked);
+  }, { bare: true });
+  const to = (lng, lat) => map.flyTo({ center: [lng, lat], zoom: 13.5, duration: 1400 });
+  if (lastFix) {
+    to(lastFix[0], lastFix[1]);
+    return;
+  }
+  navigator.geolocation?.getCurrentPosition(
+    (p) => {
+      lastFix = [p.coords.longitude, p.coords.latitude];
+      // Checked again on the way back: the fix can arrive after the question
+      // has been cancelled, and flying the map somewhere on behalf of a dialog
+      // that has closed is the map moving on its own.
+      if (homePick.on) to(p.coords.longitude, p.coords.latitude);
+    },
+    () => {
+      /* no position: the map stays where it is, which is still an answerable map */
+    },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 },
+  );
 }
 
 async function endHomePick(confirmed) {
   const at = homePick.at;
   const done = homePick.done;
+  const { bar } = pickEls();
   homePick.on = false;
   homePick.at = null;
   homePick.done = null;
-  document.getElementById('home-pick').hidden = true;
+  homePick.bare = false;
+  bar.hidden = true;
+  document.body.classList.remove('intro-picking');
   map.getCanvas().style.cursor = '';
   syncHomeMarker();
   if (!confirmed || !at) {
@@ -4421,8 +4546,11 @@ async function endHomePick(confirmed) {
 
 function placeHomePin(lngLat) {
   homePick.at = { lng: lngLat.lng, lat: lngLat.lat };
-  document.getElementById('home-pick-ok').hidden = false;
-  document.getElementById('home-pick-text').textContent = 'Home here? Tap again to move it';
+  const { ok, text } = pickEls();
+  ok.hidden = false;
+  text.textContent = homePick.bare
+    ? t('intro-pick-text.this-spot-tap-again')
+    : t('home-pick-text.home-here-tap-again');
   syncHomeMarker();
 }
 
@@ -7144,6 +7272,10 @@ function wireLayersControl() {
   cellsTapToggle.addEventListener('change', () => setCellsInteractive(cellsTapToggle.checked));
   document.getElementById('home-pick-cancel').addEventListener('click', () => endHomePick(false));
   document.getElementById('home-pick-ok').addEventListener('click', () => endHomePick(true));
+  // The introduction's own bar. The same two answers to the same question — it
+  // is `endHomePick` that knows which bar to put away.
+  document.getElementById('intro-pick-cancel').addEventListener('click', () => endHomePick(false));
+  document.getElementById('intro-pick-ok').addEventListener('click', () => endHomePick(true));
   document.getElementById('route-solo-clear').addEventListener('click', () => {
     setSoloRoute(null);
     routeInfo?.setSolo(false);
@@ -7158,15 +7290,6 @@ function wireLayersControl() {
     railTroubleDismissed = true;
     showRailTrouble(null);
   });
-  // Both close it, because it has already been spent — see askHomeOnce. The
-  // offer opens the same dialog Settings does rather than a shortened version
-  // of it: there are three ways to name a place and a banner should not be
-  // deciding which of them you get.
-  document.getElementById('home-bar-set').addEventListener('click', () => {
-    closeHomeBar();
-    homeUi?.open(homePlace);
-  });
-  document.getElementById('home-bar-dismiss').addEventListener('click', closeHomeBar);
   document.getElementById('edit-toggle').addEventListener('change', (e) => setEditUi(e.target.checked));
 
   // The menu used to carry an "i" beside almost every row, each opening a
@@ -8279,6 +8402,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     rail: railUi,
     airports: airportsUi,
     mapbox: mapboxUi,
+    // On request, and it is a real replay rather than a recording: every step
+    // reads the map first, so it says "home is already Zurich" instead of
+    // asking again. See `drawPerms` and `drawHome` in src/intro-ui.js.
+    onReplayIntro: () => introUi?.open(),
     onClearCache: () => clearOfflineCaches(),
     version: () => serverBuild(),
     username: () => username,
@@ -8390,14 +8517,119 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onPick: beginHomePick,
     onSet: async (home) => {
       homePlace = home;
-      // However it was reached: the question has been answered, and a banner
-      // still asking it behind the dialog is the app not listening.
-      closeHomeBar();
       syncHomeMarker();
       touchPrefs();
       await pushPrefs();
     },
     onClose: () => search.open(),
+  });
+
+  // The introduction. Everything it needs is a question about the map that
+  // something else here already answers — which is the point: the deck reads
+  // the state of the app rather than keeping its own idea of it, so a replay
+  // from Settings knows that home is set and that the photo library has already
+  // been read.
+  introUi = mountIntro({
+    host: hostKind,
+    home: () => homePlace,
+    // What has actually put something on this map. Better evidence of a
+    // permission than any flag, because it is the permission having already
+    // produced the thing it was asked for — see `alreadyGranted` in src/intro.js.
+    sources: () => [...new Set([...cellMeta.values()].flat().map((m) => m.source))],
+    routes: () => routeList,
+    loadStats: () => derived.loadStats(),
+    loadTrips: () => derived.loadTrips(),
+
+    // --- The three asks ---
+    //
+    // Two of them raise a real system prompt and the third is the browser's own.
+    // None of them is a "request permission" call as such: the way to ask for a
+    // photo library is to ask it a question, and iOS puts the sheet up in front
+    // of the answer.
+
+    /**
+     * Photographs. `loadPhotos` is the scan the overlay uses, and asking for it
+     * is what makes `PhotoLibrary.authorize()` run on the other side of the
+     * bridge — so the sheet appears, and what comes back is either a library or
+     * the reason there isn't one.
+     */
+    askPhotos: async () => {
+      if (!photosAvailable()) return { ok: false, error: 'nohost' };
+      const report = await loadPhotos();
+      // Read, and then drawn. Somebody who has just said yes to this should see
+      // what they said yes to rather than have to find the switch — and the
+      // switch is left on afterwards, because it is now a true description of
+      // what the map is showing.
+      if (report.ok && report.count > 0) {
+        photosToggle.checked = true;
+        setPhotos(true);
+      }
+      return report;
+    },
+
+    /**
+     * Where you are. The standard call, which is the right one in all three
+     * hosts: in a browser it is the only one there is; on the iPhone WebKit
+     * raises the app's own prompt behind it; on the Mac the app has replaced
+     * `navigator.geolocation` with a shim onto CoreLocation (see
+     * `LocationBridge` there), so this reaches the same place by a different
+     * road and neither side needs to know.
+     */
+    askLocation: () =>
+      new Promise((resolve) => {
+        if (!navigator.geolocation) return resolve({ ok: false, error: 'nohost' });
+        navigator.geolocation.getCurrentPosition(
+          (p) => {
+            // Kept, so the home step a card later already knows where to fly.
+            lastFix = [p.coords.longitude, p.coords.latitude];
+            resolve({ ok: true });
+          },
+          (err) => resolve({ ok: false, error: err?.code === 1 ? 'denied' : 'unavailable' }),
+          { enableHighAccuracy: true, timeout: 10_000 },
+        );
+      }),
+
+    /**
+     * Workouts. There is no way to raise HealthKit's sheet from a page — the
+     * app asks for it when the switch in its own Settings tab is thrown, and
+     * nothing on this side can throw it. So this one is honest about being an
+     * instruction rather than a control, and the row says where to go.
+     */
+    askHealth: async () => ({ ok: false, error: 'settings' }),
+
+    /**
+     * Whether location has already been granted, without asking for it.
+     *
+     * The only one of the three with a real answer available. Photos and Health
+     * are inferred from what is on the map instead, which is coarser and cannot
+     * be queried any other way.
+     */
+    geolocationState: async () => {
+      try {
+        return (await navigator.permissions?.query({ name: 'geolocation' }))?.state ?? null;
+      } catch {
+        // Safari answered `TypeError` for an unsupported descriptor for years,
+        // and a browser that will not say is not the same as a refusal.
+        return null;
+      }
+    },
+
+    onPickHome: introHomePick,
+
+    // Skipping counts, the same as finishing. Somebody who threw the deck away
+    // on the first card has answered the question "do you want this", and
+    // asking it again every morning until they sit through it is the behaviour
+    // of a pop-up rather than of an introduction. Settings ▸ Replay is where it
+    // lives from then on.
+    //
+    // Nothing is re-read here. Home is pushed by `onSet` as it is chosen, and
+    // both derived readings carry an ETag over the rows behind them, so the
+    // next thing to ask for a trip list gets one measured from the new house
+    // without anything having to remember to invalidate.
+    onFinish: () => {
+      introShowing = false;
+      rememberIntroSeen();
+    },
   });
 
   const stats = statsUi = mountStats({
@@ -8659,7 +8891,11 @@ const authState = mountAuth({
     // open can still report whatever happened in between.
     try {
       await derived.loadStats();
-      whatsNewUi?.show();
+      // Quiet on a first run: the introduction is on screen, and a line saying
+      // how much the map has grown is a strange thing to tell somebody who has
+      // not yet been told what the map is. The baseline still moves — see the
+      // note on `show` — so tomorrow reports today rather than everything.
+      whatsNewUi?.show({ quiet: introShowing });
     } catch {
       /* no coverage answer, no banner, and no baseline moved */
     }
@@ -8740,7 +8976,13 @@ const authState = mountAuth({
     // Their house, off a map that is no longer theirs — and the marker's own
     // default reads `homePlace`, which has just gone.
     syncHomeMarker();
-    closeHomeBar();
+    // The introduction belongs to whoever was being introduced. Someone signing
+    // out halfway through should not hand the next person a deck half-read —
+    // and it is dismissed rather than closed, because closing *records* having
+    // seen it, against an account that has just left.
+    introUi?.dismiss();
+    introShowing = false;
+    introSeen = 0;
     recomputeLit();
     updateGrid(true);
     updateTiles();
