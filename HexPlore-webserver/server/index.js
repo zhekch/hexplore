@@ -99,7 +99,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.40.0';
+export const SERVER_VERSION = '0.41.0';
 
 const scrypt = promisify(scryptCb);
 // The same folding the browser importer uses, so a fix from Home Assistant and
@@ -524,6 +524,12 @@ const q = {
   `),
   delCell: db.prepare('DELETE FROM cell_sources WHERE user_id = ? AND cell_id = ?'),
   delSourceCell: db.prepare('DELETE FROM cell_sources WHERE user_id = ? AND source = ? AND cell_id = ?'),
+  // Does anything that actually recorded fixes vouch for this cell? See
+  // PLACEHOLDER_SOURCES — the two names excluded here are the two non-answers.
+  realSourceCell: db.prepare(`
+    SELECT 1 FROM cell_sources
+    WHERE user_id = ? AND cell_id = ? AND source NOT IN ('unknown', 'manual') LIMIT 1
+  `),
 
   // Routes. Newest first — by when the track happened, falling back to when it
   // was imported for files that carried no dates.
@@ -773,6 +779,29 @@ const q = {
     'UPDATE device_links SET last_workout = 0, total_workouts = 0 WHERE user_id = ?',
   ),
 };
+
+// The two sources that are not really sources: 'unknown', the placeholder the
+// pre-provenance migration left on every cell it carried over, and 'manual', the
+// one you get for tapping a cell on the map. Neither knows anything — no dates,
+// no visit count, a `hits` of 1 that is a stand-in rather than a number — and
+// every reader in the app already treats them as the same non-answer, skipping
+// both when it totals visits.
+//
+// So a source that actually recorded fixes in the cell takes their place rather
+// than sitting beside them: "I was here" and "here is when I was here, and how
+// often" are the same claim, and only one of them is worth keeping. Leaving both
+// would file the cell under two sources at once in Settings → Sources, which
+// counts rows, so a place your phone has tracked for a year would go on being
+// counted as somewhere you once marked by hand.
+//
+// `keep` is the source doing the recording, so an import that *is* one of these
+// two does not delete the row it just wrote.
+const PLACEHOLDER_SOURCES = ['unknown', 'manual'];
+function clearPlaceholders(userId, cellId, keep) {
+  for (const source of PLACEHOLDER_SOURCES) {
+    if (source !== keep) q.delSourceCell.run(userId, source, cellId);
+  }
+}
 
 // Run `fn` inside one transaction — the bulk import writes thousands of rows
 // and SQLite is an order of magnitude faster (and atomic) this way.
@@ -1391,9 +1420,8 @@ async function haSync(row, { verify = false } = {}) {
   tx(() => {
     for (const c of cells) {
       q.mergeRow.run(row.user_id, c.id, HA_SOURCE, at, c.first, c.last, c.hits, c.fixes, VISIT_GAP_SEC);
-      // Same as an imported file: a real reading beats the placeholder left by
-      // the pre-provenance migration.
-      q.delSourceCell.run(row.user_id, 'unknown', c.id);
+      // Same as an imported file: a real reading beats a placeholder.
+      clearPlaceholders(row.user_id, c.id, HA_SOURCE);
     }
     // last_run = 0 when there's still history to walk through, so a link
     // catching up after an outage comes round again on the next tick instead
@@ -1504,7 +1532,7 @@ async function stravaSync(row) {
       tx(() => {
         for (const c of folded) {
           q.mergeRow.run(row.user_id, c.id, STRAVA_SOURCE, at, c.first, c.last, c.hits, c.fixes, VISIT_GAP_SEC);
-          q.delSourceCell.run(row.user_id, 'unknown', c.id);
+          clearPlaceholders(row.user_id, c.id, STRAVA_SOURCE);
         }
         for (const r of routes) {
           const geom = cleanGeom(r.geom);
@@ -2235,7 +2263,17 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
         for (const id of slice) q.delCell.run(user.id, id);
       });
       await chunked(add, (slice) => {
-        for (const id of slice) q.touchRow.run(user.id, id, source, at);
+        for (const id of slice) {
+          // The other half of the rule above: a hand mark on a cell something
+          // already recorded adds nothing but a second row saying less. The page
+          // has always believed this — markCell() leaves existing provenance
+          // alone and says so — but the server wrote the placeholder anyway, and
+          // that is how a cell came to be filed under both its real source and
+          // "Marked by hand" at once. Only guarded for the placeholder sources;
+          // a caller naming a real one is recording something.
+          if (PLACEHOLDER_SOURCES.includes(source) && q.realSourceCell.get(user.id, id)) continue;
+          q.touchRow.run(user.id, id, source, at);
+        }
       });
       return send(res, 200, { ok: true, total: cellCount(user) });
     }
@@ -2313,10 +2351,11 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
             else added++;
             q.upsertRow.run(user.id, id, source, at, +first || 0, +last || 0, +hits || 1, +fixes || 0);
             // Cells carried over from the pre-provenance storage have a
-            // placeholder 'unknown' row. A real import knows strictly more about
-            // them, so it takes their place instead of sitting beside it — this
-            // is what re-importing your old exports is for.
-            if (source !== 'unknown') q.delSourceCell.run(user.id, 'unknown', id);
+            // placeholder 'unknown' row, and one you tapped on the map has a
+            // 'manual' one. A real import knows strictly more about them, so it
+            // takes their place instead of sitting beside them — this is what
+            // re-importing your old exports is for.
+            clearPlaceholders(user.id, id, source);
           }
         });
         return send(res, 200, { ok: true, added, updated, total: cellCount(user) });
@@ -2741,9 +2780,10 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       await chunked(cells, (slice) => {
         for (const c of slice) {
           q.mergeRow.run(user.id, c.id, DEVICE_SOURCE, now, c.first, c.last, c.hits, c.fixes, VISIT_GAP_SEC);
-          // As for an imported file: a real reading beats the placeholder left
-          // by the pre-provenance migration.
-          q.delSourceCell.run(user.id, 'unknown', c.id);
+          // As for an imported file: a real reading beats a placeholder. The
+          // phone having been somewhere is the answer a hand mark was standing
+          // in for.
+          clearPlaceholders(user.id, c.id, DEVICE_SOURCE);
         }
       });
       // Outside the cell loop, and unconditional: a push that landed entirely
@@ -2812,7 +2852,7 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
           tx(() => {
             for (const c of folded) {
               q.mergeRow.run(user.id, c.id, HEALTH_SOURCE, now, c.first, c.last, c.hits, c.fixes, VISIT_GAP_SEC);
-              q.delSourceCell.run(user.id, 'unknown', c.id);
+              clearPlaceholders(user.id, c.id, HEALTH_SOURCE);
             }
             for (const r of built) {
               const geom = cleanGeom(r.geom);
@@ -3040,7 +3080,7 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
             // rather than a new slice of time, so the counts are replaced the
             // way re-importing a file replaces them.
             q.upsertRow.run(user.id, c.id, PHOTO_SOURCE, now, c.first, c.last, c.hits, c.fixes);
-            q.delSourceCell.run(user.id, 'unknown', c.id);
+            clearPlaceholders(user.id, c.id, PHOTO_SOURCE);
           }
         });
         // And the withdrawal half of "replace": rows this library no longer

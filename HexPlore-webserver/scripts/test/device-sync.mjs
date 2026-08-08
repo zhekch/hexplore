@@ -432,17 +432,26 @@ try {
   // cell carries, which a real import is meant to take the place of and which
   // nothing else can ever reach.
   const orphan = pointsToCells([{ lat: 47.3769, lng: 8.5417, t: T0 }])[0].id; // Zürich
+  const collide = pointsToCells([{ lat: 47.5596, lng: 9.0356, t: T0 }])[0].id; // Konstanz
   await api('POST', '/api/cells/import', {
     source: 'unknown',
-    cells: [[orphan, 0, 0, 1, 0], [CELL, 0, 0, 1, 0]],
+    cells: [[orphan, 0, 0, 1, 0], [CELL, 0, 0, 1, 0], [collide, 0, 0, 1, 0]],
   });
-  // …and a hand mark on the same cell, so the rename below has a real collision
-  // to resolve rather than a clear run. (user, cell, source) is a primary key,
-  // so this is the case a plain UPDATE would fail on.
-  await api('POST', '/api/cells/mutate', { add: [CELL], source: 'manual' });
+  // …and a hand mark on one of them, so the rename below has a real collision to
+  // resolve rather than a clear run. (user, cell, source) is a primary key, so
+  // this is the case a plain UPDATE would fail on.
+  //
+  // Deliberately not CELL: the phone has recorded there, and a hand mark on a
+  // cell a real source already vouches for is refused now — which is the whole
+  // point of the placeholder rule, and would leave this with no collision to
+  // find. An unknown row is itself a placeholder, so `collide` takes the mark.
+  await api('POST', '/api/cells/mutate', { add: [collide], source: 'manual' });
   const beforeRename = await rowsFor(CELL);
   check(!!beforeRename.unknown, 'a cell can hold an unknown row beside a real one');
-  check(!!beforeRename.manual, 'and a row under the name it is about to be renamed to');
+  check(
+    !!(await rowsFor(collide)).manual,
+    'and another holds a row under the name it is about to be renamed to',
+  );
 
   eq(
     (await api('POST', '/api/sources/rename', { from: 'unknown', to: 'unknown' })).status,
@@ -479,7 +488,7 @@ try {
     200,
     'a browser holding the old copy is given the new one rather than a 304',
   );
-  eq(renamed.body.cells, 2, 'and says how many rows it moved');
+  eq(renamed.body.cells, 3, 'and says how many rows it moved');
   eq(renamed.body.merged, 1, 'reporting the one that already had a row under the new name');
   eq(
     (await api('GET', '/api/sources')).body.sources.some((s) => s.key === 'unknown'),
@@ -488,7 +497,7 @@ try {
   );
   // The collision case: a cell that held both names must end up with one row,
   // not lose the older claim and not gain a duplicate.
-  const afterRename = await rowsFor(CELL);
+  const afterRename = await rowsFor(collide);
   eq(afterRename.unknown, undefined, 'the old row is gone from a cell that held both');
   check(!!afterRename.manual, 'and the surviving row is under the new name');
   check(!!(await rowsFor(orphan)).manual, 'a cell that held only the old name moved with it');
@@ -497,6 +506,36 @@ try {
     beforeDrop.iphone?.hits,
     'and every other source kept its own rows',
   );
+
+  // --- A hand mark is a placeholder, and the phone supersedes it -------------
+  //
+  // "I was here" and "here is when, and how often" are the same claim, and only
+  // one of them is worth keeping. Both directions matter, because a cell can
+  // arrive at the pair either way round: marked first and recorded later, or
+  // recorded first and then tapped.
+  const FAR_LAT = 46.99;
+  const FAR_LNG = 7.51;
+  const marked = pointsToCells([{ lat: FAR_LAT, lng: FAR_LNG, t: T0 }])[0].id;
+  const farAt = (t) => [FAR_LAT, FAR_LNG, t];
+
+  await api('POST', '/api/cells/mutate', { add: [marked] });
+  check(!!(await rowsFor(marked)).manual, 'a cell tapped on the map is marked by hand');
+
+  await push([farAt(T0 + 50 * DAY), farAt(T0 + 50 * DAY + 3600)]);
+  const takenOver = await rowsFor(marked);
+  check(!!takenOver.iphone, 'the phone recording the same cell files it under the phone');
+  check(
+    !takenOver.manual,
+    'and the hand mark gives way rather than being counted beside it',
+    `still there: ${JSON.stringify(takenOver.manual)}`,
+  );
+
+  // The reverse: tapping a cell the phone already vouches for must not put the
+  // placeholder back, or the two would file it under both again.
+  await api('POST', '/api/cells/mutate', { add: [marked] });
+  const tappedAgain = await rowsFor(marked);
+  check(!tappedAgain.manual, 'tapping a cell the phone already recorded adds no hand mark');
+  check(!!tappedAgain.iphone, 'and leaves what the phone knows alone');
 
   // Removing the logger also rewinds its cursor — otherwise the phone would go
   // on refusing to re-send everything it still holds. A push first, because the

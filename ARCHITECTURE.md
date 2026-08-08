@@ -838,6 +838,33 @@ place — every import path deletes the `unknown` row for a cell it claims — b
 that only ever reaches the cells some export still remembers. Whatever is left
 was genuinely put there by hand and had no way of ever saying so.
 
+**`manual` is the other one**, and it is treated the same way, because it is the
+same kind of non-answer: a cell you tapped on the map carries no dates, no visit
+count, and a `hits` of 1 that is a stand-in rather than a number. Every reader
+already skipped both when totalling visits; what they did *not* do was stop the
+two rows coexisting. So `PLACEHOLDER_SOURCES` in `server/index.js` names both,
+and `clearPlaceholders()` is what the six recording paths call — the phone, Apple
+Health, Apple Photos, Home Assistant, Strava and a file import. A source that
+recorded actual fixes in a cell takes the placeholder's place instead of sitting
+beside it: *I was here* and *here is when I was here, and how often* are the same
+claim, and only one of them is worth keeping.
+
+The other direction is guarded too, and it is the one that made the pair happen.
+`POST /api/cells/mutate` wrote its `manual` row unconditionally, so a brush drawn
+across ground your phone had already tracked filed those cells under both names —
+even though the page had always believed otherwise (`markCell()` leaves existing
+provenance alone and says so in a comment). It now declines to add a placeholder
+to a cell a real source already vouches for. This matters because
+**Settings → Sources counts rows, not cells** (`sourceTally`, a `GROUP BY
+source`), so a cell claimed twice was counted twice, and somewhere your phone had
+tracked for a year went on being reported as somewhere you once marked by hand.
+
+The trade is that a hand mark is genuinely given up rather than kept in reserve:
+delete that source afterwards — Settings → Sources can — and the cells go with
+it, where before the hand mark would have held them. That is the same bargain
+`unknown` has always made here, and the reason it is the right one is that the
+placeholder was never the better record of the two.
+
 `POST /api/sources/rename` says it. It is not an `UPDATE`, because
 `(user, cell, source)` is a primary key and a cell may already hold both names,
 so each row is merged into the target with the same arithmetic a poll uses —
