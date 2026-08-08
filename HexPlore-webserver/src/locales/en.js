@@ -264,7 +264,7 @@ export default {
   "intro.perm.allow": "Allow",
   "intro.perm.already": "Already done",
   "intro.perm.asking": "Asking…",
-  "intro.perm.blocked-health": "This one lives in the app's own Settings tab — turn on Workouts and Health will ask you there.",
+  "intro.perm.blocked-health": "Not from here — it's in the app's own Settings tab, under Workouts.",
   "intro.perm.blocked-location": "The map will just ask again when it needs you.",
   "intro.perm.blocked-photos": "Turn it on later in iOS Settings, under Photos.",
   "intro.perm.body-app": "These are asked by the phone, not by us — and every one of them is optional. You can change your mind later in iOS Settings.",

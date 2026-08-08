@@ -8524,6 +8524,16 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onClose: () => search.open(),
   });
 
+  // Apple Health's channel, or null anywhere that is not an iPhone app new
+  // enough to have one. Its absence is answered rather than assumed away: on a
+  // Mac there is no HealthKit at all, and an older build of the app simply
+  // predates the handler — both get the directions the card used to give.
+  //
+  // Inline rather than a module of its own, unlike `photoHost()` in
+  // src/photos.js. That one is the front door to a whole overlay; this is two
+  // messages, neither of which carries any data.
+  const healthHost = () => globalThis.webkit?.messageHandlers?.hexploreHealth ?? null;
+
   // The introduction. Everything it needs is a question about the map that
   // something else here already answers — which is the point: the deck reads
   // the state of the app rather than keeping its own idea of it, so a replay
@@ -8590,12 +8600,30 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       }),
 
     /**
-     * Workouts. There is no way to raise HealthKit's sheet from a page — the
-     * app asks for it when the switch in its own Settings tab is thrown, and
-     * nothing on this side can throw it. So this one is honest about being an
-     * instruction rather than a control, and the row says where to go.
+     * Workouts. The one permission with no web equivalent at all — there is no
+     * standard way to raise HealthKit's sheet, so the iPhone app answers a
+     * message of its own (`HealthBridge` there) by throwing the same switch its
+     * Settings tab throws, which is what makes iOS ask.
+     *
+     * `settings` is the answer everywhere else, and it is a real answer rather
+     * than a failure: on a Mac there is no HealthKit to ask, and in an older
+     * build of the app there is no handler — so the row goes back to being the
+     * directions it used to be instead of a button that quietly does nothing.
+     *
+     * A `true` here means the sheet was raised, not that it was accepted:
+     * HealthKit never reports read permission either way. See the note on
+     * `HealthBridge`.
      */
-    askHealth: async () => ({ ok: false, error: 'settings' }),
+    askHealth: async () => {
+      const host = healthHost();
+      if (!host) return { ok: false, error: 'settings' };
+      try {
+        return (await host.postMessage({ ask: 'authorize' })) ?? { ok: false, error: 'settings' };
+      } catch (e) {
+        console.warn('Apple Health could not be reached.', e);
+        return { ok: false, error: 'settings' };
+      }
+    },
 
     /**
      * Whether location has already been granted, without asking for it.
@@ -8610,6 +8638,26 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       } catch {
         // Safari answered `TypeError` for an unsupported descriptor for years,
         // and a browser that will not say is not the same as a refusal.
+        return null;
+      }
+    },
+
+    /**
+     * Whether the app's workout sync is already on — asked without asking, so a
+     * replay can say "already done" rather than raising a second sheet at
+     * somebody who answered the first one.
+     *
+     * Better evidence than a source on the map, and available sooner: this is
+     * true from the moment the sheet is accepted, where `apple-health` only
+     * appears once a ride has actually synced.
+     */
+    healthState: async () => {
+      const host = healthHost();
+      if (!host) return null;
+      try {
+        const reply = await host.postMessage({ ask: 'state' });
+        return reply?.ok ? !!reply.on : null;
+      } catch {
         return null;
       }
     },

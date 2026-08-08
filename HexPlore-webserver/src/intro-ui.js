@@ -90,13 +90,15 @@ const REFUSED_NOTE = {
  * @param {() => Promise<{ok: boolean, error?: string}>} opts.askHealth
  * @param {() => Promise<string|null>} opts.geolocationState  the Permissions API's
  *   answer for geolocation, or null where there is no such API
+ * @param {() => Promise<boolean|null>} [opts.healthState] whether the iPhone app's
+ *   workout sync is already on, or null anywhere that cannot say
  * @param {() => Promise<object|null>} opts.loadStats  the coverage reading
  * @param {() => Promise<Array|null>} opts.loadTrips
  * @param {() => Array} opts.routes
  */
 export function mountIntro({
   host, onFinish, onPickHome, home, sources,
-  askPhotos, askLocation, askHealth, geolocationState,
+  askPhotos, askLocation, askHealth, geolocationState, healthState,
   loadStats, loadTrips, routes,
 }) {
   const $ = (id) => document.getElementById(id);
@@ -360,6 +362,7 @@ export function mountIntro({
    */
   async function drawPerms() {
     let geolocation = null;
+    let healthOn = null;
     try {
       // Awaited rather than chained off `?.()`: a browser with no Permissions
       // API hands back `undefined`, and `.catch` on that is a throw inside the
@@ -368,13 +371,18 @@ export function mountIntro({
     } catch {
       /* no answer is the same as "we cannot tell", which is what null means */
     }
+    try {
+      healthOn = (await healthState?.()) ?? null;
+    } catch {
+      /* likewise — only the iPhone app can answer this one at all */
+    }
     const known = sources?.() ?? [];
     for (const key of permissionsFor(host())) {
       const row = permRow(key);
       if (!row) continue;
       const btn = row.querySelector('.intro-perm-btn');
       if (row.dataset.settled === 'yes') continue; // answered in this sitting
-      if (alreadyGranted(key, { asked: perms, sources: known, geolocation })) {
+      if (alreadyGranted(key, { asked: perms, sources: known, geolocation, healthOn })) {
         settle(row, btn, true, t('intro.perm.already'));
       } else {
         row.className = 'intro-perm';

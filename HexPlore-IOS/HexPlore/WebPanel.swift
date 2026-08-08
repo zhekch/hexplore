@@ -81,6 +81,12 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         configuration.userContentController.addScriptMessageHandler(
             SaveBridge.shared, contentWorld: .page, name: SaveBridge.name
         )
+        // And the third: the introduction's Health row, which is the one
+        // permission a page cannot raise a sheet for on its own. See
+        // `HealthBridge` — it moves no workouts, only the question.
+        configuration.userContentController.addScriptMessageHandler(
+            HealthBridge.shared, contentWorld: .page, name: HealthBridge.name
+        )
         // How the server tells this app apart from a browser: it lands at the
         // end of the User-Agent, so `server/index.js` can key a layout on it.
         //

@@ -206,21 +206,31 @@ export const shouldIntro = (where) => seenVersion(where) < INTRO_VERSION;
  *     means workouts have. That is not a permission check, it is better than
  *     one: it is the permission having already produced the thing it was for.
  *
- * Location is the odd one out and the only one with a real answer available —
- * the Permissions API knows, so it is asked, and the remembered copy is the
- * fallback for the browsers that do not implement it.
+ * Two of them can also be asked outright, and are:
+ *
+ *   - **location**, of the Permissions API, which is the only real answer
+ *     available anywhere here. The remembered copy is the fallback for browsers
+ *     that do not implement it.
+ *   - **health**, of the iPhone app, which knows whether its own workout sync
+ *     is switched on. That is a stronger signal than a source on the map,
+ *     because it is true from the moment the sheet is accepted rather than from
+ *     whenever the first ride happens to sync.
  *
  * @param {string} key photos | location | health
  * @param {object} evidence
  * @param {Record<string,string>} [evidence.asked] what this device answered last time
  * @param {Set<string>|string[]} [evidence.sources] source keys present in the account
  * @param {string|null} [evidence.geolocation] the Permissions API's state, if it has one
+ * @param {boolean|null} [evidence.healthOn] whether the app's workout sync is on
  * @returns {boolean}
  */
-export function alreadyGranted(key, { asked = {}, sources = [], geolocation = null } = {}) {
+export function alreadyGranted(
+  key,
+  { asked = {}, sources = [], geolocation = null, healthOn = null } = {},
+) {
   const has = (s) => (sources instanceof Set ? sources.has(s) : sources.includes(s));
   if (key === 'photos') return asked.photos === 'granted' || has('apple-photos');
-  if (key === 'health') return asked.health === 'granted' || has('apple-health');
+  if (key === 'health') return asked.health === 'granted' || healthOn === true || has('apple-health');
   if (key === 'location') return geolocation === 'granted' || asked.location === 'granted';
   return false;
 }

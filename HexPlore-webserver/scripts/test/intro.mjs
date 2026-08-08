@@ -136,6 +136,20 @@ console.log('\nWhat a replay already knows');
     alreadyGranted('health', { sources: ['apple-photos'] }) === false,
     'and one source does not vouch for another',
   );
+  // Sooner than a source can say so: the switch is on the moment the sheet is
+  // accepted, where `apple-health` waits for a ride to actually sync.
+  check(
+    alreadyGranted('health', { healthOn: true }) === true,
+    "the app saying its workout sync is on is enough on its own",
+  );
+  check(
+    alreadyGranted('health', { healthOn: false }) === false,
+    'and the app saying it is off is not',
+  );
+  check(
+    alreadyGranted('health', { healthOn: null }) === false,
+    'nor is a host that cannot answer the question at all',
+  );
   check(
     alreadyGranted('location', { geolocation: 'granted' }) === true,
     'location has a real answer available, and it is used',

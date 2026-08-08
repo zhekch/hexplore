@@ -2409,10 +2409,22 @@ no such thing exists on this side of the bridge.
   browser it is the only one there is, on the iPhone WebKit raises the app's
   prompt behind it, and on the Mac the app has already replaced the API with a
   shim onto CoreLocation. The fix is kept, and the fix stays where it is.
-- **Apple Health.** There is no way to raise HealthKit's sheet from a page. The
-  app asks when the switch in its own Settings tab is thrown, and nothing here
-  can throw it — so this row is honest about being directions rather than a
-  control, and it does not report that as a refusal.
+- **Apple Health.** The one with no web equivalent at all: there is no standard
+  way to raise HealthKit's sheet, so the iPhone app answers a message of its own
+  (`HealthBridge`) by throwing the same switch its Settings tab throws — and
+  that `didSet` is where `requestAuthorization` lives. The page and the switch
+  therefore cannot disagree afterwards, because there is only one of them. No
+  workout crosses that bridge; only the question does.
+
+  **`ok` there means asked, not granted.** HealthKit read permission never
+  reports itself — Health answers a query identically whether you said yes or no
+  — so a refusal shows up later as a sync that finds nothing, which is what
+  `HealthSync.apply()` already had to live with.
+
+  A Mac has no HealthKit and an older build of the app has no handler. Both are
+  answered rather than assumed away: the row goes back to being the directions it
+  used to be, and pressing it is not reported as a refusal, because being told
+  where to go is not the same as saying no.
 
 ### A replay is a fresh reading, not a recording
 
