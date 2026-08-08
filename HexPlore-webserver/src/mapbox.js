@@ -123,39 +123,81 @@ const POI_BACKGROUND = 'none';
 // the words that were the noise.
 const SHOW_TRANSIT_LABELS = false;
 
-// --- The two that were off, and are the reason a landmark looked like a shed ---
+// --- The 3D work, and the thing that was never wrong with it --------------------
 //
-// Standard's best 3D work is opt-in, and nothing says so from inside the map: an
-// unset property draws the plain extrusion, which is a perfectly good building
-// and gives you no reason to suspect there was ever anything else. Both of these
-// are published as hidden by default.
+// **None of this is what made a landmark look like a shed.** That was the
+// server's `script-src`, which had no wasm source and so blocked the WebAssembly
+// Mapbox GL JS decodes the batched landmark meshes with — see the CSP note in
+// server/index.js. Every property below was read carefully, twice, while the
+// actual bug sat one directive away in another file and could not be seen from
+// here at all, because Vite's dev server sends no CSP and so the map on
+// localhost:5173 was perfect the entire time.
 //
-// **Facades** are the intricate ones — modelled windows, walls, roofs, entrance
-// lights — and Mapbox's own words for switching them on are "must be toggled on
-// in Studio or enabled directly in the code using the `show3dFacades` property".
-// They exist in a *list of cities* rather than everywhere: Munich, Berlin,
-// Stuttgart, San Francisco, New York, Las Vegas, Helsinki and Tokyo at the time
-// of writing, more through 2026. So this changes nothing at all in Bern, and it
-// is still right — the map is not a map of Bern, and the alternative is finding
-// out in Tokyo that the setting existed all along.
+// The lesson worth keeping is about *where to look*, not about config: a feature
+// that draws nothing has a renderer between it and the screen, and the renderer
+// is running inside somebody's policy. Ask what the deployed page is allowed to
+// do before re-reading what the style was asked to draw.
+//
+// **Facades** are the intricate buildings — modelled windows, walls, roofs,
+// entrance lights — and Mapbox's own words for switching them on are "must be
+// toggled on in Studio or enabled directly in the code using the
+// `show3dFacades` property". They exist in a *list of cities* rather than
+// everywhere: Munich, Berlin, Stuttgart, San Francisco, New York, Las Vegas,
+// Helsinki and Tokyo at the time of writing, more through 2026. So this changes
+// nothing at all in Bern, and it is still right — the map is not a map of Bern,
+// and the alternative is finding out in Tokyo that the setting existed all along.
 const SHOW_FACADES = true;
 
-// **Landmark icons** mark the buildings worth knowing at the zooms where the
-// model itself is too small to read — 6,500 of them across 450 cities. Their
-// labels are a separate property and stay off, which is the same call as the
-// transit labels above and made for the same reason: the icon is a landmark, the
-// word beside it is another name on a map that already has plenty. A landmark
-// icon is also nothing like a POI disc — there are a handful per city, not one
-// per café.
-const SHOW_LANDMARK_ICONS = true;
-const SHOW_LANDMARK_ICON_LABELS = false;
+// **Landmark icons are off**, which is Standard's own default and was the right
+// answer before this file ever had an opinion about it.
+//
+// They were switched on as a guess at the missing models and are exactly the
+// wrong thing: an icon *in place of* a landmark is a worse map than the plain
+// extrusion it sits on, because it covers the building with a claim that there
+// is something here worth seeing and then declines to show it. With the CSP
+// fixed the model itself draws, and a marker for a thing already on the screen
+// is one more sticker over the ground this map is about — the same call as the
+// POI discs above, and made for the same reason.
+//
+// The icons also cost requests that answer 404: `mapbox-landmark-pois-v1` is not
+// served to this account's token, so every tile of it was a round trip to a
+// refusal for a layer nobody asked for.
+const SHOW_LANDMARK_ICONS = false;
 
-// The models themselves are on by default — they are what every published
-// picture of Standard is showing. Stated anyway, because the two properties
-// above are the lesson that a default is a fact about this release and not a
-// promise about the next one, and an unknown property here costs one silent
-// no-op rather than anything.
-const SHOW_3D_LANDMARKS = true;
+// **The models themselves, from the zoom the rest of the city arrives at.**
+//
+// Standard publishes `building-models` at **minzoom 14** and every other
+// building layer at **15**: `3d-building`, `2d-building`, `procedural-buildings`
+// and `building-underground` all start together, one zoom later. So there is a
+// band between them where the modelled landmarks stand on a city that has no
+// buildings in it — a parliament and a cathedral floating over a bare street
+// plan, which reads as something half-loaded rather than as detail. Zooming in
+// then makes the rest of the city appear *around* models that were already
+// there, which is backwards: the landmark is what you should arrive at last.
+//
+// **The layer's own minzoom cannot be moved from out here.** `setLayerZoomRange`
+// resolves against the style's own layers and returns without a word for one
+// that arrived inside an import — the same silence `setConfigProperty` has for a
+// name it does not know. Neither the plain id nor any scoped spelling reaches
+// it.
+//
+// So the zoom is answered by *setting the config property again*, from a `zoom`
+// handler, which is the plain thing and the only one that works.
+//
+// **What does not work, tried and measured: putting an expression in the config
+// value.** `["step", ["zoom"], false, 15, true]` is accepted by
+// `setConfigProperty`, reads back intact from `getConfigProperty`, and is wrong
+// — Standard gates the layer through `layout.visibility`, which is resolved when
+// the style is evaluated and *not* re-resolved as the camera moves. So the value
+// is read once, at whatever zoom the page happened to load at, and frozen: open
+// the map at z10 and the landmarks never appear at any zoom, because the answer
+// was computed while they were legitimately hidden. It looks exactly like the
+// CSP bug it was written on top of — a plain extrusion, no error — which is how
+// it survived being "verified" by flipping it at one zoom and looking.
+const BUILDINGS_MINZOOM = 15;
+
+/** Are the landmark models Standard's to draw at this zoom? */
+export const landmarksVisibleAt = (zoom) => zoom >= BUILDINGS_MINZOOM;
 
 const TOKEN_KEY = 'visited-map:mapbox-token:v1';
 const PRESET_KEY = 'visited-map:mapbox-light:v1';
@@ -195,16 +237,58 @@ export const hasMapboxToken = () => !!mapboxToken();
  * it, and `scripts/test/mapbox.mjs` checks that each one is actually sent.
  *
  * Read at call time, because the light preset is a setting and the rest are not.
+ *
+ * @param {number} [zoom] the zoom to answer `show3dLandmarks` for. Defaulting to
+ *   Infinity rather than to a number means a caller that does not care gets the
+ *   models — "on" is what this app wants of them, and the zoom only ever takes
+ *   them away.
  */
-export const standardConfig = () => ({
+export const standardConfig = (zoom = Infinity) => ({
   lightPreset: lightPreset(),
   backgroundPointOfInterestLabels: POI_BACKGROUND,
   showTransitLabels: SHOW_TRANSIT_LABELS,
-  show3dLandmarks: SHOW_3D_LANDMARKS,
+  show3dLandmarks: landmarksVisibleAt(zoom),
   show3dFacades: SHOW_FACADES,
   showLandmarkIcons: SHOW_LANDMARK_ICONS,
-  showLandmarkIconLabels: SHOW_LANDMARK_ICON_LABELS,
 });
+
+// One `zoom` handler per map, and the last value each was given. A style swap
+// brings `configureStandard` back with the config reset to Standard's own
+// defaults, so the property is always re-sent — it is only the handler that must
+// not be added twice.
+const gated = new WeakSet();
+const gateApplied = new WeakMap();
+
+/**
+ * Keep `show3dLandmarks` answering for the zoom the map is actually at.
+ *
+ * Written the dull way on purpose: see the note above about the expression that
+ * looked like it did this and did not.
+ *
+ * @param {object} map
+ */
+function gateLandmarks(map) {
+  if (typeof map.getZoom !== 'function' || typeof map.on !== 'function') return;
+  // `configureStandard` has just sent this for the zoom in force — including on
+  // a style swap, which resets the config and so must send it again. Recording
+  // it here rather than in `send` is what keeps the handler quiet until the
+  // camera actually crosses.
+  gateApplied.set(map, landmarksVisibleAt(map.getZoom()));
+  if (gated.has(map)) return;
+  gated.add(map);
+  // Only on a crossing. `zoom` fires every frame of a pinch, and every call
+  // re-evaluates the style.
+  map.on('zoom', () => {
+    const want = landmarksVisibleAt(map.getZoom());
+    if (want === gateApplied.get(map)) return;
+    gateApplied.set(map, want);
+    try {
+      map.setConfigProperty(BASEMAP_IMPORT, 'show3dLandmarks', want);
+    } catch {
+      // Not Standard, and so not its landmarks either.
+    }
+  });
+}
 
 /** Which light preset is chosen, falling back to the default for anything odd. */
 export function lightPreset() {
@@ -308,7 +392,10 @@ export async function checkMapboxToken(token) {
  * @param {object} map a Mapbox GL JS map whose style has loaded
  */
 export function configureStandard(map) {
-  for (const [key, value] of Object.entries(standardConfig())) {
+  // The zoom decides one of these, and this runs on every style parse — so the
+  // value sent is the one for where the camera is now, not for where it was.
+  const zoom = typeof map.getZoom === 'function' ? map.getZoom() : Infinity;
+  for (const [key, value] of Object.entries(standardConfig(zoom))) {
     try {
       map.setConfigProperty(BASEMAP_IMPORT, key, value);
     } catch {
@@ -321,6 +408,7 @@ export function configureStandard(map) {
       // bug that gets blamed on the sun.
     }
   }
+  gateLandmarks(map);
 
   if (!TERRAIN_EXAGGERATION) return;
   try {

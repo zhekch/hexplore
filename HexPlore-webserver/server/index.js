@@ -99,7 +99,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.38.0';
+export const SERVER_VERSION = '0.39.0';
 
 const scrypt = promisify(scryptCb);
 // The same folding the browser importer uses, so a fix from Home Assistant and
@@ -3333,13 +3333,31 @@ async function loadStatic(file) {
 // the colour picker writes style="background:…" into markup — and connect/img
 // stay open to https: because the map legitimately talks to tile, geocoder and
 // Komoot hosts, none of which are dangerous the way script execution is.
+//
+// **'wasm-unsafe-eval' is why Standard's landmarks are buildings and not sheds.**
+// Mapbox GL JS decodes the batched meshes behind `mapbox-3dbuildings-v1` — the
+// modelled station roofs, churches and parliaments — in WebAssembly, and a
+// script-src without a wasm source blocks `WebAssembly.instantiate` outright.
+// What that looks like is *not* an error anyone would connect to this line: the
+// tiles are fetched, the layer stays visible, and every landmark draws as the
+// plain extrusion it falls back to. It cost a long afternoon of reading
+// Standard's config schema, because the map is only ever wrong **behind this
+// server** — Vite's dev server sends no CSP, so localhost:5173 renders the
+// models perfectly and the bug does not exist until it is deployed.
+//
+// Despite the name it is far narrower than 'unsafe-eval': it permits compiling
+// WebAssembly and nothing else. `eval()`, `new Function` and friends stay
+// refused, so a string injected into this page still cannot become running
+// JavaScript, which is the whole point of the directive above. A browser too old
+// to know the token ignores it and is back to plain extrusions — the same map it
+// draws today, and no worse.
 const CSP = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-  "script-src 'self' blob:",
+  "script-src 'self' blob: 'wasm-unsafe-eval'",
   "worker-src 'self' blob:",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",

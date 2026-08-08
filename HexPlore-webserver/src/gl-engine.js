@@ -154,6 +154,50 @@ export const ctrlSelector = (suffix) => ctrlClasses(suffix).map((c) => `.${c}`).
 export const hasCtrlClass = (el, suffix) =>
   ctrlClasses(suffix).some((c) => el?.classList?.contains(c));
 
+/**
+ * Which of the geolocate control's states its button is showing.
+ *
+ * Here rather than in main.js because it is not a fact about this app: it is the
+ * inverse of a table both libraries keep, and it is worth being able to check it
+ * against them.
+ *
+ *      OFF               (no classes)
+ *      WAITING_ACTIVE    waiting, active
+ *      ACTIVE_LOCK       active
+ *      ACTIVE_ERROR      waiting, active-error
+ *      BACKGROUND        background
+ *      BACKGROUND_ERROR  waiting, background-error
+ *
+ * **`background` is not a kind of `active`, and reading it as one is how the
+ * blue dot kept being lost.** The obvious spelling of this — "not active, so
+ * off; active and background, so background" — describes a control that adds
+ * `background` on top of `active`, and neither library does that. Both *remove*
+ * `active` on the way to BACKGROUND (`_onMoveStart` in MapLibre, the state table
+ * in Mapbox GL JS), so the obvious version answers "off" for a control that is
+ * tracking perfectly well, and `restoreGeolocate('off')` does nothing at all.
+ *
+ * Which made it the one state that mattered: BACKGROUND is where you end up the
+ * moment you pan or zoom away from yourself, and `dropLockOnZoom` in main.js
+ * puts you there deliberately on any zoom gesture. So the dot survived a basemap
+ * switch only if you had pressed the button and then touched nothing — and was
+ * lost in the case anybody actually has.
+ *
+ * The two `-error` states read as off. They are a control that is tracking and
+ * failing, and the honest thing to carry across a rebuild is nothing: a fresh
+ * control will fail the same way on its own if the problem is still there.
+ *
+ * @param {Element|null} el the geolocate button, or nothing
+ * @returns {'off'|'background'|'locked'}
+ */
+export function geolocateStateOf(el) {
+  if (!el) return 'off';
+  // Before `active`, because a control cannot be in both and this is the one
+  // that was being missed.
+  if (hasCtrlClass(el, 'ctrl-geolocate-background')) return 'background';
+  if (hasCtrlClass(el, 'ctrl-geolocate-active')) return 'locked';
+  return 'off';
+}
+
 // --- Where our layers go ------------------------------------------------------
 //
 // Everything this app draws is inserted relative to the basemap: the visited

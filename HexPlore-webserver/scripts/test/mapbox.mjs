@@ -32,11 +32,11 @@ globalThis.localStorage = {
 };
 
 const {
-  BASEMAP_IMPORT, LIGHT_PRESETS, configureStandard, hasMapboxToken, lightPreset, mapboxToken,
-  presetTheme, setLightPreset, setMapboxToken, standardConfig, tokenComplaint,
+  BASEMAP_IMPORT, LIGHT_PRESETS, configureStandard, hasMapboxToken, landmarksVisibleAt, lightPreset,
+  mapboxToken, presetTheme, setLightPreset, setMapboxToken, standardConfig, tokenComplaint,
 } = await import('../../src/mapbox.js');
 const {
-  LABEL_SLOT_ID, WASH_SLOT_ID, ctrlClass, ctrlClasses, ctrlSelector, hasCtrlClass,
+  LABEL_SLOT_ID, WASH_SLOT_ID, ctrlClass, ctrlClasses, ctrlSelector, geolocateStateOf, hasCtrlClass,
   installAddLayerSlots, isSlot,
 } = await import('../../src/gl-engine.js');
 
@@ -179,27 +179,52 @@ console.log('\nOur layers are drawn on the map, not lit by it');
 
 // --- What Standard is told about itself -----------------------------------------
 //
-// Standard's best 3D work is opt-in and its refusals are silent:
-// `Style.setConfigProperty` looks the name up in the style's own schema and
-// returns without a word when it is not there. So a property never sent and a
-// property misspelled look identical from the outside — a plain extrusion where
-// a landmark should be, and nothing in the console. The Bundeshaus rendered as a
-// warehouse for exactly that reason: `show3dFacades` and `showLandmarkIcons` are
-// published as hidden by default and were never set.
+// Standard's refusals are silent: `Style.setConfigProperty` looks the name up in
+// the style's own schema and returns without a word when it is not there. So a
+// property never sent and a property misspelled look identical from the outside
+// — a plain extrusion where a landmark should be, and nothing in the console.
 //
-// There is no way to check these names against Mapbox's schema from here — it
-// arrives with the style, which needs a token and a network. What can be checked
-// is that every one of them is actually sent, and that one the renderer does not
-// know cannot take the others down with it.
+// That silence is why the Bundeshaus-as-a-warehouse was blamed on this file
+// twice. It was never this file: the models were blocked by the server's
+// `script-src`, which had no wasm source, and Mapbox GL JS decodes the batched
+// landmark meshes in WebAssembly. `scripts/test/csp.mjs` is the check that
+// belongs to that, and it exists because this one cannot see it — nothing about
+// a config property can tell you the renderer was not allowed to run.
+//
+// There is no way to check these names against Mapbox's schema from here either
+// — it arrives with the style, which needs a token and a network. What can be
+// checked is that every one of them is actually sent, and that one the renderer
+// does not know cannot take the others down with it.
 
 console.log('\nStandard is told what to draw');
 {
   const want = standardConfig();
   check(want.show3dFacades === true, 'the detailed facades are asked for');
-  check(want.showLandmarkIcons === true, 'and the landmark icons');
-  check(want.showLandmarkIconLabels === false,
-    'but not their labels, which are words on a map that has enough of them');
+  check(want.showLandmarkIcons === false,
+    'but not the landmark icons, which stand in front of the models rather than beside them');
+  check(!('showLandmarkIconLabels' in want),
+    'and nothing is said about their labels, which only mean anything once the icons are on');
   check(want.lightPreset === lightPreset(), 'the light preset is read when it is set, not at import');
+
+  // Standard starts `building-models` at 14 and every other building layer at
+  // 15, and the layer's own minzoom cannot be reached from outside the import.
+  // So the zoom is answered by re-sending the property, and the value is a
+  // plain boolean — an expression here reads back perfectly and does nothing,
+  // because `layout.visibility` is not re-resolved as the camera moves.
+  {
+    check(typeof want.show3dLandmarks === 'boolean',
+      'the landmark switch is a boolean, not an expression that would be read once and frozen',
+      JSON.stringify(want.show3dLandmarks));
+    check(landmarksVisibleAt(15) && landmarksVisibleAt(17.4),
+      'the models are drawn from z15, where Standard starts the other buildings');
+    check(!landmarksVisibleAt(14) && !landmarksVisibleAt(14.99),
+      'and not in the band where they would be the only buildings on the map');
+    check(standardConfig(14).show3dLandmarks === false
+      && standardConfig(15).show3dLandmarks === true,
+      'which is the value the config carries for a given zoom');
+    check(standardConfig().show3dLandmarks === true,
+      'and a caller with no zoom to offer gets the models rather than losing them');
+  }
 
   // Enough map to get through the terrain half without warning: a source that
   // already exists, and a `setTerrain` that accepts one.
@@ -214,8 +239,11 @@ console.log('\nStandard is told what to draw');
   check(sent.length === Object.keys(want).length, 'every property reaches the map', `${sent.length} sent`);
   check(sent.every(([fragment]) => fragment === BASEMAP_IMPORT),
     'each one naming the import, which is the only one Standard has');
+  // Compared by value rather than by identity: one of these is an expression,
+  // and an array that merely looks right is what has to be checked.
   const missing = Object.entries(want)
-    .filter(([k, v]) => !sent.some(([, key, value]) => key === k && value === v));
+    .filter(([k, v]) => !sent.some(([, key, value]) => key === k
+      && JSON.stringify(value) === JSON.stringify(v)));
   check(missing.length === 0, 'with the value it was given', missing.map(([k]) => k).join(', '));
 
   // The case that made this a loop rather than one try around the lot: an older
@@ -228,6 +256,44 @@ console.log('\nStandard is told what to draw');
   check(after.length === Object.keys(want).length - 1,
     'a property this Standard has never heard of takes only itself down');
   check(after.includes('lightPreset'), 'and the light preset is still set afterwards');
+
+  // The gate itself. This is the half that an expression in the config value
+  // only *looked* like it was doing: the property has to be sent again when the
+  // camera crosses z15, because the style resolves it once and keeps the answer.
+  {
+    let zoom = 10.5;
+    const handlers = [];
+    const sentHere = [];
+    const gatedMap = {
+      getZoom: () => zoom,
+      on: (ev, fn) => { if (ev === 'zoom') handlers.push(fn); },
+      setConfigProperty: (fragment, key, value) => sentHere.push([key, value]),
+      getSource: () => ({}),
+      setTerrain: () => {},
+    };
+    const zoomTo = (z) => { zoom = z; handlers.forEach((fn) => fn()); };
+    const landmarkCalls = () => sentHere.filter(([k]) => k === 'show3dLandmarks').map(([, v]) => v);
+
+    configureStandard(gatedMap);
+    eq(landmarkCalls(), [false], 'a map opened below z15 is told the landmarks are off');
+    check(handlers.length === 1, 'and one zoom handler is installed', `${handlers.length}`);
+
+    zoomTo(14.9);
+    eq(landmarkCalls(), [false], 'zooming within the band says nothing further');
+    zoomTo(15.2);
+    eq(landmarkCalls(), [false, true], 'crossing z15 switches them on');
+    zoomTo(17.4);
+    eq(landmarkCalls(), [false, true], 'and zooming further does not say it again');
+    zoomTo(12);
+    eq(landmarkCalls(), [false, true, false], 'coming back out switches them off once');
+
+    // A style swap lands here again with the config reset to Standard's own
+    // defaults, so the value must be re-sent — but a second handler must not be.
+    zoom = 16;
+    configureStandard(gatedMap);
+    eq(landmarkCalls(), [false, true, false, true], 'a style swap re-sends it for the zoom in force');
+    check(handlers.length === 1, 'without stacking a second handler on the same map', `${handlers.length}`);
+  }
 
   // Not a Mapbox map at all. `installGrid` only calls this on Mapbox, but the
   // whole point of the trys is that being wrong about that costs nothing. The
@@ -266,6 +332,59 @@ console.log('\nA control class is readable under either library');
     'a button that is merely there is not tracking you');
   check(!hasCtrlClass(null, 'ctrl-geolocate-active'),
     'and no button at all is not a crash');
+}
+
+// --- What the blue dot survives -------------------------------------------------
+//
+// A basemap switch replaces the map, and a control belongs to the map that made
+// its element — so `switchEngine` reads the state off the outgoing button and
+// asks the new one for it back. Everything about whether that works is in one
+// table, and the table is the libraries', not ours:
+//
+//      OFF               (no classes)
+//      WAITING_ACTIVE    waiting, active
+//      ACTIVE_LOCK       active
+//      ACTIVE_ERROR      waiting, active-error
+//      BACKGROUND        background
+//      BACKGROUND_ERROR  waiting, background-error
+//
+// **BACKGROUND carries no `active` class.** Both libraries remove it on the way
+// in, and reading `background` as a flavour of `active` — which is what the
+// obvious spelling of this does — answers "off" for a control that is tracking.
+// `restoreGeolocate('off')` returns immediately, so the dot did not come back.
+//
+// That is the state that matters: it is where panning or zooming away from
+// yourself lands, and `dropLockOnZoom` puts you there on purpose. The dot
+// survived only for someone who pressed the button and then touched nothing.
+//
+// Pinned for both libraries and for every state either can be in, because this
+// has now been the same bug twice and both times it read as "nothing happened".
+
+console.log('\nThe blue dot is a state that survives a basemap switch');
+{
+  const btn = (...names) => ({ classList: { contains: (c) => names.includes(c) } });
+  const state = (prefix, ...suffixes) =>
+    geolocateStateOf(btn(...suffixes.map((s) => `${prefix}-ctrl-geolocate-${s}`)));
+
+  for (const prefix of ['maplibregl', 'mapboxgl']) {
+    const lib = prefix === 'mapboxgl' ? 'Mapbox' : 'MapLibre';
+    eq(state(prefix), 'off', `${lib}: a control nobody has pressed is off`);
+    eq(state(prefix, 'active'), 'locked', `${lib}: ACTIVE_LOCK is the camera following you`);
+    eq(state(prefix, 'waiting', 'active'), 'locked', `${lib}: and so is WAITING_ACTIVE, which is on its way there`);
+    // The one this whole block exists for.
+    eq(state(prefix, 'background'), 'background',
+      `${lib}: BACKGROUND is tracking without the camera — not off, whatever the missing 'active' suggests`);
+    eq(state(prefix, 'waiting', 'active-error'), 'off', `${lib}: ACTIVE_ERROR is not carried across a rebuild`);
+    eq(state(prefix, 'waiting', 'background-error'), 'off', `${lib}: nor BACKGROUND_ERROR`);
+  }
+
+  eq(geolocateStateOf(null), 'off', 'and no button at all is off rather than a crash');
+
+  // The mistake that was actually shipped, stated as a case: a button whose only
+  // class is `background` must not read as `off`, under either library.
+  const missed = ['maplibregl', 'mapboxgl'].filter((p) => state(p, 'background') === 'off');
+  check(missed.length === 0,
+    'no library reads a backgrounded control as one that was never switched on', missed.join(', '));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

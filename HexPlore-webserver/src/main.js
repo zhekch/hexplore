@@ -43,7 +43,7 @@ import {
 } from './mapbox.js';
 import {
   LABEL_SLOT_ID, MAPBOX, STYLE_KEY, WASH_SLOT_ID, ctrlClass, ctrlSelector, engineForBasemap, engineNow,
-  hasCtrlClass, installAddLayerSlots, installGlobalStateShim, installSpriteShim, isSlot, loadEngine,
+  geolocateStateOf, installAddLayerSlots, installGlobalStateShim, installSpriteShim, isSlot, loadEngine,
   matchMapboxRotation,
 } from './gl-engine.js';
 import { applySnow, isSnowMode, setSnowMode, snowMode, snowWanted } from './snow.js';
@@ -1058,18 +1058,18 @@ function dropToBackground(btn) {
 /**
  * Whichever of the control's states the button is currently showing.
  *
- * Under **both** libraries' class names, unlike everything else here, because
- * this is the one call made while the two disagree about which of them is
- * live: `switchEngine` reads it after the incoming library has loaded and
+ * Found under **both** libraries' class names, unlike everything else here,
+ * because this is the one call made while the two disagree about which of them
+ * is live: `switchEngine` reads it after the incoming library has loaded and
  * before the outgoing map is taken down. Asking `ctrlClass` there returns the
- * arriving library's prefix and matches nothing at all, so the answer was
- * always "off" — and `restoreGeolocate('off')` returns immediately, which is
- * the blue dot silently not coming back. See `ctrlClasses` in src/gl-engine.js.
+ * arriving library's prefix and matches nothing at all.
+ *
+ * Reading the classes it finds is `geolocateStateOf` in src/gl-engine.js, which
+ * is where the note about BACKGROUND is — the second and larger half of why
+ * this kept answering "off" for a control that was tracking.
  */
 function geolocateState() {
-  const btn = document.querySelector(ctrlSelector('ctrl-geolocate'));
-  if (!hasCtrlClass(btn, 'ctrl-geolocate-active')) return 'off';
-  return hasCtrlClass(btn, 'ctrl-geolocate-background') ? 'background' : 'locked';
+  return geolocateStateOf(document.querySelector(ctrlSelector('ctrl-geolocate')));
 }
 
 /**

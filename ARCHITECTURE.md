@@ -3235,27 +3235,57 @@ without them the icons keep their colour and their meaning. Transit labels are
 off, because Standard names every tram stop it has and that is "Zytglogge" five
 times over one junction.
 
-**Standard's best 3D work is opt-in, and its refusals are silent.** For a long
-time this map drew the Bundeshaus as a plain brown extrusion, which is a
-perfectly good building and gives nobody a reason to suspect there was ever
-anything else on offer. Two published properties were simply never set, both
-documented as hidden by default:
+**`show3dFacades` is on** — the intricate buildings, with modelled windows,
+walls, roofs and entrance lights, which Mapbox documents as hidden by default and
+says "must be toggled on". **`showLandmarkIcons` is off**, which is Standard's
+own default: an icon standing *in front of* a landmark is a worse map than the
+building, because it covers the thing with a claim that there is something here
+worth seeing and then declines to show it. It also costs a round trip per tile to
+`mapbox-landmark-pois-v1`, which answers 404 for this account's token.
 
-- `show3dFacades` — the intricate ones, with modelled windows, walls, roofs and
-  entrance lights. Mapbox's own wording is that they "must be toggled on".
-- `showLandmarkIcons` — the icons that mark a landmark at the zooms where the
-  model is too small to read. `showLandmarkIconLabels` stays **off**, which is
-  the transit-labels call made again: the icon is the landmark, the word beside
-  it is one more name on a map that has plenty.
-
-`show3dLandmarks` is stated too, though it is on by default. The other two are
-the lesson that a default is a fact about one release rather than a promise.
-
-**What this does not do is change Bern.** Facades exist in a list of cities —
+**What the facades do not do is change Bern.** They exist in a list of cities —
 Munich, Berlin, Stuttgart, San Francisco, New York, Las Vegas, Helsinki, Tokyo,
 with more through 2026 — and the bespoke landmark models in a few dozen. A city
 Mapbox has not modelled has nothing to switch on, and the switch is still right:
 the alternative is finding out in Tokyo that it was there all along.
+
+**The Bundeshaus drew as a plain brown extrusion for a long time, and none of the
+above was why.** It was the server's own `script-src`, in `server/index.js` — see
+[The landmarks needed a wasm
+source](#the-landmarks-needed-a-wasm-source-and-the-bug-only-existed-once-deployed).
+Two rounds of fixes went into `standardConfig()` first, because a missing
+building looks exactly like a config property nobody set, and the second of them
+switched the landmark icons on as a substitute for the models. Both were wrong,
+and the shape of the mistake is worth more than the fix: **a feature that draws
+nothing has a renderer between it and the screen, and the renderer runs inside
+somebody's policy.** Ask what the deployed page is allowed to do before
+re-reading what the style was asked to draw.
+
+**`show3dLandmarks` follows the zoom, and is a plain boolean.** Standard
+publishes `building-models` at minzoom **14** and every other building layer —
+`3d-building`, `2d-building`, `procedural-buildings`, `building-underground` — at
+**15**. In that one-zoom band the modelled landmarks stand on a city with no
+buildings in it: a parliament and a cathedral floating over a bare street plan,
+which reads as something half-loaded. Zooming in then brings the rest of the city
+up *around* models that were already there, which is backwards — the landmark is
+what you should arrive at last.
+
+The layer's own minzoom cannot be moved from outside the import:
+`setLayerZoomRange` resolves against the style's own layers and returns without a
+word for an imported one, under the plain id or any scoped spelling of it. So
+`gateLandmarks()` sets the config property again from a `zoom` handler, on a
+crossing only, and `configureStandard()` sends the value for the zoom in force
+every time a style parses.
+
+**The version of this that does not work is an expression in the config value.**
+`["step", ["zoom"], false, 15, true]` is accepted by `setConfigProperty` and
+reads back intact from `getConfigProperty`, and it is inert: Standard gates the
+layer through `layout.visibility`, which is resolved when the style is evaluated
+and *not* re-resolved as the camera moves. The value is read once, at whatever
+zoom the page loaded at, and frozen — so opening the map at z10 hides the
+landmarks at every zoom thereafter. It fails as a plain extrusion with nothing in
+the console, which is indistinguishable from the CSP bug it was written on top
+of, and it survived being "verified" by flipping it at one zoom and looking.
 
 **Nothing here reports a name it does not recognise.**
 `Style.setConfigProperty` looks the key up in the style's own schema and returns
@@ -3267,6 +3297,38 @@ as the Standard reference writes them, and why `scripts/test/mapbox.mjs` checks
 that every one of them actually reaches the map. The schema itself cannot be
 checked from a test: it arrives with the style, which needs a token and a
 network.
+
+### The landmarks needed a wasm source, and the bug only existed once deployed
+
+Mapbox GL JS decodes the batched meshes behind `mapbox-3dbuildings-v1` — the
+modelled station roofs, churches and parliaments — in **WebAssembly**. The
+server's policy was `script-src 'self' blob:`, which has no wasm source, and
+Chrome refuses `WebAssembly.instantiate` under it outright.
+
+**What that looks like is nothing.** The style parses, the tiles are fetched, the
+layer stays `visible`, no error reaches the page, and every landmark falls back to
+the plain extrusion — which is a perfectly good building. The one visible symptom
+is a building that is less interesting than it should be, in a city you may not
+know well enough to say so.
+
+**And it is invisible in development.** Vite's dev server sends no CSP, so
+`localhost:5173` renders the models correctly and the bug does not exist until
+`npm run build && npm start` puts `server/index.js` in front of them. Two rounds
+of fixes went into `src/mapbox.js` on the strength of a map that was wrong only
+in production and right on the machine it was being fixed on.
+
+The policy now carries `'wasm-unsafe-eval'`. Despite the name it is far narrower
+than `'unsafe-eval'`: it permits compiling WebAssembly and nothing else, so
+`eval()` and `new Function` stay refused and an injected string still cannot
+become running JavaScript — which is the whole reason `script-src` is tight here.
+A browser too old to know the token ignores it and gets plain extrusions, the
+same map it drew before.
+
+`scripts/test/csp.mjs` checks the header on a real response from a real server:
+that wasm is allowed, that `'unsafe-eval'` and `'unsafe-inline'` are still *not*
+(the line the narrower token exists to stay behind), and that the rest of the
+policy survived — so "add a source" cannot quietly become "replace the policy".
+It checks a static file as well as the page, because `sendStatic` serves both.
 
 ### The train tracks on Mapbox, which took three shims
 
@@ -3461,6 +3523,10 @@ disappearing exactly as it had before. Reading now names both prefixes
 never looks at, which fails silently in the other direction. Pinned by
 `scripts/test/mapbox.mjs`.
 
+That was half of it. Which classes the button carries in each state was the other
+half, and wrong in the same function — see *What a basemap switch takes with it*,
+where `geolocateStateOf` now lives with the table it inverts.
+
 **The token is the viewer's own, and it follows their account.** A **secret**
 token (`sk.`) is refused by name: Mapbox will serve tiles with it, which is
 exactly why it is worth catching, and GL JS's own refusal is an exception thrown
@@ -3592,13 +3658,37 @@ were locked on and wrong if you had panned away: `dropToBackground` is applied
 before the first fix arrives, and the control only moves the camera while
 `ACTIVE_LOCK`.
 
-**It then went on not working, for a reason one line above it.** The state it is
-handed is read while the incoming library has already been loaded and the
-outgoing map is still on screen — the one window in which the class-name prefix
-names the wrong library. See *The class-name prefix* above: the answer was
+**It then went on not working, twice, for reasons one line above it.** Both were
+in `geolocateState()` — the call that reads the outgoing button — and neither was
+in the restore, which is why the restore survived being read carefully twice.
+
+*First*, the state is read while the incoming library has already been loaded and
+the outgoing map is still on screen, the one window in which the class-name
+prefix names the wrong library. See *The class-name prefix* above: the answer was
 always "off", and "off" is the one value `restoreGeolocate` does nothing with.
-Nothing about the restore itself was wrong, which is why it survived a reading
-of the restore.
+
+*Second, and the one that outlived the fix for the first:* **`background` is not
+a kind of `active`.** Both libraries keep the same table of state to class —
+
+    OFF               (no classes)      ACTIVE_ERROR      waiting, active-error
+    WAITING_ACTIVE    waiting, active   BACKGROUND        background
+    ACTIVE_LOCK       active            BACKGROUND_ERROR  waiting, background-error
+
+— and the reading was written as "not `active`, so off; `active` and
+`background`, so background", which describes a control that adds `background` on
+top of `active`. Neither does: both *remove* `active` on the way in
+(`_onMoveStart` in MapLibre, the state table in Mapbox GL JS). So a control
+sitting in BACKGROUND — tracking you perfectly well, just not holding the camera
+— read as one that had never been switched on.
+
+That made it the only state that mattered. BACKGROUND is where you land the
+moment you pan or zoom away from yourself, and `dropLockOnZoom` puts you there
+deliberately on any zoom gesture, so the dot survived a switch only for someone
+who pressed the button and then touched nothing at all. The reading now lives in
+`geolocateStateOf` in `src/gl-engine.js`, next to the table it inverts, and
+`scripts/test/mapbox.mjs` pins all six states under both libraries' prefixes —
+because this has now been the same bug twice and both times it read as nothing
+happening.
 
 `setStyle` replaces the whole style, and everything the app added goes with it —
 sources, layers and images alike. `installGrid` rebuilds all of it on
