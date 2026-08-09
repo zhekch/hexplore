@@ -5117,18 +5117,24 @@ happened yet.
 
 Pointer events cover a finger, a mouse and a *dragged* trackpad. They do not
 cover the two-finger swipe, which is the one anybody actually makes on a Mac:
-that arrives as a stream of `wheel` events and reached nothing at all here. What
-it did reach was the strip — the only sideways scroller on the card — so one
-flick flew past thirty thumbnails and left the picture exactly where it was.
-Both halves of that are wrong: the swipe should move the photograph, and it
-should move it **once**.
+that arrives as a stream of `wheel` events and reached nothing at all here. A
+swipe over the photograph did nothing to it.
 
-So the card takes the horizontal wheel itself, on the card rather than on the
-picture, because the strip is half the reason it exists. The rule is the Mac
-app's own (`GalleryView.scrollWheel` in `HexPlore-macOS`): accumulate `deltaX`,
-step at `WHEEL_STEP` (40px), and take only wheels that are plainly sideways — a
+So the **picture** takes the horizontal wheel, and the rule is the Mac app's own
+(`GalleryView.scrollWheel` in `HexPlore-macOS`): accumulate `deltaX`, step at
+`WHEEL_STEP` (40px), and take only wheels that are plainly sideways — a
 two-finger scroll down a trackpad drifts left and right the whole way, and a
 card that changes picture because of that is unusable.
+
+**Only the picture.** The strip below it is a scroller, and swiping it is how
+you get along a group of four thousand without pressing four thousand times;
+taking that gesture and rationing it to one photograph at a time makes the strip
+useless for the one thing it is better at than the picture is. So the two halves
+of the card answer a sideways swipe differently, and that is the point rather
+than an inconsistency: over the picture it means *the next one*, over the strip
+it means *along*. The tail of a flick is swallowed with `preventDefault` for the
+same reason — otherwise a swipe the picture has already answered carries on and
+scrolls the strip underneath it, which is one gesture with two answers.
 
 Where one swipe ends and the next begins is the whole difficulty, and the
 platform is no help: a `wheel` event does not say which part of a gesture it is.

@@ -23,9 +23,10 @@
 //     item -1;
 //   - a swipe onto a picture four hundred along, whose thumbnail had no button
 //     yet because the strip renders in chunks, leaving nothing outlined;
-//   - a swipe on a trackpad, which is not a pointer gesture at all: it did
-//     nothing to the picture and flew the strip past thirty thumbnails, because
-//     the strip was the only sideways scroller the browser could find;
+//   - a swipe on a trackpad, which is not a pointer gesture at all, and did
+//     nothing to the picture: it is not a pointer gesture, it is a stream of
+//     wheel events, and the only sideways scroller the browser could find for
+//     them was the strip;
 //   - and then the same swipe *thrown*, which moved three or four, because a
 //     swipe accelerates while the fingers are still down and everything after
 //     the photograph was spent looked like a fresh push;
@@ -295,8 +296,10 @@ console.log('\nThe card is wired for a gesture at all');
     'and the arrow keys are the same movement without a finger');
   check(windowHandlers.get('keydown')[0].capture === true,
     'listened for in the capture phase, so the map below never gets them');
-  check(figure.listens('wheel') === 0 && dom.get('photo-info').listens('wheel') === 1,
-    'the trackpad is taken by the whole card, strip included');
+  check(figure.listens('wheel') === 1 && dom.get('photo-info').listens('wheel') === 0,
+    'the trackpad is taken by the picture, and only by the picture');
+  check(strip.listens('wheel') === 0,
+    'the strip is left to scroll the way a scroller does');
 }
 
 console.log('\nA pull far enough is the next photograph');
@@ -489,7 +492,6 @@ console.log('\nAn open card holds all four arrows, so the map cannot move under 
 
 console.log('\nOne trackpad swipe is one photograph');
 {
-  const cardEl = dom.get('photo-info');
   let clock = 0;
 
   /**
@@ -504,7 +506,7 @@ console.log('\nOne trackpad swipe is one photograph');
     const seen = { defaulted: 0 };
     for (const speed of speeds) {
       clock += gap;
-      cardEl.fire('wheel', {
+      figure.fire('wheel', {
         deltaX: dir * speed,
         deltaY: dy,
         timeStamp: clock,

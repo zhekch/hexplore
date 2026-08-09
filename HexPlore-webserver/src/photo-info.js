@@ -613,9 +613,16 @@ export function mountPhotoInfo({ onClose } = {}) {
 
   // --- The trackpad ---------------------------------------------------------------
   //
-  // On the whole card rather than on the picture, because the strip is half the
-  // reason this exists: a sideways swipe over it used to scroll thumbnails past
-  // without changing what you were looking at. See the note by `WHEEL_STEP`.
+  // On the **picture**, and only on the picture. The strip below it is a
+  // scroller and swiping it is how you get along a group of four thousand
+  // without pressing four thousand times — taking that gesture and turning it
+  // into one photograph at a time makes the strip useless for the one thing it
+  // is better at than the picture is.
+  //
+  // So the two halves of the card answer a sideways swipe differently, and that
+  // is the point rather than an inconsistency: over the picture it means *the
+  // next one*, and over the strip it means *along*. See the note by
+  // `WHEEL_STEP`.
 
   // When the last wheel event arrived, how far this gesture has travelled,
   // whether it has already been spent on a photograph, and whether the stream
@@ -625,14 +632,15 @@ export function mountPhotoInfo({ onClose } = {}) {
   let wheelSpent = false;
   let wheelLulled = false;
 
-  card.addEventListener('wheel', (e) => {
+  figure.addEventListener('wheel', (e) => {
     if (card.hidden || items.length < 2 || busy) return;
     // Sideways only, and only when it is plainly sideways. A two-finger scroll
     // down a trackpad drifts left and right by a few pixels the whole way, and a
     // card that changes picture because of that is unusable.
     if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-    // Ours from here, spent or not: the tail of a flick has to be swallowed too,
-    // or the strip scrolls on the momentum of a swipe the card has answered.
+    // Ours from here, spent or not. The tail of a flick has to be swallowed as
+    // well as the flick, or a swipe the picture has already answered goes on to
+    // scroll the strip underneath it — one gesture, two answers.
     e.preventDefault();
     const speed = Math.abs(e.deltaX);
     if (e.timeStamp - wheelAt > WHEEL_GAP_MS) {
