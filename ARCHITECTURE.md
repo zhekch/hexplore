@@ -1974,8 +1974,9 @@ undo — the shortcut is left alone there.
 The object between a cell and a route: a run of days spent well away from where
 you usually are. Derived in `src/trips.js`, never stored — it costs no import
 path, no schema and no migration, and it re-derives itself the moment new
-history arrives. The price is that a trip cannot be renamed, because it isn't a
-row, it's a reading of the rows.
+history arrives. The price used to be that a trip could not be renamed, because
+it isn't a row, it's a reading of the rows — see
+[Calling one something else](#calling-one-something-else) for what pays it now.
 
 - **Home is where you keep going back to**, taken as the centre of gravity of
   the cells with the most visits rather than the single most-visited one — which
@@ -2124,6 +2125,8 @@ row, it's a reading of the rows.
   from the row under the list, which is why it doesn't ask twice — a confirm
   step for something undoable is just a second press. Ids are `trip-<start>` and
   stable across rebuilds, so one stays hidden as more history arrives.
+- **…and a trip you named stays named**, by exactly the same mechanism — see
+  [Calling one something else](#calling-one-something-else).
 - **Named after where it mostly was, not after its middle.** Naming is a
   separate pass (`nameTrips`) because the place data is a 2 MB lazy chunk and the
   trips are complete without it. It gets the trip's `spots` — one entry per cell
@@ -2209,6 +2212,54 @@ row, it's a reading of the rows.
   (`src/stats-ui.js`). Being a kilometre out cannot change which country or town
   a cell belongs to often enough to matter, and it turns ~1,500 lookups into
   ~500: the whole derivation is ~30 ms for 1,400 cells, against 6 MB of shapes.
+
+### Calling one something else
+
+The derived name is a good guess and a guess is what it stays. "Zermatt,
+Switzerland" is what a gazetteer can work out; what you remember is "the week
+the lift broke", and a list you browse by memory should be able to say so.
+
+There is still no row to edit, and that is not worked around — it is used. A
+trip has a stable id and the account already has somewhere to keep an opinion
+about one, which is what `hiddenTrips` is. Renaming is the second entry in the
+same drawer: **`tripNames`**, an id → name map in the account preferences, with
+a local mirror under `visited-map:trip-names:v1`.
+
+- **The mirror is not about being offline.** On a load where this browser's
+  stamp is the newer one, `prefsPayload()` is sent back as it stands — so
+  anything the payload carries and the browser cannot rebuild is a preference
+  *erased* by the recovery that exists to save it. That is the same reason the
+  hidden ids are mirrored, and it is the whole reason for the key.
+- **Applied in one place**: `derived.setTripNames`, which edits the trips **in
+  place**. The palette holds trip objects as the keys of its relevance map and
+  the calendar compares them by identity, so handing back renamed copies would
+  be two lists of the same holidays that do not match. It also means a trip is
+  called the same thing in the palette, the calendar and the Trips tab, which is
+  the point of `src/derived.js` being the single reading.
+- **Re-applied on every read**, because `/api/trips` is asked on every opening
+  and the server knows nothing about your names: a fresh 200 arrives calling
+  your holiday whatever the gazetteer calls it.
+- **The derived name is kept beside the new one** (`derivedName`). Clearing a
+  name means *call it what you worked out again*, which is unanswerable if the
+  answer has been overwritten — and re-deriving is a round trip and a 2 MB
+  gazetteer away.
+- **An empty name is a deletion, not a name.** Nothing is ever stored empty, so
+  an id absent from the map is a trip called what the server called it.
+- **Bounded at `TRIP_NAME_MAX` (80)** in `src/trips.js`. Long enough for a
+  sentence; short enough that a list of them still reads as a list; and it
+  bounds the preferences blob, which has a 64 KB cap of its own and would
+  otherwise be one paste away from refusing every later save.
+- **Edited in the row**, not in a dialog. Everything you need while choosing a
+  name — when it was, how long, how far — is on the row, and a dialog would
+  cover it with a box asking what to call it. Return commits, Escape cancels,
+  and leaving the field commits too: it is one line in a scrolling list, so the
+  usual way out is to touch something else, and a name lost to that is a name
+  typed twice. The field stops its own keys from reaching the palette, which
+  reads Return as "open the highlighted row" and Escape as "close".
+
+`scripts/test/trip-names.mjs` pins the three that are invisible when broken: the
+same array is edited rather than replaced, a fresh answer from the server keeps
+the name, and clearing gives back the derived one.
 
 ### Showing one
 
@@ -2619,13 +2670,42 @@ take a source off the map or undo an import — both things you just did on
 purpose — and being told about them on the next open is the app reading your own
 action back to you. There is no honest "you lost 300 km²" that is also welcome.
 
-### The frequency syncs; the baseline does not
+### Both the frequency and the baseline follow the account
 
 The setting rides in the account's preferences beside the clock: how much you
-want to be told is a fact about you. The **snapshot** stays in this browser's
-localStorage, because it answers *since you last saw this banner* — and the
-laptop and the phone have seen different banners at different times. A shared
-baseline would mean opening the phone silently spent the laptop's news.
+want to be told is a fact about you. So does the **snapshot** it is measured
+against, and that is a reversal.
+
+It used to stay in this browser's localStorage, on the argument that it answers
+*since you last saw this banner* and the laptop and the phone have seen
+different banners at different times. What that produced in practice was one
+ride announced twice — on the phone when it was picked up, and again on the
+laptop an hour later — and news you have already had is not news. The banner is
+about what changed, not about which machine you are reading it on.
+
+Both copies are still written. The local one is what makes the banner work with
+no server and what survives a push that never landed; the account's is what the
+other device reads. They are **merged rather than reconciled**, field by field,
+taking the larger of the two (`mergeSnapshots`). A snapshot is a set of counters
+that only ever grow, so the higher number is the one that has already been
+reported — which makes the merge the safe direction: it can suppress a line and
+it cannot cause one to be shown twice. A timestamp comparison could not promise
+that. A phone that showed the banner while the laptop was asleep would still
+lose to the laptop's older, lower baseline the moment the laptop pushed a colour
+change, and the news would come round again.
+
+The merge happens in `syncPrefs`, off the account's own copy rather than off the
+adopted state — the same place and the same reason as `offerIntro`, because the
+"push" branch never fills the adopted state in. It runs *before* the banner is
+decided, since `onAuthed` awaits the sync and shows the banner after it. And
+when the merge comes out ahead of what the account holds, the account is the
+copy that is behind, so it is pushed back: that is a browser whose own banner
+never got sent, and leaving the lower number on the account would let the other
+device announce the same thing again.
+
+The baseline moving is now a *write*, so it is pushed straight out rather than
+on the 600 ms debounce (`onSeen`). The whole point is that the device you pick
+up next stays quiet, and next can be a minute away.
 
 ### Workouts are the exception, at every setting
 
@@ -5161,10 +5241,26 @@ sideways is the paging. A gesture that follows the finger and can be changed of
 mind about is the whole difference between this and a swipe that is really a
 button.
 
-It yields on a video page too, and that is a decision rather than an oversight:
-the bottom of a video page is the system player's own controls, and a downward
-drag that begins on the scrubber is a scrub. A clip is closed with the button in
-the corner.
+It used to yield the whole of a video page, on the reasoning that the bottom of
+one is the system player's own controls and a downward drag beginning on the
+scrubber is a scrub. Only the bottom of it is: the transport bar is a pill down
+there, and everything above it is video. So the refusal covers
+`videoControlsBand` (180 pt, measured up from the bottom edge) rather than the
+page, and a clip closes with the same swipe a photograph does. The band is
+deliberately generous — too big costs a strip of video that has to be dragged
+from slightly higher up, too small costs a scrub that closes the gallery and
+loses your place in a group of three hundred.
+
+**And the × in the corner is the player's on those pages, not ours.** iOS 26
+gives `AVPlayerViewController` its own chrome — a close button top left, AirPlay
+beside it, volume opposite — and ours was drawn in the same corner at a
+different size, so a video opened in the gallery showed two overlapping × marks
+that read as one drawn wrong. There is no way to ask for the system controls
+without that button and no reason to want two of them, so the gallery's own
+close button hides itself on a video page and comes back on the next
+photograph (`refreshChrome`). The counter stays: the top middle is the one part
+of that row the player does not use, and *8 of 320* is the thing a gallery has
+to say that a single clip does not.
 
 It also asked for
 **`PHImageManagerMaximumSize`**, which on a recent iPhone is a 48-megapixel
@@ -6549,6 +6645,36 @@ Bump the patch for a fix, the minor for anything someone would notice. **A stale
 version is worse than none at all**: the entire value is that it can be trusted
 to rule the question out, and one that lies rules out the very thing that is
 wrong.
+
+### …and whether it is still the current one
+
+The number a page prints is the number it was handed **when it signed in**, and
+a page keeps that for as long as it is open. Update the server under a tab left
+on the map — which on a phone is the normal case, not the unusual one — and the
+tab goes on running last fortnight's app and goes on reporting last fortnight's
+version. Both answers are honest and they answer different questions: *which
+build am I looking at* and *is that the current one* are the same question ten
+seconds apart, and only the first had an answer.
+
+So opening Settings asks the second one. `currentBuild()` in `src/auth.js` hits
+`/api/health` — the one endpoint that answers without a session, already carries
+the version, and is what `ServerCheck.swift` asks the same question with — and
+only the **disagreement** is shown: *Server 0.47.0 · update available: 0.48.0*,
+with a Reload beside it. Three things about that are deliberate:
+
+- **Silence is not "up to date".** A check that cannot get through answers
+  `null`, and null is not a version to compare against, so nothing is claimed.
+  It is a plain `fetch` rather than going through `api()` for the same reason a
+  version check must not be able to flip the "your changes are not being saved"
+  banner: it is not a failed save.
+- **A plain reload, and no cache clearing.** Navigations are network-first
+  (`public/sw.js`) and everything else lives under a hashed URL, so a new build
+  is a new set of URLs and the old ones simply stop being asked for. Throwing
+  the offline copy away as well would spend a 3 MB gazetteer on a problem this
+  does not have — that button exists separately, for when a cache really has
+  gone wrong.
+- **Being told without being given the press is a chore.** The version line is
+  otherwise not a control, and this is the one thing it is worth making one for.
 
 ## Run & host
 

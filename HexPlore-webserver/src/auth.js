@@ -75,6 +75,38 @@ function keepVersion(d) {
   return d?.username;
 }
 
+/**
+ * What the server is running *now*, asked fresh.
+ *
+ * `serverBuild()` above is the build this page was handed when it signed in,
+ * and the two stop agreeing the moment the server is updated under an open
+ * tab — which on a phone left on the Map tab for a fortnight is the normal
+ * case, not the unusual one. Nothing on screen said so, and the symptom is a
+ * bug report about a fix that "did not work".
+ *
+ * `/api/health` rather than `/api/me`: it is the one endpoint that answers
+ * without a session, it already carries the version, and it is what the iOS app
+ * asks the same question with (`ServerCheck.swift`).
+ *
+ * Deliberately not routed through `api()`. A version check that cannot get
+ * through is not a failed save and must not flip the "your changes are not
+ * being saved" banner; it simply has no answer, and null is that.
+ *
+ * @returns {Promise<string|null>}
+ */
+export async function currentBuild() {
+  try {
+    const res = await fetch('/api/health', { cache: 'no-store' });
+    const d = await res.json();
+    // The same two-part check `ServerCheck` makes, for the same reason: on a
+    // home network something else answering 200 on that port is commoner than
+    // nothing answering at all, and a router's admin page is not a new build.
+    return d?.app === 'hexplore' && typeof d.version === 'string' ? d.version : null;
+  } catch {
+    return null;
+  }
+}
+
 export const auth = {
   // Resolves to the username if a valid session cookie exists, else null.
   me: () => api('GET', '/api/me').then(keepVersion).catch(() => null),

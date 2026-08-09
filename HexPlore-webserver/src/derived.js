@@ -35,6 +35,29 @@ import { auth } from './auth.js';
 let tripsHeld = null; // { trips, home }
 let statsHeld = null;
 
+// What you have called trips yourself, by id — see `setTripNames`.
+let tripNames = new Map();
+
+/**
+ * Put the chosen names back on, in place.
+ *
+ * In place, and that is the point: the palette holds trip objects as the keys of
+ * its relevance map and the calendar compares them by identity, so handing back
+ * renamed *copies* would be two lists of the same holidays that do not match.
+ * There is exactly one array of trips and this edits it.
+ *
+ * The derived name is kept beside the new one rather than thrown away, because
+ * clearing a name is a real thing to do and what it means is "call it whatever
+ * you worked out again" — which is unanswerable if the answer has been
+ * overwritten, and a fresh derivation is a round trip and a gazetteer away.
+ */
+function applyTripNames() {
+  for (const t of tripsHeld?.trips ?? []) {
+    if (t.derivedName === undefined) t.derivedName = t.name;
+    t.name = tripNames.get(t.id) || t.derivedName;
+  }
+}
+
 // One request at a time per reading. Both are asked from more than one place —
 // the palette opening, the Trips tab, the Statistics tab — and two of those
 // landing together should be one round trip rather than a race.
@@ -60,6 +83,23 @@ export const derived = {
   stats: () => statsHeld,
 
   /**
+   * The names you have given trips yourself, replacing the derived one.
+   *
+   * They arrive here rather than being applied at each list, because a trip that
+   * is "Iceland with Mum" in the palette and "Reykjavík, Iceland" in the
+   * calendar is two trips as far as anybody reading the screen is concerned.
+   * This is the single reading everything else renders — see the note at the
+   * top — so it is the right place for the one rule about what a trip is called.
+   *
+   * @param {Map<string,string>|object|null} names id → name; anything missing
+   *   or empty falls back to the derived name
+   */
+  setTripNames(names) {
+    tripNames = names instanceof Map ? new Map(names) : new Map(Object.entries(names ?? {}));
+    applyTripNames();
+  },
+
+  /**
    * Ask for the trips, and resolve to them.
    *
    * A failure keeps whatever was last read rather than emptying the list: the
@@ -71,6 +111,10 @@ export const derived = {
       tripsAsking = (async () => {
         try {
           tripsHeld = await auth.getTrips();
+          // Every read, because the server derives the names and knows nothing
+          // about the ones you chose: a fresh answer arrives calling your
+          // holiday whatever the gazetteer calls it.
+          applyTripNames();
         } catch {
           /* keep the last good answer */
         } finally {
@@ -104,5 +148,8 @@ export const derived = {
   clear() {
     tripsHeld = null;
     statsHeld = null;
+    // Nor at what they called them. These come from the account's preferences,
+    // and the next account's arrive with its own.
+    tripNames = new Map();
   },
 };

@@ -30,6 +30,22 @@
 //     year would open on "+38,000 places", which is a number nobody can feel and
 //     not what anybody meant by turning the setting on.
 //
+// ## The baseline belongs to the account, not to the device
+//
+// It used to be this browser's alone, on the argument that the laptop and the
+// phone have seen different banners at different times. What that produced was
+// the same ride announced twice — once when you picked up the phone and again
+// when you opened the laptop — and news you have already had is not news. So
+// the snapshot rides in the account preferences with everything else.
+//
+// Merged rather than reconciled, field by field, taking the **larger** of the
+// two. A snapshot is a set of counters that only grow, so the higher number is
+// the one that has already been reported, and the merge cannot make a device
+// announce something the other one has said. A timestamp comparison would: a
+// phone that had shown the banner while the laptop was asleep would still lose
+// to the laptop's older, lower baseline the moment the laptop pushed anything
+// at all.
+//
 // ## Workouts are not subject to the setting
 //
 // A new workout out of Apple Health is the one change here that arrived from
@@ -136,22 +152,47 @@ export function snapshotOf(stats, routes) {
 /** The fields a snapshot has, so reading one back cannot invent or drop any. */
 const FIELDS = ['cells', 'km2', 'countries', 'regions', 'days', 'streakDays', 'workouts'];
 
-/** Read the stored baseline, or null if there has never been one. */
-export function lastSnapshot() {
-  let raw;
-  try {
-    raw = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? 'null');
-  } catch {
-    return null;
-  }
+/**
+ * A snapshot out of somewhere untrusted — this browser's storage, or the
+ * account's preferences blob, which is fed by the network.
+ *
+ * Every field through Number, so an entry written by an older build, truncated
+ * by a full disk or edited by hand degrades to zeroes rather than to NaN —
+ * which would otherwise propagate into every delta and print "NaN new places"
+ * over a perfectly good map.
+ *
+ * @returns {object|null} null for anything that is not a snapshot at all
+ */
+export function readSnapshot(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  // Every field through Number, so an entry written by an older build,
-  // truncated by a full disk or edited by hand degrades to zeroes rather than
-  // to NaN — which would otherwise propagate into every delta and print
-  // "NaN new places" over a perfectly good map.
   const held = {};
   for (const key of FIELDS) held[key] = Number(raw[key]) || 0;
   return held;
+}
+
+/**
+ * The two copies of the baseline, as one.
+ *
+ * Field by field, the larger — see the note at the top. Either side may be
+ * missing: a device that has never shown a banner has none of its own, and an
+ * account written before this was synced carries none either.
+ */
+export function mergeSnapshots(a, b) {
+  const mine = readSnapshot(a);
+  const theirs = readSnapshot(b);
+  if (!mine || !theirs) return mine ?? theirs;
+  const held = {};
+  for (const key of FIELDS) held[key] = Math.max(mine[key], theirs[key]);
+  return held;
+}
+
+/** Read the stored baseline, or null if there has never been one. */
+export function lastSnapshot() {
+  try {
+    return readSnapshot(JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? 'null'));
+  } catch {
+    return null;
+  }
 }
 
 /** Write the baseline. Called when something has been said, and never otherwise. */

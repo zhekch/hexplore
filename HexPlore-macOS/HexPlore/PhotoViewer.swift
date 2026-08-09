@@ -49,6 +49,22 @@ final class PhotoGalleryWindowController: NSWindowController, NSWindowDelegate {
 
     static let shared = PhotoGalleryWindowController()
 
+    /// How much of the screen a photograph opens on.
+    ///
+    /// It used to be 980 × 700 wherever it was opened, which on a laptop is most
+    /// of the screen and on anything bigger is a postage stamp in the middle of
+    /// it — the picture drawn at a third of the size of the display it is being
+    /// looked at on, with black on every side. A photograph is the whole point
+    /// of this window and there is nothing else in it to make room for.
+    ///
+    /// Not the full `visibleFrame`, and not full screen: a window that opens
+    /// filling the screen edge to edge is one you have to move to see what you
+    /// were looking at underneath, and this is opened *from* the map.
+    private static let screenShare: CGFloat = 0.88
+
+    /// The smallest it will open at, for a screen too small to take a share of.
+    private static let leastSize = NSSize(width: 980, height: 700)
+
     private let scroll = PagingScrollView()
     private let imageView = NSImageView()
     private let playerView = AVPlayerView()
@@ -62,8 +78,19 @@ final class PhotoGalleryWindowController: NSWindowController, NSWindowDelegate {
     private var showing = 0
 
     private init() {
+        // `visibleFrame` rather than `frame`: it is the screen less the menu bar
+        // and the Dock, which is the part a window can actually occupy. No
+        // screen at all is a Mac with the lid shut and an external display
+        // asleep, and the floor is a perfectly good answer for it.
+        let room = NSScreen.main?.visibleFrame.size ?? Self.leastSize
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 980, height: 700),
+            contentRect: NSRect(
+                origin: .zero,
+                size: NSSize(
+                    width: max(Self.leastSize.width, room.width * Self.screenShare),
+                    height: max(Self.leastSize.height, room.height * Self.screenShare)
+                )
+            ),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -79,7 +106,13 @@ final class PhotoGalleryWindowController: NSWindowController, NSWindowDelegate {
         // stops here.
         window.isReleasedWhenClosed = false
         window.center()
-        window.setFrameAutosaveName("HexPlorePhotoViewer")
+        // A new name, and that is the whole of the change taking effect. The
+        // old one has a remembered 980 × 700 in it on every machine that has
+        // ever opened this window, and a saved frame beats the one it was just
+        // created with — so keeping the name would mean the size above applied
+        // to nobody who had used the app before. Whatever is chosen from here
+        // is remembered under the new name as usual.
+        window.setFrameAutosaveName("HexPlorePhotoViewer2")
         super.init(window: window)
         window.delegate = self
         build(in: window)

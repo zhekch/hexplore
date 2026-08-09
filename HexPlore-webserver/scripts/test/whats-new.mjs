@@ -13,6 +13,9 @@
 //     somebody on Never still hears about it.
 //   - **only growth is reported.** Cells go down when you take a source off the
 //     map, which is a thing you just did on purpose.
+//   - **the baseline is one baseline.** It follows the account, and the two
+//     copies of it merge by taking the larger of each field — which is what
+//     stops one ride being announced on the phone and again on the laptop.
 //
 //   node scripts/test/whats-new.mjs
 
@@ -31,7 +34,7 @@ await (await import('../../src/i18n.js')).loadLocale('en');
 
 const {
   BANNER_MODES, bannerFor, bannerMode, changesSince, forgetSnapshot, isBannerMode,
-  lastSnapshot, rememberSnapshot, setBannerMode, snapshotOf,
+  lastSnapshot, mergeSnapshots, readSnapshot, rememberSnapshot, setBannerMode, snapshotOf,
 } = await import('../../src/whats-new.js');
 
 let pass = 0;
@@ -181,6 +184,43 @@ console.log('\nHolding the baseline');
 
   forgetSnapshot();
   check(lastSnapshot() === null, 'signing out forgets it');
+}
+
+console.log('\nOne baseline between two devices');
+{
+  // The bug this is here for: a ride announced on the phone and announced again
+  // on the laptop, because each kept its own idea of what had been said.
+  const phone = snap({ cells: 900, km2: 4000, countries: 3, workouts: 2, days: 40 });
+  const laptop = snap({ cells: 500, km2: 4500, countries: 3, workouts: 1, days: 40 });
+
+  const both = mergeSnapshots(phone, laptop);
+  check(both.cells === 900 && both.km2 === 4500 && both.workouts === 2,
+    'the higher of the two wins, field by field', JSON.stringify(both));
+  check(JSON.stringify(mergeSnapshots(laptop, phone)) === JSON.stringify(both),
+    'and it does not matter which way round they are asked');
+
+  // The whole point: with the phone's baseline in hand, the laptop has nothing
+  // left to say about the ride the phone already reported.
+  const now = snap({ cells: 900, km2: 4500, countries: 3, workouts: 2, days: 40 });
+  check(changesSince(laptop, now).workouts === 1,
+    'on its own the laptop would announce the workout again',
+    String(changesSince(laptop, now).workouts));
+  check(changesSince(both, now).workouts === 0 && changesSince(both, now).lines.length === 0,
+    'merged, it says nothing at all', JSON.stringify(changesSince(both, now)));
+
+  check(JSON.stringify(mergeSnapshots(null, phone)) === JSON.stringify(phone),
+    'a device that has never shown one takes the account\'s copy whole');
+  check(JSON.stringify(mergeSnapshots(phone, null)) === JSON.stringify(phone),
+    'and an account that has never held one leaves the device\'s alone');
+  check(mergeSnapshots(null, null) === null, 'and neither is still no baseline');
+
+  // The account's copy arrives over the network, so it is exactly as untrusted
+  // as the localStorage one — and reads back the same way.
+  const junk = mergeSnapshots(null, { cells: 'lots', km2: null, extra: 'ignored' });
+  check(junk.cells === 0 && junk.km2 === 0 && Object.keys(junk).length === 7,
+    'rubbish from the account reads as zeroes and nothing else', JSON.stringify(junk));
+  check(readSnapshot('trip-1') === null && readSnapshot(undefined) === null,
+    'and something that is not an object at all is no snapshot');
 }
 
 console.log('\nThe frequency survives a round trip');

@@ -904,11 +904,21 @@
           </form>
         </div>
 
-        <!-- Last, and deliberately plain: it is not a control. It is here so
-             that "which build am I actually running" has an answer you can read
-             out over a message, which is the question every stale-cache report
-             turns out to have been. -->
-        <div class="settings-version" id="settings-version" hidden></div>
+        <!-- Last, and deliberately plain: it is here so that "which build am I
+             actually running" has an answer you can read out over a message,
+             which is the question every stale-cache report turns out to have
+             been.
+
+             The button beside it is the second half of the same question. A
+             page keeps the build it signed in with for as long as it is open,
+             so a server updated underneath one leaves it running last
+             fortnight's app with nothing anywhere saying so — and being told
+             without being given the one press that fixes it is a chore, not an
+             answer. Hidden until there is actually something newer. -->
+        <div class="settings-version" id="settings-version" hidden>
+          <span id="settings-version-text"></span>
+          <button data-i18n="settings-version-reload.reload" type="button" class="settings-version-reload" id="settings-version-reload" hidden>Reload</button>
+        </div>
 
         <div class="modal-actions">
           <button data-i18n="personal-back.back" type="button" class="modal-btn" id="personal-back">Back</button>

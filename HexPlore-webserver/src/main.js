@@ -22,7 +22,7 @@ import {
   mergeCountries,
   countryGeometry,
 } from './countries.js';
-import { auth, connection, mountAuth, serverBuild } from './auth.js';
+import { auth, connection, currentBuild, mountAuth, serverBuild } from './auth.js';
 import { derived } from './derived.js';
 import { installOffline, forgetAccountOffline, clearOfflineCaches } from './offline.js';
 import { mountCellInfo } from './cell-info.js';
@@ -47,7 +47,10 @@ import {
   matchMapboxRotation,
 } from './gl-engine.js';
 import { applySnow, isSnowMode, setSnowMode, snowMode, snowWanted } from './snow.js';
-import { bannerMode, forgetSnapshot, isBannerMode, setBannerMode } from './whats-new.js';
+import {
+  bannerMode, forgetSnapshot, isBannerMode, lastSnapshot, mergeSnapshots, readSnapshot,
+  rememberSnapshot, setBannerMode,
+} from './whats-new.js';
 import { mountWhatsNew } from './whats-new-ui.js';
 import { HEALTH_SOURCE } from './whats-new.js';
 import { LOCALES, applyTranslations, locale, setLocale, t } from './i18n.js';
@@ -98,7 +101,7 @@ import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
 import { mountIntro } from './intro-ui.js';
 import { INTRO_SEEN_KEY, INTRO_VERSION, hostKind, shouldIntro } from './intro.js';
-import { activeDays, findHome } from './trips.js';
+import { activeDays, findHome, TRIP_NAME_MAX } from './trips.js';
 import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
   loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView, fineCountryOutline,
@@ -3523,6 +3526,7 @@ function saveRoutesPref() {
 // in a map and a real row in the menu.
 const ROUTE_VIEW_KEY = 'visited-map:route-view:v1';
 const HIDDEN_TRIPS_KEY = 'visited-map:hidden-trips:v1';
+const TRIP_NAMES_KEY = 'visited-map:trip-names:v1';
 // The clock convention belongs to the account, not to this browser — but it is
 // mirrored here like everything else in the payload, and for a sharper reason
 // than the others. Without a local copy this browser boots on the default
@@ -3563,6 +3567,20 @@ function loadRouteView() {
   try {
     const put = JSON.parse(localStorage.getItem(HIDDEN_TRIPS_KEY) || '[]');
     if (Array.isArray(put)) hiddenTripIds = new Set(put.filter((id) => typeof id === 'string'));
+  } catch {
+    /* defaults are fine */
+  }
+  // Mirrored locally for the same reason the hidden ids are, and it is not
+  // about being offline: on a load where this browser's stamp is the newer one,
+  // `prefsPayload()` is sent back as it stands — so anything the payload can
+  // carry and this cannot rebuild is a preference that gets *erased* by the
+  // recovery that exists to save it.
+  try {
+    const named = JSON.parse(localStorage.getItem(TRIP_NAMES_KEY) || '{}');
+    if (named && typeof named === 'object') {
+      tripNames = new Map(Object.entries(named).filter(([, n]) => typeof n === 'string' && n));
+      derived.setTripNames(tripNames);
+    }
   } catch {
     /* defaults are fine */
   }
@@ -3614,6 +3632,21 @@ let introSeen = 0;
 // and stable across rebuilds, so one stays hidden as more history arrives.
 let hiddenTripIds = new Set();
 
+// Trips you named yourself, by id. Trips are derived rather than stored, so
+// there is no row with a name column in it to edit — which was the standing
+// reason a trip could not be renamed at all. What there is instead is a stable
+// id and somewhere to keep an opinion about it, which is the same shape as
+// `hiddenTripIds` above and follows the account for the same reason: "the week
+// I broke my wrist" is a fact about your history, not about this laptop.
+//
+// An empty string is not a name, it is a deletion: the derived name comes back.
+// That is why nothing is ever stored empty here, and why the map is the whole
+// truth — an id absent from it is a trip called what the server called it.
+let tripNames = new Map();
+
+/** What an id from `buildTrips` looks like, for anything read off the network. */
+const TRIP_ID = /^trip-\d+$/;
+
 const prefsPayload = () => ({
   v: 1,
   updatedAt: prefsStamp,
@@ -3627,6 +3660,7 @@ const prefsPayload = () => ({
   routeView: routeViewJson(),
   home: homePlace,
   hiddenTrips: [...hiddenTripIds],
+  tripNames: Object.fromEntries(tripNames),
   // Whether a time reads 14:20 or 02:20 PM. In the account rather than in this
   // browser because it is a fact about you, not about the machine you happen to
   // be sitting at — picking 24-hour on the laptop should mean the phone agrees
@@ -3641,11 +3675,14 @@ const prefsPayload = () => ({
   // account for the same reason as the clock: it is a thing about how much you
   // want to be told, not about which browser you are being told in.
   //
-  // The *snapshot* it is measured against deliberately stays local. It answers
-  // "since you last saw this banner", and the laptop and the phone have seen
-  // different banners at different times — a shared baseline would mean opening
-  // the phone silently spent the laptop's news.
+  // The *snapshot* it is measured against goes with it, and used to be kept
+  // locally on the argument that the phone and the laptop have seen different
+  // banners. What that produced was one ride announced on both of them, which
+  // is the same news twice. Both copies are kept — this one is written on every
+  // banner and works with no server — and they are merged rather than
+  // reconciled: see `mergeSnapshots` in src/whats-new.js.
   whatsNew: bannerMode(),
+  whatsNewSeen: lastSnapshot(),
   // Which language. In the account for the plainest reason of all: the language
   // you read is not a fact about a browser, and picking English again on the
   // phone after choosing it on the laptop is the kind of thing that makes a
@@ -3666,8 +3703,9 @@ const prefsPayload = () => ({
 });
 
 // Called here rather than beside its own definition: it fills in `hiddenTripIds`
-// too, and that is declared above — a `let` read before its declaration runs is
-// a temporal-dead-zone throw, on the module's very first line of work.
+// and `tripNames` too, and both are declared above — a `let` read before its
+// declaration runs is a temporal-dead-zone throw, on the module's very first
+// line of work.
 loadRouteView();
 
 /** Put a trip away, or (with a null id) bring every one of them back. */
@@ -3675,6 +3713,23 @@ async function setTripHidden(id, hide) {
   if (id === null) hiddenTripIds = new Set();
   else if (hide) hiddenTripIds.add(id);
   else hiddenTripIds.delete(id);
+  touchPrefs();
+  await pushPrefs();
+}
+
+/**
+ * Call a trip something. An empty name gives it its derived one back.
+ *
+ * Straight out rather than on the debounce, like the other two deliberate
+ * single acts here: typing a name and closing the tab is one gesture, and a
+ * name still sitting in a 600 ms timer when that happens is a name that was
+ * never given.
+ */
+async function setTripName(id, name) {
+  const clean = String(name ?? '').trim().slice(0, TRIP_NAME_MAX);
+  if (clean) tripNames.set(id, clean);
+  else tripNames.delete(id);
+  derived.setTripNames(tripNames);
   touchPrefs();
   await pushPrefs();
 }
@@ -3709,6 +3764,7 @@ function touchPrefs() {
     localStorage.setItem(PREFS_STAMP_KEY, String(prefsStamp));
     localStorage.setItem(ROUTE_VIEW_KEY, JSON.stringify(routeViewJson()));
     localStorage.setItem(HIDDEN_TRIPS_KEY, JSON.stringify([...hiddenTripIds]));
+    localStorage.setItem(TRIP_NAMES_KEY, JSON.stringify(Object.fromEntries(tripNames)));
     localStorage.setItem(CLOCK_KEY, clockMode());
   } catch {
     /* private mode, quota — the server copy is still attempted */
@@ -3766,8 +3822,17 @@ function adoptPrefs(prefs) {
   if (prefs.routeView && typeof prefs.routeView === 'object') adoptRouteView(prefs.routeView);
   hiddenTripIds = new Set(
     (Array.isArray(prefs.hiddenTrips) ? prefs.hiddenTrips : [])
-      .filter((id) => typeof id === 'string' && /^trip-\d+$/.test(id)),
+      .filter((id) => typeof id === 'string' && TRIP_ID.test(id)),
   );
+  // Same shape of check as the hidden ids above, on both halves: the blob comes
+  // off the network, and an id that is not one names no trip while a name that
+  // is not a string is a `textContent` of "[object Object]".
+  tripNames = new Map(
+    Object.entries(prefs.tripNames && typeof prefs.tripNames === 'object' ? prefs.tripNames : {})
+      .filter(([id, name]) => TRIP_ID.test(id) && typeof name === 'string' && name.trim())
+      .map(([id, name]) => [id, name.trim().slice(0, TRIP_NAME_MAX)]),
+  );
+  derived.setTripNames(tripNames);
   const h = prefs.home;
   homePlace = h && Number.isFinite(+h.lng) && Number.isFinite(+h.lat)
     ? { lng: +h.lng, lat: +h.lat, name: String(h.name ?? '').slice(0, 80) }
@@ -3823,6 +3888,7 @@ function adoptPrefs(prefs) {
   try {
     localStorage.setItem(ROUTE_VIEW_KEY, JSON.stringify(routeViewJson()));
     localStorage.setItem(HIDDEN_TRIPS_KEY, JSON.stringify([...hiddenTripIds]));
+    localStorage.setItem(TRIP_NAMES_KEY, JSON.stringify(Object.fromEntries(tripNames)));
     localStorage.setItem(CLOCK_KEY, clockMode());
   } catch {
     /* fine */
@@ -3886,11 +3952,21 @@ async function syncPrefs() {
     prefsDirty = true;
     pushPrefs();
   }
-  // Here rather than on the map's own load, because this is the first moment
-  // anything knows what the *account* has already been told — and that has to
-  // be read off the account's own copy rather than off the adopted state, which
-  // the 'push' branch above never filled in.
+  // Both of these read `remote` rather than the adopted state, and for the same
+  // reason: this is the first moment anything knows what the *account* has
+  // already been told, and the 'push' branch above never fills that in.
   //
+  // The banner's baseline is merged in before the banner is decided — `onAuthed`
+  // awaits this and shows it afterwards — so a ride the phone already announced
+  // is not announced again here. And when the merge comes out ahead of what the
+  // account holds, the account is the one that is behind: that is a browser
+  // whose own banner never got pushed, and an account left holding the lower
+  // number would let the *other* device announce it a second time.
+  const seen = mergeSnapshots(lastSnapshot(), remote?.whatsNewSeen);
+  if (seen) {
+    rememberSnapshot(seen);
+    if (JSON.stringify(seen) !== JSON.stringify(readSnapshot(remote?.whatsNewSeen))) touchPrefs();
+  }
   // Awaited by nothing: the deck is a curtain over a map that is still drawing,
   // and holding the sign-in open until it has decided would be a blank screen
   // for the sake of a screen that covers it anyway.
@@ -8416,6 +8492,8 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onReplayIntro: () => introUi?.open(),
     onClearCache: () => clearOfflineCaches(),
     version: () => serverBuild(),
+    currentVersion: () => currentBuild(),
+    onReload: () => location.reload(),
     username: () => username,
     onDeleteAccount: async (password) => {
       const out = await auth.deleteAccount(password);
@@ -8493,6 +8571,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     },
     hiddenTrips: () => hiddenTripIds,
     onHideTrip: setTripHidden,
+    onNameTrip: setTripName,
     // A day with a dot on it is a day you should be able to look at, and until
     // now the calendar could only tell you it existed. Same treatment as a
     // trip — the ground it covered, threaded in the order you covered it.
@@ -8791,6 +8870,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       const only = newWorkouts === 1 ? routeList.find((r) => r?.source === HEALTH_SOURCE) : null;
       if (only) stats.openRoute(only);
       else stats.open();
+    },
+    // Straight up rather than on the debounce. The point of a shared baseline is
+    // that the device you pick up *next* stays quiet, and next can be a minute
+    // away — a push still sitting in a timer when the phone comes out of a
+    // pocket is the duplicate this exists to stop.
+    onSeen: () => {
+      touchPrefs();
+      pushPrefs();
     },
   });
 

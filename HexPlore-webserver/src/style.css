@@ -2144,11 +2144,36 @@ body {
    secondary text in a modal does. */
 .settings-version {
   margin-top: 16px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
   font-size: 11.5px;
   line-height: 1.5;
   text-align: center;
   color: rgba(255, 255, 255, 0.55);
   font-variant-numeric: tabular-nums;
+}
+
+/* The one press that acts on the line above it. The same blue as a primary
+   action and none of its weight: this sits under the account-deletion block,
+   and a filled button next to "Delete everything" reads as a pair. */
+.settings-version-reload {
+  appearance: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: rgba(96, 172, 255, 1);
+  background: rgba(96, 172, 255, 0.14);
+  border: 1px solid rgba(96, 172, 255, 0.42);
+}
+
+.settings-version-reload:hover {
+  background: rgba(96, 172, 255, 0.24);
 }
 
 .modal-btn {
@@ -3866,6 +3891,18 @@ body {
   border-color: rgba(96, 172, 255, 0.5);
   background: rgba(96, 172, 255, 0.9);
   color: #05121f;
+}
+
+/* The blue that reads on white is a darker one — the tinted fill is nearly the
+   page here, so the word carries the colour on its own. */
+[data-theme='light'] .settings-version-reload {
+  color: #1d6fd0;
+  background: rgba(96, 172, 255, 0.16);
+  border-color: rgba(29, 111, 208, 0.38);
+}
+
+[data-theme='light'] .settings-version-reload:hover {
+  background: rgba(96, 172, 255, 0.28);
 }
 
 [data-theme='light'] .import-error,
@@ -5850,8 +5887,11 @@ body {
 
 /* Only on hover, and only on a pointer: a × beside every row reads as a list of
    things to delete rather than a list of trips. On touch there is no hover, so
-   it is always there. */
-.trip-hide {
+   it is always there. The pencil keeps the same company for the same reason,
+   and sits inside it — the destructive-looking one is the one that should be
+   furthest from the edge you reach for by accident. */
+.trip-hide,
+.trip-rename {
   position: absolute;
   right: 4px;
   top: 50%;
@@ -5875,13 +5915,20 @@ body {
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
 
+.trip-rename {
+  right: 32px;
+}
+
 .trip-row:hover .trip-hide,
-.trip-hide:focus-visible {
+.trip-row:hover .trip-rename,
+.trip-hide:focus-visible,
+.trip-rename:focus-visible {
   opacity: 1;
   pointer-events: auto;
 }
 
-.trip-hide:hover {
+.trip-hide:hover,
+.trip-rename:hover {
   background: rgba(255, 255, 255, 0.14);
   color: rgba(255, 255, 255, 0.9);
 }
@@ -5892,24 +5939,49 @@ body {
   transition: translate 0.12s ease;
 }
 
-/* Further than the rest of the row: a trip's distance has to clear the × as
-   well as tuck in, so it keeps going past the inner column. */
+/* Further than the rest of the row: a trip's distance has to clear both buttons
+   as well as tuck in, so it keeps going past the inner column. */
 .search-results .trip-row:hover .search-hit > .search-hit-right,
-.search-results .trip-row:has(.trip-hide:focus-visible) .search-hit > .search-hit-right {
-  translate: -26px 0;
+.search-results .trip-row:has(.trip-hide:focus-visible) .search-hit > .search-hit-right,
+.search-results .trip-row:has(.trip-rename:focus-visible) .search-hit > .search-hit-right {
+  translate: -54px 0;
 }
 
 /* Nothing to point at, so the × is always there and the column is permanently
    the narrower one — which is at least a column. */
 @media (hover: none) {
-  .trip-hide {
+  .trip-hide,
+  .trip-rename {
     opacity: 1;
     pointer-events: auto;
   }
 
   .search-results .trip-row .search-hit > .search-hit-right {
-    translate: -26px 0;
+    translate: -54px 0;
   }
+}
+
+/* The row, while it is a field. Full width and the row's own shape, so nothing
+   moves when it appears: the thing being edited stays exactly where it was
+   being read, which is what makes it obvious what is being renamed. */
+.trip-name-input {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  margin: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(96, 172, 255, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.trip-name-input:focus {
+  outline: none;
+  border-color: rgba(96, 172, 255, 0.9);
 }
 
 
@@ -6067,12 +6139,19 @@ body {
   color: rgba(15, 23, 42, 0.82);
 }
 
-[data-theme='light'] .trip-hide {
+[data-theme='light'] .trip-hide,
+[data-theme='light'] .trip-rename {
   color: rgba(15, 23, 42, 0.4);
 }
 
-[data-theme='light'] .trip-hide:hover {
+[data-theme='light'] .trip-hide:hover,
+[data-theme='light'] .trip-rename:hover {
   background: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+
+[data-theme='light'] .trip-name-input {
+  background: rgba(15, 23, 42, 0.04);
   color: #0f172a;
 }
 

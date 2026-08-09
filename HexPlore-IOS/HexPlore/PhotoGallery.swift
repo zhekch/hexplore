@@ -45,6 +45,24 @@ import UIKit
 /// **downwards only**, and now genuinely has to be: sideways belongs to the
 /// paging. `gestureRecognizerShouldBegin` refuses anything that is not more down
 /// than across, which leaves the page view's own scroll view to take it.
+///
+/// ## A video is closed the same way
+///
+/// It used to be the one page that could not be: the whole gesture was refused
+/// while a player was on the page, on the argument that a drag from the bottom
+/// of the screen is a scrub. Only the bottom of it is — the transport bar is a
+/// pill down there and nothing else in the frame belongs to the player — so the
+/// refusal now covers `videoControlsBand` rather than the video, and everything
+/// above it closes the gallery the way a photograph does.
+///
+/// ## Whose close button
+///
+/// The system player brings its own, and on iOS 26 it brings it to the top
+/// left — exactly where this one is, so a video opened in the gallery showed
+/// two × buttons of different sizes overlapping, which read as one drawn wrong.
+/// There is no way to ask `AVPlayerViewController` for its controls without
+/// that button, and no reason to want two, so ours steps aside for the pages
+/// that have one and comes back for the pages that do not.
 final class PhotoGalleryController: UIViewController {
 
     /// How far down it has to be thrown to let go of it. Either distance or
@@ -52,6 +70,16 @@ final class PhotoGalleryController: UIViewController {
     /// this", and requiring both makes the gesture feel sticky.
     private static let dismissDistance: CGFloat = 120
     private static let dismissSpeed: CGFloat = 900
+
+    /// How much of the bottom of a video belongs to the player rather than to
+    /// the gallery, measured up from the bottom edge.
+    ///
+    /// Enough for the transport pill, the button above it and the gap around
+    /// both. Deliberately generous: the cost of it being too big is a strip of
+    /// video that has to be dragged from slightly higher up, and the cost of it
+    /// being too small is a scrub that closes the gallery — which loses your
+    /// place in a group of three hundred.
+    private static let videoControlsBand: CGFloat = 180
 
     /// The gap between pages, which is a black gutter you only see mid-swipe.
     /// Without it the edge of one photograph touches the edge of the next and
@@ -122,6 +150,19 @@ final class PhotoGalleryController: UIViewController {
         counter.isHidden = items.count < 2
         view.addSubview(counter)
         refreshCounter()
+        refreshChrome()
+    }
+
+    /// Whether the page on screen is a video, which is the whole of what the
+    /// gallery's own chrome and its dismiss gesture need to know about it.
+    private var onVideo: Bool {
+        items.indices.contains(at) && items[at].isVideo
+    }
+
+    /// Ours or the player's — see the note at the top. Called wherever `at`
+    /// moves, because that is the only thing that changes the answer.
+    private func refreshChrome() {
+        close.isHidden = onVideo
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -217,6 +258,7 @@ extension PhotoGalleryController: UIPageViewControllerDataSource, UIPageViewCont
         else { return }
         at = page.index
         refreshCounter()
+        refreshChrome()
         // A video left playing on a page nobody is looking at is a soundtrack
         // from nowhere. The page that has arrived starts itself; see
         // `viewDidAppear` there.
@@ -231,9 +273,16 @@ extension PhotoGalleryController: UIGestureRecognizerDelegate {
     /// rest. Sideways is the paging, and once a photograph is zoomed in, panning
     /// is how you look around it — taking either away would break something you
     /// use more often than you close this.
+    ///
+    /// On a video the one thing to keep clear of is the player's own transport
+    /// bar, where a drag is a scrub. That is a strip along the bottom rather
+    /// than the whole page, which is what this used to treat it as.
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         guard let pan = gesture as? UIPanGestureRecognizer else { return true }
         guard (pager.viewControllers?.first as? PhotoPageController)?.isAtRest ?? true else {
+            return false
+        }
+        if onVideo, pan.location(in: view).y > view.bounds.height - Self.videoControlsBand {
             return false
         }
         let move = pan.velocity(in: view)
@@ -264,10 +313,11 @@ final class PhotoPageController: UIViewController {
     /// Whether a downward drag on this page means "close the gallery".
     ///
     /// No, once a photograph is zoomed in — the drag is how you look around it.
-    /// And no on a video, where the bottom of the screen is the system player's
-    /// own controls and a drag from them is a scrub.
+    /// A video has nothing to zoom and so is always at rest: where its own
+    /// controls are is the gallery's question, and it answers it by position
+    /// rather than by refusing the page outright (see `videoControlsBand`).
     var isAtRest: Bool {
-        player == nil && scroll.zoomScale <= scroll.minimumZoomScale
+        scroll.zoomScale <= scroll.minimumZoomScale
     }
 
     init(item: PhotoLibrary.Located, index: Int) {

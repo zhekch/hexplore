@@ -30,8 +30,13 @@ const SHOW_MS = 14_000;
  *   goes when pressed, told how many workouts the sentence is about — one of
  *   them is a different destination from several, because there is somewhere
  *   specific to go
+ * @param {() => void} [opts.onSeen] the baseline has moved, so the account's
+ *   copy of it is now behind this device's — see the note on whose it is in
+ *   src/whats-new.js. Fired for the quiet move as well: what makes the banner
+ *   appear once rather than on every device is that *being shown* is recorded,
+ *   and a first-ever sign-in records a baseline for exactly the same reason.
  */
-export function mountWhatsNew({ stats, routes, onOpenStats }) {
+export function mountWhatsNew({ stats, routes, onOpenStats, onSeen }) {
   const bar = document.getElementById('whats-new-bar');
   const titleEl = document.getElementById('whats-new-title');
   const detailEl = document.getElementById('whats-new-detail');
@@ -81,7 +86,10 @@ export function mountWhatsNew({ stats, routes, onOpenStats }) {
     // *next* one reporting the whole map as new. It deliberately does not move
     // when a real change went unmentioned for being too small: that is what
     // lets four quiet days add up to one worth a sentence.
-    if (wanted || !before) rememberSnapshot(now);
+    if (wanted || !before) {
+      rememberSnapshot(now);
+      onSeen?.();
+    }
     if (!wanted || quiet) return;
 
     newWorkouts = change.workouts;

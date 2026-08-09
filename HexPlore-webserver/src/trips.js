@@ -19,6 +19,15 @@ import { cellCenter, project, parseCellId, wrapLng } from './hexgrid.js';
 /** Silence longer than this ends a trip. Being home ends one at any length. */
 export const TRIP_GAP_DAYS = 2;
 /**
+ * The longest name you may give a trip yourself.
+ *
+ * Long enough for "the week the lift broke in Zermatt" and short enough that a
+ * list of them still reads as a list. It bounds the account's preferences blob
+ * as well, which has a size limit of its own (see `/api/prefs`) and would
+ * otherwise be one paste away from refusing every later save.
+ */
+export const TRIP_NAME_MAX = 80;
+/**
  * The longest stay one stored row is allowed to imply.
  *
  * A row records when a cell was first and last seen and nothing in between, so

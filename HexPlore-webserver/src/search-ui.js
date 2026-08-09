@@ -15,7 +15,7 @@
 import { loadPlaces, searchPlaces } from './places.js';
 import { loadRegions, searchRegions } from './regions.js';
 import { loadCountries, searchCountries, countryIdAt } from './countries.js';
-import { dayKey, dayDetail } from './trips.js';
+import { dayKey, dayDetail, TRIP_NAME_MAX } from './trips.js';
 import { mountCalendar, MONTHS } from './calendar.js';
 import { formatDistance } from './routes.js';
 import { onBackdropClick } from './dismiss.js';
@@ -165,12 +165,14 @@ export function tripInPeriod(t, period) {
  *   ground on the map
  * @param {() => Set<string>} [opts.hiddenTrips] ids of trips put away
  * @param {(id:string|null, hide:boolean) => Promise<void>} [opts.onHideTrip]
+ * @param {(id:string, name:string) => Promise<void>} [opts.onNameTrip] call one
+ *   something of your own; an empty name gives it back its derived one
  * @param {() => void} [opts.onOpen] called every time it opens, however it was
  *   opened — the trips it lists are derived lazily and this is what starts that
  */
 export function mountSearch({
   trips, routes, days, meta, onPlace, onArea, onTrip, onRoute, onDay,
-  hiddenTrips = () => new Set(), onHideTrip, onOpen,
+  hiddenTrips = () => new Set(), onHideTrip, onNameTrip, onOpen,
 }) {
   const $ = (id) => document.getElementById(id);
   const overlay = $('search-overlay');
@@ -331,6 +333,18 @@ export function mountSearch({
       },
     });
     go.classList.add('trip-go');
+    // "Zermatt, Switzerland" is a label the gazetteer worked out, and what you
+    // remember is "the week the lift broke". The derived name is a good guess
+    // and a guess is what it stays: this makes it editable without making it
+    // stored — see `setTripName` in src/main.js.
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'trip-rename';
+    rename.setAttribute('aria-label', `Rename ${t.name}`);
+    rename.title = 'Rename this trip';
+    rename.innerHTML =
+      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4l10-10a2.8 2.8 0 0 0-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/></svg>';
+    rename.addEventListener('click', () => startRename(el, t));
     // Putting one away is one press, because it is completely reversible — the
     // trip is still derived, it is just skipped, and the row under the list
     // brings every one of them back.
@@ -345,9 +359,58 @@ export function mountSearch({
       await onHideTrip?.(t.id, true);
       render(input.value);
     });
-    el.append(go, hide);
+    el.append(go, rename, hide);
     items.push({ el: go, pick: () => go.click() });
     return el;
+  }
+
+  /**
+   * Turn one row into a field for as long as it takes to type a name.
+   *
+   * In the row rather than in a dialog of its own, because everything a person
+   * needs while choosing a name — when it was, how long, how far — is on the
+   * row, and a dialog would cover it with a box asking what to call it.
+   *
+   * Committed by Return or by leaving it, cancelled by Escape. Blur commits
+   * because the field is one line in a scrolling list: the common way to leave
+   * it is to touch something else, and a name lost to that is a name typed
+   * twice. Emptying it is the way back to the derived name, so an empty box is
+   * a real answer and not a refusal to answer.
+   */
+  function startRename(row, t) {
+    const field = document.createElement('input');
+    field.type = 'text';
+    field.className = 'trip-name-input';
+    field.value = t.name;
+    field.maxLength = TRIP_NAME_MAX;
+    field.setAttribute('aria-label', `Name for ${t.name}`);
+    field.placeholder = t.derivedName ?? t.name;
+    const was = [...row.children];
+    row.replaceChildren(field);
+
+    let settled = false;
+    const finish = async (save) => {
+      if (settled) return;
+      settled = true;
+      // Whatever happens the row goes back to being a row, so a failed save is
+      // a name that did not take rather than a palette stuck in an editor. It
+      // is re-rendered from the trips, so it comes back saying whatever the
+      // trip is now called.
+      if (save && field.value.trim() !== t.name) await onNameTrip?.(t.id, field.value);
+      row.replaceChildren(...was);
+      render(input.value);
+    };
+    field.addEventListener('keydown', (e) => {
+      // Not allowed past this element: the palette's own keydown treats Return
+      // as "open the highlighted row" and Escape as "close the palette", and
+      // both are the wrong answer to a person editing a name.
+      e.stopPropagation();
+      if (e.key === 'Enter') finish(true);
+      else if (e.key === 'Escape') finish(false);
+    });
+    field.addEventListener('blur', () => finish(true));
+    field.focus();
+    field.select();
   }
 
   /**
