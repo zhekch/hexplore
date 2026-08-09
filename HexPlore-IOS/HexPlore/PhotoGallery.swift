@@ -79,7 +79,13 @@ final class PhotoGalleryController: UIViewController {
     /// video that has to be dragged from slightly higher up, and the cost of it
     /// being too small is a scrub that closes the gallery — which loses your
     /// place in a group of three hundred.
-    private static let videoControlsBand: CGFloat = 180
+    static let videoControlsBand: CGFloat = 180
+
+    /// …and the same at the top, below the safe area: the player's close
+    /// button, its routing button and its volume control. Read by the page as
+    /// well as by the dismissal, so that "where the player's own controls are"
+    /// is written down once.
+    static let videoChromeBand: CGFloat = 64
 
     /// The gap between pages, which is a black gutter you only see mid-swipe.
     /// Without it the edge of one photograph touches the edge of the next and
@@ -310,6 +316,28 @@ final class PhotoPageController: UIViewController {
     private let spinner = UIActivityIndicatorView(style: .large)
     private var player: VideoPlayerController?
 
+    /// A gesture that does nothing, and is here so that another one does not.
+    ///
+    /// `AVPlayerViewController` reads a horizontal drag anywhere across the
+    /// video as a **scrub**. On a page of a gallery that is the paging gesture,
+    /// so swiping towards the next clip seeked the current one instead — and
+    /// the further you swiped the further back you went.
+    ///
+    /// There is no property that turns that off on its own. `requiresLinearPlayback`
+    /// would, and takes the scrubber and the skip buttons with it, which is a
+    /// worse trade than the bug. What there *is* is the recognition graph: this
+    /// pan is attached to the player's own view, begins only on a sideways drag
+    /// across the video itself, and declares — through
+    /// `shouldBeRequiredToFailBy` — that every recognizer inside the player must
+    /// wait for it. So on a sideways drag the player's own gestures never begin,
+    /// and on everything else this one fails immediately and they behave exactly
+    /// as they did.
+    ///
+    /// It claims nothing else: the paging scroll view and the gallery's own
+    /// dismissal are not the player's, so they are not asked to wait, and it
+    /// recognises alongside them.
+    private var seekBlock: UIPanGestureRecognizer?
+
     /// Whether a downward drag on this page means "close the gallery".
     ///
     /// No, once a photograph is zoomed in — the drag is how you look around it.
@@ -396,6 +424,17 @@ final class PhotoPageController: UIViewController {
             view.insertSubview(controller.view, belowSubview: spinner)
             controller.didMove(toParent: self)
             player = controller
+            // See `seekBlock`. Added to the player's view rather than to this
+            // one, because what it has to outrank is the player's own gestures
+            // and a recognizer only outranks the ones it shares a touch with.
+            let block = UIPanGestureRecognizer(target: self, action: #selector(swallowSeek))
+            block.delegate = self
+            // The touches still reach the player. Only its *recognizers* are
+            // held back, and a tap on the video should go on showing and hiding
+            // the controls the way it always has.
+            block.cancelsTouchesInView = false
+            controller.view.addGestureRecognizer(block)
+            seekBlock = block
             // Only if this is the page being looked at: the fetch can outlive
             // the swipe that started it, in either direction.
             if onScreen { controller.player?.play() }
@@ -463,6 +502,9 @@ final class PhotoPageController: UIViewController {
         player?.player?.pause()
     }
 
+    /// The gesture that exists to be recognised and not to act. See `seekBlock`.
+    @objc private func swallowSeek(_ gesture: UIPanGestureRecognizer) {}
+
     /// Double tap zooms in where you tapped, and again to come back.
     @objc private func doubleTapped(_ gesture: UITapGestureRecognizer) {
         guard imageView.image != nil else { return }
@@ -475,6 +517,45 @@ final class PhotoPageController: UIViewController {
         let size = CGSize(width: scroll.bounds.width / scale, height: scroll.bounds.height / scale)
         scroll.zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2,
                                width: size.width, height: size.height), animated: true)
+    }
+}
+
+extension PhotoPageController: UIGestureRecognizerDelegate {
+
+    /// Only across the video, and only sideways.
+    ///
+    /// The two bands are where the player's own controls are (see
+    /// `videoControlsBand` and `videoChromeBand`), and a drag that starts on the
+    /// scrubber is a scrub — that is the one horizontal drag on this page that
+    /// really is the player's. Everywhere else the picture is the whole screen
+    /// and sideways means the next clip.
+    func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        guard let pan = gesture as? UIPanGestureRecognizer, pan === seekBlock else { return true }
+        let y = pan.location(in: view).y
+        guard y > view.safeAreaInsets.top + PhotoGalleryController.videoChromeBand,
+              y < view.bounds.height - PhotoGalleryController.videoControlsBand
+        else { return false }
+        let move = pan.velocity(in: view)
+        return abs(move.x) > abs(move.y)
+    }
+
+    /// Everything inside the player waits for it — and nothing outside does.
+    func gestureRecognizer(
+        _ gesture: UIGestureRecognizer,
+        shouldBeRequiredToFailBy other: UIGestureRecognizer
+    ) -> Bool {
+        guard gesture === seekBlock, let playerView = player?.view else { return false }
+        return other.view?.isDescendant(of: playerView) ?? false
+    }
+
+    /// …and it shares with everything else, or claiming the drag away from the
+    /// player would take it away from the paging as well, which is the thing
+    /// this exists to let happen.
+    func gestureRecognizer(
+        _ gesture: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        gesture === seekBlock
     }
 }
 

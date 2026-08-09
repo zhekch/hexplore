@@ -26,6 +26,9 @@
 //   - a swipe on a trackpad, which is not a pointer gesture at all: it did
 //     nothing to the picture and flew the strip past thirty thumbnails, because
 //     the strip was the only sideways scroller the browser could find;
+//   - and then the same swipe *thrown*, which moved three or four, because a
+//     swipe accelerates while the fingers are still down and everything after
+//     the photograph was spent looked like a fresh push;
 //   - arrow keys that stepped the photograph *and* panned the map underneath it,
 //     because the map's own handler sits below the document this used to listen
 //     on and had already moved by the time `preventDefault` was reached.
@@ -512,10 +515,19 @@ console.log('\nOne trackpad swipe is one photograph');
   };
 
   // The fingers, and then a second of coasting — which only ever slows down.
-  // That is the one property the card has to go on, so the tail here decays the
+  // That is the one property the card has to go on, so the tails here decay the
   // way a real one does rather than being a shape that happens to pass.
   const push = [18, 18, 18, 20];
   const coast = [16, 13, 11, 9, 8, 6, 5, 4, 4, 3, 3, 2, 2, 2, 1, 1, 1, 1, 1, 1];
+
+  // …and a hard one, which is a different shape and was the bug in the first
+  // attempt at this. A swipe *accelerates* while the fingers are still down, so
+  // the photograph is spent a frame or two in and everything after it is faster
+  // than the moment it was spent at.
+  const flick = [6, 14, 34, 62, 88, 96];
+  const throwTail = [
+    92, 84, 76, 68, 60, 53, 46, 40, 35, 30, 26, 22, 19, 16, 13, 11, 9, 7, 6, 5, 4, 3, 2, 2, 1, 1,
+  ];
 
   card.show(group(10));
   await settle();
@@ -523,44 +535,51 @@ console.log('\nOne trackpad swipe is one photograph');
 
   const first = wheel([...push, ...coast]);
   await settle();
-  check(showing() === 1, 'a firm flick with a second of coasting moves exactly one',
+  check(showing() === 1, 'a swipe with a second of coasting moves exactly one',
     String(showing()));
   check(first.defaulted === push.length + coast.length,
     'and every event of it is taken, tail included, so the strip does not fly',
     String(first.defaulted));
 
-  // The complaint this was the second attempt at: a swipe made *while the last
-  // one is still coasting* used to be swallowed, because the only way to begin
-  // a new gesture was silence — so the card felt as though it were on a timer.
-  // Coasting cannot speed up, so speeding up is the fingers.
+  // The one that got through the first two attempts: thrown hard, it moved
+  // three or four.
   clock += 400;
-  wheel([...push, ...coast.slice(0, 4), ...push, ...coast]);
+  wheel([...flick, ...throwTail]);
   await settle();
-  check(showing() === 3, 'a second swipe during the tail of the first counts, and counts once',
+  check(showing() === 2, 'and a hard throw moves exactly one as well', String(showing()));
+
+  // The complaint the second attempt was about: a swipe made *while the last
+  // one is still coasting* was swallowed, because the only way to begin a new
+  // gesture was silence — so the card felt as though it were on a timer. Once
+  // the tail has wound down, anything brisk is a hand.
+  clock += 400;
+  wheel([...push, ...coast, ...push]);
+  await settle();
+  check(showing() === 4, 'a second swipe on the end of a tail counts, and counts once',
     String(showing()));
 
   // A gap is the other way in, and the plain one.
   clock += 400;
   wheel(push);
   await settle();
-  check(showing() === 4, 'and after a pause it is simply a new swipe', String(showing()));
+  check(showing() === 5, 'and after a pause it is simply a new swipe', String(showing()));
 
   clock += 400;
   wheel(push, { dir: -1 });
   await settle();
-  check(showing() === 3, 'the other way comes back', String(showing()));
+  check(showing() === 4, 'the other way comes back', String(showing()));
 
   // Below the threshold: a nudge is not a swipe.
   clock += 400;
   wheel([12]);
   await settle();
-  check(showing() === 3, 'a nudge too small to be meant is not a swipe', String(showing()));
+  check(showing() === 4, 'a nudge too small to be meant is not a swipe', String(showing()));
 
   // A vertical scroll that drifts sideways is a vertical scroll.
   clock += 400;
   const down = wheel([3, 3, 3, 3, 3, 3, 3, 3], { dy: 40 });
   await settle();
-  check(showing() === 3 && down.defaulted === 0,
+  check(showing() === 4 && down.defaulted === 0,
     'and a two-finger scroll down is left entirely alone', String(showing()));
 
   // At the ends, the same as the finger: nothing that way.

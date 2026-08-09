@@ -5138,16 +5138,26 @@ have gone. So the step is spent once per gesture — and the tail is swallowed
 with `preventDefault` too, or the strip scrolls on the momentum of a swipe the
 card has already answered.
 
-Two things can begin the next gesture, and the second is the one that took a
-second attempt. `WHEEL_GAP_MS` (120) is **silence**: fingers up, coasting over.
-On its own it is too strict, and the symptom is a card that appears to be on a
-cooldown — a second swipe made while the first is still coasting is swallowed
-for as long as the momentum lasts. So the other way in is the stream **speeding
-up**, which coasting cannot do: an event more than `WHEEL_PUSH` (1.5×, and at
-least `WHEEL_PUSH_MIN` = 4px) faster than the slowest one since the last
-photograph is fingers pushing again. Multiplier *and* floor, because near the
-bottom of a decay everything is a large multiple of everything else and two
-pixels of jitter is not a swipe.
+Two things can begin the next gesture, and the second took three attempts to get
+right. `WHEEL_GAP_MS` (120) is **silence**: fingers up, coasting over. On its own
+it is too strict, and the symptom is a card that appears to be on a cooldown —
+a second swipe made while the first is still coasting is swallowed for as long
+as the momentum lasts.
+
+So the other way in is the stream **winding down and then picking up again**.
+The obvious version of that — "faster than the slowest event since the last
+photograph" — is wrong, and wrong in a way that reads as the original bug
+coming back: a swipe *accelerates* while the fingers are still on the glass, so
+the photograph is spent a frame or two in and everything after it is faster than
+the moment it was spent at. A firm throw came out as three or four pictures.
+
+Hence two thresholds rather than one. The stream has to go quiet first — below
+`WHEEL_LULL` (6) it has wound down, and coasting decays towards nothing and
+cannot come back — and only then does anything above `WHEEL_WAKE` (12) mean a
+hand. Absolute rather than relative to the peak, because a throw and a nudge
+decay to the same place and it is the place that matters, not the distance
+travelled to it. And the lull is only armed while the step is *spent*, so the
+acceleration of the swipe being answered cannot arm the thing that ends it.
 
 **The Mac app does not need any of that**, and does not use it. `NSEvent` has
 `phase` and `momentumPhase`, so `GalleryView.scrollWheel` can simply drop
@@ -5332,6 +5342,30 @@ page, and a clip closes with the same swipe a photograph does. The band is
 deliberately generous — too big costs a strip of video that has to be dragged
 from slightly higher up, too small costs a scrub that closes the gallery and
 loses your place in a group of three hundred.
+
+**A sideways drag on a video is the gallery's, not the scrubber's.** iOS 26
+reads a horizontal drag anywhere across a video as a **scrub**, which on a page
+of a gallery is the paging gesture — so swiping towards the next clip seeked the
+current one instead, and the further you swiped the further back you went. There
+is no property that turns that off by itself: `requiresLinearPlayback` would,
+and takes the scrubber and the skip buttons with it, which is a worse trade than
+the bug.
+
+What there is instead is the recognition graph. `seekBlock` is a pan attached to
+the *player's own view* that does nothing at all. It begins only on a sideways
+drag across the video itself — outside `videoChromeBand` (64pt at the top: close,
+routing, volume) and `videoControlsBand` (180pt at the bottom: the transport
+pill, where a horizontal drag really is a scrub) — and it declares through
+`gestureRecognizer(_:shouldBeRequiredToFailBy:)` that every recognizer *inside
+the player* must wait for it. On a sideways drag across the video the player's
+gestures therefore never begin; on anything else this one fails immediately and
+they behave exactly as before. It claims nothing outside the player, so the
+paging scroll view and the gallery's own dismissal are never asked to wait, and
+`shouldRecognizeSimultaneouslyWith` lets them run alongside — without that,
+taking the drag off the player would take it off the paging too, which is the
+whole thing this exists to allow. `cancelsTouchesInView` is false: only the
+player's *recognizers* are held back, and a tap on the video goes on showing and
+hiding the controls the way it always has.
 
 **And the × in the corner is the player's on those pages, not ours.** iOS 26
 gives `AVPlayerViewController` its own chrome — a close button top left, AirPlay

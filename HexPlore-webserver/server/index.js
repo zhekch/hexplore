@@ -100,7 +100,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.50.0';
+export const SERVER_VERSION = '0.50.1';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //

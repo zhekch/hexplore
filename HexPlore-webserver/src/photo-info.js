@@ -114,16 +114,23 @@ const WHEEL_STEP = 40;
 const WHEEL_GAP_MS = 120;
 
 /**
- * …or the stream speeding up again, which momentum cannot do.
+ * …or the stream winding down and then picking up again.
  *
- * Coasting only ever slows down. So an event clearly faster than the slowest
- * one since the last photograph is fingers pushing again, and it starts a new
- * swipe without waiting for the old one to die. Multiplier *and* floor: near
- * the bottom of a decay everything is a large multiple of everything else, and
- * a couple of pixels of jitter is not a swipe.
+ * Two thresholds and not one, and the first attempt at this had only the
+ * second. "Faster than the slowest event since the last photograph" sounds like
+ * it identifies a fresh push, and it identifies a *hard flick* just as well: a
+ * swipe accelerates while the fingers are still on the glass, so the photograph
+ * is spent a frame or two in and everything after it is faster than that. A
+ * firm flick came out as three or four pictures.
+ *
+ * So the stream has to go quiet first. Below `WHEEL_LULL` it has wound down —
+ * coasting decays towards nothing and cannot come back — and only then does
+ * anything above `WHEEL_WAKE` mean a hand. Absolute rather than relative to the
+ * peak, because a flick and a nudge decay to the same place and it is the place
+ * that matters, not the distance travelled to it.
  */
-const WHEEL_PUSH = 1.5;
-const WHEEL_PUSH_MIN = 4;
+const WHEEL_LULL = 6;
+const WHEEL_WAKE = 12;
 
 // How many are fetched without being asked for.
 //
@@ -611,12 +618,12 @@ export function mountPhotoInfo({ onClose } = {}) {
   // without changing what you were looking at. See the note by `WHEEL_STEP`.
 
   // When the last wheel event arrived, how far this gesture has travelled,
-  // whether it has already been spent on a photograph, and the slowest it has
-  // got since — which is what tells coasting from a fresh push.
+  // whether it has already been spent on a photograph, and whether the stream
+  // has gone quiet since — which is what tells coasting from a fresh push.
   let wheelAt = 0;
   let wheelSum = 0;
   let wheelSpent = false;
-  let wheelSlowest = Infinity;
+  let wheelLulled = false;
 
   card.addEventListener('wheel', (e) => {
     if (card.hidden || items.length < 2 || busy) return;
@@ -632,22 +639,23 @@ export function mountPhotoInfo({ onClose } = {}) {
       // Silence: whatever comes next is a new swipe, wherever it starts from.
       wheelSum = 0;
       wheelSpent = false;
-      wheelSlowest = Infinity;
-    } else if (wheelSpent && speed > wheelSlowest * WHEEL_PUSH + WHEEL_PUSH_MIN) {
-      // Or it has sped up, which coasting cannot — see the note by WHEEL_PUSH.
+    } else if (wheelSpent && wheelLulled && speed > WHEEL_WAKE) {
+      // Or it wound down and then picked up, which coasting cannot do — see the
+      // note by WHEEL_LULL.
       wheelSum = 0;
       wheelSpent = false;
     }
     wheelAt = e.timeStamp;
-    wheelSlowest = Math.min(wheelSlowest, speed);
-    if (wheelSpent) return;
+    if (wheelSpent) {
+      // Only while spent, so the acceleration of the swipe *being* answered
+      // cannot arm the thing that ends it.
+      if (speed <= WHEEL_LULL) wheelLulled = true;
+      return;
+    }
     wheelSum += e.deltaX;
     if (Math.abs(wheelSum) < WHEEL_STEP) return;
     wheelSpent = true;
-    // The baseline the *next* push is measured against starts here, at the top
-    // of the stream this photograph was spent on, rather than at whatever the
-    // slowest moment of the previous gesture happened to be.
-    wheelSlowest = speed;
+    wheelLulled = false;
     // Pushing the content left brings in what is to the right of it, which is
     // the next one — the same direction the finger drag above runs, and the same
     // one the Mac app's own gallery runs.
