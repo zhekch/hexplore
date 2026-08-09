@@ -78,6 +78,33 @@ const SWIPE_CLAIM = 10;
 // travel makes the card look like it is rebuilding itself every time.
 const SWIPE_ENTER = 22;
 
+// --- …and the same gesture on a trackpad -----------------------------------------
+//
+// A two-finger swipe on a trackpad is not a pointer gesture. It arrives as a
+// stream of `wheel` events, which is why the swipe above worked on a phone and
+// did nothing on a Mac — and why what it *did* do was worse than nothing: the
+// strip is the only sideways scroller on the card, so the browser handed the
+// swipe to that and one flick flew past thirty thumbnails without changing the
+// picture at all.
+//
+// So the card takes the horizontal wheel itself, and answers it the way the Mac
+// app answers the same gesture over its own gallery (`GalleryView.scrollWheel`
+// in HexPlore-macOS): accumulate, and step **once**.
+
+/** How much sideways travel is one photograph. */
+const WHEEL_STEP = 40;
+
+/**
+ * The silence that ends one swipe and begins the next.
+ *
+ * This is the whole of "one swipe, one photograph". A trackpad does not report
+ * the end of a gesture — it reports momentum, and a firm flick keeps delivering
+ * deltas for the best part of a second after the fingers have gone. Counting
+ * those is what turns one swipe into thirty. So a step is spent once per
+ * gesture, and only a gap this long starts another.
+ */
+const WHEEL_GAP_MS = 140;
+
 // How many are fetched without being asked for.
 //
 // The observer below is what fills the strip, and it is the right mechanism for
@@ -557,20 +584,70 @@ export function mountPhotoInfo({ onClose } = {}) {
   // stays where the finger left it for ever.
   figure.addEventListener('pointercancel', endDrag);
 
-  // The same movement without a finger. Registered on the document because the
-  // card has nothing focusable in it worth insisting on, and gated on the card
-  // being open so this is not a pair of arrow keys the whole map has to share.
-  document.addEventListener('keydown', (e) => {
+  // --- The trackpad ---------------------------------------------------------------
+  //
+  // On the whole card rather than on the picture, because the strip is half the
+  // reason this exists: a sideways swipe over it used to scroll thumbnails past
+  // without changing what you were looking at. See the note by `WHEEL_STEP`.
+
+  // When the last wheel event arrived, how far this gesture has travelled, and
+  // whether it has already been spent on a photograph.
+  let wheelAt = 0;
+  let wheelSum = 0;
+  let wheelSpent = false;
+
+  card.addEventListener('wheel', (e) => {
     if (card.hidden || items.length < 2 || busy) return;
+    // Sideways only, and only when it is plainly sideways. A two-finger scroll
+    // down a trackpad drifts left and right by a few pixels the whole way, and a
+    // card that changes picture because of that is unusable.
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    // Ours from here, spent or not: the tail of a flick has to be swallowed too,
+    // or the strip scrolls on the momentum of a swipe the card has answered.
+    e.preventDefault();
+    if (e.timeStamp - wheelAt > WHEEL_GAP_MS) {
+      wheelSum = 0;
+      wheelSpent = false;
+    }
+    wheelAt = e.timeStamp;
+    if (wheelSpent) return;
+    wheelSum += e.deltaX;
+    if (Math.abs(wheelSum) < WHEEL_STEP) return;
+    wheelSpent = true;
+    // Pushing the content left brings in what is to the right of it, which is
+    // the next one — the same direction the finger drag above runs, and the same
+    // one the Mac app's own gallery runs.
+    select(chosen + (wheelSum > 0 ? 1 : -1));
+  }, { passive: false });
+
+  // The same movement without a finger.
+  //
+  // **In the capture phase, on the window**, which is the whole of the fix for
+  // arrows that stepped the photograph *and* panned the map underneath it.
+  // MapLibre listens on the map's own container, and the container is where the
+  // keyboard focus is after the tap that opened this card — so by the time a
+  // listener on the document heard the key, the map had already moved and
+  // `preventDefault` was a sentence too late. Capturing at the window is the
+  // one place that runs before the container does, and the propagation is
+  // stopped rather than merely defaulted, so nothing below is asked at all.
+  //
+  // All four arrows, not the two that mean something here. Up and down have no
+  // photograph to move to and panning the map out from under an open card is
+  // not what they should do instead: while this is up, the arrows are the
+  // card's.
+  window.addEventListener('keydown', (e) => {
+    if (card.hidden || busy) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     // Not while somebody is typing into something — the search field, a route's
     // name — even though neither is open at the same time as this today.
     if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select')) return;
+    if (!/^Arrow(Left|Right|Up|Down)$/.test(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (items.length < 2) return;
     if (e.key === 'ArrowRight') select(chosen + 1);
     else if (e.key === 'ArrowLeft') select(chosen - 1);
-    else return;
-    e.preventDefault();
-  });
+  }, true);
 
   // The picture itself, full size, in the app's own viewer — the same bargain as
   // the video: shown natively rather than sent, so what you get is the original

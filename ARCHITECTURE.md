@@ -5048,6 +5048,26 @@ photographs anyone uses is in. `groupWhen` reads a span off the smallest and
 largest timestamps rather than the ends of the list, so it cannot print a date
 range backwards when the order changes again.
 
+### How big the card is, which is a different answer per screen
+
+The card is 360px wide, which is the width of a phone — and it followed the
+phone onto every other screen there is. On a Mac that put the photograph in
+about a ninth of the window with map on all four sides: the picture is the
+entire content of this card and it was the smallest thing in the frame.
+
+So on a viewport with room — `(min-width: 720px) and (min-height: 560px)`, the
+same test the search palette makes about whether its calendar fits, so the two
+agree about what "roomy" means — it is 680px wide, the picture may be 62vh tall
+instead of 52vh, and the thumbnails go from 54px to 76px. The strip grows with
+it because 54px squares under a 680px photograph read as a footnote rather than
+as the rest of the group. `THUMB_PX` (120 CSS px, times the device ratio) still
+covers the larger square without being asked for again.
+
+The phone is untouched: at `calc(100vw - 32px)` the card was already edge to
+edge there, and the picture's 52vh ceiling is what keeps the strip on screen
+under it. And it is still a card over a map, not a viewer — it grows to a size a
+photograph is worth looking at, not to the window.
+
 ### Swiping, because the strip answers the wrong question
 
 The strip is a complete answer to *which one* and a poor answer to *the next
@@ -5092,6 +5112,46 @@ and painted, so a card opened in a tab that is not being rendered is a row of
 empty boxes with nothing to nudge it. That is measured rather than theorised, and
 a screenful is cheap insurance against every other reason layout might not have
 happened yet.
+
+#### The trackpad is a third gesture, and it was answering the wrong element
+
+Pointer events cover a finger, a mouse and a *dragged* trackpad. They do not
+cover the two-finger swipe, which is the one anybody actually makes on a Mac:
+that arrives as a stream of `wheel` events and reached nothing at all here. What
+it did reach was the strip — the only sideways scroller on the card — so one
+flick flew past thirty thumbnails and left the picture exactly where it was.
+Both halves of that are wrong: the swipe should move the photograph, and it
+should move it **once**.
+
+So the card takes the horizontal wheel itself, on the card rather than on the
+picture, because the strip is half the reason it exists. The rule is the Mac
+app's own (`GalleryView.scrollWheel` in `HexPlore-macOS`): accumulate `deltaX`,
+step at `WHEEL_STEP` (40px), and take only wheels that are plainly sideways — a
+two-finger scroll down a trackpad drifts left and right the whole way, and a
+card that changes picture because of that is unusable.
+
+`WHEEL_GAP_MS` (140) is the whole of "one swipe, one photograph". A trackpad
+never reports the end of a gesture; it reports **momentum**, and a firm flick
+goes on delivering deltas for the best part of a second after the fingers have
+gone. So a step is spent once per gesture and only that much silence begins
+another — and the tail is swallowed with `preventDefault` as well, or the strip
+scrolls on the momentum of a swipe the card has already answered.
+
+#### The arrow keys are caught at the window, not the document
+
+They stepped the photograph and **panned the map underneath it**, which is a
+listener-ordering bug rather than a missing `preventDefault`. MapLibre's
+keyboard handler is on the map's own container, and the container is what holds
+focus after the tap that opened the card — so the key reached the map, moved it,
+and only then bubbled up to the document, where this used to be listening and
+where `preventDefault` had nothing left to prevent.
+
+The fix is the capture phase on the `window`, which is the one place that runs
+before the container does, and `stopPropagation` rather than `preventDefault`, so
+nothing below is asked at all. It catches **all four** arrows while the card is
+open: up and down have no photograph to move to, and panning the map out from
+under an open card is not a better thing for them to do. A closed card stops
+nothing, and the arrows are the map's again.
 
 ### There is no way through to Photos, and there cannot be
 

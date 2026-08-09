@@ -129,15 +129,26 @@ showing, and it was already doing that. Clicking a point opens the whole group �
 ← and → walk it, so does a two-finger swipe, and the title bar says "Photo 3 of
 12" because a Mac says that sort of thing in the title bar.
 
-It opens **big**, which is the other thing a Mac has that a phone does not:
-room. It used to be 980 × 700 wherever it was put, which is most of a laptop
-screen and a postage stamp on a desk display — a photograph drawn at a third of
-the size of the screen being used to look at it, with black on every side. It
-takes `screenShare` (88%) of the screen's `visibleFrame` now, floored at the old
-size for a screen too small to take a share of. Not the whole `visibleFrame` and
-not full screen: this is opened *from* the map, and a window that fills the
-screen edge to edge is one you have to move to see what you were looking at.
-Whatever size you then choose is remembered as before.
+It opens **as big as the screen allows**, which is the other thing a Mac has
+that a phone does not: room. It used to be 980 × 700 wherever it was put, which
+is most of a laptop screen and a postage stamp on a desk display — a photograph
+drawn at a third of the size of the screen being used to look at it, with black
+on every side. It takes the whole of `visibleFrame` now (`screenShare`, 1.0),
+floored at the old size for a screen too small to take a share of.
+
+`visibleFrame` is the screen less the menu bar and the Dock, so this is still a
+window with the system visible around it rather than full screen: no separate
+Space, no menu bar sliding away, and ⌘` still gets you back to the map behind
+it. The frame is set as a *frame* and not as a content rect — the title bar
+belongs to the window, and a content rect the height of the screen makes a
+window taller than the screen it opens on — and centred in `visibleFrame`
+rather than by `center()`, which measures against the whole screen and at this
+size puts half a title bar under the menu bar.
+
+Whatever size you then choose is remembered as before. The autosave name is
+versioned with the sizing policy (`HexPlorePhotoViewerFull`), because a saved
+frame beats the one a window was just given: without retiring the old name, a
+new default would apply to nobody who had ever opened the window before.
 
 Stills and videos share the window rather than having one each, which they used
 to. Two windows made one group into two galleries: press → past the last

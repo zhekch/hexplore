@@ -57,10 +57,11 @@ final class PhotoGalleryWindowController: NSWindowController, NSWindowDelegate {
     /// looked at on, with black on every side. A photograph is the whole point
     /// of this window and there is nothing else in it to make room for.
     ///
-    /// Not the full `visibleFrame`, and not full screen: a window that opens
-    /// filling the screen edge to edge is one you have to move to see what you
-    /// were looking at underneath, and this is opened *from* the map.
-    private static let screenShare: CGFloat = 0.88
+    /// All of it, then. `visibleFrame` is the screen less the menu bar and the
+    /// Dock, so "all of it" is still a window you can see the edges of the
+    /// system around, and still not full screen — no separate Space, no menu
+    /// bar sliding away, and ⌘` still gets you back to the map behind it.
+    private static let screenShare: CGFloat = 1.0
 
     /// The smallest it will open at, for a screen too small to take a share of.
     private static let leastSize = NSSize(width: 980, height: 700)
@@ -78,19 +79,8 @@ final class PhotoGalleryWindowController: NSWindowController, NSWindowDelegate {
     private var showing = 0
 
     private init() {
-        // `visibleFrame` rather than `frame`: it is the screen less the menu bar
-        // and the Dock, which is the part a window can actually occupy. No
-        // screen at all is a Mac with the lid shut and an external display
-        // asleep, and the floor is a perfectly good answer for it.
-        let room = NSScreen.main?.visibleFrame.size ?? Self.leastSize
         let window = NSWindow(
-            contentRect: NSRect(
-                origin: .zero,
-                size: NSSize(
-                    width: max(Self.leastSize.width, room.width * Self.screenShare),
-                    height: max(Self.leastSize.height, room.height * Self.screenShare)
-                )
-            ),
+            contentRect: NSRect(origin: .zero, size: Self.leastSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -105,14 +95,38 @@ final class PhotoGalleryWindowController: NSWindowController, NSWindowDelegate {
         // the second photograph is sent to a deallocated window and the app
         // stops here.
         window.isReleasedWhenClosed = false
-        window.center()
-        // A new name, and that is the whole of the change taking effect. The
-        // old one has a remembered 980 × 700 in it on every machine that has
-        // ever opened this window, and a saved frame beats the one it was just
-        // created with — so keeping the name would mean the size above applied
-        // to nobody who had used the app before. Whatever is chosen from here
-        // is remembered under the new name as usual.
-        window.setFrameAutosaveName("HexPlorePhotoViewer2")
+        // Set as a *frame* rather than as the content rect it was created with:
+        // the title bar belongs to the window, so a content rect the height of
+        // the screen makes a window taller than the screen it opens on. And
+        // centred here rather than by `center()`, which measures against the
+        // whole screen — at this size that is half a title bar under the menu
+        // bar. `visibleFrame` is the screen less the menu bar and the Dock, so
+        // its own middle is the only middle that means anything.
+        //
+        // No screen at all is a Mac with the lid shut and an external display
+        // asleep. It keeps the size it was created with.
+        if let room = NSScreen.main?.visibleFrame {
+            let size = NSSize(
+                width: max(Self.leastSize.width, room.width * Self.screenShare),
+                height: max(Self.leastSize.height, room.height * Self.screenShare)
+            )
+            window.setFrame(
+                NSRect(
+                    x: room.midX - size.width / 2,
+                    y: room.midY - size.height / 2,
+                    width: size.width,
+                    height: size.height
+                ),
+                display: false
+            )
+        }
+        // The name is versioned with the sizing policy above, and that is the
+        // whole of the policy ever taking effect: a saved frame beats the one a
+        // window was just given, so every machine that has opened this window
+        // before would go on opening it at whatever the old default left behind.
+        // Retiring the name retires that memory. Whatever size is chosen from
+        // here is remembered under this one as usual.
+        window.setFrameAutosaveName("HexPlorePhotoViewerFull")
         super.init(window: window)
         window.delegate = self
         build(in: window)

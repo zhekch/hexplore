@@ -22,7 +22,13 @@
 //   - a swipe past the last photograph in a group that carried on and asked for
 //     item -1;
 //   - a swipe onto a picture four hundred along, whose thumbnail had no button
-//     yet because the strip renders in chunks, leaving nothing outlined.
+//     yet because the strip renders in chunks, leaving nothing outlined;
+//   - a swipe on a trackpad, which is not a pointer gesture at all: it did
+//     nothing to the picture and flew the strip past thirty thumbnails, because
+//     the strip was the only sideways scroller the browser could find;
+//   - arrow keys that stepped the photograph *and* panned the map underneath it,
+//     because the map's own handler sits below the document this used to listen
+//     on and had already moved by the time `preventDefault` was reached.
 
 import { STRIP_CHUNK } from '../../src/photos.js';
 
@@ -181,8 +187,31 @@ globalThis.document = {
     documentHandlers.get(type).push(fn);
   },
 };
-const fireDocument = (type, event) => {
-  for (const fn of [...(documentHandlers.get(type) ?? [])]) fn({ type, preventDefault() {}, ...event });
+
+// The keys are listened for on the *window*, in the capture phase, so that the
+// map's own handler — which is on the map container, below this — never sees
+// them while the card is up. That is the arrangement being tested, so the
+// stand-in has to be able to tell the two apart.
+const windowHandlers = new Map();
+globalThis.window = {
+  addEventListener: (type, fn, capture) => {
+    if (!windowHandlers.has(type)) windowHandlers.set(type, []);
+    windowHandlers.get(type).push({ fn, capture: capture === true || capture?.capture === true });
+  },
+};
+
+/** One key, as the window would deliver it. Reports what the card did with it. */
+const fireKey = (event) => {
+  const seen = { defaulted: false, stopped: false };
+  for (const { fn } of [...(windowHandlers.get('keydown') ?? [])]) {
+    fn({
+      type: 'keydown',
+      preventDefault() { seen.defaulted = true; },
+      stopPropagation() { seen.stopped = true; },
+      ...event,
+    });
+  }
+  return seen;
 };
 
 // The other side of the bridge. Every picture is the same one — what is under
@@ -259,8 +288,12 @@ console.log('\nThe card is wired for a gesture at all');
   for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
     check(figure.listens(type) === 1, `the figure listens for ${type}`);
   }
-  check((documentHandlers.get('keydown') ?? []).length === 1,
+  check((windowHandlers.get('keydown') ?? []).length === 1,
     'and the arrow keys are the same movement without a finger');
+  check(windowHandlers.get('keydown')[0].capture === true,
+    'listened for in the capture phase, so the map below never gets them');
+  check(figure.listens('wheel') === 0 && dom.get('photo-info').listens('wheel') === 1,
+    'the trackpad is taken by the whole card, strip included');
 }
 
 console.log('\nA pull far enough is the next photograph');
@@ -394,7 +427,7 @@ console.log('\nThe strip keeps up, however long it is');
 
   // Arrow keys, which is the same `select` a swipe reaches — and the cheapest
   // way to walk a long way along the group.
-  for (let n = 0; n < STRIP_CHUNK + 5; n++) fireDocument('keydown', { key: 'ArrowRight' });
+  for (let n = 0; n < STRIP_CHUNK + 5; n++) fireKey({ key: 'ArrowRight' });
   await settle();
   check(showing() === STRIP_CHUNK + 5, 'walking past the end of a chunk still shows a picture',
     String(showing()));
@@ -409,24 +442,116 @@ console.log('\nThe arrow keys stop at the same places the finger does');
 {
   card.show(group(2));
   await settle();
-  fireDocument('keydown', { key: 'ArrowLeft' });
+  fireKey({ key: 'ArrowLeft' });
   await settle();
   check(showing() === 0, 'nothing before the first', String(showing()));
-  fireDocument('keydown', { key: 'ArrowRight' });
-  fireDocument('keydown', { key: 'ArrowRight' });
+  fireKey({ key: 'ArrowRight' });
+  fireKey({ key: 'ArrowRight' });
   await settle();
   check(showing() === 1, 'nothing after the last', String(showing()));
 
   // A modifier is somebody else's shortcut — back and forward, in every browser.
   const at = showing();
-  fireDocument('keydown', { key: 'ArrowLeft', metaKey: true });
+  fireKey({ key: 'ArrowLeft', metaKey: true });
   await settle();
   check(showing() === at, 'and a modified arrow belongs to the browser', String(showing()));
 
   card.hide();
-  fireDocument('keydown', { key: 'ArrowLeft' });
+  const closed = fireKey({ key: 'ArrowLeft' });
   await settle();
   check(showing() === at, 'a closed card does not hold the arrow keys', String(showing()));
+  check(!closed.stopped, 'and lets them through to the map, which is whose they are then');
+}
+
+console.log('\nAn open card holds all four arrows, so the map cannot move under it');
+{
+  card.show(group(4));
+  await settle();
+  for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+    const seen = fireKey({ key });
+    check(seen.stopped && seen.defaulted, `${key} is stopped before the map hears it`);
+  }
+  // Up and down have no photograph to move to — being inert is the point of
+  // catching them, not an oversight.
+  const before = showing();
+  fireKey({ key: 'ArrowUp' });
+  fireKey({ key: 'ArrowDown' });
+  await settle();
+  check(showing() === before, 'and neither of the two that mean nothing here does anything',
+    String(showing()));
+
+  // Everything else still belongs to whoever else wants it.
+  check(!fireKey({ key: 'Escape' }).stopped, 'a key this card has no use for is left alone');
+}
+
+console.log('\nOne trackpad swipe is one photograph');
+{
+  const cardEl = dom.get('photo-info');
+  /**
+   * One flick, as a trackpad actually reports it: a burst of deltas while the
+   * fingers move, and a long tail of momentum after they have gone. The tail is
+   * the whole bug — counting it is what turned one swipe into thirty.
+   */
+  const flick = (dir, { at = 0, ticks = 14 } = {}) => {
+    const seen = { defaulted: 0 };
+    for (let n = 0; n < ticks; n++) {
+      cardEl.fire('wheel', {
+        deltaX: dir * (n < 4 ? 18 : 40 / (n - 2)),
+        deltaY: 0,
+        timeStamp: at + n * 16,
+        preventDefault() { seen.defaulted++; },
+      });
+    }
+    return seen;
+  };
+
+  card.show(group(10));
+  await settle();
+  check(showing() === 0, 'it opens on the newest of them', String(showing()));
+
+  const first = flick(1);
+  await settle();
+  check(showing() === 1, 'a firm flick with a long tail moves exactly one', String(showing()));
+  check(first.defaulted === 14,
+    'and every event of it is taken, tail included, so the strip does not fly',
+    String(first.defaulted));
+
+  // A second gesture, after the gap that separates them.
+  flick(1, { at: 1000 });
+  await settle();
+  check(showing() === 2, 'the next swipe moves one more', String(showing()));
+
+  flick(-1, { at: 2000 });
+  await settle();
+  check(showing() === 1, 'and the other way comes back', String(showing()));
+
+  // Below the threshold: a nudge is not a swipe.
+  cardEl.fire('wheel', { deltaX: 12, deltaY: 0, timeStamp: 3000, preventDefault() {} });
+  await settle();
+  check(showing() === 1, 'a nudge too small to be meant is not a swipe', String(showing()));
+
+  // A vertical scroll that drifts sideways is a vertical scroll.
+  const down = { defaulted: 0 };
+  for (let n = 0; n < 8; n++) {
+    cardEl.fire('wheel', {
+      deltaX: 3, deltaY: 40, timeStamp: 4000 + n * 16, preventDefault() { down.defaulted++; },
+    });
+  }
+  await settle();
+  check(showing() === 1 && down.defaulted === 0,
+    'and a two-finger scroll down is left entirely alone', String(showing()));
+
+  // At the ends, the same as the finger: nothing that way.
+  card.show(group(3));
+  await settle();
+  flick(-1, { at: 5000 });
+  await settle();
+  check(showing() === 0, 'there is nothing before the first one', String(showing()));
+
+  card.hide();
+  const shut = flick(1, { at: 6000 });
+  await settle();
+  check(shut.defaulted === 0, 'and a closed card takes no wheel at all', String(shut.defaulted));
 }
 
 console.log('\nA single photograph has nothing to swipe to');

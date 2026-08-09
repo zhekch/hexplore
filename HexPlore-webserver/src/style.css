@@ -1281,6 +1281,40 @@ body {
   width: min(360px, calc(100vw - 32px));
 }
 
+/* On a screen with room, a great deal wider.
+
+   360px is the width of a phone and it followed the card onto every other
+   screen there is, so on a Mac the photograph sat in a ninth of the window with
+   map on all sides — the picture is the entire content of this card and it was
+   the smallest thing on screen. The same "is there space for this" test the
+   search palette makes, so the two agree about what a roomy viewport is.
+
+   Still a card and still over the map: it grows to a size a photograph is worth
+   looking at, not to the window. */
+@media (min-width: 720px) and (min-height: 560px) {
+  .photo-info {
+    width: min(680px, calc(100vw - 64px));
+  }
+
+  /* The width above is what a landscape photograph needed; this is the half a
+     portrait one needed, and it is the half that matters more — a tall picture
+     is bounded by the ceiling and never by the card, so widening alone would
+     have left it exactly the size it was. Two limits because they run out on
+     different screens: `72vh` is the share of a tall window worth giving it,
+     and the second is what is actually left after the heading, the strip and
+     the card's own margins, on a window short enough for that to bite first. */
+  .photo-info .photo-figure img {
+    max-height: min(72vh, calc(100vh - 240px));
+  }
+
+  /* The strip grows with it. 54px squares under a 680px picture read as a
+     footnote rather than as the rest of the group. */
+  .photo-info .photo-thumb {
+    width: 76px;
+    height: 76px;
+  }
+}
+
 .photo-figure {
   display: grid;
   place-items: center;
