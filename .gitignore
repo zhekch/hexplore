@@ -14,6 +14,15 @@
 # ~/Documents, and a conflicted duplicate of a source file is never wanted.
 * [0-9].*
 
+# Editor backups ("SettingsView~.swift", "SettingsView.swift~"), which are the
+# same hazard as the line above and worse inside the two app folders. Both Xcode
+# projects use file-system synchronised groups, so **every** .swift file in the
+# folder is compiled whether anything references it or not — a backup left
+# beside its original is a second `struct SettingsView`, and the build fails
+# with "Invalid redeclaration" in a file nobody edited and git never mentioned.
+*~
+*~.*
+
 # Logs
 *.log
 npm-debug.log*
