@@ -313,7 +313,12 @@ nonisolated enum PhotoLibrary {
         }
         guard let item else { return false }
 
-        let controller = AVPlayerViewController()
+        // `VideoPlayerController` is an `AVPlayerViewController` that claims the
+        // audio session on the way in and gives it back on the way out. Without
+        // that the video plays silently whenever the ring switch is set to
+        // silent, which is most of the time on most phones — see
+        // ``PlaybackAudio``.
+        let controller = VideoPlayerController()
         controller.player = AVPlayer(playerItem: item)
         // Presented rather than pushed, over whatever is on screen, so dismissing
         // it puts the map back exactly as it was — including the card that was

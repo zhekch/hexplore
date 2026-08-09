@@ -1,4 +1,72 @@
+// `AVFAudio` explicitly for `AVAudioSession`: this target turns on
+// MemberImportVisibility, so a framework reached through another framework's
+// re-export does not lend its members.
+import AVFAudio
+import AVKit
 import UIKit
+
+/// Turning the sound on, which is not the same as playing the video.
+///
+/// A video from the library played silently on every phone, and the reason is
+/// that nothing here had ever said what the audio was *for*. An app that never
+/// sets a category gets `.soloAmbient`, whose defining property is that the ring
+/// switch silences it — which is right for a game's background music and wrong
+/// for a thing somebody has just pressed play on. It is not a volume bug and not
+/// a Photos bug: the audio was working exactly as declared, and what was
+/// declared was "incidental".
+///
+/// `.playback` is the category for media that *is* the point: it survives the
+/// ring switch and it keeps playing when the screen locks. `.moviePlayback` is
+/// the mode that comes with it, and it is what routes the sound the way a video
+/// player's sound is expected to be routed.
+///
+/// The session is given back on the way out, and that matters more than it
+/// looks: `.playback` is not mixable, so opening one video stops whatever the
+/// phone was playing. Deactivating with `.notifyOthersOnDeactivation` is what
+/// tells the music app it may carry on — without it the video ends, the player
+/// closes, and the album you were listening to simply never comes back.
+enum PlaybackAudio {
+
+    /// Claim the session, out loud, for as long as a video is on screen.
+    static func begin() {
+        let session = AVAudioSession.sharedInstance()
+        // `try?` throughout: every one of these can fail on a phone that is on a
+        // call or has just been handed to CarPlay, and a video that plays
+        // without sound is a far better outcome than one that refuses to open.
+        try? session.setCategory(.playback, mode: .moviePlayback)
+        try? session.setActive(true)
+    }
+
+    /// Hand it back, and let whatever was playing before resume.
+    static func end() {
+        try? AVAudioSession.sharedInstance().setActive(
+            false, options: .notifyOthersOnDeactivation
+        )
+    }
+}
+
+/// The system player, with the sound turned on and given back again.
+///
+/// A subclass for two lines, because the two lines have to happen either side of
+/// a presentation this file does not own: `PhotoLibrary.play(id:)` presents it,
+/// the user dismisses it by swiping, and there is no callback for that. A view
+/// controller does know when it has gone.
+final class VideoPlayerController: AVPlayerViewController {
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        PlaybackAudio.begin()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // Stopped rather than left paused: a player that is off screen and still
+        // holding its item is a video that resumes when picture-in-picture hands
+        // it back to a viewer nobody is in any more.
+        player?.pause()
+        PlaybackAudio.end()
+    }
+}
 
 /// One photograph, big, in front of the map.
 ///

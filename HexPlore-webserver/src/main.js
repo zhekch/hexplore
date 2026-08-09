@@ -7182,11 +7182,19 @@ function refreshMenuOverflow() {
   // called that during start-up, and the failure would be a blank menu.
   const box = document.querySelector('.menu-scroll');
   if (!box) return;
-  const room = box.scrollHeight - box.clientHeight;
+  // Whichever way it actually runs off the edge. Downwards, normally — and
+  // sideways on a screen that is short and wide, where the menu is laid out in
+  // columns instead of one long strip (see the landscape block in style.css).
+  // Measured rather than asked of the layout, so this cannot drift from the
+  // breakpoint that decides it.
+  const down = box.scrollHeight - box.clientHeight;
+  const across = box.scrollWidth - box.clientWidth;
+  const room = Math.max(down, across);
+  const at = across > down ? box.scrollLeft : box.scrollTop;
   // A pixel of slack: sub-pixel layout leaves fractional remainders that would
   // otherwise keep the fade on a menu already scrolled to the end.
   box.classList.toggle('is-overflowing', room > 1);
-  box.classList.toggle('is-at-end', room <= 1 || box.scrollTop >= room - 1);
+  box.classList.toggle('is-at-end', room <= 1 || at >= room - 1);
 }
 
 const menuScroll = document.querySelector('.menu-scroll');

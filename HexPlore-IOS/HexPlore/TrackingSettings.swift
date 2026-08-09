@@ -175,7 +175,17 @@ final class TrackingSettings: ObservableObject {
     let deviceId: String
 
     /// The last thing the uploader has to say for itself, for the Settings tab.
-    @Published var status = SyncStatus()
+    ///
+    /// Written through to `UserDefaults` on every change. That is not caching:
+    /// "Last checked" is a claim about *this phone's history*, and a value that
+    /// only exists in memory answers "Never" after every cold launch however
+    /// diligently the thing has been running. Which is exactly what it did —
+    /// Photos reads at most once every six hours and the app is relaunched far
+    /// more often than that, so the honest answer was on screen approximately
+    /// never.
+    @Published var status = SyncStatus() {
+        didSet { status.save(to: defaults) }
+    }
 
     struct SyncStatus {
         var pending = 0
@@ -188,6 +198,32 @@ final class TrackingSettings: ObservableObject {
         var workoutsSent = 0
         var lastPhotoScan: Date?
         var photosSent = 0
+
+        init() {}
+
+        /// What survives a relaunch, and what deliberately does not.
+        ///
+        /// The dates and the counts do: they are the record of what this phone
+        /// has done, and the screen exists to show it. `pending` does not — the
+        /// queue is on disk and counts itself, so a stored number could only
+        /// ever disagree with it. Nor do `lastError` and `signedOut`: both are
+        /// claims about *now*, and a stale one shown at launch is worse than
+        /// none, because it describes a failure that may already have mended.
+        init(from defaults: UserDefaults) {
+            lastPush = defaults.object(forKey: Keys.lastPush) as? Date
+            lastWorkoutScan = defaults.object(forKey: Keys.lastWorkoutScan) as? Date
+            workoutsSent = defaults.integer(forKey: Keys.workoutsSent)
+            lastPhotoScan = defaults.object(forKey: Keys.lastPhotoScan) as? Date
+            photosSent = defaults.integer(forKey: Keys.photosSent)
+        }
+
+        func save(to defaults: UserDefaults) {
+            defaults.set(lastPush, forKey: Keys.lastPush)
+            defaults.set(lastWorkoutScan, forKey: Keys.lastWorkoutScan)
+            defaults.set(workoutsSent, forKey: Keys.workoutsSent)
+            defaults.set(lastPhotoScan, forKey: Keys.lastPhotoScan)
+            defaults.set(photosSent, forKey: Keys.photosSent)
+        }
     }
 
     private let defaults = UserDefaults.standard
@@ -200,6 +236,11 @@ final class TrackingSettings: ObservableObject {
         static let notifyFlights = "tracking.notifyFlights"
         static let deviceName = "tracking.deviceName"
         static let deviceId = "tracking.deviceId"
+        static let lastPush = "status.lastPush"
+        static let lastWorkoutScan = "status.lastWorkoutScan"
+        static let workoutsSent = "status.workoutsSent"
+        static let lastPhotoScan = "status.lastPhotoScan"
+        static let photosSent = "status.photosSent"
     }
 
     private init() {
@@ -209,6 +250,10 @@ final class TrackingSettings: ObservableObject {
         // default would be "already tracking" for anyone who never asked.
         cadence = (d.object(forKey: Keys.cadence) as? Int).flatMap(Cadence.init) ?? .off
         precision = (d.object(forKey: Keys.precision) as? Int).flatMap(Precision.init) ?? .normal
+        // Assigned here rather than in the property's initial value, so it is
+        // read once from disk and does not immediately write itself back — a
+        // `didSet` does not fire for an assignment made inside `init`.
+        status = SyncStatus(from: d)
         syncWorkouts = d.bool(forKey: Keys.syncWorkouts)
         syncPhotos = d.bool(forKey: Keys.syncPhotos)
         notifyFlights = d.bool(forKey: Keys.notifyFlights)

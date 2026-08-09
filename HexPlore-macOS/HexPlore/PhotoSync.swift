@@ -59,7 +59,27 @@ final class PhotoSync: NSObject, ObservableObject {
     private var lastRun: Date?
     private var observing = false
 
-    private override init() { super.init() }
+    private override init() {
+        // Seeded from what the last run wrote down, so the six-hour gap is a gap
+        // in *time* rather than a gap in this process's lifetime. Without it
+        // every launch was due for a scan, and a scan sends the library whole —
+        // which is the one thing here that is not cheap.
+        lastRun = TrackingSettings.shared.status.lastPhotoScan
+        super.init()
+    }
+
+    /// Arm the observer and read the library if it is time to.
+    ///
+    /// Called at launch, which used to be the gap in all of this: `apply()` runs
+    /// when the *switch* is thrown and nothing ran when the app started, so on a
+    /// Mac that had had the switch on for months there was no change observer
+    /// registered and no scan — the window said "Last checked: Never" and was
+    /// telling the truth.
+    func resume() {
+        guard TrackingSettings.shared.syncPhotos else { return }
+        watch()
+        Task { await scanIfDue() }
+    }
 
     var isAuthorized: Bool {
         PhotoLibrary.authorization == .authorized
@@ -110,7 +130,15 @@ final class PhotoSync: NSObject, ObservableObject {
         guard TrackingSettings.shared.syncPhotos, !scanning else { return }
         guard isAuthorized || isLimited else { return }
         scanning = true
-        defer { scanning = false }
+        // The date is what the window calls "Last checked", so it records the
+        // *check* — including one that found nothing to send, which is still an
+        // answer about the library and is exactly the case that used to leave
+        // the row saying "Never" next to a perfectly healthy scan. What was
+        // sent is a separate line and is set separately below.
+        defer {
+            scanning = false
+            TrackingSettings.shared.status.lastPhotoScan = Date()
+        }
         lastRun = Date()
 
         let photos = geotagged()
@@ -126,7 +154,6 @@ final class PhotoSync: NSObject, ObservableObject {
         do {
             let taken = try await SyncClient.shared.send(photos: photos)
             TrackingSettings.shared.status.photosSent = taken
-            TrackingSettings.shared.status.lastPhotoScan = Date()
             TrackingSettings.shared.status.lastError = nil
         } catch SyncClient.SyncError.signedOut {
             TrackingSettings.shared.status.signedOut = true

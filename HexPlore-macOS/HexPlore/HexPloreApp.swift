@@ -52,10 +52,11 @@ struct HexPloreApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Idempotent, and does nothing at all when the switch is off — which is
-        // where it starts on a Mac. See `TrackingSettings.Cadence`.
+        // Both idempotent, and both do nothing at all when their switch is off —
+        // which is where they start on a Mac. See `TrackingSettings.Cadence`.
         MainActor.assumeIsolated {
             LocationLogger.shared.resume()
+            PhotoSync.shared.resume()
         }
     }
 

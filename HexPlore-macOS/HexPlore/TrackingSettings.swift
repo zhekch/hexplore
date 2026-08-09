@@ -156,7 +156,14 @@ final class TrackingSettings: ObservableObject {
 
     /// The last thing the uploader has to say for itself, for the Settings
     /// window.
-    @Published var status = SyncStatus()
+    ///
+    /// Written through to `UserDefaults` on every change. That is not caching:
+    /// "Last checked" is a claim about *this Mac's history*, and a value that
+    /// only exists in memory answers "Never" after every relaunch however
+    /// diligently the thing has been running.
+    @Published var status = SyncStatus() {
+        didSet { status.save(to: defaults) }
+    }
 
     struct SyncStatus {
         var pending = 0
@@ -167,6 +174,28 @@ final class TrackingSettings: ObservableObject {
         var signedOut = false
         var lastPhotoScan: Date?
         var photosSent = 0
+
+        init() {}
+
+        /// What survives a relaunch, and what deliberately does not.
+        ///
+        /// The dates and the counts do: they are the record of what this Mac has
+        /// done, and the window exists to show it. `pending` does not — the
+        /// queue is on disk and counts itself, so a stored number could only
+        /// ever disagree with it. Nor do `lastError` and `signedOut`: both are
+        /// claims about *now*, and a stale one shown at launch describes a
+        /// failure that may already have mended.
+        init(from defaults: UserDefaults) {
+            lastPush = defaults.object(forKey: Keys.lastPush) as? Date
+            lastPhotoScan = defaults.object(forKey: Keys.lastPhotoScan) as? Date
+            photosSent = defaults.integer(forKey: Keys.photosSent)
+        }
+
+        func save(to defaults: UserDefaults) {
+            defaults.set(lastPush, forKey: Keys.lastPush)
+            defaults.set(lastPhotoScan, forKey: Keys.lastPhotoScan)
+            defaults.set(photosSent, forKey: Keys.photosSent)
+        }
     }
 
     private let defaults = UserDefaults.standard
@@ -177,6 +206,9 @@ final class TrackingSettings: ObservableObject {
         static let syncPhotos = "tracking.syncPhotos"
         static let deviceName = "tracking.deviceName"
         static let deviceId = "tracking.deviceId"
+        static let lastPush = "status.lastPush"
+        static let lastPhotoScan = "status.lastPhotoScan"
+        static let photosSent = "status.photosSent"
     }
 
     private init() {
@@ -193,6 +225,10 @@ final class TrackingSettings: ObservableObject {
         // rather than assumed.
         cadence = (d.object(forKey: Keys.cadence) as? Int).flatMap(Cadence.init) ?? .off
         precision = (d.object(forKey: Keys.precision) as? Int).flatMap(Precision.init) ?? .normal
+        // Assigned here rather than in the property's initial value, so it is
+        // read once from disk and does not immediately write itself back — a
+        // `didSet` does not fire for an assignment made inside `init`.
+        status = SyncStatus(from: d)
         syncPhotos = d.bool(forKey: Keys.syncPhotos)
         deviceName = d.string(forKey: Keys.deviceName) ?? Host.current().localizedName ?? "This Mac"
         if let existing = d.string(forKey: Keys.deviceId), !existing.isEmpty {

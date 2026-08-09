@@ -51,6 +51,27 @@ glass look. Click hexagons to mark places you've visited.
   cluster the same way: the glass belongs to the container and the buttons
   inside go flat, because two backdrop-filtered pills touching show a doubled
   seam.
+- **A phone held sideways gets the wide layout and a menu turned on its side.**
+  Landscape is 844px across and 390px down, so every width the stylesheet asks
+  about says "wide screen" and is right to; what there is none of is height. The
+  menu is a *column* of eleven rows in 266px, which was a peephole with 600
+  unused pixels beside it. Below `max-height: 560px` the panel widens and
+  `.menu-scroll` becomes multi-column — a `column-width` with no count, a
+  definite height, and `overflow-x: auto`, so sections fill the height and then
+  start again to the right. On a current phone the whole menu is three columns
+  and nothing scrolls at all. Asked as *height* rather than
+  `orientation: landscape`: a short desktop window has the same problem, and a
+  tablet in landscape has 768px of it and wants the column.
+- **The iOS position overrides are corrections to the phone stack, and are
+  scoped to it.** `html[data-client='ios']` lifts the cluster clear of the tab
+  bar. Written without a media query it also reached the landscape layout, which
+  sets `bottom: auto` to anchor the cluster at the *top* — so `.layers` ended up
+  with both edges pinned, which is not a box that hugs its content but one
+  stretched the height of the screen. Its reversed column then dropped the menu
+  and search pill into the bottom-left corner, on top of the attribution the
+  same block had just moved there. Anything that overrides a position inside the
+  app has to say which layout it is correcting; `scripts/test/card-lift.mjs`
+  guards the neighbouring version of this trap.
 - **Grid**: flat-top hexagons defined in Web Mercator space, so every cell
   renders as a perfect, identically-oriented hexagon at any location and zoom
   (no rotation or pentagon artifacts). The base (finest) cell is **~0.9 km**
@@ -622,6 +643,23 @@ it there and a visit means the same thing either way — see
   logger whose output you cannot see is indistinguishable from one that stopped a
   fortnight ago. Forgetting a phone drops that row and leaves its cells, which
   came from real fixes.
+- **The app's own status survives a relaunch, and had to be taught to.**
+  `TrackingSettings.SyncStatus` was memory-only, so "Last checked" answered
+  *Never* after every cold launch however diligently the thing had been running
+  — and Photos reads at most once every six hours, which the app is relaunched
+  far more often than, so the honest answer was on screen approximately never.
+  The dates and counts are written through to `UserDefaults`; `pending` is not,
+  because the queue is on disk and counts itself, and neither are `lastError`
+  and `signedOut`, because both are claims about *now* and a stale one shown at
+  launch describes a failure that may already have mended.
+- **Everything that runs on a timer has to be started at launch, not only when
+  its switch is thrown.** `LocationLogger.resume()` and `HealthSync.apply()`
+  were called from the app delegate and `PhotoSync` was not, so on a phone that
+  had had the photo switch on for months there was no library change observer
+  registered and no scan — the screen said *Never* and was telling the truth.
+  `PhotoSync.resume()` joins them, and seeds its six-hour gap from the persisted
+  date so a cold launch is not automatically due: a photo scan sends the library
+  whole, and is the one thing here that is not cheap to repeat.
 
 **Is that address a Hexplore server?** `GET /api/health` is the only route that
 answers before anybody has signed in, and it exists for the Settings tab: you
@@ -4858,6 +4896,36 @@ photographs anyone uses is in. `groupWhen` reads a span off the smallest and
 largest timestamps rather than the ends of the list, so it cannot print a date
 range backwards when the order changes again.
 
+### Swiping, because the strip answers the wrong question
+
+The strip is a complete answer to *which one* and a poor answer to *the next
+one*: forty pictures of a dinner are forty 54px squares, and picking along them
+with a thumb is not how anybody looks at photographs. So the picture itself
+takes a horizontal swipe, which is what every other photograph on the device
+does — and the arrow keys, which is the same movement without a finger.
+
+It is a gesture rather than two invisible buttons. The picture follows the
+finger, is resisted to a quarter of the movement at the two ends of the group —
+a photograph that will not move at all is indistinguishable from a card that has
+stopped responding — and commits on **distance or speed**, 56px or 0.5px/ms,
+because a slow deliberate pull and a quick flick are the same instruction.
+Pointer events rather than touch events, so one implementation covers a phone, a
+trackpad and a mouse, and the gesture is claimed only once it is plainly
+sideways: the card is also dismissed by dragging, and a picture that swallows
+every downward movement is a card you cannot get rid of.
+
+Two things about it are not obvious and both were bugs. **A drag that ends where
+it began still dispatches a click**, so swiping to the next photograph also
+opened the one you had just swiped away from, full screen — the flag that eats
+that click is cleared on the next `pointerdown` rather than only where it is
+read, or a gesture the system cancels leaves it standing to eat a real tap
+later. And **the strip renders in chunks**, so a swipe can ask for a thumbnail
+whose button does not exist yet; `select()` renders as far as it needs to and
+scrolls the strip to it, because a selection that has visibly left the screen is
+not a selection. `scripts/test/photo-swipe.mjs` mounts the card against a
+stand-in DOM and fires the events by hand: all of this is arithmetic, and none of
+it is visible in the review that breaks it.
+
 Four thousand is two problems, and the strip pays for each separately.
 **Elements**: buttons are appended `STRIP_CHUNK` at a time, when a sentinel at
 the end of the strip scrolls into view, so nothing below the fold exists.
@@ -4923,6 +4991,20 @@ place. Full quality, no copy, the system's own controls, scrubbing, AirPlay and
 picture-in-picture for free, and an iCloud original fetched by Photos itself
 rather than by us. The player is *presented*, so dismissing it puts the map back
 exactly as it was, card and all.
+
+**The sound has to be asked for, and for a year it was not.** Every video played
+silently and it looked like a Photos problem; it was a declaration problem. An
+app that never sets an `AVAudioSession` category gets `.soloAmbient`, whose
+defining property is that the ring switch silences it — correct for a game's
+background music and wrong for something somebody has just pressed play on. The
+audio was behaving exactly as declared, and what was declared was "incidental".
+`VideoPlayerController` claims `.playback` with `.moviePlayback` on the way in
+and gives the session back with `.notifyOthersOnDeactivation` on the way out;
+the second half matters as much as the first, because `.playback` is not mixable
+and without it the album you were listening to never comes back. Being a view
+controller is the whole reason it is a subclass: the player is dismissed by a
+swipe nobody here is told about, and a view controller does know when it has
+gone.
 
 The page's part is one message. It has no URL for the video, never sees a byte of
 it, and cannot save one — the same bargain the rest of this bridge strikes.

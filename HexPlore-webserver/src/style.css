@@ -564,6 +564,75 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+/* --- A phone held sideways: the menu turns on its side too ---------------------
+   A landscape phone is a wide screen by every measurement this stylesheet takes
+   — 844px on the current iPhone — so it gets the wide layout above, which is
+   right. What it has none of is *height*: 390px, of which the buttons and the
+   panel's own padding take 124. The menu is a column, and a column of eleven
+   rows in 266px is a peephole. It was a working menu that you had to scroll
+   four times to find "Export & settings" in, in a window with 600 unused pixels
+   to the right of it.
+
+   So sideways it becomes columns. `column-width` with no count, a definite
+   height, and `overflow-x: auto`: the sections fill the height, then start
+   again to the right, and anything past the edge of the panel is a sideways
+   scroll rather than a longer one. On a current phone in landscape the whole
+   menu is three columns and nothing scrolls at all.
+
+   Asked as *height*, not as `orientation: landscape`. A short desktop window
+   has exactly the same problem and there is nothing about it that is a phone;
+   and a tablet in landscape has 768px of height and wants the column, which
+   `orientation` would have taken away from it. */
+@media (min-width: 561px) and (max-height: 560px) {
+  .layers-menu {
+    /* Three of the columns below, plus the panel's padding. Capped rather than
+       stretched to the viewport: a menu the full width of the screen is a menu
+       that has stopped looking like a panel the button opened. */
+    width: min(760px, calc(100vw - 40px));
+  }
+
+  .menu-scroll {
+    /* A height rather than a maximum, because this is what the columns are
+       measured against. `max-height` leaves the box free to be shorter, and a
+       multi-column box that is free to be shorter puts everything in one
+       column and grows — which is the layout this replaces. */
+    height: calc(100vh - var(--safe-t) - var(--safe-b) - var(--menu-chrome));
+    height: calc(100dvh - var(--safe-t) - var(--safe-b) - var(--menu-chrome));
+    max-height: none;
+    /* A width and no count: the count is however many fit, and the rest run off
+       to the right where the scroll can reach them. */
+    columns: 232px;
+    column-gap: 18px;
+    column-rule: 1px solid rgba(255, 255, 255, 0.12);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  /* A control cut in half down a column edge is worse than a short column. */
+  .menu-section,
+  .menu-scroll > .layers-account {
+    break-inside: avoid;
+  }
+
+  /* The hairline between sections runs *across* a column, so at the top of the
+     second one it is a line under nothing. The column rule is the separator
+     here, and the headings do the rest. */
+  .menu-section + .menu-section,
+  .menu-scroll > .layers-account {
+    margin-top: 16px;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  /* The fade says "there is more that way", and that way is now sideways.
+     `refreshMenuOverflow()` in src/main.js measures whichever axis is the one
+     that scrolls, so the class this hangs on is already right. */
+  .menu-scroll.is-overflowing:not(.is-at-end) {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--menu-fade)), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - var(--menu-fade)), transparent);
+  }
+}
+
 .menu-heading,
 .layers-heading {
   display: flex;
@@ -1237,6 +1306,46 @@ body {
   cursor: zoom-in;
 }
 
+/* --- Swiping to the next one --------------------------------------------------
+   The picture follows the finger while the gesture is happening and settles when
+   it lets go; `--photo-swipe` is how far, and src/photo-info.js is what sets it.
+
+   `pan-y` rather than the `manipulation` inherited from the document: sideways
+   on this element is ours, and saying so is what stops the browser deciding
+   mid-drag that it was a scroll after all and cancelling the pointer. Nothing
+   here scrolls horizontally, so nothing is given up.
+
+   `user-select: none` because the card as a whole is deliberately selectable —
+   its coordinates are worth copying — and a drag across a picture inside a
+   selectable card selects the card. */
+.photo-figure {
+  touch-action: pan-y;
+  user-select: none;
+}
+
+/* `translate` rather than `transform`, and that is not a style choice: the play
+   button already uses `transform` for its hover, and one property cannot hold
+   two independent movements. These compose instead. */
+.photo-figure img,
+.photo-figure .photo-play {
+  translate: var(--photo-swipe, 0px);
+}
+
+/* Only on the way back. While the finger is down the picture is *at* the finger,
+   and a transition there is a picture lagging behind the thing dragging it. */
+.photo-figure img {
+  transition: translate 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.photo-figure.dragging img,
+.photo-figure.dragging .photo-play {
+  transition: none;
+}
+
+.photo-figure.dragging {
+  cursor: grabbing;
+}
+
 /* `fetching`, not `busy`.
 
    `.busy` is already taken — it is the map's own top-centre spinner while
@@ -1325,7 +1434,13 @@ body {
   color: #fff;
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  transition: transform 0.15s ease, background 0.15s ease;
+  /* `translate` alongside `transform`: the first is the swipe, the second is the
+     hover, and they are listed separately because they are two movements that
+     happen to be on one element. */
+  transition:
+    transform 0.15s ease,
+    translate 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.15s ease;
 }
 
 .photo-play-icon,
@@ -6657,18 +6772,44 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   margin: 0 0 calc(8px + var(--safe-b)) calc(12px + var(--safe-l));
 }
 
-/* The button cluster clears the tab bar by more than the usual margin. The safe
-   area ends exactly where the tab bar does, so a button resting on it is a
-   button you miss — you press the tab bar instead. Ten more pixels is the
-   difference between "next to" and "on top of". */
-html[data-client='ios'] .layers {
-  bottom: calc(22px + var(--safe-b) + var(--lift, 0px));
+/* Both of the offsets below are corrections to the *phone* stack — the one that
+   piles the controls into the bottom-right corner — so they are scoped to it.
+
+   Unscoped, they were the bug a phone held sideways had. A landscape phone is
+   wider than 560px, so it takes the wide layout at the top of this file, which
+   sets `.layers { top: …; bottom: auto }`. These rules then set `bottom` again
+   and, being later and more specific, won — leaving a fixed element with *both*
+   edges pinned, which is not a box that hugs its content but one stretched the
+   height of the screen. The column reversed inside it, so the menu button
+   landed at the bottom-left, on top of the attribution this same block has just
+   moved there. "Fully misaligned" is a fair description.
+
+   The wide layout needs no version of the first rule: it puts the cluster at
+   the top, where there is no tab bar to clear. */
+@media (max-width: 560px) {
+  /* The button cluster clears the tab bar by more than the usual margin. The
+     safe area ends exactly where the tab bar does, so a button resting on it is
+     a button you miss — you press the tab bar instead. Ten more pixels is the
+     difference between "next to" and "on top of". */
+  html[data-client='ios'] .layers {
+    bottom: calc(22px + var(--safe-b) + var(--lift, 0px));
+  }
+
+  /* The pencil rides above the cluster, so it moves with it — including when
+     the cluster steps up over an open card. */
+  html[data-client='ios'] .hud {
+    bottom: calc(127px + var(--safe-b) + var(--lift, 0px));
+  }
 }
 
-/* The pencil rides above the cluster, so it moves with it — including when the
-   cluster steps up over an open card. */
-html[data-client='ios'] .hud {
-  bottom: calc(127px + var(--safe-b) + var(--lift, 0px));
+/* Sideways, the pencil is on its own in the bottom-left corner and still has a
+   tab bar under it. The wide layout's own rule is written for a browser and
+   leaves the safe area out; inside the app that is the difference between a
+   button and a button you cannot press. */
+@media (min-width: 561px) {
+  html[data-client='ios'] .hud {
+    bottom: calc(22px + var(--safe-b) + var(--lift, 0px));
+  }
 }
 
 /* --- Export an image ---------------------------------------------------------

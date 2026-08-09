@@ -36,10 +36,47 @@ import { STRIP_CHUNK, photoImage, playVideo, viewPhoto } from './photos.js';
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
 
+// Asked once and re-read on every use: `matches` is live, so somebody who turns
+// the setting on mid-session is obeyed without a reload.
+const reduceMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');
+
 // How big a thumbnail to ask for, in CSS pixels of the square it goes in. The
 // device pixel ratio is applied on top, or the strip is soft on every phone made
 // since 2012.
 const THUMB_PX = 120;
+
+// --- Swiping from one to the next ------------------------------------------------
+//
+// The strip is a complete answer to "which one" and a poor answer to "the next
+// one". Forty pictures of a dinner are forty 54px squares, and picking your way
+// along them with a thumb is not how anybody looks at photographs — you swipe,
+// because that is what every other photograph on the device does.
+//
+// It is a *gesture*, not a pair of buttons that happen to be invisible: the
+// picture follows the finger, resists at the ends of the group, and can be
+// changed its mind about by putting it back. Nothing about that is decoration —
+// a swipe that only reacts on release is one you cannot tell has been noticed,
+// which is how you end up swiping twice and skipping one.
+
+// How far it has to be pulled, in CSS pixels, before letting go means "the next
+// one" rather than "put it back".
+const SWIPE_COMMIT = 56;
+
+// Or how fast, in pixels per millisecond. Either will do: a slow deliberate pull
+// and a quick flick are the same instruction, and demanding both makes the
+// gesture feel like it is arguing with you.
+const SWIPE_FLICK = 0.5;
+
+// How far sideways before the gesture is ours at all, and the picture starts
+// moving. Below this a press that drifts is still a press — the figure is also
+// the way to the full-screen viewer, and a tap that scrolls the photograph a
+// pixel and then opens nothing is a broken tap.
+const SWIPE_CLAIM = 10;
+
+// How far the new photograph slides in from. Small on purpose: this is the
+// arrival of a picture that has just been fetched, not a page turn, and a long
+// travel makes the card look like it is rebuilding itself every time.
+const SWIPE_ENTER = 22;
 
 // How many are fetched without being asked for.
 //
@@ -167,13 +204,33 @@ export function mountPhotoInfo({ onClose } = {}) {
   // The button currently outlined, held rather than searched for: a group can
   // have thousands and only one of them changes.
   let chosenBtn = null;
+  // Which side the next picture is arriving from: 1 from the right, -1 from the
+  // left, 0 for the one the card opened on. Set by `select`, spent by
+  // `showChosen` when the bytes turn up.
+  let entering = 0;
+  // The swipe in progress, or null. Held whole rather than as four variables
+  // because every one of them is meaningless without the others.
+  let drag = null;
+  // A drag that moved is not also a tap. The click fires anyway — the pointer
+  // went down and up on the same element — and without this, swiping to the
+  // next photograph also opened the one you swiped away from, full screen.
+  let swallowTap = false;
 
   const setWhen = (text) => {
     whenEl.textContent = text;
   };
 
+  /** How far the picture is currently pulled aside, in CSS pixels. */
+  const setSwipe = (px) => {
+    figure.style.setProperty('--photo-swipe', `${px}px`);
+  };
+
   function hide() {
     card.hidden = true;
+    drag = null;
+    entering = 0;
+    setSwipe(0);
+    figure.classList.remove('dragging');
     // Bumped rather than left: whatever was in flight has nowhere to land now,
     // and a strip that goes on filling itself behind a closed card is a phone
     // decoding JPEGs for nobody.
@@ -199,6 +256,10 @@ export function mountPhotoInfo({ onClose } = {}) {
     if (!item) return;
     noteEl.textContent = '';
     playBtn.hidden = true;
+    // Whatever the drag left behind. The picture it was moving is the one being
+    // replaced, and a new one that arrives already pushed to one side reads as a
+    // layout fault rather than as a gesture.
+    setSwipe(0);
     figure.classList.add('loading');
     // `loaded` is what takes the waiting panel away, so it goes now rather than
     // when the next picture arrives — otherwise the old photograph's frame sits
@@ -229,6 +290,33 @@ export function mountPhotoInfo({ onClose } = {}) {
     // photograph that happens to be of the first moment of something. The button
     // is what says otherwise, and pressing it hands over to the app.
     playBtn.hidden = !item.v;
+    slideIn();
+  }
+
+  /**
+   * The new photograph, arriving from the side it was asked for from.
+   *
+   * A fetch takes as long as it takes, so the swipe and the arrival cannot be
+   * one continuous movement however much they should be — this is the second
+   * half, played when the bytes are there. Without it a swipe ends with the old
+   * picture snapping back to centre and then being silently replaced, which
+   * reads as the gesture having failed and something else having happened.
+   *
+   * `transform` rather than the `translate` the drag uses, so the two cannot
+   * fight over one property: the animation runs on top of wherever the drag
+   * left things, which is centre by the time this is called.
+   */
+  function slideIn() {
+    const from = entering;
+    entering = 0;
+    if (!from || reduceMotion?.matches) return;
+    imgEl.animate?.(
+      [
+        { transform: `translateX(${from * SWIPE_ENTER}px)`, opacity: 0 },
+        { transform: 'translateX(0)', opacity: 1 },
+      ],
+      { duration: 180, easing: 'ease-out' },
+    );
   }
 
   /** One thumbnail, once its button is somewhere you could see it. */
@@ -266,7 +354,7 @@ export function mountPhotoInfo({ onClose } = {}) {
       // thousand is the whole cost this chunking exists to avoid.
       b.dataset.at = String(at);
       if (at === chosen) chosenBtn = b;
-      b.addEventListener('click', () => choose(at, b));
+      b.addEventListener('click', () => select(at));
       // Before the sentinel, which has to stay at the end for the next chunk.
       stripEl.insertBefore(b, sentinel);
       watcher?.observe(b);
@@ -277,18 +365,36 @@ export function mountPhotoInfo({ onClose } = {}) {
   }
 
   /**
-   * Pick one out of the strip.
+   * Pick one, by number.
    *
    * The sub-line follows what you are looking at rather than staying on the
    * group's span: once you have chosen a picture, when *it* was taken is the
    * question, and the span is what the strip is showing you.
+   *
+   * Taking a number rather than a button is what lets the swipe and the strip
+   * share this. A click already has its button — it is the thing that was
+   * pressed — but a swipe can ask for a photograph four hundred along, whose
+   * button has not been rendered yet and whose thumbnail is nowhere near the
+   * visible part of the strip. So this renders as far as it needs to and then
+   * brings the thumbnail into view: a strip left where it was would be showing
+   * a selection that had visibly left the screen.
    */
-  function choose(at, button) {
-    if (at === chosen) return;
-    chosen = at;
+  function select(at) {
+    if (at < 0 || at >= items.length || at === chosen) return;
+    // Which side the new one is arriving from, for the animation in
+    // `showChosen`. Read before `chosen` moves, and only ever ±1 — a jump of
+    // four hundred is still, visually, "the one after this".
+    entering = at > chosen ? 1 : -1;
     chosenBtn?.classList.remove('chosen');
-    chosenBtn = button;
-    button.classList.add('chosen');
+    chosen = at;
+    // Everything up to it, because a swipe can outrun the chunking. The loop
+    // terminates: `renderChunk` always adds `STRIP_CHUNK` or stops at the end.
+    while (rendered <= at && rendered < items.length) renderChunk();
+    chosenBtn = stripEl.querySelector(`.photo-thumb[data-at="${at}"]`);
+    chosenBtn?.classList.add('chosen');
+    // `nearest` vertically so this cannot scroll the page around the card, which
+    // is fixed to the bottom of it.
+    chosenBtn?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
     setWhen(groupWhen([items[chosen]]));
     showChosen();
   }
@@ -348,6 +454,13 @@ export function mountPhotoInfo({ onClose } = {}) {
   // second tap while the first is still fetching presented a *second* player on
   // top of the first, which then had to be dismissed twice.
   playBtn.addEventListener('click', async () => {
+    // The button sits in the middle of the picture, which is also the middle of
+    // the swipe. Dragging across it has to be a swipe rather than a press, or a
+    // group of videos is a group you cannot swipe through.
+    if (swallowTap) {
+      swallowTap = false;
+      return;
+    }
     const item = items[chosen];
     if (!item || busy) return;
     busy = true;
@@ -365,10 +478,100 @@ export function mountPhotoInfo({ onClose } = {}) {
     }
   });
 
+  // --- The swipe ----------------------------------------------------------------
+  //
+  // Pointer events rather than touch events, so this is one gesture on a phone,
+  // a trackpad and a mouse instead of three implementations of it. The figure
+  // captures the pointer once the gesture is plainly sideways, which is what
+  // keeps a swipe that runs off the edge of the card from being dropped
+  // half-way — and, on a desktop, what stops the drag turning into a text
+  // selection of everything under it.
+
+  figure.addEventListener('pointerdown', (e) => {
+    // Cleared here rather than only where it is read, so it cannot outlive the
+    // gesture that set it: a drag the system cancels produces no click, and a
+    // flag left standing would swallow whatever tap came next instead.
+    swallowTap = false;
+    // A secondary button is a context menu, and `busy` means the app is already
+    // fetching something for this card — a swipe would be asking it for a
+    // second picture while it is presenting the first.
+    if (items.length < 2 || busy || e.button > 0) return;
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, at: e.timeStamp, dx: 0, own: false };
+  });
+
+  figure.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    if (!drag.own) {
+      // Claimed once, and only when the movement is plainly sideways. The
+      // alternative — claim on any movement — steals the vertical drag that
+      // dismisses the card and makes the picture impossible to press.
+      if (Math.abs(dx) < SWIPE_CLAIM || Math.abs(dx) <= Math.abs(dy)) return;
+      drag.own = true;
+      swallowTap = true;
+      figure.setPointerCapture?.(drag.id);
+      figure.classList.add('dragging');
+    }
+    drag.dx = dx;
+    // Resisted rather than refused at the ends of the group: a first photograph
+    // that will not move at all is indistinguishable from a card that has
+    // stopped responding, and a quarter of the movement says "there is nothing
+    // that way" in the language the gesture is already speaking.
+    const stuck = (chosen === 0 && dx > 0) || (chosen === items.length - 1 && dx < 0);
+    setSwipe(stuck ? dx / 4 : dx);
+  });
+
+  const endDrag = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const { dx, own, at } = drag;
+    drag = null;
+    if (!own) return;
+    figure.classList.remove('dragging');
+    // Released before the movement is undone, or the picture springs back from
+    // wherever the capture happened to end rather than from where it is.
+    figure.releasePointerCapture?.(e.pointerId);
+    setSwipe(0);
+    // Milliseconds, floored at one: two events in the same frame would divide
+    // by zero and make every twitch a flick.
+    const speed = Math.abs(dx) / Math.max(1, e.timeStamp - at);
+    if (Math.abs(dx) < SWIPE_COMMIT && speed < SWIPE_FLICK) return;
+    // Pulling the picture left brings the next one in from the right, which is
+    // the direction every strip of photographs on this device runs.
+    select(chosen + (dx < 0 ? 1 : -1));
+  };
+
+  figure.addEventListener('pointerup', endDrag);
+  // A pointer the system takes away — a phone that decides the gesture was a
+  // scroll, a mouse that leaves the window — has to put the picture back, or it
+  // stays where the finger left it for ever.
+  figure.addEventListener('pointercancel', endDrag);
+
+  // The same movement without a finger. Registered on the document because the
+  // card has nothing focusable in it worth insisting on, and gated on the card
+  // being open so this is not a pair of arrow keys the whole map has to share.
+  document.addEventListener('keydown', (e) => {
+    if (card.hidden || items.length < 2 || busy) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // Not while somebody is typing into something — the search field, a route's
+    // name — even though neither is open at the same time as this today.
+    if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select')) return;
+    if (e.key === 'ArrowRight') select(chosen + 1);
+    else if (e.key === 'ArrowLeft') select(chosen - 1);
+    else return;
+    e.preventDefault();
+  });
+
   // The picture itself, full size, in the app's own viewer — the same bargain as
   // the video: shown natively rather than sent, so what you get is the original
   // rather than the card-sized copy the card is already showing you.
   figure.addEventListener('click', async (e) => {
+    // A drag that moved the picture is not also a tap on it, however much the
+    // browser insists on dispatching one.
+    if (swallowTap) {
+      swallowTap = false;
+      return;
+    }
     // The play button is inside the figure and has its own job.
     if (e.target.closest('.photo-play')) return;
     const item = items[chosen];

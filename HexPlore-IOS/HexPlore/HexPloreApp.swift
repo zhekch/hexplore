@@ -30,11 +30,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // Neither needs to know *why* it was launched: both are idempotent, and
-        // both do nothing at all when their switch is off.
+        // None of them needs to know *why* it was launched: all three are
+        // idempotent, and all three do nothing at all when their switch is off.
         MainActor.assumeIsolated {
             LocationLogger.shared.resume()
             HealthSync.shared.apply()
+            PhotoSync.shared.resume()
         }
         return true
     }
