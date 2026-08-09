@@ -2477,6 +2477,78 @@ named `apple-photos` means photographs have already become cells. That is not a
 permission check, it is better than one — it is the permission having produced
 the thing it was for.
 
+Position is the one that can simply be asked, and on a Mac it has to be asked of
+the right thing. `navigator.permissions.query({name: 'geolocation'})` reports on
+*WebKit's* permission, and the Mac app does not use WebKit's permission — the
+page's `navigator.geolocation` is a shim onto CoreLocation. So the browser
+answered `prompt` for a machine that had been giving out positions for months,
+and a replay offered to ask for something it already had. `LocationBridge` now
+answers `{ask: "state"}` with the CoreLocation status in the Permissions API's
+own three words, and is consulted first wherever that handler exists. An app
+built before the question existed replies "unknown request", which is not an
+answer and is not treated as one: it falls through to the browser's guess rather
+than being reported as a refusal.
+
+Each of the three rows also says its own thing once it is settled. One "Already
+done" across all of them is what a form writes; a screen claiming to have been
+paying attention has to sound like it, and the truthful version differs for a
+library it has already read, a map that already knows where you are, and a ride
+that turned up on its own. The resting sentence is restated from its key rather
+than remembered, so a row whose grant was revoked in iOS Settings goes back to
+explaining itself instead of keeping the note from last time.
+
+### One gesture, one card
+
+A deck is a pile you are working through, and the two directions are not
+symmetrical. Leftwards is the front card being **thrown away**, and it is the
+card that moves. Rightwards is not that card sliding back: it is the *previous*
+one coming home over the top of it, which is what putting one down on a pile
+looks like from above. So `paint()` chooses its element from the direction of
+travel, and the returning card is dragged out of the `done` state it is parked in
+(`RETURN_X`, `RETURN_DEG` — both of which have to agree with the stylesheet,
+because that is the position it is being dragged *from*). Dragging the front card
+rightwards instead would be a carousel, and it also pushes the card you are
+trying to reach further behind the one covering it.
+
+Two locks stop one gesture turning several cards, and only one of them is
+obvious.
+
+- **A trackpad does not stop when the fingers do.** The kinetic tail of a single
+  two-finger flick is a hundred more `wheel` events, so resetting the accumulator
+  on commit merely let the momentum earn the next hundred and ten pixels, and the
+  next: one shove ran the deck from the first card to the last. `wheelLocked` is
+  set on commit and cleared only by the stream going quiet for `WHEEL_IDLE_MS`,
+  and the idle timer is pushed by *every* event including the ignored ones — a
+  gesture is its events and its tail, and the pause is the only honest end of it.
+- **`TURN_LOCK_MS` after any turn**, for every other way in. Shorter than the
+  flight, so a deliberate second swipe still lands.
+
+`visibility` is in the card's transition list on purpose, and its timing is the
+trick. A discarded card has to end up `visibility: hidden` so it cannot be tabbed
+into or read out, but visibility does not animate — declared plainly it applied on
+the first frame, and the 520ms flight happened to an already-invisible element.
+The `done`/`deep` states delay it by exactly the length of the flight; the base
+rule leaves it at zero, so a card coming *back* is visible on the frame it starts.
+
+### One scene, and it is not the map's
+
+Everything else here follows `data-theme`, which describes the **basemap**. The
+introduction cannot: it is a curtain drawn completely across the map, so there is
+no basemap left for it to be legible against — and on a first run nobody has
+chosen a style anyway, so `data-theme` at that moment is a default rather than a
+preference. It follows `prefers-color-scheme` instead, which is the only
+statement of taste available before the app has been used. Every colour therefore
+goes through a token declared on `.intro` and redeclared once in the light block,
+so a rule added later inherits the theme by construction rather than by somebody
+remembering to go and add one. `.intro-pick` is the exception, and it proves the
+rule: that one appears with the curtain *lifted*, and does have a map underneath.
+
+The illustrations are `currentColor` at three strengths and nothing else. An
+earlier set coloured them by role — violet for photographs, amber for routes,
+matching the map — and seven cards each carrying a small bright object read as a
+sticker sheet competing with its own words. One colour, and the drawings sit down
+and let the sentence be the thing you look at.
+
 ### Seen once, per person
 
 `shouldIntro()` takes the higher of two copies (`seenVersion`), because they

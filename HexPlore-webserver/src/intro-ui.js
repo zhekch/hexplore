@@ -56,9 +56,26 @@ const AXIS_LOCK_PX = 8;
 // event count — and it is reset the moment the stream pauses.
 const WHEEL_COMMIT = 110;
 const WHEEL_IDLE_MS = 220;
+// How long a card takes to fly, in step with the transition in style.css. Used
+// to know when a card dragged back and let go has finished going home.
+const CARD_MS = 520;
+// How long after a turn the deck refuses another one. Shorter than the flight,
+// so a deliberate second swipe still lands while a stream of momentum does not.
+const TURN_LOCK_MS = 300;
+// Where a discarded card is parked, as a fraction of the deck's width, and how
+// far it is turned. Both have to agree with `[data-state='done']` in style.css:
+// this is the point a card being dragged back is being dragged back *from*.
+const RETURN_X = 1.35;
+const RETURN_DEG = -9;
 
 const reducedMotion = () =>
   globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+
+// Which of the two scenes the curtain is painted in. Not `data-theme`, which
+// describes the *basemap* and is hidden behind the curtain anyway — see the
+// note at the top of the introduction's section in style.css.
+const lightScene = () =>
+  globalThis.matchMedia?.('(prefers-color-scheme: light)')?.matches ?? false;
 
 /** What each tile on the last card is called. Spelled out, so the lint sees them. */
 const TILE_LABEL = {
@@ -69,11 +86,39 @@ const TILE_LABEL = {
   trips: () => t('intro.tile.trips'),
 };
 
-/** What a row says once it has been dealt with, per permission and per answer. */
-const REFUSED_NOTE = {
-  photos: () => t('intro.perm.blocked-photos'),
-  location: () => t('intro.perm.blocked-location'),
-  health: () => t('intro.perm.blocked-health'),
+/**
+ * Everything a permission row can say, per permission.
+ *
+ * Three of the four are per-key rather than shared, and that is the point. One
+ * "Already done" against all three rows is the sentence a form writes; this
+ * screen is trying to sound like something that was paying attention while you
+ * used it, and the honest version of that is different for a library it has
+ * already read, a map that already knows where you are, and a ride that turned
+ * up on its own.
+ *
+ * `why` is the row's own resting sentence, restated rather than remembered:
+ * `drawPerms` overwrites the note when a row settles, and a replay has to be
+ * able to put it back.
+ */
+const PERM_COPY = {
+  photos: {
+    why: () => t('intro.perm.photos.body'),
+    already: () => t('intro.perm.already-photos'),
+    kept: () => t('intro.perm.kept-photos'),
+    blocked: () => t('intro.perm.blocked-photos'),
+  },
+  location: {
+    why: () => t('intro.perm.location.body'),
+    already: () => t('intro.perm.already-location'),
+    kept: () => t('intro.perm.kept-location'),
+    blocked: () => t('intro.perm.blocked-location'),
+  },
+  health: {
+    why: () => t('intro.perm.health.body'),
+    already: () => t('intro.perm.already-health'),
+    kept: () => t('intro.perm.kept-health'),
+    blocked: () => t('intro.perm.blocked-health'),
+  },
 };
 
 /**
@@ -134,6 +179,7 @@ export function mountIntro({
   // advancing checks it, because two gestures landing inside one animation is
   // how a deck skips a card without anybody seeing it happen.
   let busy = false;
+  let turnTimer = null;
 
   // --- What this device has already been asked ---------------------------------
 
@@ -166,6 +212,11 @@ export function mountIntro({
         : 'deep';
       card.dataset.state = state;
       card.style.transform = '';
+      // Whatever a gesture was doing to this card, the deck is doing it now.
+      // Taking `intro-dragging` off in the same breath as the transform is what
+      // makes a card that was under a finger a moment ago *animate* into place
+      // rather than jump there.
+      card.classList.remove('intro-returning', 'intro-dragging');
       // Not `hidden`: these have to keep their layout so the one behind the
       // front card peeks out from under it. `inert` is what takes the buttons
       // on a card nobody can see out of the tab order — and where it is not
@@ -212,6 +263,19 @@ export function mountIntro({
     if (next === at) return;
     at = next;
     render();
+    // One gesture, one card.
+    //
+    // A trackpad does not stop sending events when the fingers leave it: the
+    // kinetic tail of a single flick is a hundred more of them, and a deck that
+    // acted on each one went from the first card to the last in one shove. The
+    // wheel handler has a lock of its own for that; this is the same rule for
+    // every other way in, and for the flick that arrives while a card is still
+    // in the air.
+    busy = true;
+    clearTimeout(turnTimer);
+    turnTimer = setTimeout(() => {
+      busy = false;
+    }, TURN_LOCK_MS);
   }
 
   const forward = () => go(at + 1);
@@ -224,8 +288,86 @@ export function mountIntro({
   // still ends on the card that started it.
 
   let drag = null;
+  // The discarded card currently being pulled back by a finger, if any. See
+  // `paint`: swiping right does not move the card you are looking at.
+  let returning = null;
 
   const liveCard = () => cards[at];
+
+  /**
+   * Give up whatever `paint` was doing to the previous card.
+   *
+   * `animate: false` hands it straight back to the stylesheet, which is what a
+   * committed swipe wants — `render` is about to give the card a new state and
+   * the transition should run from wherever the finger left it. `true` is the
+   * gesture being abandoned: the card slides back onto the pile, and it has to
+   * keep `intro-returning` for the whole journey, because the `done` state it
+   * is travelling towards is `visibility: hidden` and losing the class early
+   * would make it vanish halfway.
+   */
+  function clearReturn({ animate }) {
+    const card = returning;
+    if (!card) return;
+    returning = null;
+    card.classList.remove('intro-dragging');
+    card.style.transform = '';
+    if (!animate) {
+      card.classList.remove('intro-returning');
+      return;
+    }
+    setTimeout(() => {
+      // Unless a second gesture has picked the same card up again in the
+      // meantime, in which case it is not this timer's card any more.
+      if (returning !== card) card.classList.remove('intro-returning');
+    }, CARD_MS);
+  }
+
+  /**
+   * Follow the finger — with whichever card the *direction* says is moving.
+   *
+   * Leftwards is the live card being thrown away, and it moves. Rightwards is
+   * not the live card sliding back to the right: it is the card before it
+   * coming back over the top, which is what putting one down on a pile looks
+   * like from above. Dragging the front card rightwards instead would be a
+   * carousel — the same picture the deck was chosen over — and it also puts the
+   * card you are trying to get back *further* behind the one covering it.
+   */
+  function paint(dx) {
+    const width = deck.getBoundingClientRect().width || 1;
+    const prev = cards[at - 1];
+    const live = liveCard();
+
+    if (dx > 0 && prev) {
+      if (live) {
+        live.classList.remove('intro-dragging');
+        live.style.transform = '';
+      }
+      if (returning !== prev) {
+        clearReturn({ animate: false });
+        returning = prev;
+        prev.classList.add('intro-returning', 'intro-dragging');
+      }
+      // It is parked off to the left and turned; the drag walks both back to
+      // nothing together, so it arrives square rather than straightening at the
+      // end.
+      const parked = RETURN_X * width;
+      const x = Math.min(0, dx - parked);
+      const home = 1 - Math.min(1, -x / parked);
+      prev.style.transform = `translate3d(${x}px, 0, 0) rotate(${RETURN_DEG * (1 - home)}deg)`;
+      return;
+    }
+
+    clearReturn({ animate: true });
+    if (!live) return;
+    live.classList.add('intro-dragging');
+    // Nothing that way: on the first card there is no card behind to bring
+    // back, and on the last there is nothing left to throw. Rubber-banded
+    // rather than refused outright — the card gives a little and comes back,
+    // which says "there is nothing that way" without a message.
+    const wall = dx > 0 || (dx < 0 && at === cards.length - 1);
+    const d = wall ? dx * 0.28 : dx;
+    live.style.transform = `translate3d(${d}px, 0, 0) rotate(${d * 0.022}deg)`;
+  }
 
   deck.addEventListener('pointerdown', (e) => {
     if (busy || e.button != null && e.button !== 0) return;
@@ -251,30 +393,26 @@ export function mountIntro({
         drag = null;
         return;
       }
-      const card = liveCard();
-      card?.classList.add('intro-dragging');
+      // Captured on the *live* card whichever card ends up moving: this is
+      // about not losing the pointer, and the live card is the one the gesture
+      // started on.
       try {
         // Throws `NotFoundError` if the pointer is already gone — a finger
         // lifted between this move and the last one, which is rare and real.
         // The drag still works without capture; it just stops tracking if it
         // leaves the card, which is a far better outcome than the exception
         // taking the rest of this handler with it.
-        card?.setPointerCapture?.(e.pointerId);
+        liveCard()?.setPointerCapture?.(e.pointerId);
       } catch {
         /* no capture, and the gesture carries on */
       }
     }
 
-    // Rightwards on the first card has nowhere to go, so it is rubber-banded
-    // rather than refused outright: the card gives a little and comes back,
-    // which says "there is nothing that way" without a message.
-    const wall = (dx > 0 && at === 0) || (dx < 0 && at === cards.length - 1);
-    drag.dx = wall ? dx * 0.28 : dx;
-    const card = liveCard();
-    if (card) {
-      card.style.transform =
-        `translate3d(${drag.dx}px, 0, 0) rotate(${drag.dx * 0.022}deg)`;
-    }
+    // Raw, not rubber-banded. What the finger did is what decides whether the
+    // gesture counts; `paint` is where a drag against a wall gets damped, and
+    // damping the number *here* would quietly move the commit threshold too.
+    drag.dx = dx;
+    paint(dx);
     e.preventDefault();
   });
 
@@ -286,14 +424,24 @@ export function mountIntro({
     const card = liveCard();
     card?.classList.remove('intro-dragging');
     if (card) card.style.transform = '';
-    if (axis !== 'x') return;
+    if (axis !== 'x') {
+      clearReturn({ animate: true });
+      return;
+    }
 
     const width = deck.getBoundingClientRect().width || 1;
     const speed = Math.abs(dx) / Math.max(1, performance.now() - t0);
     const enough =
       Math.abs(dx) > width * COMMIT_FRACTION
       || (speed > COMMIT_VELOCITY && Math.abs(dx) > COMMIT_FLICK_PX);
-    if (!enough) return;
+    if (!enough) {
+      clearReturn({ animate: true });
+      return;
+    }
+    // Committed. The returning card is handed back without an animation of its
+    // own so that `render`, one line later, is what moves it — from exactly
+    // where the finger let go, into its new place in the deck.
+    clearReturn({ animate: false });
     if (dx < 0) forward();
     else back();
   }
@@ -305,26 +453,39 @@ export function mountIntro({
 
   let wheelAt = 0;
   let wheelIdle = null;
+  // Set the moment a scroll turns a card, and cleared only by the stream going
+  // quiet. Without it one two-finger flick ran the whole deck out: a trackpad
+  // keeps delivering deltas long after the fingers have lifted, so resetting
+  // the accumulator on commit simply let the momentum earn the next hundred and
+  // ten pixels, and the next, until there were no cards left. A gesture is the
+  // events *and* their tail; this is what treats it as one thing.
+  let wheelLocked = false;
 
   deck.addEventListener(
     'wheel',
     (e) => {
-      if (busy) return;
       // Vertical wheeling is a scroll, and two of these cards have something to
       // scroll. Only a clearly horizontal one is this deck's business.
       if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       e.preventDefault();
-      wheelAt += e.deltaX;
+      // Pushed on every event, including the ones being ignored below: the
+      // gesture ends when the events stop, not when one of them was last acted
+      // on.
       clearTimeout(wheelIdle);
       wheelIdle = setTimeout(() => {
         wheelAt = 0;
+        wheelLocked = false;
       }, WHEEL_IDLE_MS);
+      if (wheelLocked || busy) return;
+      wheelAt += e.deltaX;
       if (Math.abs(wheelAt) < WHEEL_COMMIT) return;
+      wheelLocked = true;
       // Scrolling right — content moving left — is the same direction as
       // throwing the card left, which is what the hint says to do.
-      if (wheelAt > 0) forward();
-      else back();
+      const onwards = wheelAt > 0;
       wheelAt = 0;
+      if (onwards) forward();
+      else back();
     },
     { passive: false },
   );
@@ -381,13 +542,20 @@ export function mountIntro({
       const row = permRow(key);
       if (!row) continue;
       const btn = row.querySelector('.intro-perm-btn');
+      const note = row.querySelector('.intro-perm-text small');
       if (row.dataset.settled === 'yes') continue; // answered in this sitting
       if (alreadyGranted(key, { asked: perms, sources: known, geolocation, healthOn })) {
-        settle(row, btn, true, t('intro.perm.already'));
+        settle(row, btn, true, PERM_COPY[key].already());
+        if (note) note.textContent = PERM_COPY[key].kept();
       } else {
         row.className = 'intro-perm';
         btn.disabled = false;
         btn.textContent = t('intro.perm.allow');
+        // Put back, not left alone: a replay of a replay reaches this row after
+        // a previous pass had already rewritten the note to say the answer was
+        // in. If the answer has since been taken away in iOS Settings, the row
+        // has to go back to explaining itself.
+        if (note) note.textContent = PERM_COPY[key].why();
       }
     }
   }
@@ -429,7 +597,7 @@ export function mountIntro({
         // Labelling that "Not now" would be reporting somebody's yes as a no.
         settle(row, btn, false, t(reply.error === 'settings' ? 'intro.perm.in-app' : 'intro.perm.not-now'));
         const note = row.querySelector('.intro-perm-text small');
-        if (note) note.textContent = REFUSED_NOTE[key]();
+        if (note) note.textContent = PERM_COPY[key].blocked();
       }
     });
   }
@@ -439,16 +607,30 @@ export function mountIntro({
   const homeKnown = $('intro-home-known');
   const homeNote = $('intro-home-note');
   const homeSet = $('intro-home-set');
+  const homeTitle = $('intro-home-title');
+  const homeBody = $('intro-home-body');
 
+  /**
+   * Ask, or acknowledge.
+   *
+   * The whole block changes, not just a line added underneath it. Somebody
+   * replaying this has already answered the question in the heading, and a
+   * screen that asks it again and then admits underneath that it knows the
+   * answer is a screen that was not reading its own state — it was reciting.
+   */
   function drawHome() {
     const set = home?.();
     homeKnown.hidden = !set;
     if (set) {
+      homeTitle.textContent = t('intro.home.title-set');
+      homeBody.textContent = t('intro.home.body-set');
       homeKnown.textContent = set.name
         ? t('intro.home.known', { name: set.name })
         : t('intro.home.known-unnamed');
       homeSet.textContent = t('intro.home.change');
     } else {
+      homeTitle.textContent = t('intro.home.title');
+      homeBody.textContent = t('intro.home.body');
       homeSet.textContent = t('intro.home.set');
     }
   }
@@ -559,10 +741,15 @@ export function mountIntro({
   // of a screen that is already several backdrop-filters deep, and animating a
   // hundred DOM nodes there is the one thing guaranteed to drop frames.
 
-  const CONFETTI_COLORS = ['#86dfcd', '#c07bff', '#ffb26b', '#ffffff'];
+  // Two palettes, because this is the one thing on the screen that is *not*
+  // drawn in `currentColor` and so cannot follow the theme for free. White
+  // paper on a white curtain is an empty celebration.
+  const CONFETTI_DARK = ['#86dfcd', '#c07bff', '#ffb26b', '#ffffff'];
+  const CONFETTI_LIGHT = ['#12806a', '#7d3fc9', '#d97317', '#1d1d29'];
 
   function confetti() {
     if (!canvas || reducedMotion()) return;
+    const colors = lightScene() ? CONFETTI_LIGHT : CONFETTI_DARK;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
@@ -581,7 +768,7 @@ export function mountIntro({
       spin: (Math.random() - 0.5) * 0.34,
       a: Math.random() * Math.PI,
       size: 4 + Math.random() * 6,
-      color: CONFETTI_COLORS[(Math.random() * CONFETTI_COLORS.length) | 0],
+      color: colors[(Math.random() * colors.length) | 0],
     }));
 
     const started = performance.now();

@@ -81,7 +81,24 @@ final class LocationBridge: NSObject, WKScriptMessageHandlerWithReply, CLLocatio
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
         let body = message.body as? [String: Any] ?? [:]
-        guard (body["ask"] as? String) == "once" else {
+        switch body["ask"] as? String {
+        case "once":
+            break
+
+        case "state":
+            // Asked by the introduction, which wants to know whether this has
+            // already been granted *without* raising a prompt to find out.
+            //
+            // `navigator.permissions.query({name: "geolocation"})` cannot
+            // answer that here. It reports on the WebKit permission, and this
+            // host does not use the WebKit permission — the whole file exists
+            // because that road does not work — so the page was told "prompt"
+            // by a browser with no idea that CoreLocation had said yes long
+            // ago, and the replay offered to ask for something it already had.
+            replyHandler(["ok": true, "state": Self.wire(manager.authorizationStatus)], nil)
+            return
+
+        default:
             replyHandler(["ok": false, "error": "unavailable", "message": "unknown request"], nil)
             return
         }
@@ -150,6 +167,20 @@ final class LocationBridge: NSObject, WKScriptMessageHandlerWithReply, CLLocatio
         let all = waiting
         waiting = []
         for reply in all { reply(payload, nil) }
+    }
+
+    /// An authorization status, in the Permissions API's three words.
+    ///
+    /// The page already has code that reads `"granted"`, `"denied"` and
+    /// `"prompt"` — that is what `navigator.permissions` speaks — so answering
+    /// in the same vocabulary means the one caller that needs this needs no
+    /// special case for the Mac beyond having asked here in the first place.
+    private static func wire(_ status: CLAuthorizationStatus) -> String {
+        switch status {
+        case .notDetermined: return "prompt"
+        case .denied, .restricted: return "denied"
+        default: return "granted"
+        }
     }
 
     /// A `CLLocation` in the shape `GeolocationPosition` wants.

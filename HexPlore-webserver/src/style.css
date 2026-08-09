@@ -1651,7 +1651,19 @@ body {
   z-index: 90;
   display: grid;
   place-items: center;
-  padding: 24px;
+  /* The insets, which this had gone without.
+
+     Every dialog is capped at `100%` of this box, so what the padding leaves is
+     exactly what the card is allowed to fill — and with a flat 24px that box
+     was the whole screen, status bar and tab bar included. In the iPhone app
+     that put the Settings dialog's heading behind the clock and its Back and
+     Done buttons behind the tab bar: both still there, both unreachable,
+     because a `position: fixed` overlay cannot be scrolled back into view.
+     `WebViewController.pushSafeArea` has been handing the page the right
+     numbers all along — 83px at the bottom, which is the tab bar and the home
+     indicator — and this was not asking for them. */
+  padding: calc(24px + var(--safe-t)) calc(24px + var(--safe-r))
+    calc(24px + var(--safe-b)) calc(24px + var(--safe-l));
   /* --- Why this is black and not a dark blue -------------------------------
      It was `rgba(6, 8, 14, …)`, and those six levels of blue over red were the
      whole reason every dialog read as slightly cold while the layers menu and
@@ -3327,7 +3339,8 @@ body {
      actually wrong. */
 
   .modal-overlay {
-    padding: 12px;
+    padding: calc(12px + var(--safe-t)) calc(12px + var(--safe-r))
+      calc(12px + var(--safe-b)) calc(12px + var(--safe-l));
   }
 
   .modal-card {
@@ -7475,25 +7488,32 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
    whether it runs, which permissions this host can even offer — is in
    src/intro.js; the deck and its gestures are in src/intro-ui.js.
 
-   ## It does not follow the basemap's theme
+   ## It follows the system, not the basemap
 
-   Everything else in this app does: `data-theme` says whether the map under the
-   chrome is light or dark, and the chrome has to be legible against it. This is
-   not chrome. It is a curtain drawn completely across the map, so the only
-   thing behind it is its own backdrop, and there is nothing for a light variant
-   to be legible against. One scene, and it is the dark one — which is also the
-   app's own colour, the one the loading screen paints before anything has run.
+   Everything else in this app follows `data-theme`, which says whether the
+   *map* under the chrome is light or dark. This does not, and cannot: the
+   curtain is drawn completely across the map, so there is no basemap for it to
+   be legible against — and on a first run nobody has chosen a style anyway, so
+   `data-theme` at that moment is a default rather than a preference.
 
-   The one exception is `.intro-pick` at the bottom of this section, which
-   appears *with the curtain lifted* and does have a map beneath it.
+   What it follows instead is `prefers-color-scheme`: the light or dark the
+   person set on their phone, their Mac or their browser, which is the only
+   statement of taste available before the app has been used. Every colour on
+   this screen therefore goes through a token, declared dark on `.intro` and
+   redeclared once in the light block near the bottom.
 
-   ## The colours mean something
+   The one exception is `.intro-pick`, which appears *with the curtain lifted*
+   and does have a map beneath it. That one keeps `data-theme`.
 
-   Violet is photographs and amber is routes, everywhere in this app — the
-   overlay's points are `--photo`, a saved route is orange. The illustrations
-   keep to that, so the picture of a workout and the workout on the map two
-   minutes later are the same colour by the time anyone notices. Mint is this
-   section's own, for the things that are neither. */
+   ## The illustrations are one colour
+
+   `currentColor`, which is `--intro-ink`, at three weights: a full-strength
+   line, a faint one for whatever is behind or beside the subject, and a soft
+   fill. No picture uses a hue of its own. An earlier version coloured them by
+   role — violet for photographs, amber for routes, matching the map — and it
+   read as a sticker sheet: seven cards, each with a small bright object on it,
+   competing with the words underneath. One colour, and the drawings sit down
+   and let the sentence be the thing you look at. */
 .intro {
   position: fixed;
   inset: 0;
@@ -7507,22 +7527,54 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   padding: calc(20px + var(--safe-t)) calc(18px + var(--safe-r)) calc(18px + var(--safe-b))
     calc(18px + var(--safe-l));
   box-sizing: border-box;
-  background: #08080d;
-  color: rgba(255, 255, 255, 0.92);
+  background: var(--intro-bg);
+  color: var(--intro-ink);
   overflow: hidden;
   /* The whole surface is one gesture. Without this a drag across a card is a
      browser pull-to-refresh on iOS and a rubber-band on the Mac. */
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  --intro-a: #86dfcd;
-  --intro-b: #c07bff;
-  --intro-c: #ffb26b;
+
+  /* The dark scene, which is also the app's own colour — the one the loading
+     screen paints before anything has run. See the light block below. */
+  --intro-bg: #08080d;
+  --intro-ink: rgba(255, 255, 255, 0.92);
   --intro-dim: rgba(255, 255, 255, 0.62);
+  --intro-mute: rgba(255, 255, 255, 0.55);
+  --intro-quiet: rgba(255, 255, 255, 0.42);
+  --intro-edge: rgba(255, 255, 255, 0.11);
+  --intro-pane: rgba(255, 255, 255, 0.055);
+  --intro-row: rgba(255, 255, 255, 0.045);
+  --intro-btn: rgba(255, 255, 255, 0.12);
+  --intro-btn-hi: rgba(255, 255, 255, 0.2);
+  --intro-btn-edge: rgba(255, 255, 255, 0.18);
+  --intro-shadow: rgba(0, 0, 0, 0.5);
+  --intro-sheen: rgba(255, 255, 255, 0.14);
+  /* Mint, the one accent left, and only ever for "this is already settled".
+     Nothing on this screen is coloured to attract attention; this is coloured
+     to say an answer has been given. */
+  --intro-a: #86dfcd;
+  --intro-a-soft: rgba(134, 223, 205, 0.08);
+  --intro-a-edge: rgba(134, 223, 205, 0.24);
+  --intro-a-text: rgba(214, 255, 244, 0.92);
+  --intro-glow-a: rgba(134, 223, 205, 0.16);
+  --intro-glow-b: rgba(192, 123, 255, 0.16);
 }
 
 .intro[hidden] {
   display: none;
+}
+
+/* The curtain is focused when it opens, to take the keyboard off the map
+   underneath. It is `inset: 0`, so the default focus ring is a rectangle drawn
+   around the entire screen — which appeared the moment anybody pressed an arrow
+   key and made `:focus-visible` match, and looked exactly like a stray text
+   selection. There is nothing for a focus ring to usefully indicate here: it is
+   the only thing on the screen. */
+.intro:focus,
+.intro:focus-visible {
+  outline: none;
 }
 
 /* Coming and going. The curtain scales *up* on the way out rather than fading,
@@ -7559,8 +7611,8 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   inset: -20%;
   pointer-events: none;
   background:
-    radial-gradient(38% 42% at 24% 22%, rgba(134, 223, 205, 0.16), transparent 70%),
-    radial-gradient(44% 46% at 78% 76%, rgba(192, 123, 255, 0.16), transparent 72%);
+    radial-gradient(38% 42% at 24% 22%, var(--intro-glow-a), transparent 70%),
+    radial-gradient(44% 46% at 78% 76%, var(--intro-glow-b), transparent 72%);
 }
 
 /* Over the cards, not behind them.
@@ -7580,26 +7632,6 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 
 .intro-confetti[hidden] {
   display: none;
-}
-
-.intro-skip {
-  position: absolute;
-  top: calc(14px + var(--safe-t));
-  right: calc(16px + var(--safe-r));
-  z-index: 3;
-  appearance: none;
-  border: 0;
-  background: none;
-  padding: 8px 10px;
-  font: inherit;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.45);
-  cursor: pointer;
-  transition: color 0.18s ease;
-}
-
-.intro-skip:hover {
-  color: rgba(255, 255, 255, 0.8);
 }
 
 /* --- The deck ------------------------------------------------------------- */
@@ -7628,17 +7660,28 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   flex-direction: column;
   padding: 30px 28px 26px;
   border-radius: 30px;
-  background: rgba(255, 255, 255, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.11);
+  background: var(--intro-pane);
+  border: 1px solid var(--intro-edge);
   -webkit-backdrop-filter: blur(28px) saturate(150%);
   backdrop-filter: blur(28px) saturate(150%);
   box-shadow:
-    0 30px 70px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    0 30px 70px var(--intro-shadow),
+    inset 0 1px 0 var(--intro-sheen);
   transform-origin: 50% 100%;
+  /* `visibility` is in here on purpose, and its timing is the whole trick.
+
+     A discarded card is `visibility: hidden` so that it cannot be tabbed into
+     or read out; but visibility is not an animatable property, so declaring it
+     without a transition applied it on the *first* frame — the card vanished
+     instantly and the 520ms flight nobody could see happened to an invisible
+     element. Delaying it by exactly the length of the flight is the standard
+     answer: the card stays visible for as long as it is moving, and turns off
+     at the end. See the `done`/`deep` rule below for the delayed half; here it
+     is zero, so a card coming *back* is visible on the frame it starts. */
   transition:
     transform 0.52s cubic-bezier(0.22, 1, 0.3, 1),
-    opacity 0.34s ease;
+    opacity 0.34s ease,
+    visibility 0s linear 0s;
   will-change: transform;
 }
 
@@ -7705,6 +7748,31 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   pointer-events: none;
 }
 
+/* The delayed half of the visibility trick above: a card on its way out stays
+   visible for the length of its flight, then stops being there at all. */
+.intro-card[data-state='done'],
+.intro-card[data-state='deep'] {
+  transition:
+    transform 0.52s cubic-bezier(0.22, 1, 0.3, 1),
+    opacity 0.34s ease,
+    visibility 0s linear 0.52s;
+}
+
+/* A card being pulled back in by a finger.
+
+   Swiping right is not "drag the current card to the right" — it is *the
+   previous card coming back over the top of it*, which is what putting a card
+   back on a pile looks like. So the element under the finger is not the live
+   card at all: it is the discarded one, which has to be dragged out of the
+   `done` state it is parked in, above everything, for as long as the gesture
+   lasts. `intro-ui.js` puts this class on and takes it off. */
+.intro-card.intro-returning {
+  z-index: 5;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: none;
+}
+
 .intro-card[data-state='next'],
 .intro-card[data-state='deep'],
 .intro-card[data-state='done'] {
@@ -7720,10 +7788,15 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
    opened with two titles on top of each other and the second one soft.
 
    Not applied to a discarded card, which fades and rotates away as a whole and
-   should be seen leaving with its contents. */
+   should be seen leaving with its contents — nor to one being dragged back in,
+   which is being read as it arrives. */
 .intro-card[data-state='next'] .intro-scroll,
 .intro-card[data-state='deep'] .intro-scroll {
   opacity: 0;
+}
+
+.intro-card.intro-returning .intro-scroll {
+  opacity: 1;
 }
 
 /* Cards are as long as they need to be, and two of them are longer than a
@@ -7760,7 +7833,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   line-height: 1.3;
   letter-spacing: -0.01em;
   font-weight: 620;
-  color: rgba(255, 255, 255, 0.94);
+  color: var(--intro-ink);
 }
 
 .intro-body {
@@ -7768,11 +7841,6 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   font-size: 15px;
   line-height: 1.52;
   color: var(--intro-dim);
-}
-
-.intro-body i {
-  font-style: italic;
-  color: rgba(255, 255, 255, 0.82);
 }
 
 .intro-body:last-child {
@@ -7787,7 +7855,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   font-size: 17px;
   line-height: 1.4;
   font-weight: 560;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--intro-ink);
 }
 
 /* --- Illustrations -------------------------------------------------------- */
@@ -7826,136 +7894,52 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   min-width: 0;
 }
 
-/* The shared vocabulary every illustration is drawn in: one stroke weight, one
-   join, and colour by role rather than by picture. */
-.intro-stroke,
-.intro-lines,
+/* The entire drawing vocabulary: one weight, one join, one colour at three
+   strengths. Every illustration on every card is made of these five classes and
+   nothing else, which is what stops the seven of them drifting into seven
+   styles as they get edited one at a time. */
+.intro-ln,
+.intro-ln-faint,
 .intro-dash,
-.intro-dash-cut,
-.intro-route,
-.intro-bars,
-.intro-spark,
-.intro-cut,
-.intro-check,
-.intro-cloud,
-.intro-screen,
-.intro-hex-faint,
-.intro-accent-a-stroke {
+.intro-tick {
   fill: none;
+  stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.intro-stroke,
-.intro-cloud,
-.intro-screen {
-  stroke: rgba(255, 255, 255, 0.44);
+.intro-ln {
   stroke-width: 2;
 }
 
-.intro-lines {
-  stroke: rgba(255, 255, 255, 0.26);
+/* Whatever is behind or beside the subject — the paper under the top sheet, the
+   cloud the data is *not* going to, the unvisited hexagons. */
+.intro-ln-faint {
   stroke-width: 2;
+  stroke-opacity: 0.32;
 }
 
-.intro-dash,
-.intro-dash-cut {
-  stroke: rgba(255, 255, 255, 0.38);
+.intro-dash {
   stroke-width: 2;
+  stroke-opacity: 0.45;
   stroke-dasharray: 4 6;
 }
 
-.intro-hex-faint {
-  stroke: rgba(255, 255, 255, 0.13);
-  stroke-width: 1.4;
-}
-
-.intro-hex-lit {
-  fill: var(--intro-a);
-  fill-opacity: 0.24;
-  stroke: var(--intro-a);
-  stroke-width: 1.5;
-}
-
-.intro-accent-a {
-  fill: var(--intro-a);
-  fill-opacity: 0.22;
-  stroke: var(--intro-a);
-  stroke-width: 2;
-  stroke-linejoin: round;
-}
-
-.intro-accent-a-stroke {
-  stroke: var(--intro-a);
-  stroke-width: 2;
-}
-
-.intro-accent-b {
-  fill: var(--intro-b);
-  fill-opacity: 0.24;
-  stroke: var(--intro-b);
-  stroke-width: 2;
-  stroke-linejoin: round;
-}
-
-.intro-accent-c {
-  fill: var(--intro-c);
-  fill-opacity: 0.2;
-  stroke: var(--intro-c);
-  stroke-width: 2;
-  stroke-linejoin: round;
-}
-
-.intro-accent-c-fill {
-  fill: var(--intro-c);
+.intro-fill {
+  fill: currentColor;
   stroke: none;
 }
 
-/* The hole in a map pin, and in the two disc icons that borrow its shape. It
-   has to be the card's own background rather than transparent: the pin is a
-   filled shape, and a transparent punch shows the illustration behind it. */
-.intro-punch {
-  fill: #14141c;
+.intro-fill-soft {
+  fill: currentColor;
+  fill-opacity: 0.13;
   stroke: none;
 }
 
-.intro-route {
-  stroke: var(--intro-c);
-  stroke-width: 2.6;
-}
-
-.intro-bars {
-  stroke: rgba(255, 255, 255, 0.24);
-  stroke-width: 2.4;
-}
-
-/* The days a trip is made of, under the arc that goes away and comes back.
-   Filled rather than stroked, and it has to say so: an SVG shape with no fill
-   declared is black, which on this card is invisible. */
-.intro-dots-row {
-  fill: rgba(255, 255, 255, 0.3);
-  stroke: none;
-}
-
-.intro-check {
-  stroke: var(--intro-a);
+/* Heavier than a line and shorter than one: at 2px among 2px strokes the tick
+   read as part of the hexagon it sits in rather than as the answer. */
+.intro-tick {
   stroke-width: 3;
-}
-
-.intro-spark {
-  stroke: var(--intro-c);
-  stroke-width: 1.8;
-}
-
-.intro-cut {
-  stroke: rgba(255, 120, 120, 0.75);
-  stroke-width: 2.2;
-  fill: none;
-  stroke-linecap: round;
-}
-
-.intro-screen {
-  stroke-width: 1.4;
 }
 
 /* --- Rows that ask for something ------------------------------------------ */
@@ -7967,14 +7951,15 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 }
 
 .intro-perm,
-.intro-source {
+.intro-source,
+.intro-get {
   display: flex;
   align-items: center;
   gap: 13px;
   padding: 13px 14px;
   border-radius: 17px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--intro-row);
+  border: 1px solid var(--intro-edge);
   transition:
     background 0.25s ease,
     border-color 0.25s ease;
@@ -7983,6 +7968,30 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 .intro-source {
   align-items: flex-start;
   margin-bottom: 10px;
+}
+
+/* The one row on the import card that is not a source but a signpost: in a
+   browser, the answer to "how do I get my photos in" is "on the other device",
+   and a sentence saying so is weaker than the thing you would actually scan. */
+.intro-get {
+  margin: 2px 0 20px;
+}
+
+.intro-qr {
+  flex: 0 0 auto;
+  display: flex;
+  padding: 7px;
+  border-radius: 12px;
+  background: var(--intro-row);
+  border: 1px solid var(--intro-edge);
+}
+
+.intro-qr svg {
+  width: 46px;
+  height: 46px;
+  /* Deliberately not full strength. It is a placeholder for a code that does
+     not exist yet, and one that looked scannable would be a small lie. */
+  opacity: 0.45;
 }
 
 .intro-perm-art {
@@ -8012,7 +8021,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 .intro-perm-text small {
   font-size: 12.8px;
   line-height: 1.42;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--intro-mute);
 }
 
 .intro-perm-btn {
@@ -8020,9 +8029,9 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   appearance: none;
   padding: 8px 15px;
   border-radius: 11px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--intro-btn-edge);
+  background: var(--intro-btn);
+  color: var(--intro-ink);
   font: inherit;
   font-size: 13.5px;
   font-weight: 560;
@@ -8034,7 +8043,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 }
 
 .intro-perm-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--intro-btn-hi);
 }
 
 .intro-perm-btn:active:not(:disabled) {
@@ -8049,8 +8058,8 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
    nothing left to ask, and a wall of ticks reads as a checklist somebody is
    being marked against. */
 .intro-perm.is-done {
-  background: rgba(134, 223, 205, 0.07);
-  border-color: rgba(134, 223, 205, 0.24);
+  background: var(--intro-a-soft);
+  border-color: var(--intro-a-edge);
 }
 
 .intro-perm.is-done .intro-perm-btn,
@@ -8058,7 +8067,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   border-color: transparent;
   background: none;
   padding-right: 4px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--intro-quiet);
   font-size: 12.8px;
 }
 
@@ -8074,7 +8083,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 .intro-home {
   margin-top: 22px;
   padding-top: 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  border-top: 1px solid var(--intro-edge);
 }
 
 .intro-home-actions {
@@ -8087,9 +8096,9 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   appearance: none;
   padding: 12px 20px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--intro-btn-edge);
+  background: var(--intro-btn);
+  color: var(--intro-ink);
   font: inherit;
   font-size: 14.5px;
   font-weight: 570;
@@ -8100,21 +8109,26 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 }
 
 .intro-btn:hover {
-  background: rgba(255, 255, 255, 0.19);
+  background: var(--intro-btn-hi);
 }
 
 .intro-btn:active {
   transform: scale(0.97);
 }
 
+/* The last thing on the last card, and the only thing left to do anywhere in
+   the introduction. Full width because there is nothing beside it for it to be
+   balanced against — sized to its own label it read as one option among several
+   on a card that has no others. */
 .intro-btn-go {
-  border-color: rgba(134, 223, 205, 0.4);
-  background: rgba(134, 223, 205, 0.16);
-  color: #d6fff4;
+  flex: 1;
+  border-color: var(--intro-a-edge);
+  background: var(--intro-a-soft);
+  color: var(--intro-a);
 }
 
 .intro-btn-go:hover {
-  background: rgba(134, 223, 205, 0.24);
+  background: var(--intro-a-edge);
 }
 
 /* "You have already done this one" — the sentence that makes a replay feel
@@ -8123,11 +8137,11 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   margin: 0;
   padding: 11px 13px;
   border-radius: 13px;
-  background: rgba(134, 223, 205, 0.08);
-  border: 1px solid rgba(134, 223, 205, 0.22);
+  background: var(--intro-a-soft);
+  border: 1px solid var(--intro-a-edge);
   font-size: 13.5px;
   line-height: 1.45;
-  color: rgba(214, 255, 244, 0.92);
+  color: var(--intro-a-text);
 }
 
 .intro-known[hidden] {
@@ -8138,7 +8152,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   margin: 12px 0 0;
   font-size: 13.2px;
   line-height: 1.45;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--intro-mute);
 }
 
 .intro-note[hidden] {
@@ -8156,8 +8170,8 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 .intro-tile {
   padding: 15px 14px;
   border-radius: 17px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: var(--intro-row);
+  border: 1px solid var(--intro-edge);
 }
 
 .intro-tile b {
@@ -8174,7 +8188,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   letter-spacing: -0.028em;
   /* Digits that do not shuffle sideways while they count. */
   font-variant-numeric: tabular-nums;
-  color: #fff;
+  color: var(--intro-ink);
 }
 
 .intro-tile b.is-long {
@@ -8186,7 +8200,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   display: block;
   margin-top: 5px;
   font-size: 12.4px;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--intro-mute);
 }
 
 /* --- The gesture, and how far through it you are -------------------------- */
@@ -8195,9 +8209,14 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   margin-top: 20px;
   flex: 0 0 auto;
+  /* As wide as the deck, so the chevron sits under the card's right edge rather
+     than wherever the dots happen to end. */
+  width: min(480px, 100%);
+  padding: 0 4px;
+  box-sizing: border-box;
 }
 
 .intro-dots {
@@ -8209,9 +8228,10 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--intro-quiet);
+  opacity: 0.5;
   transition:
-    background 0.3s ease,
+    opacity 0.3s ease,
     width 0.3s cubic-bezier(0.22, 1, 0.3, 1);
 }
 
@@ -8220,23 +8240,54 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 .intro-dot.is-here {
   width: 20px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--intro-ink);
+  opacity: 1;
 }
 
 .intro-dot.is-past {
-  background: rgba(255, 255, 255, 0.42);
+  opacity: 0.85;
+}
+
+/* Beside the dots rather than in the top-right corner.
+
+   Up there it was within a thumb's width of the notch, it was the only thing on
+   that side of the screen, and on a phone it read as part of the page behind
+   the curtain rather than as part of the deck. Down here it is next to the only
+   other thing that says anything about progress, which is where somebody
+   looking for a way out is already looking. */
+.intro-skip {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 6px 4px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--intro-quiet);
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.intro-skip:hover {
+  color: var(--intro-ink);
+}
+
+.intro-skip[hidden] {
+  display: none;
 }
 
 .intro-next {
   appearance: none;
   display: grid;
   place-items: center;
+  /* Whatever is left. The dots and Skip are a pair on the left; this is the one
+     thing on the right, and it stays there as the dots grow and Skip goes. */
+  margin-left: auto;
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.09);
-  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--intro-btn-edge);
+  background: var(--intro-btn);
+  color: var(--intro-ink);
   cursor: pointer;
   transition:
     background 0.18s ease,
@@ -8254,7 +8305,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 }
 
 .intro-next:hover {
-  background: rgba(255, 255, 255, 0.17);
+  background: var(--intro-btn-hi);
 }
 
 .intro-next:active {
@@ -8276,11 +8327,11 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   gap: 9px;
   padding: 9px 15px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--intro-row);
+  border: 1px solid var(--intro-edge);
   font-size: 13px;
   white-space: nowrap;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--intro-dim);
   animation: intro-hint-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1);
   pointer-events: none;
 }
@@ -8297,7 +8348,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 
 .intro-hint-arrow {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.8);
+  stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -8332,6 +8383,37 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 .intro[data-host='mac'] [data-intro-host='ios'],
 .intro[data-host='ios'] [data-intro-host='web'] {
   display: none;
+}
+
+/* --- The light half of every colour above --------------------------------- */
+/* Only the tokens are restated. Nothing above this point names a colour
+   directly, so a rule added later inherits the theme by construction rather
+   than by somebody remembering to come down here — which is the failure this
+   arrangement is chosen to prevent. */
+@media (prefers-color-scheme: light) {
+  .intro {
+    --intro-bg: #f2f2f6;
+    --intro-ink: rgba(18, 18, 26, 0.92);
+    --intro-dim: rgba(18, 18, 26, 0.66);
+    --intro-mute: rgba(18, 18, 26, 0.56);
+    --intro-quiet: rgba(18, 18, 26, 0.45);
+    --intro-edge: rgba(18, 18, 26, 0.1);
+    --intro-pane: rgba(255, 255, 255, 0.58);
+    --intro-row: rgba(18, 18, 26, 0.035);
+    --intro-btn: rgba(18, 18, 26, 0.06);
+    --intro-btn-hi: rgba(18, 18, 26, 0.11);
+    --intro-btn-edge: rgba(18, 18, 26, 0.13);
+    --intro-shadow: rgba(20, 20, 45, 0.14);
+    --intro-sheen: rgba(255, 255, 255, 0.7);
+    /* The mint has to darken to survive a white background — the same hue at
+       the same lightness is a pastel nobody can read a word of. */
+    --intro-a: #12806a;
+    --intro-a-soft: rgba(18, 128, 106, 0.08);
+    --intro-a-edge: rgba(18, 128, 106, 0.26);
+    --intro-a-text: rgba(11, 79, 65, 0.95);
+    --intro-glow-a: rgba(94, 196, 173, 0.22);
+    --intro-glow-b: rgba(163, 116, 226, 0.18);
+  }
 }
 
 /* --- Choosing home, with the map to itself -------------------------------- */
@@ -8427,8 +8509,8 @@ body.intro-picking .layers {
   color: rgba(255, 255, 255, 0.9);
 }
 
-/* This one *does* have a map behind it, so it is the one part of the
-   introduction that follows the basemap. */
+/* This one *does* have a map behind it, so — alone in this section — it follows
+   the basemap rather than the system. See the note at the top. */
 [data-theme='light'] .intro-pick {
   background: rgba(255, 255, 255, 0.94);
   border-color: rgba(15, 23, 42, 0.14);
@@ -8461,6 +8543,32 @@ body.intro-picking .layers {
   }
 }
 
+/* A phone on its side, and a laptop with the browser half the screen. The
+   picture is the first thing to give way: it is the one element on a card whose
+   job is done at any size, and at this height keeping it large costs the
+   opening sentence its place on the screen. */
+@media (max-height: 560px) {
+  .intro-art {
+    margin: 0 0 12px;
+  }
+
+  .intro-art svg {
+    width: min(150px, 48%);
+  }
+
+  .intro-art-sm svg {
+    width: 72px;
+  }
+
+  .intro-title {
+    font-size: clamp(21px, 4.4vw, 25px);
+  }
+
+  .intro-card {
+    padding: 22px 24px 18px;
+  }
+}
+
 @media (max-width: 420px) {
   .intro-card {
     padding: 24px 20px 20px;
@@ -8488,10 +8596,20 @@ body.intro-picking .layers {
     animation: none;
   }
 
+  /* The same split as the full-motion rule, and it has to stay split: one delay
+     for both would hold a card *arriving* invisible for the whole of its fade,
+     which is the fade wasted on nothing. */
   .intro-card {
     transition:
       opacity 0.2s ease,
-      visibility 0.2s;
+      visibility 0s linear 0s;
+  }
+
+  .intro-card[data-state='done'],
+  .intro-card[data-state='deep'] {
+    transition:
+      opacity 0.2s ease,
+      visibility 0s linear 0.2s;
   }
 
   .intro-card[data-state='done'] {

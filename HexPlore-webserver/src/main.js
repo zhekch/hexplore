@@ -8639,8 +8639,28 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
      * The only one of the three with a real answer available. Photos and Health
      * are inferred from what is on the map instead, which is coarser and cannot
      * be queried any other way.
+     *
+     * On a Mac the Permissions API is not merely unhelpful, it is wrong. It
+     * reports on WebKit's geolocation permission, and this host does not use
+     * it — `navigator.geolocation` there is a shim onto CoreLocation (see
+     * `LocationBridge` in HexPlore-macOS) — so it answered "prompt" for an
+     * account whose Mac had been happily giving out positions for months, and
+     * the replay offered to ask for something it already had. The bridge is the
+     * only thing that can say, so on that host it is asked first.
      */
     geolocationState: async () => {
+      const bridge = globalThis.webkit?.messageHandlers?.hexploreLocation ?? null;
+      if (bridge) {
+        try {
+          const reply = await bridge.postMessage({ ask: 'state' });
+          if (reply?.ok && reply.state) return reply.state;
+          // An app built before this question existed answers "unknown
+          // request", which is not an answer — so fall through and let the
+          // browser have its guess rather than reporting a refusal.
+        } catch (e) {
+          console.warn('The Mac could not say whether location is granted.', e);
+        }
+      }
       try {
         return (await navigator.permissions?.query({ name: 'geolocation' }))?.state ?? null;
       } catch {
