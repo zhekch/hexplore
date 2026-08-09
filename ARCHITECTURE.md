@@ -5130,12 +5130,34 @@ step at `WHEEL_STEP` (40px), and take only wheels that are plainly sideways — 
 two-finger scroll down a trackpad drifts left and right the whole way, and a
 card that changes picture because of that is unusable.
 
-`WHEEL_GAP_MS` (140) is the whole of "one swipe, one photograph". A trackpad
-never reports the end of a gesture; it reports **momentum**, and a firm flick
-goes on delivering deltas for the best part of a second after the fingers have
-gone. So a step is spent once per gesture and only that much silence begins
-another — and the tail is swallowed with `preventDefault` as well, or the strip
-scrolls on the momentum of a swipe the card has already answered.
+Where one swipe ends and the next begins is the whole difficulty, and the
+platform is no help: a `wheel` event does not say which part of a gesture it is.
+A trackpad never reports the end of one; it reports **momentum**, and a firm
+flick goes on delivering deltas for the best part of a second after the fingers
+have gone. So the step is spent once per gesture — and the tail is swallowed
+with `preventDefault` too, or the strip scrolls on the momentum of a swipe the
+card has already answered.
+
+Two things can begin the next gesture, and the second is the one that took a
+second attempt. `WHEEL_GAP_MS` (120) is **silence**: fingers up, coasting over.
+On its own it is too strict, and the symptom is a card that appears to be on a
+cooldown — a second swipe made while the first is still coasting is swallowed
+for as long as the momentum lasts. So the other way in is the stream **speeding
+up**, which coasting cannot do: an event more than `WHEEL_PUSH` (1.5×, and at
+least `WHEEL_PUSH_MIN` = 4px) faster than the slowest one since the last
+photograph is fingers pushing again. Multiplier *and* floor, because near the
+bottom of a decay everything is a large multiple of everything else and two
+pixels of jitter is not a swipe.
+
+**The Mac app does not need any of that**, and does not use it. `NSEvent` has
+`phase` and `momentumPhase`, so `GalleryView.scrollWheel` can simply drop
+momentum outright, reset on `.began`, and spend the step for the rest of the
+gesture — exact rather than inferred. It had the same runaway bug for the same
+reason and this is the same fix with the platform's own answer in place of the
+heuristic. One detail: the step is only *spent* when the event carries a phase
+at all. A wheel with detents reports none, and each notch of one is already a
+separate deliberate movement — locking on the first would mean a mouse could
+turn one page and never another.
 
 #### The arrow keys are caught at the window, not the document
 
@@ -6708,33 +6730,62 @@ wrong.
 
 ### …and whether it is still the current one
 
-The number a page prints is the number it was handed **when it signed in**, and
-a page keeps that for as long as it is open. Update the server under a tab left
-on the map — which on a phone is the normal case, not the unusual one — and the
-tab goes on running last fortnight's app and goes on reporting last fortnight's
-version. Both answers are honest and they answer different questions: *which
-build am I looking at* and *is that the current one* are the same question ten
-seconds apart, and only the first had an answer.
+*Which build am I looking at* and *is that the current one* are the same
+question ten seconds apart, and only the first had an answer. The second is
+really two, with different remedies, and `GET /api/update` answers both in one
+request.
 
-So opening Settings asks the second one. `currentBuild()` in `src/auth.js` hits
-`/api/health` — the one endpoint that answers without a session, already carries
-the version, and is what `ServerCheck.swift` asks the same question with — and
-only the **disagreement** is shown: *Server 0.47.0 · update available: 0.48.0*,
-with a Reload beside it. Three things about that are deliberate:
+**Is this page behind its own server?** The number a page prints is the one it
+was handed **when it signed in**, and a page keeps that for as long as it is
+open. Update the server under a tab left on the map — on a phone the normal
+case, not the unusual one — and the tab goes on running last fortnight's app and
+reporting last fortnight's version. Fixed by reloading, so that one gets a
+button.
 
-- **Silence is not "up to date".** A check that cannot get through answers
-  `null`, and null is not a version to compare against, so nothing is claimed.
-  It is a plain `fetch` rather than going through `api()` for the same reason a
-  version check must not be able to flip the "your changes are not being saved"
-  banner: it is not a failed save.
-- **A plain reload, and no cache clearing.** Navigations are network-first
-  (`public/sw.js`) and everything else lives under a hashed URL, so a new build
-  is a new set of URLs and the old ones simply stop being asked for. Throwing
-  the offline copy away as well would spend a 3 MB gazetteer on a problem this
-  does not have — that button exists separately, for when a cache really has
-  gone wrong.
-- **Being told without being given the press is a chore.** The version line is
-  otherwise not a control, and this is the one thing it is worth making one for.
+**Is this server behind the project?** This is self-hosted and updated by
+pulling and restarting, deliberately, by the person who runs it — and there was
+no way to know there was anything to pull. A server left running three months
+looks exactly like a current one. So the server reads `SERVER_VERSION` off the
+published copy on `main` and compares. There are no releases and no tags to use
+instead; the version that means anything here is that constant, and its
+authoritative copy is the one in the repository. Nothing a web page can offer to
+fix, so that one gets a sentence and no button.
+
+The outbound request is the only one this server makes that nobody configured,
+so:
+
+- **The server asks, not the page.** One machine, one cache, one address seen by
+  GitHub — rather than every browser and phone that opens Settings announcing
+  itself. `UPDATE_TTL_MS` is six hours; a failure stands for `UPDATE_RETRY_MS`
+  (fifteen minutes), because a server that has just come back online should not
+  be six hours behind knowing it.
+- **16 KB, not the file.** The constant is at the top of `server/index.js` by
+  design, so the request carries a `Range` header and the answer is sliced
+  before the regex runs. A source that ignores the header costs the whole file
+  and still works.
+- **It can be switched off.** `UPDATE_CHECK=0` and it never runs;
+  `UPDATE_SOURCE` points it at a fork.
+- **Numbers, not text.** `isNewerVersion` compares part by part, because
+  `'0.10.0'` sorts before `'0.9.0'` as a string and that is precisely the
+  release where a string comparison would silently stop reporting anything.
+- **Silence is not "up to date".** A check that cannot get through — a firewall,
+  a timeout, a fork with a different layout — answers `null`, and null is not a
+  version to compare against, so nothing is claimed. `serverUpdate()` in
+  `src/auth.js` is a plain `fetch` rather than going through `api()` for the
+  same reason: a version check that fails is not a failed save and must not flip
+  the "your changes are not being saved" banner.
+
+The line reads *Server 0.49.0*, or *Server 0.49.0 · this page is on 0.48.0*
+with a Reload, or *Server 0.49.0 · 0.50.0 available*, or both. The reload is a
+plain one and clears no caches: navigations are network-first (`public/sw.js`)
+and everything else lives under a hashed URL, so a new build is a new set of
+URLs and the old ones simply stop being asked for. Throwing the offline copy
+away as well would spend a 3 MB gazetteer on a problem this does not have —
+that button exists separately, for when a cache really has gone wrong.
+
+`scripts/test/update-check.mjs` runs the whole path against a stand-in upstream
+served from the test, so "the source is down" and "the source is not this file"
+are testable without touching the network.
 
 ## Run & host
 

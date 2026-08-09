@@ -22,7 +22,7 @@ import {
   mergeCountries,
   countryGeometry,
 } from './countries.js';
-import { auth, connection, currentBuild, mountAuth, serverBuild } from './auth.js';
+import { auth, connection, mountAuth, serverBuild, serverUpdate } from './auth.js';
 import { derived } from './derived.js';
 import { installOffline, forgetAccountOffline, clearOfflineCaches } from './offline.js';
 import { mountCellInfo } from './cell-info.js';
@@ -8492,7 +8492,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onReplayIntro: () => introUi?.open(),
     onClearCache: () => clearOfflineCaches(),
     version: () => serverBuild(),
-    currentVersion: () => currentBuild(),
+    update: () => serverUpdate(),
     onReload: () => location.reload(),
     username: () => username,
     onDeleteAccount: async (password) => {

@@ -94,16 +94,36 @@ const SWIPE_ENTER = 22;
 /** How much sideways travel is one photograph. */
 const WHEEL_STEP = 40;
 
+// --- Where one swipe ends and the next begins -------------------------------------
+//
+// This is the whole difficulty, and the platform is no help: a `wheel` event
+// does not say which part of a gesture it is. AppKit has `momentumPhase` and
+// the web has nothing, so a firm flick and its second of coasting afterwards
+// are the same stream of events — and counting the coasting is what turns one
+// swipe into thirty.
+//
+// Spending the step once per gesture fixes that and introduces the opposite
+// complaint, which is the one this is the second attempt at: if the *only* way
+// to begin a new gesture is silence, then a second swipe made while the first
+// is still coasting is swallowed, and the card feels as though it is on a
+// cooldown. It was, effectively, for as long as the momentum lasted.
+//
+// So there are two ways back in, and the second is the useful one.
+
+/** Silence. The fingers are up and the coasting has finished. */
+const WHEEL_GAP_MS = 120;
+
 /**
- * The silence that ends one swipe and begins the next.
+ * …or the stream speeding up again, which momentum cannot do.
  *
- * This is the whole of "one swipe, one photograph". A trackpad does not report
- * the end of a gesture — it reports momentum, and a firm flick keeps delivering
- * deltas for the best part of a second after the fingers have gone. Counting
- * those is what turns one swipe into thirty. So a step is spent once per
- * gesture, and only a gap this long starts another.
+ * Coasting only ever slows down. So an event clearly faster than the slowest
+ * one since the last photograph is fingers pushing again, and it starts a new
+ * swipe without waiting for the old one to die. Multiplier *and* floor: near
+ * the bottom of a decay everything is a large multiple of everything else, and
+ * a couple of pixels of jitter is not a swipe.
  */
-const WHEEL_GAP_MS = 140;
+const WHEEL_PUSH = 1.5;
+const WHEEL_PUSH_MIN = 4;
 
 // How many are fetched without being asked for.
 //
@@ -590,11 +610,13 @@ export function mountPhotoInfo({ onClose } = {}) {
   // reason this exists: a sideways swipe over it used to scroll thumbnails past
   // without changing what you were looking at. See the note by `WHEEL_STEP`.
 
-  // When the last wheel event arrived, how far this gesture has travelled, and
-  // whether it has already been spent on a photograph.
+  // When the last wheel event arrived, how far this gesture has travelled,
+  // whether it has already been spent on a photograph, and the slowest it has
+  // got since — which is what tells coasting from a fresh push.
   let wheelAt = 0;
   let wheelSum = 0;
   let wheelSpent = false;
+  let wheelSlowest = Infinity;
 
   card.addEventListener('wheel', (e) => {
     if (card.hidden || items.length < 2 || busy) return;
@@ -605,15 +627,27 @@ export function mountPhotoInfo({ onClose } = {}) {
     // Ours from here, spent or not: the tail of a flick has to be swallowed too,
     // or the strip scrolls on the momentum of a swipe the card has answered.
     e.preventDefault();
+    const speed = Math.abs(e.deltaX);
     if (e.timeStamp - wheelAt > WHEEL_GAP_MS) {
+      // Silence: whatever comes next is a new swipe, wherever it starts from.
+      wheelSum = 0;
+      wheelSpent = false;
+      wheelSlowest = Infinity;
+    } else if (wheelSpent && speed > wheelSlowest * WHEEL_PUSH + WHEEL_PUSH_MIN) {
+      // Or it has sped up, which coasting cannot — see the note by WHEEL_PUSH.
       wheelSum = 0;
       wheelSpent = false;
     }
     wheelAt = e.timeStamp;
+    wheelSlowest = Math.min(wheelSlowest, speed);
     if (wheelSpent) return;
     wheelSum += e.deltaX;
     if (Math.abs(wheelSum) < WHEEL_STEP) return;
     wheelSpent = true;
+    // The baseline the *next* push is measured against starts here, at the top
+    // of the stream this photograph was spent on, rather than at whatever the
+    // slowest moment of the previous gesture happened to be.
+    wheelSlowest = speed;
     // Pushing the content left brings in what is to the right of it, which is
     // the next one — the same direction the finger drag above runs, and the same
     // one the Mac app's own gallery runs.

@@ -487,69 +487,93 @@ console.log('\nAn open card holds all four arrows, so the map cannot move under 
 console.log('\nOne trackpad swipe is one photograph');
 {
   const cardEl = dom.get('photo-info');
+  let clock = 0;
+
   /**
-   * One flick, as a trackpad actually reports it: a burst of deltas while the
-   * fingers move, and a long tail of momentum after they have gone. The tail is
-   * the whole bug — counting it is what turned one swipe into thirty.
+   * A stream of wheel events, one per frame, from a list of sideways speeds.
+   *
+   * Written as speeds rather than as a gesture, because the whole difficulty is
+   * that a `wheel` event does not say which part of a gesture it is — the card
+   * has only the shape of the numbers to go on, so the numbers are what the
+   * tests are written in.
    */
-  const flick = (dir, { at = 0, ticks = 14 } = {}) => {
+  const wheel = (speeds, { dir = 1, dy = 0, gap = 16 } = {}) => {
     const seen = { defaulted: 0 };
-    for (let n = 0; n < ticks; n++) {
+    for (const speed of speeds) {
+      clock += gap;
       cardEl.fire('wheel', {
-        deltaX: dir * (n < 4 ? 18 : 40 / (n - 2)),
-        deltaY: 0,
-        timeStamp: at + n * 16,
+        deltaX: dir * speed,
+        deltaY: dy,
+        timeStamp: clock,
         preventDefault() { seen.defaulted++; },
       });
     }
     return seen;
   };
 
+  // The fingers, and then a second of coasting — which only ever slows down.
+  // That is the one property the card has to go on, so the tail here decays the
+  // way a real one does rather than being a shape that happens to pass.
+  const push = [18, 18, 18, 20];
+  const coast = [16, 13, 11, 9, 8, 6, 5, 4, 4, 3, 3, 2, 2, 2, 1, 1, 1, 1, 1, 1];
+
   card.show(group(10));
   await settle();
   check(showing() === 0, 'it opens on the newest of them', String(showing()));
 
-  const first = flick(1);
+  const first = wheel([...push, ...coast]);
   await settle();
-  check(showing() === 1, 'a firm flick with a long tail moves exactly one', String(showing()));
-  check(first.defaulted === 14,
+  check(showing() === 1, 'a firm flick with a second of coasting moves exactly one',
+    String(showing()));
+  check(first.defaulted === push.length + coast.length,
     'and every event of it is taken, tail included, so the strip does not fly',
     String(first.defaulted));
 
-  // A second gesture, after the gap that separates them.
-  flick(1, { at: 1000 });
+  // The complaint this was the second attempt at: a swipe made *while the last
+  // one is still coasting* used to be swallowed, because the only way to begin
+  // a new gesture was silence — so the card felt as though it were on a timer.
+  // Coasting cannot speed up, so speeding up is the fingers.
+  clock += 400;
+  wheel([...push, ...coast.slice(0, 4), ...push, ...coast]);
   await settle();
-  check(showing() === 2, 'the next swipe moves one more', String(showing()));
+  check(showing() === 3, 'a second swipe during the tail of the first counts, and counts once',
+    String(showing()));
 
-  flick(-1, { at: 2000 });
+  // A gap is the other way in, and the plain one.
+  clock += 400;
+  wheel(push);
   await settle();
-  check(showing() === 1, 'and the other way comes back', String(showing()));
+  check(showing() === 4, 'and after a pause it is simply a new swipe', String(showing()));
+
+  clock += 400;
+  wheel(push, { dir: -1 });
+  await settle();
+  check(showing() === 3, 'the other way comes back', String(showing()));
 
   // Below the threshold: a nudge is not a swipe.
-  cardEl.fire('wheel', { deltaX: 12, deltaY: 0, timeStamp: 3000, preventDefault() {} });
+  clock += 400;
+  wheel([12]);
   await settle();
-  check(showing() === 1, 'a nudge too small to be meant is not a swipe', String(showing()));
+  check(showing() === 3, 'a nudge too small to be meant is not a swipe', String(showing()));
 
   // A vertical scroll that drifts sideways is a vertical scroll.
-  const down = { defaulted: 0 };
-  for (let n = 0; n < 8; n++) {
-    cardEl.fire('wheel', {
-      deltaX: 3, deltaY: 40, timeStamp: 4000 + n * 16, preventDefault() { down.defaulted++; },
-    });
-  }
+  clock += 400;
+  const down = wheel([3, 3, 3, 3, 3, 3, 3, 3], { dy: 40 });
   await settle();
-  check(showing() === 1 && down.defaulted === 0,
+  check(showing() === 3 && down.defaulted === 0,
     'and a two-finger scroll down is left entirely alone', String(showing()));
 
   // At the ends, the same as the finger: nothing that way.
   card.show(group(3));
   await settle();
-  flick(-1, { at: 5000 });
+  clock += 400;
+  wheel(push, { dir: -1 });
   await settle();
   check(showing() === 0, 'there is nothing before the first one', String(showing()));
 
   card.hide();
-  const shut = flick(1, { at: 6000 });
+  clock += 400;
+  const shut = wheel(push);
   await settle();
   check(shut.defaulted === 0, 'and a closed card takes no wheel at all', String(shut.defaulted));
 }

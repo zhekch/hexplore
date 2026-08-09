@@ -11,6 +11,7 @@
 //   POST /api/logout                       → {ok}        (clears cookie)
 //   POST /api/account/delete {password}    → {ok,username,removed} | 401/403/429
 //   GET  /api/me                           → {username,version} | 401
+//   GET  /api/update                       → {version,latest,newer} | 401
 //   GET  /api/airport?lat=&lng=            → {airport|null}     | 401  (the phone)
 //   GET  /api/prefs                        → {prefs}            | 401
 //   POST /api/prefs {prefs}                → {ok}               | 401
@@ -99,7 +100,110 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.49.0';
+export const SERVER_VERSION = '0.50.0';
+
+// --- …and whether somebody has published a newer one ------------------------------
+//
+// This is self-hosted, and there is no update mechanism and no wish for one: it
+// is updated by pulling and restarting, deliberately, by the person who runs
+// it. What there was no way to know is *that there is anything to pull* — a
+// server left running for three months looks exactly like one that is current,
+// and the number at the foot of Settings could only ever describe itself.
+//
+// So the server asks, and the whole answer is the same constant read off the
+// published copy. There are no releases and no tags to compare against; the
+// version that means anything in this project is the one above, and the
+// authoritative copy of it is the one on `main`.
+//
+// Three things keep it honest:
+//
+//   • **The server asks, not the page.** One machine, one cache, one address
+//     seen by GitHub — rather than every browser and every phone that opens
+//     Settings announcing itself.
+//   • **Sixteen kilobytes, not the file.** The constant is at the top, so the
+//     request carries a `Range` header. A CDN that ignores it costs the whole
+//     file and still works; one that honours it costs 16 KB.
+//   • **It can be switched off**, and it is the only outbound request this
+//     server makes that nobody configured. `UPDATE_CHECK=0` and it never runs.
+//
+// Env:
+//   UPDATE_CHECK=0       never ask
+//   UPDATE_SOURCE=<url>  ask somewhere else — a fork's raw URL, or a file
+const UPDATE_CHECK = !/^(0|false|no|off)$/i.test(String(process.env.UPDATE_CHECK ?? ''));
+const UPDATE_SOURCE = process.env.UPDATE_SOURCE
+  || 'https://raw.githubusercontent.com/zhekch/hexplore/main/HexPlore-webserver/server/index.js';
+
+/** How long an answer stands. Nobody publishes twice in an afternoon. */
+const UPDATE_TTL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * …and how long a *failure* stands, which is much shorter but not nothing.
+ *
+ * A server that is offline must not ask again on every press of Settings, and a
+ * server that has just come back should not be six hours behind knowing it.
+ */
+const UPDATE_RETRY_MS = 15 * 60 * 1000;
+
+/** Enough to reach the constant, which is at the top of this file by design. */
+const UPDATE_BYTES = 16 * 1024;
+
+/** And how long to wait for it. There is a person on the other end of this. */
+const UPDATE_TIMEOUT_MS = 6000;
+
+// The last answer, and when it was got. `ok` is false for "asked and could not
+// tell", which is a different thing from "asked and there is nothing newer".
+let updateHeld = { at: 0, ok: false, latest: null };
+
+/**
+ * Compare two `x.y.z` strings. Numeric, part by part, because `'0.10.0'` sorts
+ * before `'0.9.0'` as text and that is exactly the release where it would
+ * matter.
+ *
+ * @returns {boolean} whether `a` is a later version than `b`
+ */
+export function isNewerVersion(a, b) {
+  const parts = (v) => String(v ?? '').split('.').map((n) => Number(n) || 0);
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < 3; i++) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  }
+  return false;
+}
+
+/**
+ * The published version, or null for "cannot tell".
+ *
+ * Null rather than the running version, and that distinction is the whole
+ * point: a check that cannot get through must not be able to say "you are up
+ * to date". Settings says nothing at all in that case.
+ */
+async function publishedVersion() {
+  if (!UPDATE_CHECK) return null;
+  const age = Date.now() - updateHeld.at;
+  if (age < (updateHeld.ok ? UPDATE_TTL_MS : UPDATE_RETRY_MS)) return updateHeld.latest;
+  try {
+    const res = await fetch(UPDATE_SOURCE, {
+      headers: {
+        Range: `bytes=0-${UPDATE_BYTES - 1}`,
+        'User-Agent': `hexplore/${SERVER_VERSION}`,
+      },
+      signal: AbortSignal.timeout(UPDATE_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // Sliced as well as ranged: a source that ignores the header sends the
+    // whole file, and the constant is either in the first 16 KB or this is not
+    // the file we asked for. Bounding the regex is also what stops a large or
+    // hostile answer costing anything to search.
+    const found = /SERVER_VERSION\s*=\s*'(\d+\.\d+\.\d+)'/
+      .exec((await res.text()).slice(0, UPDATE_BYTES))?.[1] ?? null;
+    updateHeld = { at: Date.now(), ok: !!found, latest: found };
+  } catch {
+    // Offline, blocked by a firewall, timed out, or answering with something
+    // that is not this file. All of them are "cannot tell".
+    updateHeld = { at: Date.now(), ok: false, latest: null };
+  }
+  return updateHeld.latest;
+}
 
 const scrypt = promisify(scryptCb);
 // The same folding the browser importer uses, so a fix from Home Assistant and
@@ -2061,6 +2165,27 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
     // at" answerable from the phone.
     if (req.method === 'GET' && pathname === '/api/health') {
       return send(res, 200, { app: 'hexplore', version: SERVER_VERSION });
+    }
+
+    // What this is running, and whether anything newer has been published.
+    //
+    // Signed in, unlike `/api/health`: the version is public because a phone
+    // has to be able to check an address before it has an account, and *this*
+    // answers a question only the person who runs the server has — with a
+    // request to the outside world behind it. Two answers in one because
+    // Settings asks two questions at once: `version` is what the server is
+    // running *now*, which the page compares against the build it signed in
+    // with, and `latest` is what is published.
+    if (req.method === 'GET' && pathname === '/api/update') {
+      if (!currentUser(req)) return send(res, 401, { error: 'not authenticated' });
+      const latest = await publishedVersion();
+      return send(res, 200, {
+        version: SERVER_VERSION,
+        latest,
+        // Worked out here rather than in the page, so the comparison is written
+        // once and tested once — see `isNewerVersion`.
+        newer: !!latest && isNewerVersion(latest, SERVER_VERSION),
+      });
     }
 
     if (req.method === 'POST' && pathname === '/api/register') {

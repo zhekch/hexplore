@@ -76,34 +76,41 @@ function keepVersion(d) {
 }
 
 /**
- * What the server is running *now*, asked fresh.
+ * Whether this is the current build — of the server, and of the project.
  *
- * `serverBuild()` above is the build this page was handed when it signed in,
- * and the two stop agreeing the moment the server is updated under an open
- * tab — which on a phone left on the Map tab for a fortnight is the normal
- * case, not the unusual one. Nothing on screen said so, and the symptom is a
- * bug report about a fix that "did not work".
+ * Two questions, one request, because Settings asks them together and they have
+ * different answers:
  *
- * `/api/health` rather than `/api/me`: it is the one endpoint that answers
- * without a session, it already carries the version, and it is what the iOS app
- * asks the same question with (`ServerCheck.swift`).
+ *   - **`version`** is what the server is running *now*. `serverBuild()` above
+ *     is what this page was handed when it signed in, and the two stop agreeing
+ *     the moment the server is updated under an open tab — which on a phone left
+ *     on the Map tab for a fortnight is the normal case rather than the unusual
+ *     one. Nothing said so, and the symptom is a bug report about a fix that
+ *     "did not work". That one is fixed by reloading.
+ *   - **`latest`** is what has been published, which the server asks GitHub (see
+ *     the note by `SERVER_VERSION` in server/index.js). Null for "cannot tell",
+ *     which is deliberately not the same as "nothing newer": a check that could
+ *     not get through must not be able to claim the server is current.
  *
  * Deliberately not routed through `api()`. A version check that cannot get
- * through is not a failed save and must not flip the "your changes are not
- * being saved" banner; it simply has no answer, and null is that.
+ * through is not a failed save and must not flip the "your changes are not being
+ * saved" banner; it simply has no answer.
  *
- * @returns {Promise<string|null>}
+ * @returns {Promise<{version:string|null, latest:string|null, newer:boolean}>}
  */
-export async function currentBuild() {
+export async function serverUpdate() {
+  const nothing = { version: null, latest: null, newer: false };
   try {
-    const res = await fetch('/api/health', { cache: 'no-store' });
+    const res = await fetch('/api/update', { cache: 'no-store' });
+    if (!res.ok) return nothing;
     const d = await res.json();
-    // The same two-part check `ServerCheck` makes, for the same reason: on a
-    // home network something else answering 200 on that port is commoner than
-    // nothing answering at all, and a router's admin page is not a new build.
-    return d?.app === 'hexplore' && typeof d.version === 'string' ? d.version : null;
+    return {
+      version: typeof d?.version === 'string' ? d.version : null,
+      latest: typeof d?.latest === 'string' ? d.latest : null,
+      newer: !!d?.newer,
+    };
   } catch {
-    return null;
+    return nothing;
   }
 }
 

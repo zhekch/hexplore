@@ -347,6 +347,15 @@ private final class GalleryView: NSView {
     private static let swipeStep: CGFloat = 60
     private var swiped: CGFloat = 0
 
+    /// Whether this gesture has already been spent on a photograph.
+    ///
+    /// One swipe is one picture. Accumulating alone is not that: a firm flick
+    /// arrives as a burst of deltas and then a second of *momentum*, and both
+    /// keep clearing `swipeStep`, so a group scrolled on past a dozen
+    /// photographs for as long as the coasting lasted. What is wanted is the
+    /// thing every gallery on this machine does — one gesture, one step.
+    private var spent = false
+
     override var acceptsFirstResponder: Bool { true }
 
     override func cancelOperation(_ sender: Any?) {
@@ -372,6 +381,17 @@ private final class GalleryView: NSView {
             swiped = 0
             return super.scrollWheel(with: event)
         }
+        // Coasting after the fingers have gone. It is the same photograph's
+        // swipe still arriving, and it has already been answered. AppKit saying
+        // so is the whole reason this is exact here and a heuristic on the web,
+        // where a wheel event will not say which part of a gesture it is.
+        guard event.momentumPhase.isEmpty else { return }
+        // A new gesture, whatever the last one did.
+        if event.phase.contains(.began) {
+            swiped = 0
+            spent = false
+        }
+        guard !spent else { return }
         if (dx > 0) != (swiped > 0) { swiped = 0 }
         swiped += dx
         guard abs(swiped) >= Self.swipeStep else { return }
@@ -379,5 +399,10 @@ private final class GalleryView: NSView {
         // right of it, which is the next one.
         onStep?(swiped > 0 ? -1 : 1)
         swiped = 0
+        // Spent for the rest of *this* gesture — but only if there is one. A
+        // wheel with detents reports no phase at all, and each notch of it is
+        // already a separate deliberate movement: locking on the first would
+        // mean a mouse could turn one page and never another.
+        spent = !event.phase.isEmpty
     }
 }

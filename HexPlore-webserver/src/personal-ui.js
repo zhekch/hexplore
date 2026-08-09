@@ -41,8 +41,9 @@ import { t } from './i18n.js';
  * @param {() => void} [opts.onReplayIntro] show the introduction again
  * @param {() => Promise<boolean>} [opts.onClearCache] throw the offline copy away
  * @param {() => string|null} [opts.version] the build the server reports
- * @param {() => Promise<string|null>} [opts.currentVersion] the build it is
- *   running *now*, asked fresh — see the note on `drawVersion`
+ * @param {() => Promise<{version:string|null, latest:string|null, newer:boolean}>}
+ *   [opts.update] what the server is running now and what has been published —
+ *   see the note on `drawVersion`
  * @param {() => void} [opts.onReload] fetch the app again from the server
  * @param {() => string|null} [opts.username] whose account this is
  * @param {(password:string) => Promise<object>} [opts.onDeleteAccount] close it
@@ -50,7 +51,7 @@ import { t } from './i18n.js';
 export function mountPersonal({
   onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, snow, onSnow, snowPossible,
   whatsNew, onWhatsNew, locales, locale, onLocale,
-  sources, rail, airports, mapbox, onReplayIntro, onClearCache, version, currentVersion, onReload,
+  sources, rail, airports, mapbox, onReplayIntro, onClearCache, version, update, onReload,
   username, onDeleteAccount,
 }) {
   const $ = (id) => document.getElementById(id);
@@ -130,18 +131,24 @@ export function mountPersonal({
   }
 
   /**
-   * Which build this is, and whether it is still the one the server has.
+   * Which build this is, whether it is still the one the server has, and
+   * whether anybody has published a newer one.
    *
-   * The number itself is what the page was handed when it signed in, and a page
-   * keeps that for as long as it is open — so a server updated underneath a tab
-   * left on the map goes on reporting the build that tab started with. That is
-   * the honest answer to "which build am I looking at" and a misleading answer
-   * to "is this current", which are the same question ten seconds apart.
+   * Three sentences at most, and usually one. The number itself is what the page
+   * was handed when it signed in, and a page keeps that for as long as it is
+   * open — so a server updated underneath a tab left on the map goes on
+   * reporting the build that tab started with. That is the honest answer to
+   * "which build am I looking at" and a misleading answer to "is this current",
+   * which are the same question ten seconds apart.
    *
-   * So the second one is asked, once per opening, and only the *disagreement*
-   * is shown. A check that cannot get through says nothing rather than claiming
-   * the app is up to date: `currentVersion` answers null for that, and null is
-   * not a version to compare against.
+   * Only *disagreements* are shown, and each has its own remedy: a page behind
+   * its own server is fixed by reloading, and a server behind the published
+   * version is fixed by pulling it, which is not something a web page can offer
+   * to do. So one of them gets a button and the other gets a sentence.
+   *
+   * A check that cannot get through says nothing rather than claiming the app is
+   * up to date — `latest` is null for that, and null is not a version to compare
+   * against.
    *
    * Hidden rather than shown empty or as "unknown": the whole value of this line
    * is that it can be trusted, and a placeholder where a build number belongs is
@@ -154,13 +161,17 @@ export function mountPersonal({
     if (reloadBtn) reloadBtn.hidden = true;
     if (!build) return;
     versionText.textContent = `Server ${build}`;
-    currentVersion?.().then((now) => {
+    update?.().then((now) => {
       // Guarded on the build still being the one this ran for: the dialog can be
       // closed and reopened inside one slow request, and an answer about the
       // previous opening must not land on this one.
-      if (!now || now === build || version?.() !== build) return;
-      versionText.textContent = `Server ${build} · ${t('personal.update-available')}: ${now}`;
-      if (reloadBtn) reloadBtn.hidden = false;
+      if (version?.() !== build) return;
+      const stale = now?.version && now.version !== build;
+      const parts = [`Server ${stale ? now.version : build}`];
+      if (stale) parts.push(t('personal.update-stale', { version: build }));
+      if (now?.newer) parts.push(t('personal.update-available', { version: now.latest }));
+      versionText.textContent = parts.join(' · ');
+      if (reloadBtn) reloadBtn.hidden = !stale;
     }).catch(() => {
       /* no answer is not an answer of "up to date" */
     });
