@@ -137,10 +137,10 @@ export const photoImage = (i, px) => ask({ ask: 'photo', scan, i, px: Math.round
  *
  * The one call here that moves no data at all. A video is hundreds of megabytes
  * and every way of getting it *into* the page is worse than not — see the note
- * on `PhotoLibrary.play`. So the app puts a player over the web view, and this
- * asks it to.
+ * on `PhotoLibrary.playerItem`. So the app puts a player over the web view, and
+ * this asks it to.
  */
-export const playVideo = (i) => ask({ ask: 'play', scan, i });
+export const playVideo = (i, group) => ask({ ask: 'play', scan, i, group });
 
 /**
  * Show a photograph full screen, at its own size, in the app's own viewer.
@@ -150,8 +150,16 @@ export const playVideo = (i) => ask({ ask: 'play', scan, i });
  * full screen is worth doing for is the original — which is several megabytes it
  * would then be holding twice. So the app puts a zoomable viewer over the page
  * and the page gets a yes.
+ *
+ * **`group` is the rest of what was tapped**, as indices into the last scan, in
+ * the order the card's strip shows them. The viewer is a gallery and swipes
+ * through the lot — and it has to be told what the lot *is*, because the
+ * grouping happens here: clustering is the map's, and which forty photographs
+ * were under that dot is a fact only this side holds. Sent for `play` as well
+ * as `view`, so a holiday of stills and clips is one thing you swipe through
+ * rather than two.
  */
-export const viewPhoto = (i) => ask({ ask: 'view', scan, i });
+export const viewPhoto = (i, group) => ask({ ask: 'view', scan, i, group });
 
 // --- The layer -------------------------------------------------------------------
 

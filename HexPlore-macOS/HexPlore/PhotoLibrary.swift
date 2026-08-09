@@ -252,19 +252,35 @@ nonisolated enum PhotoLibrary {
     /// stops into the zoom, at about a twentieth of the cost.
     private static let viewPixels: CGFloat = 3000
 
-    /// Put a photograph in a window, big.
+    /// Put a whole group in the window, opened at one of them.
     ///
-    /// The window is shown **first** and handed the picture when it arrives.
-    /// Waiting meant a click did nothing at all for as long as an iCloud fetch
-    /// took and then produced a window mid-animation; this way it is up
-    /// immediately, spinning, which is what every other app does.
+    /// **The group, not the photograph.** Clicking a point on the map is
+    /// clicking forty pictures of one dinner — that is what the card's strip is
+    /// for — and a window that shows only the one you landed on makes you close
+    /// it, find the next thumbnail, and open it again. Forty times. So the
+    /// window is a gallery: ← and → walk it, and so does a two-finger swipe.
+    ///
+    /// Neither platform has a system dialog that would have done this; the
+    /// reasoning is written up on ``PhotoGalleryWindowController`` and is the
+    /// same reasoning as the phone's.
     @MainActor
-    static func view(id: String) async -> Bool {
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
-        else { return false }
+    static func open(_ items: [Located], at: Int) -> Bool {
+        guard items.indices.contains(at) else { return false }
+        PhotoGalleryWindowController.shared.present(items: items, at: at)
+        return true
+    }
 
-        let viewer = PhotoViewerWindowController.shared
-        viewer.present()
+    /// One photograph at viewing size, whenever it turns up.
+    ///
+    /// Split out of the presenting, because the window is shown **first** and
+    /// handed the picture when it arrives. Waiting meant a click did nothing at
+    /// all for as long as an iCloud fetch took and then produced a window
+    /// mid-animation; this way it is up immediately, spinning, which is what
+    /// every other app does.
+    @MainActor
+    static func fullImage(id: String) async -> NSImage? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
+        else { return nil }
 
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
@@ -281,21 +297,19 @@ nonisolated enum PhotoLibrary {
                 if once.close() { continuation.resume(returning: Handoff(image)) }
             }
         }
-        // Handed over even when it is nil: the viewer closes itself rather than
-        // being left as a black window with a spinner that never stops.
-        viewer.show(image: arrived.value)
-        return true
+        return arrived.value
     }
 
     // MARK: - Playing a video
 
-    /// Play one, in its own window. See ``VideoWindowController`` for why it is
-    /// shown this way rather than handed to the page.
+    /// One video, as something a player can be handed. See
+    /// ``PhotoGalleryWindowController`` for why it is shown this way rather than
+    /// handed to the page.
     @MainActor
-    static func play(id: String) async -> Bool {
+    static func playerItem(id: String) async -> AVPlayerItem? {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
               asset.mediaType == .video
-        else { return false }
+        else { return nil }
 
         let options = PHVideoRequestOptions()
         // An original that lives in iCloud is the common case for anything more
@@ -309,9 +323,7 @@ nonisolated enum PhotoLibrary {
                 if once.close() { continuation.resume(returning: Handoff(item)) }
             }
         }
-        guard let item = arrived.value else { return false }
-        VideoWindowController.shared.play(item: item)
-        return true
+        return arrived.value
     }
 
     // MARK: - There is no way out to Photos, and there was never going to be

@@ -1,40 +1,65 @@
 import AVKit
 import AppKit
 
-/// One photograph, big, and one video, playing — each in a window of its own.
+/// The whole group, in one window, walked with the arrow keys.
 ///
-/// The card in the web view already shows the picture, scaled to the card, which
-/// is the right size for a card and not for looking at. So the same answer as
-/// the phone gives: it is shown here rather than sent there, because the only
-/// version worth opening properly is one the page would then be holding a second
-/// copy of — once as bytes and once as base64.
+/// A click on the map is a click on a *group* — forty pictures of one dinner are
+/// one point at every zoom there is, which is why the card has a strip along its
+/// bottom. The window used to show the single item it had been handed, so
+/// looking at the forty meant closing it, finding the next thumbnail and opening
+/// it again. Forty times.
+///
+/// ## There is no system dialog that does this
+///
+/// It is the obvious thing to want and it does not exist on either platform.
+/// `PHPickerViewController` is a *picker*: it shows the library so you can
+/// choose from it, and cannot be pointed at a subset. Quick Look genuinely does
+/// page through a list with the system's own gestures — and wants file URLs,
+/// which for a `PHAsset` means exporting every item in the group to disk first:
+/// slow, several gigabytes for a holiday, and it leaves the copies behind. And
+/// nothing public opens Photos.app at a given asset, which is written up at the
+/// foot of ``PhotoLibrary``.
+///
+/// What the system would have given us was never the paging; it was the
+/// *fetching*, and that is the part we already had.
 ///
 /// ## One window, reused, rather than one per photograph
 ///
-/// This is the one place the Mac deliberately behaves differently from the
-/// phone, and it is not a preference. On iOS the viewer is a full-screen modal:
-/// the map is *behind* it and cannot be tapped, so "refuse a second tap while
-/// the first is in flight" is invisible and right. A window is not modal. The
-/// map stays right there, clickable, so the same rule would mean clicking a
-/// second photograph and having nothing whatever happen — the app looking
-/// broken, in exchange for a guard against a problem a window does not have.
+/// This is where the Mac deliberately behaves differently from the phone, and it
+/// is not a preference. On iOS the gallery is a full-screen modal: the map is
+/// *behind* it and cannot be tapped, so "refuse a second tap while the first is
+/// in flight" is invisible and right. A window is not modal. The map stays right
+/// there, clickable, so the same rule would mean clicking a second group and
+/// having nothing whatever happen.
 ///
-/// So the window is a singleton that changes what it is showing. Click another
-/// point and this one comes forward with the new picture in it, which is what a
-/// Mac app does and what the Finder's own preview does.
+/// So the window is a singleton that changes what it is showing, which is also
+/// what makes a gallery cheap here: paging *is* changing what it is showing, and
+/// it was already doing that.
 ///
-/// Deliberately small: `QLPreviewController` would give this for free and wants
-/// a file URL, which for a `PHAsset` means exporting a copy to disk first —
-/// slower, and it leaves the copy behind. A scroll view around an image view is
-/// the whole of what this needs.
+/// ## Stills and videos in the same window
+///
+/// They used to have one each, which made the group two galleries — press → past
+/// the last photograph before a clip and the window you were in had nothing to
+/// say. Now the content swaps: a scroll view around an image view for a
+/// photograph, an `AVPlayerView` for a video, and the same → moves between them.
+/// A video is not transferred to the page for any of this — see
+/// [the note below](#Why-the-video-does-not-go-to-the-page).
 @MainActor
-final class PhotoViewerWindowController: NSWindowController {
+final class PhotoGalleryWindowController: NSWindowController, NSWindowDelegate {
 
-    static let shared = PhotoViewerWindowController()
+    static let shared = PhotoGalleryWindowController()
 
-    private let scroll = NSScrollView()
+    private let scroll = PagingScrollView()
     private let imageView = NSImageView()
+    private let playerView = AVPlayerView()
     private let spinner = NSProgressIndicator()
+
+    private var items: [PhotoLibrary.Located] = []
+    private var at = 0
+    /// Which showing this is. Checked on the far side of every fetch: a picture
+    /// that arrives after you have pressed → twice belongs to a window that has
+    /// moved on, and putting it up would be the wrong photograph.
+    private var showing = 0
 
     private init() {
         let window = NSWindow(
@@ -56,6 +81,7 @@ final class PhotoViewerWindowController: NSWindowController {
         window.center()
         window.setFrameAutosaveName("HexPlorePhotoViewer")
         super.init(window: window)
+        window.delegate = self
         build(in: window)
     }
 
@@ -63,8 +89,9 @@ final class PhotoViewerWindowController: NSWindowController {
     required init?(coder: NSCoder) { fatalError("not from a nib") }
 
     private func build(in window: NSWindow) {
-        let content = CancellableView()
+        let content = GalleryView()
         content.onCancel = { [weak self] in self?.close() }
+        content.onStep = { [weak self] step in self?.step(step) }
         content.wantsLayer = true
         content.layer?.backgroundColor = NSColor.black.cgColor
         window.contentView = content
@@ -95,6 +122,14 @@ final class PhotoViewerWindowController: NSWindowController {
         zoom.numberOfClicksRequired = 2
         imageView.addGestureRecognizer(zoom)
 
+        playerView.frame = content.bounds
+        playerView.autoresizingMask = [.width, .height]
+        playerView.controlsStyle = .inline
+        playerView.showsFullScreenToggleButton = true
+        playerView.allowsPictureInPicturePlayback = true
+        playerView.isHidden = true
+        content.addSubview(playerView)
+
         spinner.style = .spinning
         spinner.controlSize = .large
         spinner.isDisplayedWhenStopped = false
@@ -103,33 +138,93 @@ final class PhotoViewerWindowController: NSWindowController {
         content.addSubview(spinner)
     }
 
-    /// Bring the window up empty and spinning, before the picture exists.
-    ///
-    /// Presenting only once the image had arrived meant that clicking a
-    /// photograph did nothing at all for as long as the fetch took — seconds,
-    /// for an original living in iCloud. Now the window is up immediately, which
-    /// reads as the app responding rather than thinking.
-    func present() {
-        imageView.image = nil
-        scroll.magnification = 1
-        spinner.startAnimation(nil)
+    /// Bring the window up on one of a group, before its content exists.
+    func present(items: [PhotoLibrary.Located], at index: Int) {
+        self.items = items
+        at = min(max(0, index), max(0, items.count - 1))
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        // The content view is what the arrow keys and the swipe arrive at, and a
+        // window whose first responder is somewhere else answers neither.
+        window?.makeFirstResponder(window?.contentView)
         NSApp.activate()
+        show()
     }
 
-    /// The picture, whenever it turns up.
-    func show(image: NSImage?) {
-        spinner.stopAnimation(nil)
-        guard let image else {
-            // Nothing to show and nothing to explain it with — an empty black
-            // window reads as broken, so it closes itself rather than sitting
-            // there.
-            close()
-            return
+    /// One step along the group, from a key or a swipe. Silent at the ends
+    /// rather than wrapping: a gallery that loops has no ends, and then the
+    /// count in the title is the only way to know where you are.
+    private func step(_ by: Int) {
+        let next = at + by
+        guard items.indices.contains(next) else { return }
+        at = next
+        show()
+    }
+
+    /// Whatever is at `at` — a picture, or a player.
+    private func show() {
+        let mine = showing + 1
+        showing = mine
+        guard items.indices.contains(at) else { return }
+        let item = items[at]
+
+        // A fresh player rather than swapping the item into the old one: a
+        // player that has finished sits at the end of its timeline, and reusing
+        // it means the next video opens already over.
+        playerView.player?.pause()
+        playerView.player = nil
+        playerView.isHidden = true
+        imageView.image = nil
+        scroll.magnification = 1
+        scroll.isHidden = item.isVideo
+        spinner.startAnimation(nil)
+        retitle()
+
+        Task {
+            if item.isVideo {
+                let playerItem = await PhotoLibrary.playerItem(id: item.id)
+                guard mine == showing else { return }
+                spinner.stopAnimation(nil)
+                guard let playerItem else { return failed() }
+                playerView.isHidden = false
+                let player = AVPlayer(playerItem: playerItem)
+                playerView.player = player
+                player.play()
+                return
+            }
+            let image = await PhotoLibrary.fullImage(id: item.id)
+            guard mine == showing else { return }
+            spinner.stopAnimation(nil)
+            guard let image else { return failed() }
+            imageView.image = image
         }
-        imageView.image = image
-        window?.title = "Photo"
+    }
+
+    /// "Photo", or "Photo 3 of 12" — the one thing a gallery has to say that a
+    /// single picture does not, and the title bar is where a Mac says it.
+    private func retitle() {
+        let what = items.indices.contains(at) && items[at].isVideo ? "Video" : "Photo"
+        window?.title = items.count < 2 ? what : "\(what) \(at + 1) of \(items.count)"
+    }
+
+    /// Nothing to show and nothing to explain it with.
+    ///
+    /// The single-photograph window closed itself here, which was right when the
+    /// window *was* the photograph. In a gallery it is not: closing the whole
+    /// group because one of forty could not be fetched throws away the other
+    /// thirty-nine. So the title says so and the arrows still work.
+    private func failed() {
+        window?.title = items.indices.contains(at) && items[at].isVideo
+            ? "This video could not be played"
+            : "Still in iCloud — could not be fetched just now"
+    }
+
+    /// Closing the window stops the sound. Without this the video goes on
+    /// playing to nobody, which is a genuinely startling thing for an app to do.
+    func windowWillClose(_ notification: Notification) {
+        showing += 1
+        playerView.player?.pause()
+        playerView.player = nil
     }
 
     /// Double click zooms in, and again to come back.
@@ -144,94 +239,98 @@ final class PhotoViewerWindowController: NSWindowController {
     }
 }
 
-/// Playing one video, over in a window of its own.
+// MARK: - Why the video does not go to the page
+//
+// Everything else the overlay shows crosses the bridge as bytes, and for a video
+// that is the wrong shape of answer at every size. A minute of 4K is ~350 MB;
+// base64 makes it 470 MB of JavaScript string. The alternatives are worse than
+// they look:
+//
+// - **A `WKURLSchemeHandler`** could stream it properly, range requests and all
+//   — and the site's own Content-Security-Policy would refuse to load it, so it
+//   would also mean widening `media-src` for the app's benefit.
+// - **A local HTTP server** in the app has the same policy problem plus mixed
+//   content, because the page is https and `127.0.0.1` is not.
+// - **Transcoding** to something small enough to inline spends seconds and disk
+//   to arrive at a worse copy of a file that is already on the machine.
+//
+// So the video is not transferred at all. `AVPlayerView` gets the asset's own
+// player item: full quality, no copy, the system's own controls, scrubbing,
+// AirPlay and picture-in-picture for free, and iCloud originals fetched by
+// Photos itself rather than by us. The page's part is one message; it has no URL
+// for the video and never sees a byte of it.
+//
+// There is no `AVAudioSession` here and none is wanted. That is the phone's
+// problem — a ring switch that silences anything declared "incidental", which is
+// what an app that sets no category gets. A Mac has no such switch and no such
+// default, so a video plays with its sound the moment it is given one.
+
+/// A scroll view that gives a sideways swipe back.
 ///
-/// ## Why the video does not go to the page
-///
-/// Everything else the overlay shows crosses the bridge as bytes, and for a
-/// video that is the wrong shape of answer at every size. A minute of 4K is
-/// ~350 MB; base64 makes it 470 MB of JavaScript string. The alternatives are
-/// worse than they look:
-///
-/// - **A `WKURLSchemeHandler`** could stream it properly, range requests and
-///   all — and the site's own Content-Security-Policy would refuse to load it,
-///   so it would also mean widening `media-src` for the app's benefit.
-/// - **A local HTTP server** in the app has the same policy problem plus mixed
-///   content, because the page is https and `127.0.0.1` is not.
-/// - **Transcoding** to something small enough to inline spends seconds and disk
-///   to arrive at a worse copy of a file that is already on the machine.
-///
-/// So the video is not transferred at all. `AVPlayerView` gets the asset's own
-/// player item: full quality, no copy, the system's own controls, scrubbing,
-/// AirPlay and picture-in-picture for free, and iCloud originals fetched by
-/// Photos itself rather than by us. The page's part is one message; it has no
-/// URL for the video and never sees a byte of it.
-@MainActor
-final class VideoWindowController: NSWindowController, NSWindowDelegate {
-
-    static let shared = VideoWindowController()
-
-    private let playerView = AVPlayerView()
-
-    private init() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 980, height: 620),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Video"
-        window.backgroundColor = .black
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.isReleasedWhenClosed = false
-        window.center()
-        window.setFrameAutosaveName("HexPloreVideoViewer")
-        super.init(window: window)
-        window.delegate = self
-
-        playerView.frame = window.contentView?.bounds ?? .zero
-        playerView.autoresizingMask = [.width, .height]
-        playerView.controlsStyle = .inline
-        playerView.showsFullScreenToggleButton = true
-        playerView.allowsPictureInPicturePlayback = true
-        window.contentView = playerView
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("not from a nib") }
-
-    func play(item: AVPlayerItem) {
-        // A fresh player rather than swapping the item into the old one: a
-        // player that has finished sits at the end of its timeline, and reusing
-        // it means the next video opens already over.
-        playerView.player?.pause()
-        let player = AVPlayer(playerItem: item)
-        playerView.player = player
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
-        player.play()
-    }
-
-    /// Closing the window stops the sound. Without this the video goes on
-    /// playing to nobody, which is a genuinely startling thing for an app to do.
-    func windowWillClose(_ notification: Notification) {
-        playerView.player?.pause()
-        playerView.player = nil
+/// Without this the swipe below would work everywhere in the window except over
+/// the photograph, which is all of it. An `NSScrollView` handles `scrollWheel`
+/// whether or not it has anything to scroll — and at natural size it has
+/// nothing, so the gesture was being swallowed by a view with no use for it.
+/// Zoomed in it keeps them: then a sideways scroll is how you look at the right
+/// hand side of the picture.
+private final class PagingScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        guard magnification <= minMagnification,
+              abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+        else { return super.scrollWheel(with: event) }
+        // The superview, which is the gallery's content view.
+        nextResponder?.scrollWheel(with: event)
     }
 }
 
-/// A content view that closes its window on Escape.
+/// The content view: Escape closes it, and the arrows walk the group.
 ///
 /// ⌘W is free — the window is titled and the app has a Close item — but Escape
 /// is how every full-bleed picture on this machine is dismissed, and nothing
-/// hands it over.
-private final class CancellableView: NSView {
+/// hands it over. Nor does anything hand over ← and →, which is how every
+/// gallery on this machine is walked.
+private final class GalleryView: NSView {
     var onCancel: (() -> Void)?
+    var onStep: ((Int) -> Void)?
+
+    /// How much sideways scrolling counts as one step, in points. A trackpad
+    /// reports a swipe as a stream of small deltas, so this accumulates rather
+    /// than testing each one — and resets on a change of direction, or a long
+    /// slow drag would step twice on the way back.
+    private static let swipeStep: CGFloat = 60
+    private var swiped: CGFloat = 0
 
     override var acceptsFirstResponder: Bool { true }
 
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // The arrow keys arrive as key codes rather than characters, and these
+        // two are the only ones this view has an opinion about.
+        switch event.keyCode {
+        case 123: onStep?(-1) // ←
+        case 124: onStep?(1) // →
+        default: super.keyDown(with: event)
+        }
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        let dx = event.scrollingDeltaX
+        // Sideways only, and only when it is plainly sideways: a two-finger
+        // scroll down a tall photograph drifts left and right, and a gallery
+        // that changes picture because of that is unusable.
+        guard abs(dx) > abs(event.scrollingDeltaY) else {
+            swiped = 0
+            return super.scrollWheel(with: event)
+        }
+        if (dx > 0) != (swiped > 0) { swiped = 0 }
+        swiped += dx
+        guard abs(swiped) >= Self.swipeStep else { return }
+        // Natural scrolling: pushing the content left brings in what is to the
+        // right of it, which is the next one.
+        onStep?(swiped > 0 ? -1 : 1)
+        swiped = 0
     }
 }

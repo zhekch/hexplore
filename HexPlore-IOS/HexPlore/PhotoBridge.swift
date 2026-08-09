@@ -145,29 +145,54 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
         ]
     }
 
-    /// Show one full screen, natively, in front of the page.
+    /// Show the group full screen, natively, opened at one of them.
+    ///
+    /// `group` is the card's own list — the indices behind the strip along its
+    /// bottom, in the order the strip shows them — and `i` is which of them was
+    /// tapped. It is sent because the app has no way to work it out: clustering
+    /// happens in the page, on a map the app cannot see, so "the forty pictures
+    /// that were under that dot" is a fact only the page holds.
+    ///
+    /// A group of four thousand is four thousand integers, which is about 24 KB
+    /// of JSON once per opening. Sending a window around the tapped one would be
+    /// cheaper and would be the strip's old 48-item cap all over again: a viewer
+    /// that silently contains less than what you tapped.
+    ///
+    /// An old page that sends no `group` is answered with the one photograph,
+    /// which is what it is expecting.
     private func view(_ body: [String: Any]) async -> [String: Any] {
-        guard (body["scan"] as? Int) == scan else { return ["ok": false, "error": "stale"] }
-        guard let i = body["i"] as? Int, snapshot.indices.contains(i) else {
-            return ["ok": false, "error": "missing"]
-        }
-        guard await PhotoLibrary.view(id: snapshot[i].id) else {
-            return ["ok": false, "error": "unavailable"]
-        }
-        return ["ok": true]
+        open(body)
     }
 
     /// Play one, natively, in front of the page.
     ///
-    /// The only message that answers with something other than data: nothing
-    /// crosses the bridge here but the word "yes". See ``PhotoLibrary/play(id:)``
-    /// for why a video is shown this way rather than handed to the page.
+    /// The same gallery, opened on a video, which starts itself. Kept as its own
+    /// message because the card has two controls and they mean different things
+    /// — pressing play on a video is not tapping a photograph, even when the two
+    /// end up in the same place. See ``PhotoLibrary/playerItem(id:)`` for why a
+    /// video is shown this way rather than handed to the page.
     private func play(_ body: [String: Any]) async -> [String: Any] {
+        open(body)
+    }
+
+    /// Both of the above: the group, and where in it to start.
+    ///
+    /// Neither answers with anything but the word "yes" — no data crosses the
+    /// bridge here at all.
+    private func open(_ body: [String: Any]) -> [String: Any] {
         guard (body["scan"] as? Int) == scan else { return ["ok": false, "error": "stale"] }
         guard let i = body["i"] as? Int, snapshot.indices.contains(i) else {
             return ["ok": false, "error": "missing"]
         }
-        guard await PhotoLibrary.play(id: snapshot[i].id) else {
+        // Filtered rather than trusted. These are indices into a list this side
+        // owns, arriving from a page, and one of them being out of range must be
+        // a photograph left out of the gallery rather than a crash.
+        let wanted = (body["group"] as? [Int])?.filter { snapshot.indices.contains($0) } ?? []
+        let group = wanted.isEmpty ? [i] : wanted
+        // Where the tapped one ended up after that filtering, which is not
+        // `i`'s position in what was sent if anything ahead of it was dropped.
+        let at = group.firstIndex(of: i) ?? 0
+        guard PhotoLibrary.open(group.map { snapshot[$0] }, at: at) else {
             return ["ok": false, "error": "unavailable"]
         }
         return ["ok": true]

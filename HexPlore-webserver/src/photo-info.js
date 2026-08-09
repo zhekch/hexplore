@@ -225,6 +225,16 @@ export function mountPhotoInfo({ onClose } = {}) {
     figure.style.setProperty('--photo-swipe', `${px}px`);
   };
 
+  /**
+   * What was tapped, for the app's viewer — which is a gallery, not a frame.
+   *
+   * The whole group in the strip's own order, so swiping in the native viewer
+   * and swiping in this card walk the same list the same way. Built at the
+   * moment of the hand-off rather than held: it is one array per tap, and a copy
+   * kept up to date would be a second version of `items` to get wrong.
+   */
+  const groupIndices = () => items.map((item) => item.i);
+
   function hide() {
     card.hidden = true;
     drag = null;
@@ -466,7 +476,7 @@ export function mountPhotoInfo({ onClose } = {}) {
     busy = true;
     playBtn.classList.add('fetching');
     try {
-      const reply = await playVideo(item.i);
+      const reply = await playVideo(item.i, groupIndices());
       if (!reply.ok) {
         noteEl.textContent = trouble(reply.error);
         return;
@@ -565,6 +575,12 @@ export function mountPhotoInfo({ onClose } = {}) {
   // The picture itself, full size, in the app's own viewer — the same bargain as
   // the video: shown natively rather than sent, so what you get is the original
   // rather than the card-sized copy the card is already showing you.
+  //
+  // Videos go through here too now, and did not before. The viewer they used to
+  // reach was one photograph, so a video had nothing to open and only the play
+  // button meant anything; it is a gallery now, and a tap on the poster frame
+  // beside the button means what it means everywhere else — open this, here, in
+  // the rest of them.
   figure.addEventListener('click', async (e) => {
     // A drag that moved the picture is not also a tap on it, however much the
     // browser insists on dispatching one.
@@ -575,11 +591,11 @@ export function mountPhotoInfo({ onClose } = {}) {
     // The play button is inside the figure and has its own job.
     if (e.target.closest('.photo-play')) return;
     const item = items[chosen];
-    if (!item || item.v || busy || !imgEl.src) return;
+    if (!item || busy || !imgEl.src) return;
     busy = true;
     figure.classList.add('fetching');
     try {
-      const reply = await viewPhoto(item.i);
+      const reply = await viewPhoto(item.i, groupIndices());
       if (!reply.ok) {
         noteEl.textContent = trouble(reply.error);
         return;

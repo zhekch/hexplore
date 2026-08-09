@@ -42,6 +42,8 @@ const readApp = (rel) => readFileSync(path.join(REPO, rel), 'utf8');
 
 const bridgeSwift = readApp('HexPlore-IOS/HexPlore/PhotoBridge.swift');
 const librarySwift = readApp('HexPlore-IOS/HexPlore/PhotoLibrary.swift');
+const gallerySwift = readApp('HexPlore-IOS/HexPlore/PhotoGallery.swift');
+const playbackSwift = readApp('HexPlore-IOS/HexPlore/VideoPlayback.swift');
 const syncSwift = readApp('HexPlore-IOS/HexPlore/PhotoSync.swift');
 const webPanelSwift = readApp('HexPlore-IOS/HexPlore/WebPanel.swift');
 const plist = readApp('HexPlore-IOS/Info.plist');
@@ -246,6 +248,37 @@ console.log('\nA tap on a group opens all of it, whichever library drew it');
   check((await photoLeaves(failing, 1, 10)).length === 0, 'nor is one the index cannot answer for');
 }
 
+console.log('\nOpening one opens the group it was part of');
+{
+  // The viewer is a gallery, and the app cannot work out what the group *is*:
+  // clustering happens in the page, on a map the app cannot see. So the card
+  // sends the whole list and the bridge reads it — one more pair of strings
+  // written in two languages that no compiler checks.
+  check(/ask: 'view', scan, i, group/.test(photosJs) && /ask: 'play', scan, i, group/.test(photosJs),
+    'the page sends the group with both of the messages that open something');
+  check(photoInfoJs.includes('groupIndices()'), 'the card builds it out of what was tapped');
+  check(/viewPhoto\(item\.i, groupIndices\(\)\)/.test(photoInfoJs)
+    && /playVideo\(item\.i, groupIndices\(\)\)/.test(photoInfoJs),
+    'and passes it to both');
+  check(/body\["group"\] as\? \[Int\]/.test(bridgeSwift), 'and the app reads it under that name');
+
+  // Indices into a list the app owns, arriving from a page. Out of range has to
+  // be a photograph missing from the gallery, never a crash.
+  check(/\.filter \{ snapshot\.indices\.contains\(\$0\) \}/.test(bridgeSwift),
+    'every index is checked against the scan it claims to belong to');
+  check(/wanted\.isEmpty \? \[i\] : wanted/.test(bridgeSwift),
+    'and a page too old to send one still gets the photograph it asked for');
+
+  // The whole group, not a window around the tap. A viewer that quietly holds
+  // less than what you tapped is the strip's old 48-item cap all over again.
+  check(!/prefix\(|suffix\(|\.dropFirst|maxGroup|GROUP_LIMIT/.test(bridgeSwift),
+    'and nothing silently trims it on the way in');
+
+  check(/UIPageViewController/.test(gallerySwift), 'the gallery pages rather than replaces');
+  check(/isVideo/.test(gallerySwift),
+    'and a video is a page of it, so a holiday of stills and clips is one thing');
+}
+
 console.log('\nThe card says when, whether it is one photograph or forty');
 {
   // 3 Sep 2023, 09:00 and 11:00 UTC. Formatted in the runner’s own locale and
@@ -299,8 +332,15 @@ console.log('\nA video is a point you can play, and never a photograph that will
   // at any size, but by putting a native player in front of the page.
   check(/isVideo: Bool/.test(librarySwift), 'the reader says which assets move');
   check(/mediaType == \.video/.test(librarySwift), 'read from the asset rather than guessed');
-  check(/requestPlayerItem/.test(librarySwift) && /AVPlayerViewController/.test(librarySwift),
-    'and playing one is the system player, not a download');
+  check(/requestPlayerItem/.test(librarySwift), 'and one is asked for as a player item, not a download');
+  check(/AVPlayerViewController/.test(playbackSwift) && /AVPlayer\(playerItem:/.test(gallerySwift),
+    'which is handed to the system player');
+  // The silent-video bug, which was never a Photos bug: an app that sets no
+  // category gets `.soloAmbient`, and the ring switch silences that by design.
+  check(/AVAudioSession/.test(playbackSwift) && /\.playback/.test(playbackSwift),
+    'and the sound is asked for out loud, or the ring switch silences it');
+  check(/notifyOthersOnDeactivation/.test(playbackSwift),
+    'and given back, or the music you were playing never comes back');
   check(/\$0\.isVideo \? 1 : 0/.test(bridgeSwift), 'the flag travels with each point');
   check(/case "play"/.test(bridgeSwift), 'and the bridge answers a play message');
   // The reason this is not streamed into the page is the expensive thing to

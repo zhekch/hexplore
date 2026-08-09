@@ -56,8 +56,8 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// How big a picture the card is ever handed. The card is a card whatever
     /// the screen is, and a JPEG this size is ~200 KB — which crosses the bridge
     /// as base64 text, so this is the number that decides whether clicking a
-    /// point feels instant. Going full screen asks separately, and much bigger:
-    /// see ``PhotoLibrary/view(id:)``.
+    /// point feels instant. Opening the gallery asks separately, and much
+    /// bigger: see ``PhotoLibrary/fullImage(id:)``.
     private static let maxPixels = 1600
 
     /// The list the page's indices point into, and which list it is.
@@ -148,29 +148,49 @@ final class PhotoBridge: NSObject, WKScriptMessageHandlerWithReply {
         ]
     }
 
-    /// Show one big, natively, in a window in front of the page.
+    /// Show the group, natively, in a window in front of the page, opened at
+    /// whichever of them was clicked.
+    ///
+    /// `group` is the card's own list — the indices behind the strip along its
+    /// bottom, in the order the strip shows them. It is sent because this side
+    /// has no way to work it out: clustering happens in the page, on a map the
+    /// app cannot see, so "the forty pictures under that dot" is a fact only the
+    /// page holds.
+    ///
+    /// An old page that sends no `group` is answered with the one photograph,
+    /// which is what it is expecting.
     private func view(_ body: [String: Any]) async -> [String: Any] {
-        guard (body["scan"] as? Int) == scan else { return ["ok": false, "error": "stale"] }
-        guard let i = body["i"] as? Int, snapshot.indices.contains(i) else {
-            return ["ok": false, "error": "missing"]
-        }
-        guard await PhotoLibrary.view(id: snapshot[i].id) else {
-            return ["ok": false, "error": "unavailable"]
-        }
-        return ["ok": true]
+        open(body)
     }
 
-    /// Play one, natively, in a window in front of the page.
+    /// Play one, natively, in the same window.
     ///
-    /// The only message that answers with something other than data: nothing
-    /// crosses the bridge here but the word "yes". See ``VideoWindowController``
-    /// for why a video is shown this way rather than handed to the page.
+    /// The same gallery, opened on a video, which starts itself. Kept as its own
+    /// message because the card has two controls and they mean different things.
+    /// See ``PhotoGalleryWindowController`` for why a video is shown this way
+    /// rather than handed to the page.
     private func play(_ body: [String: Any]) async -> [String: Any] {
+        open(body)
+    }
+
+    /// Both of the above: the group, and where in it to start.
+    ///
+    /// Neither answers with anything but the word "yes" — no data crosses the
+    /// bridge here at all.
+    private func open(_ body: [String: Any]) -> [String: Any] {
         guard (body["scan"] as? Int) == scan else { return ["ok": false, "error": "stale"] }
         guard let i = body["i"] as? Int, snapshot.indices.contains(i) else {
             return ["ok": false, "error": "missing"]
         }
-        guard await PhotoLibrary.play(id: snapshot[i].id) else {
+        // Filtered rather than trusted. These are indices into a list this side
+        // owns, arriving from a page, and one of them being out of range has to
+        // be a photograph left out of the gallery rather than a crash.
+        let wanted = (body["group"] as? [Int])?.filter { snapshot.indices.contains($0) } ?? []
+        let group = wanted.isEmpty ? [i] : wanted
+        // Where the clicked one ended up after that filtering, which is not
+        // `i`'s position in what was sent if anything ahead of it was dropped.
+        let at = group.firstIndex(of: i) ?? 0
+        guard PhotoLibrary.open(group.map { snapshot[$0] }, at: at) else {
             return ["ok": false, "error": "unavailable"]
         }
         return ["ok": true]

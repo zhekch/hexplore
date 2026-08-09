@@ -26,7 +26,7 @@ Four things, and only the first is a feature decision.
 | **No Apple Health** | HealthKit does not exist on macOS. There is no framework to link and no store to read, so the section is *absent* rather than present and disabled |
 | **Location is off by default** | It is off on the phone too, but here it stays off for a second reason — see below |
 | **Settings is a window, not a tab** | ⌘, is where a Mac keeps settings. The phone's two tabs are what a phone has |
-| **One photo window, reused** | The phone's viewer is a full-screen modal; a window is not modal, so a second click has to do something |
+| **One gallery window, reused** | The phone's gallery is a full-screen modal; a window is not modal, so a second click has to do something |
 | **"My location" is served by the app** | WebKit here grants the permission and then never delivers a position — see below |
 
 ### The map's own locate button, and why the app has to answer it
@@ -115,17 +115,27 @@ Same sections, same order, minus Health. `Settings { }` in `HexPloreApp.swift`,
 which is what puts it behind ⌘, and in the app menu where every other Mac app
 keeps it.
 
-### One photo window, reused
+### One gallery window, reused
 
-On iOS the viewer is a full-screen modal: the map is behind it and cannot be
+On iOS the gallery is a full-screen modal: the map is behind it and cannot be
 tapped, so the phone's "refuse a second tap while the first is in flight" guard
 is invisible and correct. A window is not modal — the map stays right there,
 clickable — so the same rule would mean clicking a second photograph and having
 *nothing happen*.
 
-So `PhotoViewerWindowController` is a singleton that changes what it is showing.
-Click another point and the window comes forward with the new picture in it.
-Same for video and `VideoWindowController`.
+So `PhotoGalleryWindowController` is a singleton that changes what it is showing,
+which is also what makes a gallery cheap here: paging *is* changing what it is
+showing, and it was already doing that. Clicking a point opens the whole group —
+← and → walk it, so does a two-finger swipe, and the title bar says "Photo 3 of
+12" because a Mac says that sort of thing in the title bar.
+
+Stills and videos share the window rather than having one each, which they used
+to. Two windows made one group into two galleries: press → past the last
+photograph before a clip and the window you were in had nothing to say. Now the
+content swaps — a scroll view around an image, or an `AVPlayerView` — and the
+same → moves between them. There is no `AVAudioSession` here and none is wanted:
+that is the phone's problem, a ring switch that silences anything an app has not
+declared to be the point.
 
 ## Everything else is the same, on purpose
 
@@ -284,7 +294,7 @@ HexPlore-macOS/
     PhotoLibrary.swift      reading the photo library — the only file that does
     PhotoSync.swift         sending where the photographs were taken
     PhotoBridge.swift       answering the map when it asks for the photographs
-    PhotoViewer.swift       the photo window and the video window
+    PhotoViewer.swift       the gallery window — photographs and videos
     ServerCheck.swift       is that address a Hexplore server, and is it up
     LocationBridge.swift    the position the page's locate button cannot get
     SaveBridge.swift        writing an exported picture to Downloads

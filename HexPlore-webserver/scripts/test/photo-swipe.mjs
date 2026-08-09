@@ -351,6 +351,15 @@ console.log('\nA swipe is not also a tap');
   await settle();
   check(asked.filter((a) => a.ask === 'view').length === before + 1,
     'and the next tap is a tap again');
+
+  // What it opens is the group, not the photograph: the app's viewer pages
+  // through the lot, and only this side knows what the lot is.
+  const opened = [...asked].reverse().find((a) => a.ask === 'view');
+  check(Array.isArray(opened.group) && opened.group.length === 4,
+    'and it hands over the whole group', JSON.stringify(opened.group));
+  check(opened.group[0] === 0 && opened.group[3] === 3,
+    'in the strip’s own order, so both sides swipe the same way',
+    JSON.stringify(opened.group));
   await rest();
 }
 

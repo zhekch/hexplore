@@ -5017,10 +5017,60 @@ looking at.
 of the same reason. The card is already showing a copy scaled to the card; the
 only thing full screen is worth doing for is the original, which is several
 megabytes the page would then be holding twice — once as bytes and once as
-base64. So `PhotoViewerController` — a scroll view around an image view, which is
-pinch, double-tap and drag for nothing — is presented over the page.
-`QLPreviewController` would give the same for free and wants a file URL, which
-for a `PHAsset` means exporting a copy to disk first.
+base64. So the viewer is presented over the page rather than handed to it.
+
+### The viewer is a gallery, and there is no system dialog that would have been
+
+It opened one photograph, which was the wrong unit from the start. A tap on the
+map is a tap on a *group* — that is the entire reason the card has a strip along
+its bottom — so looking at the forty pictures of one dinner meant closing the
+viewer, finding the next 54px thumbnail, and opening it again. Forty times.
+
+The obvious fix is to ask the system for the thing it obviously has, and it does
+not have it. **`PHPickerViewController`** is a picker: it shows the library so
+you can choose from it, hands back what you chose, and cannot be pointed at a
+subset. **`QLPreviewController`** genuinely does page through a list with the
+system's own gestures — and wants file URLs, which for a `PHAsset` means
+exporting every item in the group to disk first: slow, several gigabytes for a
+holiday, and it leaves the copies behind. And nothing public opens Photos.app at
+a given asset, which is [settled elsewhere](#there-is-no-way-through-to-photos-and-there-cannot-be).
+What the system would have given us was never the paging; it was the *fetching*,
+and that is the part this already had.
+
+So the gallery is ours and it is small: a `UIPageViewController` in `.scroll`
+mode is the paging, and each page is the scroll-view-around-an-image the single
+viewer already was — pinch, double-tap and drag for nothing. **A video is a page
+of it too**, so a holiday of stills and clips is one thing you swipe through
+rather than two. On the Mac the same idea is one reused window with ← and → and a
+two-finger swipe, because a window is not modal and the singleton it already had
+*is* a gallery once it can be told to show something else.
+
+**The page has to send the group, because only it knows what the group is.**
+Clustering happens in the map, which the app cannot see, so "the forty
+photographs under that dot" is a fact this side holds and the other side cannot
+derive. `view` and `play` therefore carry `group` — the strip's own indices, in
+the strip's own order, so swiping in the card and swiping in the viewer walk the
+same list the same way. Four thousand of them is about 24 KB of JSON, once per
+opening; sending a window around the tapped one would be cheaper and would be the
+strip's old 48-item cap all over again, which is to say a viewer that silently
+holds less than what you tapped. The indices are filtered against the current
+scan on arrival: they name a list the app owns, they come from a page, and one
+out of range has to be a photograph missing from the gallery rather than a crash.
+
+Two things inside it are not obvious. A page that is *built* is not a page that
+is *seen* — `UIPageViewController` puts the neighbours in its own scroll view
+ahead of the swipe that reaches them, so `view.window != nil` is true off screen
+and a video keyed to it starts playing to nobody; the appearance callbacks are
+the only thing that means "on screen". And the audio session is **counted**
+rather than claimed and released in pairs, because paging from one clip to the
+next overlaps two players and UIKit orders the callbacks new-appears before
+old-disappears — an uncounted pair deactivates the session under a video that has
+just started, which is the silent-video bug again and only on the second clip.
+
+A failure is a page rather than a dismissal. The single viewer closed itself when
+a picture could not be fetched, which was right when the viewer *was* the
+photograph; in a gallery, closing forty because one of them is still in iCloud
+throws away the other thirty-nine.
 
 Getting it to feel native took three goes, and the two failures are the
 interesting part. **`.fullScreen`** filled the screen and could not be swiped
@@ -5033,10 +5083,16 @@ So it is both, which the system does not hand over: `.overFullScreen` keeps the
 map behind rather than tearing it out, and a pan gesture moves the picture with
 your finger, fades the black as it goes, and either dismisses past 120 pt (or a
 flick) or springs back. It yields to the scroll view once the picture is zoomed
-in, and only claims a drag that is downward and more down than sideways — or
-every attempt to flick sideways would close it. A gesture that follows the finger
-and can be changed of mind about is the whole difference between this and a swipe
-that is really a button.
+in, and only claims a drag that is downward and more down than sideways — which
+was a nicety when the viewer held one photograph and is load-bearing now that
+sideways is the paging. A gesture that follows the finger and can be changed of
+mind about is the whole difference between this and a swipe that is really a
+button.
+
+It yields on a video page too, and that is a decision rather than an oversight:
+the bottom of a video page is the system player's own controls, and a downward
+drag that begins on the scrubber is a scrub. A clip is closed with the button in
+the corner.
 
 It also asked for
 **`PHImageManagerMaximumSize`**, which on a recent iPhone is a 48-megapixel

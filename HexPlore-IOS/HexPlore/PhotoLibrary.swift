@@ -220,26 +220,44 @@ nonisolated enum PhotoLibrary {
     /// memory. Photos itself does the same thing and calls it a degraded result.
     private static let viewPixels: CGFloat = 3000
 
-    /// Put a photograph in front of the map, big.
+    /// Put a whole group in front of the map, opened at one of them.
     ///
-    /// The viewer is presented **first** and handed the picture when it arrives.
-    /// Waiting meant a tap did nothing at all for as long as an iCloud fetch took
-    /// and then produced a viewer mid-animation; this way the sheet is up
-    /// immediately, spinning, which is what every other app does.
+    /// **The group, not the photograph.** Tapping a point on the map is tapping
+    /// forty pictures of one dinner, and a viewer that shows the one you landed
+    /// on and nothing else makes you close it, find the next thumbnail in a
+    /// 54px strip, and open it again — forty times. Every photograph on this
+    /// device is looked at by swiping, so the viewer is a gallery and the strip
+    /// goes back to being what it is good at, which is jumping.
+    ///
+    /// There is no system dialog that does this. `PHPickerViewController` picks
+    /// rather than shows and hands back what you chose; `QLPreviewController`
+    /// genuinely does page through a list, and wants file URLs, which for a
+    /// `PHAsset` means exporting every item in the group to disk first — slow,
+    /// several gigabytes for a holiday, and it leaves the copies behind. Nothing
+    /// public opens Photos.app at a given asset (see the note at the foot of
+    /// this file). So the gallery is ours; see ``PhotoGalleryController``.
     ///
     /// It is shown here rather than sent for the same reason a video is: the
     /// page already holds a copy scaled to the card, and the only version worth
     /// going full screen for is one it would then be holding twice — once as
-    /// bytes and once as base64. See ``PhotoViewerController``.
+    /// bytes and once as base64.
     @MainActor
-    static func view(id: String) async -> Bool {
+    static func open(_ items: [Located], at: Int) -> Bool {
         if alreadyShowing { return true }
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
-              let top = topViewController
-        else { return false }
+        guard items.indices.contains(at), let top = topViewController else { return false }
+        top.present(PhotoGalleryController(items: items, at: at), animated: true)
+        return true
+    }
 
-        let viewer = PhotoViewerController()
-        top.present(viewer, animated: true)
+    /// One photograph at viewing size, whenever it turns up.
+    ///
+    /// Split out of the presenting so a page of the gallery can ask for its own
+    /// picture when it is nearly on screen, rather than the group's worth being
+    /// fetched at the moment one of them was tapped.
+    @MainActor
+    static func fullImage(id: String) async -> UIImage? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
+        else { return nil }
 
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
@@ -249,17 +267,13 @@ nonisolated enum PhotoLibrary {
 
         let once = Latch()
         let size = CGSize(width: viewPixels, height: viewPixels)
-        let image: UIImage? = await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { continuation in
             PHImageManager.default().requestImage(
                 for: asset, targetSize: size, contentMode: .aspectFit, options: options
             ) { image, _ in
                 if once.close() { continuation.resume(returning: image) }
             }
         }
-        // Handed over even when it is nil: the viewer closes itself rather than
-        // being left as a black sheet with a spinner that never stops.
-        viewer.show(image: image)
-        return true
     }
 
     // MARK: - Playing a video
@@ -286,18 +300,18 @@ nonisolated enum PhotoLibrary {
     /// front of the web view with the asset's own player item, which is what a
     /// native app would have done in the first place: full quality, no copy, the
     /// system's own controls, scrubbing, AirPlay and picture-in-picture for free,
-    /// and iCloud originals fetched by Photos itself rather than by us.
+    /// and iCloud originals fetched by Photos itself rather than by us. It is a
+    /// *page of the gallery* rather than a screen of its own, so a holiday of
+    /// stills and clips is one thing you swipe through — see ``open(_:at:)``.
     ///
     /// The page's part is one message. It has no URL for the video, never sees a
     /// byte of it, and cannot save one — which is the same bargain the rest of
     /// this bridge strikes.
     @MainActor
-    static func play(id: String) async -> Bool {
-        if alreadyShowing { return true }
+    static func playerItem(id: String) async -> AVPlayerItem? {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
-              asset.mediaType == .video,
-              let top = topViewController
-        else { return false }
+              asset.mediaType == .video
+        else { return nil }
 
         let options = PHVideoRequestOptions()
         // An original that lives in iCloud is the common case for anything more
@@ -306,27 +320,11 @@ nonisolated enum PhotoLibrary {
         options.deliveryMode = .automatic
 
         let once = Latch()
-        let item: AVPlayerItem? = await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { continuation in
             PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in
                 if once.close() { continuation.resume(returning: item) }
             }
         }
-        guard let item else { return false }
-
-        // `VideoPlayerController` is an `AVPlayerViewController` that claims the
-        // audio session on the way in and gives it back on the way out. Without
-        // that the video plays silently whenever the ring switch is set to
-        // silent, which is most of the time on most phones — see
-        // ``PlaybackAudio``.
-        let controller = VideoPlayerController()
-        controller.player = AVPlayer(playerItem: item)
-        // Presented rather than pushed, over whatever is on screen, so dismissing
-        // it puts the map back exactly as it was — including the card that was
-        // open, which is the thing you were reading when you pressed play.
-        top.present(controller, animated: true) {
-            controller.player?.play()
-        }
-        return true
     }
 
     /// Whether one of our own full-screen presentations is already up.
@@ -341,8 +339,7 @@ nonisolated enum PhotoLibrary {
     /// on screen, which is what the tap wanted.
     @MainActor
     private static var alreadyShowing: Bool {
-        let top = topViewController
-        return top is AVPlayerViewController || top is PhotoViewerController
+        topViewController is PhotoGalleryController
     }
 
     /// Whatever is frontmost, which is what a modal has to be presented from.
