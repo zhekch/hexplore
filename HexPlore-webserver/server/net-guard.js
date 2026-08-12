@@ -34,6 +34,9 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 import httpRequest from 'node:http';
 import httpsRequest from 'node:https';
+// A refusal here is a sentence about the address you typed, so it is shown as
+// written rather than swallowed. See server/user-error.js.
+import { UserError } from './user-error.js';
 
 const BLOCK_PRIVATE = process.env.HA_BLOCK_PRIVATE === '1' || process.env.HA_BLOCK_PRIVATE === 'true';
 const ALLOWED_HOSTS = new Set(
@@ -119,14 +122,14 @@ async function resolvePinned(rawHostname) {
   const hostname = rawHostname.replace(/^\[|\]$/g, '');
 
   if (ALLOWED_HOSTS.size && !ALLOWED_HOSTS.has(hostname.toLowerCase())) {
-    throw new Error(`This server only connects to approved addresses (${[...ALLOWED_HOSTS].join(', ')}).`);
+    throw new UserError(`This server only connects to approved addresses (${[...ALLOWED_HOSTS].join(', ')}).`);
   }
 
   // A literal IP needs no lookup — but still needs checking.
   const literal = isIP(hostname);
   if (literal) {
     const refusal = addressRefusal(hostname);
-    if (refusal) throw new Error(`Refusing to connect: ${refusal}.`);
+    if (refusal) throw new UserError(`Refusing to connect: ${refusal}.`);
     return { address: hostname, family: literal };
   }
 
@@ -134,13 +137,13 @@ async function resolvePinned(rawHostname) {
   try {
     records = await dnsLookup(hostname, { all: true });
   } catch {
-    throw new Error('Could not reach Home Assistant at that address.');
+    throw new UserError('Could not reach Home Assistant at that address.');
   }
-  if (!records.length) throw new Error('Could not reach Home Assistant at that address.');
+  if (!records.length) throw new UserError('Could not reach Home Assistant at that address.');
 
   for (const r of records) {
     const refusal = addressRefusal(r.address);
-    if (refusal) throw new Error(`Refusing to connect: ${refusal}.`);
+    if (refusal) throw new UserError(`Refusing to connect: ${refusal}.`);
   }
   return records[0];
 }
@@ -161,10 +164,10 @@ export async function guardedGetJson(rawUrl, { headers = {}, timeoutMs = 30000 }
   try {
     url = new URL(rawUrl);
   } catch {
-    throw new Error('That does not look like a server address.');
+    throw new UserError('That does not look like a server address.');
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('That does not look like a server address.');
+    throw new UserError('That does not look like a server address.');
   }
 
   const pinned = await resolvePinned(url.hostname);
@@ -181,7 +184,7 @@ export async function guardedGetJson(rawUrl, { headers = {}, timeoutMs = 30000 }
 
     const timer = setTimeout(() => {
       req.destroy();
-      done(reject, new Error('Home Assistant did not answer in time.'));
+      done(reject, new UserError('Home Assistant did not answer in time.'));
     }, timeoutMs);
 
     const req = transport.request(
@@ -211,7 +214,7 @@ export async function guardedGetJson(rawUrl, { headers = {}, timeoutMs = 30000 }
           res.resume();
           return done(
             reject,
-            new Error('That address answered with a redirect — use the address it points at instead.'),
+            new UserError('That address answered with a redirect — use the address it points at instead.'),
           );
         }
         let size = 0;
@@ -220,7 +223,7 @@ export async function guardedGetJson(rawUrl, { headers = {}, timeoutMs = 30000 }
           size += c.length;
           if (size > MAX_RESPONSE_BYTES) {
             req.destroy();
-            return done(reject, new Error('Home Assistant sent more data than expected.'));
+            return done(reject, new UserError('Home Assistant sent more data than expected.'));
           }
           chunks.push(c);
         });
@@ -238,11 +241,11 @@ export async function guardedGetJson(rawUrl, { headers = {}, timeoutMs = 30000 }
             json,
           });
         });
-        res.on('error', () => done(reject, new Error('Could not reach Home Assistant at that address.')));
+        res.on('error', () => done(reject, new UserError('Could not reach Home Assistant at that address.')));
       },
     );
 
-    req.on('error', () => done(reject, new Error('Could not reach Home Assistant at that address.')));
+    req.on('error', () => done(reject, new UserError('Could not reach Home Assistant at that address.')));
     req.end();
   });
 }

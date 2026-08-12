@@ -30,6 +30,10 @@ import { createReadStream } from 'node:fs';
 import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseCron, nextRun, previousRun } from '../src/cron.js';
+// src/cron.js is shared with the dialog, so it can't import a server module to
+// tag its own failures — they are relabelled here instead. See
+// server/user-error.js.
+import { UserError } from './user-error.js';
 
 const DEFAULT_CRON = '0 4 * * *'; // every day at 04:00, while nobody is looking
 const DEFAULT_KEEP = 14;
@@ -359,7 +363,15 @@ export function createBackups({ db, dbPath, dir, log = () => {} }) {
   function save({ enabled, cron, keep }) {
     const s = settings();
     const nextCron = cron === undefined ? s.cron : String(cron).trim().toLowerCase();
-    parseCron(nextCron); // throws for the dialog to show
+    // The parser's complaints name the field and the token — "hour must be
+    // 0–23, not 25" — which is the whole reason the dialog shows them. Nothing
+    // else in this function is written for a person, so only this one is
+    // marked as sendable.
+    try {
+      parseCron(nextCron);
+    } catch (e) {
+      throw new UserError(e.message, { cause: e });
+    }
     // Nothing here falls back to the default on a bad number: "keep 0" is a
     // request to keep as few as possible, which is one, not fourteen.
     const asked = Math.trunc(+keep);

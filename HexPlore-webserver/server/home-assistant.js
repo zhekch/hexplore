@@ -18,6 +18,10 @@
 // {lat, lng, t} fixes, the same shape src/locations.js produces from a file.
 
 import { guardedGetJson } from './net-guard.js';
+// Every failure below is something you can act on — a token to replace, an
+// address to correct — so it is a UserError and is shown as written. See
+// server/user-error.js.
+import { UserError } from './user-error.js';
 
 // HA's recorder keeps ~10 days by default, so there's rarely more than that to
 // find on a first sync. A longer window is still asked for in day-sized chunks:
@@ -85,13 +89,13 @@ async function haGet({ baseUrl, token }, pathAndQuery) {
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
   if (res.status === 401 || res.status === 403) {
-    throw new Error('Home Assistant rejected the access token.');
+    throw new UserError('Home Assistant rejected the access token.');
   }
   if (!res.ok) {
-    throw new Error(`Home Assistant answered ${res.status}.`);
+    throw new UserError(`Home Assistant answered ${res.status}.`);
   }
   if (res.json === null) {
-    throw new Error("That address answered, but not with Home Assistant's API.");
+    throw new UserError("That address answered, but not with Home Assistant's API.");
   }
   return res.json;
 }
@@ -101,7 +105,7 @@ async function haGet({ baseUrl, token }, pathAndQuery) {
 export async function ping(link) {
   const hello = await haGet(link, '/api/');
   if (!hello || typeof hello.message !== 'string') {
-    throw new Error("That address answered, but not with Home Assistant's API.");
+    throw new UserError("That address answered, but not with Home Assistant's API.");
   }
 }
 
@@ -113,7 +117,7 @@ export async function probe(link) {
   await ping(link);
 
   const states = await haGet(link, '/api/states');
-  if (!Array.isArray(states)) throw new Error('Home Assistant sent an unexpected list of entities.');
+  if (!Array.isArray(states)) throw new UserError('Home Assistant sent an unexpected list of entities.');
 
   const entities = [];
   for (const s of states) {
@@ -182,7 +186,7 @@ function statesToPoints(payload, { maxAccuracyM, after, until }, out) {
  */
 export async function pullFixes(link, { since, now, maxAccuracyM = 0 }) {
   const entities = (link.entities ?? []).filter(isFollowableEntity);
-  if (!entities.length) throw new Error('No Home Assistant devices are selected.');
+  if (!entities.length) throw new UserError('No Home Assistant devices are selected.');
 
   const end = now - LAG_SEC;
   const filter = entities.join(',');

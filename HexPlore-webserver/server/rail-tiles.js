@@ -419,7 +419,17 @@ export function createRailTiles({ dir, sources, featureViews = new Set(), origin
    * @returns {Promise<{meta: object, body: Buffer}|null>}
    */
   async function fromUpstream(scope, upstreamPath, previous, defaultTtl, referer) {
-    const url = `${upstreamOrigin}/${upstreamPath}`;
+    // Resolved against the origin rather than glued to it. Every caller below
+    // already matches its path against the style's own sources, layers and
+    // sprite names, so nothing else can reach here — but that is a promise made
+    // in three places and checked in none. Resolving keeps it true where it
+    // matters: `//elsewhere/x`, a `..` walk or a scheme all come out as a
+    // different origin, and a different origin is not somebody we fetch from.
+    const url = new URL(upstreamPath, `${upstreamOrigin}/`).href;
+    if (!url.startsWith(`${upstreamOrigin}/`)) {
+      noteFailure(upstreamPath, 'refused: resolves off upstream');
+      return { failed: true, status: 0 };
+    }
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
     try {

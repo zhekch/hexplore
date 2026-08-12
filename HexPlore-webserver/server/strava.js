@@ -22,6 +22,10 @@
 // one poll costs one list request plus one per new activity, so a normal week
 // is a rounding error against that.
 
+// Every failure below is something you can act on, so every one of them is a
+// UserError and reaches the browser verbatim. See server/user-error.js.
+import { UserError } from './user-error.js';
+
 // STRAVA_BASE exists so the whole flow — sign-in, refresh, paging, streams —
 // can be run against a stand-in instead of the real Strava. Leave it unset.
 const BASE = process.env.STRAVA_BASE || 'https://www.strava.com';
@@ -50,8 +54,8 @@ async function call(url, init, what) {
   try {
     res = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   } catch (e) {
-    if (e?.name === 'TimeoutError') throw new Error('Strava did not answer in time.');
-    throw new Error('Could not reach Strava.');
+    if (e?.name === 'TimeoutError') throw new UserError('Strava did not answer in time.');
+    throw new UserError('Could not reach Strava.');
   }
   let body = null;
   try {
@@ -59,15 +63,15 @@ async function call(url, init, what) {
   } catch {
     /* handled below */
   }
-  if (res.status === 401) throw new Error('Strava rejected the connection — reconnect it.');
-  if (res.status === 429) throw new Error('Strava rate limit reached; it will pick up again later.');
+  if (res.status === 401) throw new UserError('Strava rejected the connection — reconnect it.');
+  if (res.status === 429) throw new UserError('Strava rate limit reached; it will pick up again later.');
   if (!res.ok) {
     // Strava's errors are readable and about your own app's setup — worth
     // passing on, unlike a remote page body.
     const detail = body?.message || body?.errors?.[0]?.code;
-    throw new Error(`Strava refused the ${what}${detail ? ` (${detail})` : ''}.`);
+    throw new UserError(`Strava refused the ${what}${detail ? ` (${detail})` : ''}.`);
   }
-  if (body == null) throw new Error(`Strava sent an unreadable ${what}.`);
+  if (body == null) throw new UserError(`Strava sent an unreadable ${what}.`);
   return body;
 }
 

@@ -100,7 +100,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.50.2';
+export const SERVER_VERSION = '0.50.3';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -211,6 +211,7 @@ const scrypt = promisify(scryptCb);
 import { pointsToCells, VISIT_GAP_SEC } from '../src/locations.js';
 import { probe, ping, pullFixes, normalizeBaseUrl, isFollowableEntity, FIRST_SYNC_DAYS } from './home-assistant.js';
 import * as strava from './strava.js';
+import { userMessage } from './user-error.js';
 // Routes saved by the poller are built with the same helpers the browser uses,
 // so a Strava ride and an imported GPX are keyed and simplified identically.
 // Their *names* are left blank: the place-name dataset is a 2 MB browser chunk,
@@ -1550,8 +1551,11 @@ async function haRunLink(row) {
     }
     return out;
   } catch (e) {
-    q.haFail.run(nowSec(), String(e.message ?? e).slice(0, 200), row.user_id);
-    console.warn(`[visited-map] home-assistant sync failed (user ${row.user_id}): ${e.message ?? e}`);
+    // `last_error` is handed back as `lastError` on every later GET of the
+    // link, so what is stored here is as public as what is sent below.
+    const why = userMessage(e, 'The sync did not finish.', `home-assistant sync failed (user ${row.user_id})`);
+    q.haFail.run(nowSec(), why.slice(0, 200), row.user_id);
+    console.warn(`[visited-map] home-assistant sync failed (user ${row.user_id}): ${why}`);
     return null;
   } finally {
     haRunning.delete(row.user_id);
@@ -1690,8 +1694,10 @@ async function stravaRunLink(row) {
     }
     return out;
   } catch (e) {
-    q.stravaFail.run(nowSec(), String(e.message ?? e).slice(0, 200), row.user_id);
-    console.warn(`[visited-map] strava sync failed (user ${row.user_id}): ${e.message ?? e}`);
+    // Stored, and therefore shown: see the note on the Home Assistant poller.
+    const why = userMessage(e, 'The sync did not finish.', `strava sync failed (user ${row.user_id})`);
+    q.stravaFail.run(nowSec(), why.slice(0, 200), row.user_id);
+    console.warn(`[visited-map] strava sync failed (user ${row.user_id}): ${why}`);
     return null;
   } finally {
     stravaRunning.delete(row.user_id);
@@ -2663,7 +2669,7 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
         const { entities } = await probe({ baseUrl, token });
         return send(res, 200, { baseUrl, entities });
       } catch (e) {
-        return send(res, 502, { error: String(e.message ?? e) });
+        return send(res, 502, { error: userMessage(e, 'That did not work.', 'home-assistant probe failed') });
       }
     }
 
@@ -2720,8 +2726,9 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
         const out = await haSync(row, { verify: true });
         return send(res, 200, { link: haOut(q.haLink.get(user.id)), ...out });
       } catch (e) {
-        q.haFail.run(nowSec(), String(e.message ?? e).slice(0, 200), user.id);
-        return send(res, 502, { error: String(e.message ?? e), link: haOut(q.haLink.get(user.id)) });
+        const why = userMessage(e, 'The sync did not finish.', `home-assistant sync failed (user ${user.id})`);
+        q.haFail.run(nowSec(), why.slice(0, 200), user.id);
+        return send(res, 502, { error: why, link: haOut(q.haLink.get(user.id)) });
       } finally {
         haRunning.delete(user.id);
       }
@@ -2836,7 +2843,8 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
         // failed exchange used to leave it in the row, still valid, still
         // usable by whoever could replay the callback.
         q.setStravaState.run('', row.user_id);
-        q.stravaFail.run(nowSec(), String(e.message ?? e).slice(0, 200), row.user_id);
+        const why = userMessage(e, 'Connecting did not finish.', `strava callback failed (user ${row.user_id})`);
+        q.stravaFail.run(nowSec(), why.slice(0, 200), row.user_id);
         return back('failed');
       }
     }
@@ -2853,8 +2861,9 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
         const out = await stravaSync(row);
         return send(res, 200, { link: stravaOut(q.stravaLink.get(user.id)), ...out });
       } catch (e) {
-        q.stravaFail.run(nowSec(), String(e.message ?? e).slice(0, 200), user.id);
-        return send(res, 502, { error: String(e.message ?? e), link: stravaOut(q.stravaLink.get(user.id)) });
+        const why = userMessage(e, 'The sync did not finish.', `strava sync failed (user ${user.id})`);
+        q.stravaFail.run(nowSec(), why.slice(0, 200), user.id);
+        return send(res, 502, { error: why, link: stravaOut(q.stravaLink.get(user.id)) });
       } finally {
         stravaRunning.delete(user.id);
       }
@@ -3361,9 +3370,13 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
         // inside the module.
         const m = /^feature\/([^/]+)\/([^/]+)\/(.+)$/.exec(rest);
         if (m) {
-          out = await railTiles.feature(
-            ...m.slice(1, 4).map(decodeURIComponent), origin,
-          );
+          // Named rather than spread. `...m.slice(1, 4)` is an array of length
+          // only a human can see is three, so `origin` — which comes off the
+          // Host header — reads as though it could land in any parameter,
+          // including the ones that become the upstream path. That is what
+          // CodeQL's js/request-forgery was pointing at, and it was right to.
+          const [source, sourceLayer, id] = m.slice(1, 4).map(decodeURIComponent);
+          out = await railTiles.feature(source, sourceLayer, id, origin);
         }
       }
 
@@ -3395,9 +3408,11 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
         try {
           backups.save({ enabled: body.enabled, cron: body.cron, keep: body.keep });
         } catch (e) {
-          // The cron parser's messages are written for a person to read, so
-          // they go straight to the dialog rather than being replaced here.
-          return send(res, 400, { error: String(e.message ?? e).slice(0, 200) });
+          // The cron parser's messages are written for a person to read and are
+          // marked as such in backups.save(); a failure to *store* the settings
+          // is not, and says only that.
+          const why = userMessage(e, 'That schedule could not be saved.', 'backup settings rejected');
+          return send(res, 400, { error: why.slice(0, 200) });
         }
         return send(res, 200, await withDescription());
       }

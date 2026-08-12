@@ -4454,6 +4454,15 @@ prefetch, `MAX_UPSTREAM` caps concurrent upstream requests at six, entries
 outlive their TTL and are revalidated with `If-None-Match` so a repeat costs a
 304, and their outage serves a stale entry rather than a retry loop.
 
+The one route that takes free text — `feature/<source>/<layer>/<id>` — passes
+its three parts by name rather than spreading a match array into the call. The
+spread was equivalent and read as though the fourth argument, which comes off
+the `Host` header, could land in one of the parameters that becomes the upstream
+path; a scanner reading it that way was not wrong to. `fromUpstream()` also
+checks that the resolved URL still starts with the upstream origin before
+asking, which costs a string comparison and means no combination of path pieces
+can walk the request somewhere else.
+
 ### Remembering that they said no
 
 The cache originally stored only successes, which meant a tile their server
@@ -6907,6 +6916,32 @@ Private addresses stay allowed on purpose: a self-hosted HA genuinely is at
 delete the feature. `HA_BLOCK_PRIVATE=1` tightens it to public addresses only
 (for a Nabu Casa / DuckDNS setup), and `HA_ALLOWED_HOSTS=a,b` restricts it to an
 explicit list.
+
+### What a failure is allowed to say
+
+The sync and probe routes report why they failed, and that is most of what makes
+them usable: "Home Assistant rejected the access token." tells you to go and
+paste a new one, where "something went wrong" starts a guessing game. The way
+that was done was `String(e.message ?? e)`, which cannot tell the sentence
+somebody wrote from a SQLite constraint violation, an `ENOENT` quoting the
+database's path, or a `TypeError` naming a field of an internal row.
+
+So the intent is recorded at the throw rather than guessed at in the `catch`.
+`server/user-error.js` holds a `UserError` — an error whose message was written
+to be read — and a `userMessage(e, fallback, where)` that returns the message
+only for those, and otherwise logs the real error and returns a flat sentence.
+Everything in `home-assistant.js`, `strava.js` and `net-guard.js` throws
+`UserError`, because those three exist to talk to somebody else's server on your
+behalf and every way that can fail is something you can act on. `backup.js`
+relabels the cron parser's complaints the same way at the call, since
+`src/cron.js` is shared with the dialog and cannot import a server module.
+
+The leak was wider than the routes it was found in. The same string is written
+to `last_error`, which `haOut()`/`stravaOut()` hand back as `lastError` on
+**every later GET of the link** — so a message stored once by a background poll
+kept being served long after the request that produced it. The pollers go
+through `userMessage` for that reason, not only the routes that answer a person
+directly.
 
 ### Bounded work per request
 
