@@ -38,9 +38,12 @@ import {
 } from './coloring.js';
 import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
 import {
-  BASEMAP_IMPORT, LIGHT_PRESETS, STANDARD_STYLE, configureStandard, hasMapboxToken, lightPreset,
-  mapboxToken, presetTheme, setLightPreset, setMapboxToken,
+  AUTO_LIGHT, BASEMAP_IMPORT, LIGHT_CHOICES, STANDARD_STYLE, configureStandard, hasMapboxToken,
+  lightChoice, lightPreset, mapboxToken, presetTheme, refreshAutoLight, setLightChoice,
+  setMapboxToken,
 } from './mapbox.js';
+import { rememberSunSite } from './sun.js';
+import { installGlide } from './glide.js';
 import {
   LABEL_SLOT_ID, MAPBOX, STYLE_KEY, WASH_SLOT_ID, ctrlClass, ctrlSelector, engineForBasemap, engineNow,
   geolocateStateOf, installAddLayerSlots, installGlobalStateShim, installSpriteShim, isSlot, loadEngine,
@@ -1043,8 +1046,19 @@ onMapBuilt(() => {
   });
   geolocate.on('geolocate', (e) => {
     userInteracted = true;
-    if (Number.isFinite(e?.coords?.longitude)) lastFix = [e.coords.longitude, e.coords.latitude];
+    if (Number.isFinite(e?.coords?.longitude)) {
+      lastFix = [e.coords.longitude, e.coords.latitude];
+      // The best answer there is to "where is the client", which is the place
+      // the 3D basemap's sun is put over when it is left on Auto. Written down
+      // coarsely and re-read at the next load, so the map after this one opens
+      // lit correctly before any of this has happened again — see src/sun.js.
+      if (rememberSunSite(e.coords.latitude, e.coords.longitude)) refreshLightNow();
+    }
   });
+  // A fix is a report of where you were a second ago, not an instruction to
+  // teleport. src/glide.js is what makes the dot walk to it — and what stops
+  // the camera flying to each one while it is locked on you.
+  installGlide(geolocate, map);
 });
 
 // Both libraries' tracking control is a three-state toggle: off → locked → (pan
@@ -1433,6 +1447,11 @@ async function flyToIpLocation() {
       if (!res.ok) continue;
       const center = pick(await res.json());
       if (!center || !center.every(Number.isFinite)) continue;
+      // Remembered whether or not the camera is allowed to move: where the
+      // viewer is is a fact about them and not about the map. On a first visit
+      // this is the earliest thing that knows it — the 3D basemap's Auto sun
+      // wants a latitude and has been making do with a time zone until now.
+      if (rememberSunSite(center[1], center[0])) refreshLightNow();
       if (!userInteracted && !savedView()) {
         if (mapShown) {
           // The map is already on screen: snap the center under the target
@@ -7049,20 +7068,25 @@ function mapboxTokenChanged() {
 
 // The time-of-day row under the basemap picker, which exists only while 3D is
 // the basemap: it is Standard's own light preset, and no other basemap has a
-// sun to move. Built once from LIGHT_PRESETS — the same list the Settings copy
-// is built from — and shown or hidden by updateLayersUi().
+// sun to move. Built once from LIGHT_CHOICES — auto and then the four suns —
+// and shown or hidden by updateLayersUi().
 const lightHead = document.getElementById('light-head');
 const lightSeg = document.getElementById('light-seg');
+// What Auto currently resolves to, in words, on the line under the row. The
+// same idea as `detail-now` under the detail row and for the same reason: a
+// choice that answers for itself has to say what it answered, or the button is
+// a promise with no way to check it.
+const lightNow = document.getElementById('light-now');
 
 function buildLightRow() {
   if (!lightSeg) return;
-  lightSeg.replaceChildren(...LIGHT_PRESETS.map((preset) => {
+  lightSeg.replaceChildren(...LIGHT_CHOICES.map((choice) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'seg-btn';
-    btn.dataset.light = preset.key;
-    btn.textContent = preset.label;
-    btn.addEventListener('click', () => setLightPresetNow(preset.key));
+    btn.dataset.light = choice.key;
+    btn.textContent = choice.label;
+    btn.addEventListener('click', () => setLightPresetNow(choice.key));
     return btn;
   }));
 }
@@ -7071,12 +7095,13 @@ buildLightRow();
 /**
  * Move the sun, and everything that follows from where it is.
  *
- * Shared by the two places that can ask — this row and the Settings dialog —
- * because dusk and night turn the whole map dark, and the chrome, the visited
- * wash and the routes all have to be told.
+ * Takes a *choice* rather than a preset — one of Standard's four, or `auto` —
+ * and asks `lightPreset()` what that means, because auto is not a value the
+ * renderer has ever heard of.
  */
-function setLightPresetNow(key) {
-  setLightPreset(key);
+function setLightPresetNow(choice) {
+  setLightChoice(choice);
+  const key = lightPreset();
   if (engine === MAPBOX && styleKey === 'mapbox') {
     try {
       map.setConfigProperty(BASEMAP_IMPORT, 'lightPreset', key);
@@ -7101,6 +7126,52 @@ function setLightPresetNow(key) {
   updateLayersUi();
 }
 
+/**
+ * The word on the button, for a choice or for a preset.
+ *
+ * A declaration rather than a `const` arrow because `updateLayersUi` reads it
+ * and is called from a great many places, some of which run while this module
+ * is still being evaluated. A hoisted function is defined for all of them.
+ */
+function labelOfLight(key) {
+  return LIGHT_CHOICES.find((c) => c.key === key)?.label ?? key;
+}
+
+// How often an app that is simply left open re-asks where the sun is.
+//
+// Ten minutes is well under the shortest thing being watched for: even at the
+// equator, where twilight is quickest, `dusk` lasts about twenty-five minutes.
+// The check itself is a dozen lines of trigonometry and reaches the renderer
+// only when the answer has actually moved, so the cost of it running all
+// evening is nothing at all — see `refreshAutoLight` in src/mapbox.js.
+const SUN_CHECK_MS = 10 * 60 * 1000;
+
+/**
+ * Ask again what Auto means, and relight the map if the sky moved.
+ *
+ * Three things can change the answer and each of them calls this: the client's
+ * position becoming known (which turns a time zone into a real latitude — see
+ * `sunSite` in src/sun.js), the app being brought back to the front, and time
+ * simply passing. On a viewer who chose a sun by hand it is a no-op, which is
+ * why nothing here checks first.
+ *
+ * It goes through `setLightPresetNow` rather than setting the config property
+ * itself, because half of what "the sun moved" means is not the sun: dusk turns
+ * the whole map dark and the chrome, the wash and the routes all have to follow.
+ */
+function refreshLightNow() {
+  if (refreshAutoLight().changed) setLightPresetNow(AUTO_LIGHT);
+}
+
+// Coming back to the app *is* opening it, on the two platforms this is mostly
+// used on: a phone's browser tab is never closed and the Mac app is left
+// running for weeks, so `visibilitychange` is the only event that means "here
+// again" for either of them.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshLightNow();
+});
+setInterval(refreshLightNow, SUN_CHECK_MS);
+
 function updateLayersUi() {
   updateMapboxNote();
   if (lightSeg && lightHead) {
@@ -7110,10 +7181,17 @@ function updateLayersUi() {
     lightHead.hidden = !on;
     lightSeg.hidden = !on;
     if (on) {
-      const now = lightPreset();
+      const chosen = lightChoice();
       for (const btn of lightSeg.querySelectorAll('[data-light]')) {
-        btn.classList.toggle('active', btn.dataset.light === now);
+        btn.classList.toggle('active', btn.dataset.light === chosen);
       }
+    }
+    if (lightNow) {
+      // Only under Auto. Beside a sun somebody chose by hand the same sentence
+      // would be reading the button back to them.
+      const auto = on && lightChoice() === AUTO_LIGHT;
+      lightNow.hidden = !auto;
+      if (auto) lightNow.textContent = `${labelOfLight(lightPreset())} where you are, right now`;
     }
   }
   for (const btn of layersMenu.querySelectorAll('[data-style]')) {

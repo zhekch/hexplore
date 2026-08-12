@@ -3422,9 +3422,10 @@ geometry in Node.
 ### The 3D basemap, and the two libraries
 
 The fifth basemap is **3D**: Mapbox **Standard**, with the modelled landmarks,
-the trees, and a sun that can be put in four places. It is the only entry in the
-picker that another library draws, the only one that can be *unavailable*, and
-the only one whose theme is not a constant.
+the trees, and a sun that can be put in four places — or left to follow the one
+outside the viewer's own window, which is what it does unless told otherwise. It
+is the only entry in the picker that another library draws, the only one that can
+be *unavailable*, and the only one whose theme is not a constant.
 
 **Standard cannot be rendered by MapLibre**, and everything below follows from
 that. It is published as a style *import*:
@@ -3618,6 +3619,58 @@ the gesture is muscle memory and it should not change when the basemap does.
 `(currentPoint.x - lastPoint.x) * 0.8`. It reaches inside the library, so it is
 read before it is written, the same way `dropLockOnZoom` reaches for
 `_watchState`.
+
+### The sun follows the clock, unless it is told not to
+
+The light preset is a choice of five and Standard only has four. **Auto** is the
+default, and it means *the sun outside the viewer's own window*: `src/sun.js`
+computes where the sun actually is and `lightPreset()` turns that into one of
+dawn, day, dusk or night. Everything downstream — `standardConfig()`, the theme
+the chrome is painted in, the wash's alpha, a route's contrast lift — goes on
+seeing one of the four and never learns that `auto` exists.
+
+**A table of hours would have been wrong for half the year, and wrongest where
+this map is used.** Dawn at six and night at nine is right in March and absurd in
+June: at 60°N the sun is still up at ten in the evening at midsummer and gone by
+four in the afternoon at Christmas. So the sun's elevation is computed properly,
+from the low-precision solar position in the Astronomical Almanac — forty lines
+of trigonometry, accurate to 0.01° between 1950 and 2050, and no network. Day is
+above **+6°**, night below **−6°** (civil twilight, the published one), and the
+band between them is dawn or dusk according to the *sign of the hour angle*,
+which is the only thing that distinguishes them: they are the same elevation on
+opposite sides of noon. `scripts/test/sun.mjs` checks the arithmetic against the
+one case that needs no second source — at the solstices the noon elevation is
+90° − |latitude ± 23.44°|, on paper, everywhere on Earth — and against Tromsø,
+where a rule made of clock hours produces night during the midnight sun.
+
+**The awkward part is that the sun needs a place, and the place arrives late.**
+The chrome is painted from `presetTheme()` before the map object exists, and
+where the viewer is comes from an IP lookup or a GPS fix one round trip after
+that. `sunSite()` answers in three steps, each better than the one under it: what
+was stored last time anything knew, then the device's time zone — turned into a
+*longitude* (`getTimezoneOffset` is minutes behind UTC, so ÷ 4 is the meridian
+where the local clock is solar time) and paired with a latitude of zero. That
+last pairing is what makes the fallback honest rather than a guess: at the
+equator the arithmetic collapses to light between six and six, every day of the
+year, which is exactly the naive answer — arrived at from the same formula, and
+replaced the moment a real latitude is known.
+
+**Whose place it is, and why that is the opposite of the snow's.** The site is
+where the *viewer* is: a fix, or the IP landing, and never the map's centre. Snow
+deliberately goes the other way — it falls where you are looking, because "is it
+winter in Patagonia" is a question about Patagonia. The sun here is answering
+"what does it look like outside", so panning to Tokyo does not turn the lights
+off. Two features, opposite answers, both deliberate.
+
+**When it is re-asked**: on the app opening, when the client's position becomes
+known, on `visibilitychange` back to visible — which is what "opening the app"
+means on a phone whose tab is never closed — and every ten minutes for a session
+left running into the evening. `refreshAutoLight()` reports whether the answer
+*moved*, and only a move reaches the renderer; the resolved value is held rather
+than recomputed per call so that the dozen readers of `lightPreset()` in one
+repaint cannot disagree with each other across a boundary. The row under the
+basemap picker says which sun Auto picked, on the same line `detail-now` uses for
+the same reason.
 
 **What Standard is told to draw of itself** is `configureStandard()`, from the
 list in `standardConfig()`: the light preset, and
@@ -5543,6 +5596,60 @@ The press is stopped in the **capture** phase. The control's own handler sits on
 the button itself, and `stopPropagation` on the way down keeps the event from
 reaching the target at all — `stopImmediatePropagation` is not needed and would
 be a claim about listener order this has no business making.
+
+### The dot glides, because a fix is a report and not an instruction
+
+Both libraries do the same thing with a fix: `_updateMarker` calls `setLngLat`
+with it and the dot is somewhere else on the next frame. Standing still that is a
+twitch — GPS in a city moves ten or twenty metres between fixes with the phone
+face down on a table — and walking it is a hop a second, which describes walking
+worse than a straight line would. `src/glide.js` treats the fix as what it is,
+*where you were a moment ago*, and moves the dot towards it over the time the
+next one is expected to take. It is the interpolation every multiplayer game does
+with the positions it is sent, for the same reason: the samples are late, sparse
+and truthful, and the thing on screen has to be continuous.
+
+**The duration is the previous gap**, floored at 250 ms and capped at 2 s, so the
+dot arrives as its successor lands and the motion never stops. The easing is
+**linear**, deliberately: an ease-out decelerates into every fix and starts again
+at the next, which turns a steady walk into a series of arrivals. Past a
+**kilometre** it does not glide at all — a kilometre is an hour's walk, a
+minute's drive and three seconds of a passenger jet, so nothing that is genuinely
+travelling crosses it between two fixes, and the things that do (the first fix of
+a session, a phone that has just found the satellites, a laptop that woke up in
+another city) should appear where they are rather than sail across the map.
+
+**The wrapper calls the original first and then undoes half of it.** The original
+is what adds the markers, takes them off for a null fix, and re-sizes the
+accuracy circle — all wanted. Only the position is overwritten, put back to where
+the dot is currently drawn, *synchronously in the same tick*, so no frame is ever
+painted with the jump in it. Both libraries' `Marker.setLngLat` writes the DOM
+without deferring, which is what makes last-writer-wins enough.
+
+**The camera is the other half, and it is not optional.** While the control is
+locked on you it re-centres on every fix, and it does that with `fitBounds`,
+which is a `flyTo`: a swoop, once a second, computed for a journey of fifteen
+metres — and it re-fits the *zoom* to the accuracy of the fix each time, undoing
+where you had zoomed to. A perfectly smooth dot under a lurching camera is not a
+smooth dot. `smoothLocationCamera` eases linearly with the same duration instead,
+so the ground slides under a dot that stays put, and leaves the zoom alone. The
+one thing it must not swallow is the *arrival* — the press that re-centres on
+you, and the first fix of a session — which is meant to be seen and is what
+`fitBounds` is right for. Told apart by distance **in pixels**, against the
+shorter side of the window: what makes a camera move feel like a jump is how far
+across the window it went, which is a question about the zoom as much as about
+the ground.
+
+The move carries `{ geolocateSource: true }`, and that is load-bearing. Both
+libraries watch their own map for movement and drop out of tracking when they see
+some unless it carries that flag, so following you would otherwise switch
+tracking off a second after it started.
+
+Like `dropLockOnZoom` and `matchMapboxRotation`, this reaches inside the library
+and so reads before it writes: a renamed `_updateMarker` costs the dot its
+smoothing, which nobody will notice, and never the dot itself, which everybody
+would. `scripts/test/glide.mjs` drives it with a hand-cranked clock and frame
+queue.
 
 ## Asking the ground to be quiet
 
