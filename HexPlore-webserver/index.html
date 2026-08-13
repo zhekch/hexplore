@@ -159,7 +159,7 @@
                  — so they are in Settings, and this stays beside the other
                  "is this layer drawn" questions. -->
             <label class="menu-row">
-              <span data-i18n-text="layers-menu.train-tracks">Train tracks<small data-i18n="layers-menu.openrailwaymap">OpenRailwayMap</small></span>
+              <span data-i18n-text="layers-menu.train-tracks">Train tracks</span>
               <input type="checkbox" id="rail-toggle" />
             </label>
 
@@ -178,7 +178,7 @@
                  Both are hidden while the overlay is off — a control for a layer
                  that is not drawn is a question nobody asked. -->
             <label class="menu-row">
-              <span data-i18n-text="layers-menu.trails">Trails<small data-i18n="layers-menu.waymarked-trails">Waymarked Trails</small></span>
+              <span data-i18n-text="layers-menu.trails">Trails</span>
               <input type="checkbox" id="trails-toggle" />
             </label>
             <div class="seg seg-wrap" id="trails-seg" hidden></div>
@@ -186,7 +186,7 @@
                  one it is talking about — the same arrangement, and the same
                  wording, as Visited color a few rows up. -->
             <label class="menu-row" id="trails-strength-row" hidden>
-              <span><span id="trails-strength-label">Strength</span><small data-i18n="trails-strength-row.how-strongly-the-routes-sit">How strongly the routes sit over the map</small></span>
+              <span><span id="trails-strength-label">Strength</span></span>
               <!-- step="1", where the export dialog's sliders all use 5. Not a
                    taste for finer control: the defaults are measured numbers
                    (0.72 over a dark map) and a step of 5 cannot represent 72,
@@ -195,7 +195,7 @@
               <input class="menu-range" id="trails-strength" type="range" min="20" max="100" step="1" />
             </label>
             <label class="menu-row" id="trails-tap-row" hidden>
-              <span data-i18n-text="trails-tap-row.tap-for-trails">Tap for trails<small data-i18n="trails-tap-row.a-tap-lists-the-routes">A tap lists the routes running near it, instead of asking the ground</small></span>
+              <span data-i18n-text="trails-tap-row.tap-for-trails">Tap for trails</span>
               <input type="checkbox" id="trails-tap-toggle" />
             </label>
 
@@ -203,7 +203,7 @@
                  the view and belongs here, while which kinds of airfield are
                  drawn is a setting you make once. -->
             <label class="menu-row">
-              <span data-i18n-text="layers-menu.airports">Airports<small data-i18n="layers-menu.ourairports">OurAirports</small></span>
+              <span data-i18n-text="layers-menu.airports">Airports</span>
               <input type="checkbox" id="airports-toggle" />
             </label>
           </section>
@@ -235,6 +235,10 @@
                  anything but the coordinates. A switch that could never be
                  anything but off is worse than no switch — see src/photos.js. -->
             <label class="menu-row" id="photos-row" hidden>
+              <!-- Kept, where the other second lines went: this one is not a
+                   description but the row's only status — "Reading your
+                   library…", a refused permission, or how many pictures and
+                   videos are actually on the map. -->
               <span data-i18n-text="photos-row.photos">Photos<small data-i18n="photos-note.where-your-pictures-were-taken" id="photos-note">Where your pictures were taken</small></span>
               <input type="checkbox" id="photos-toggle" />
             </label>
@@ -245,7 +249,7 @@
                  reference overlays keep their own taps: those are things you
                  aimed at, not the ground you happened to touch. -->
             <label class="menu-row" id="cells-interactive-row">
-              <span data-i18n-text="cells-interactive-row.tap-for-details">Tap for details<small data-i18n="cells-interactive-row.cards-about-the-areas-you">Cards about the areas you tap</small></span>
+              <span data-i18n-text="cells-interactive-row.tap-for-details">Tap for details</span>
               <input type="checkbox" id="cells-interactive-toggle" />
             </label>
             <!-- Gap: above it is what's drawn on the map, below it the panels

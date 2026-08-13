@@ -443,20 +443,22 @@ function addLayers(map, layers, before, fast = true) {
   return Promise.resolve();
 }
 
-// How many of the 288 to add before letting the browser have the thread back.
+// How long to spend adding layers before letting the browser have the thread
+// back, in milliseconds.
 //
 // The slow path is a validated `addLayer` each, and on a phone the whole run is
 // seconds — spent in one unbroken block, which is not a slow overlay but a dead
-// application: no scroll, no pan, not even the spinner that was raised to say it
-// was coming, because a frame cannot be painted while this is running.
+// application: no scroll, no pan, no closing the menu you switched it on from,
+// not even the spinner raised to say it was coming, because no frame can be
+// painted while this is running.
 //
-// So it is done a chunk at a time with a frame between chunks. The total work is
-// the same and the wall clock is slightly worse; what changes is that the map
-// keeps drawing throughout and the railways arrive in bands over a second or two
-// instead of all at once after a freeze. Twenty-four is small enough that no
-// chunk is a dropped frame on the phones this is for and large enough that the
-// per-frame overhead stays in the noise.
-const RAIL_CHUNK = 24;
+// So it runs to a **time budget** rather than a fixed number of layers. A count
+// would have to be tuned for the slowest phone and would then be needlessly slow
+// on a laptop — the same 24 layers are a millisecond in one place and most of a
+// second in another. Eight milliseconds is about half a frame at 60 Hz, so the
+// browser always has the rest of it to handle the tap that closes the menu, and
+// the work simply takes as many frames as that device needs.
+const RAIL_SLICE_MS = 8;
 
 const nextFrame = () => new Promise((resolve) => {
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
@@ -475,14 +477,20 @@ const nextFrame = () => new Promise((resolve) => {
  */
 async function addLayersOverFrames(map, layers, before) {
   const mine = installSeq;
-  for (let i = 0; i < layers.length; i += RAIL_CHUNK) {
-    if (i) await nextFrame();
-    if (installSeq !== mine) return;
-    for (const layer of layers.slice(i, i + RAIL_CHUNK)) {
-      // Asked per layer rather than trusted from the top: a rebuild that began
-      // while this was waiting for a frame may have added some of them already.
-      if (!map.getLayer(layer.id)) map.addLayer(layer, before);
+  const clock = () => (typeof performance === 'object' ? performance.now() : Date.now());
+  let until = clock() + RAIL_SLICE_MS;
+  for (const layer of layers) {
+    if (clock() >= until) {
+      await nextFrame();
+      // Checked on the far side of every wait, not once at the top: the overlay
+      // can be switched off, or rebuilt onto another basemap, in any of the
+      // frames this hands back.
+      if (installSeq !== mine) return;
+      until = clock() + RAIL_SLICE_MS;
     }
+    // Asked per layer rather than trusted from the top, for the same reason: a
+    // rebuild that began while this was waiting may have added some already.
+    if (!map.getLayer(layer.id)) map.addLayer(layer, before);
   }
 }
 

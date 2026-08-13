@@ -1018,6 +1018,17 @@ body {
   margin-top: 0;
 }
 
+/* Two plain rows sit closer together than the menu's general rhythm.
+   `--menu-row-gap` spaces unlike things — a segmented control against a heading
+   against a button — and it is right for those. Between two one-line switches it
+   is not: now that none of them carries a second line, 10px reads as a list that
+   has been deliberately spread out, which on a phone is a run of toggles you
+   have to travel down. Only row-against-row, so nothing else in the panel
+   moves. */
+.menu-row + .menu-row {
+  margin-top: 7px;
+}
+
 /* Splits "Your map" in two without drawing a second rule across the panel:
    above it, what is painted on the map; below it, the panels that open over
    it. Whitespace is enough — a border here would read as a new section. */

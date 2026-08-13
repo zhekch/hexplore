@@ -4808,11 +4808,15 @@ function updateRoutesUi() {
   // stop. The same goes for the distance — the second copy was adding its
   // kilometres to the total as if you had ridden them again.
   const listed = listedRoutes();
+  // The one second line left in this menu, and the shortest thing that still
+  // answers "is there anything here": a count, and how much of it you are
+  // currently looking at. The distance went with the rest of the subtext — it is
+  // in Routes and statistics, which is a screen for reading numbers on.
   note.textContent = listed.length
     ? (shown.length === listed.length
-        ? `${listed.length === 1 ? '1 route' : `${listed.length} routes`} · ${formatDistance(totalLength(listed))}`
-        : `${shown.length} of ${listed.length} shown · ${formatDistance(totalLength(shown))}`)
-    : 'Import a GPX or KML track to save one';
+        ? `${t('routes-note.activities')} · ${listed.length}`
+        : `${t('routes-note.activities')} · ${shown.length} of ${listed.length}`)
+    : t('routes-note.import-a-gpx-or-kml');
   renderRouteOptions();
 }
 
