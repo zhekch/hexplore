@@ -131,20 +131,6 @@ console.log('\nAnd the layer knows which way round the map is');
   // Their renderer draws a different *set* of routes at each zoom, so the
   // default half-second dissolve shows two maps at once.
   check(trailLayerSpec('dark').paint['raster-fade-duration'] === 0, 'with no cross-fade between zooms');
-
-  // **Except over terrain, where zero is what thinned the routes to hairlines.**
-  // Mapbox holds a tile's deeper children while the tile is still fading, and
-  // reads that off `fadeEndTime` — which `registerFadeDuration` declines to set
-  // at all when the duration is zero, because `0 + timeAdded` is always already
-  // past. Nothing ever stops fading, so nothing is ever released, and the drape
-  // draws the deepest tile it has. See DRAPED_FADE_MS in src/trails.js.
-  const drapedFade = trailLayerSpec('dark', { draped: true }).paint['raster-fade-duration'];
-  check(drapedFade > 0, 'and a real one over the basemap with terrain under it', String(drapedFade));
-  check(trailLayerSpec('dark', { draped: false }).paint['raster-fade-duration'] === 0,
-    'which is asked for rather than assumed');
-  check(trailLayerSpec('light', { draped: true }).paint['raster-opacity']
-    === trailLayerSpec('light').paint['raster-opacity'],
-    'draping changes the fade and nothing else');
   check(trailLayerSpec('dark').paint['raster-resampling'] === 'linear',
     'and smoothed, because there are no retina tiles to be sharp with');
   // Anything unexpected takes the dark treatment rather than throwing: five
@@ -248,41 +234,69 @@ console.log('\nInstalling and removing it');
   check(true, 'twice, without throwing');
 }
 
-console.log('\nCrossing onto the 3D basemap, and off it again');
+console.log('\nOver terrain, nothing is left looking like it is still fading');
 {
-  // The fade is the one paint property that differs per basemap, and it is
-  // invisible until it is wrong: a layer that survives the crossing with a zero
-  // fade goes on drawing stale deep tiles for good. See DRAPED_FADE_MS.
-  const paints = [];
+  // With `raster-fade-duration: 0` Mapbox never writes `Tile.fadeEndTime` at
+  // all, and a tile whose fade has no end keeps its deeper children for ever —
+  // which the drape then draws in place of the right ones, at a quarter of the
+  // width. Measured: 156 tiles across four zooms held instead of 40 across one,
+  // and the ink down to half. See keepFadesEnded in src/trails.js.
+  const handlers = new Map();
+  const tiles = {};
   const sources = new Map();
   const layers = new Map();
   const map = {
     sources,
     layers,
+    style: { getSourceCache: (id) => (id === 'hexplore-trails-src' ? { _tiles: tiles } : undefined) },
     getSource: (id) => sources.get(id) ?? undefined,
     addSource: (id, spec) => sources.set(id, { ...spec }),
     removeSource: (id) => sources.delete(id),
     getLayer: (id) => layers.get(id) ?? undefined,
     addLayer(spec) { layers.set(spec.id, spec); },
     removeLayer: (id) => layers.delete(id),
-    setPaintProperty: (id, k, v) => { paints.push([id, k, v]); layers.get(id).paint[k] = v; },
+    setPaintProperty: () => {},
+    on: (ev, fn) => handlers.set(ev, fn),
+    off: (ev) => handlers.delete(ev),
   };
-  const [layerId] = trailLayerIds();
-  const fadeOf = () => map.getLayer(layerId).paint['raster-fade-duration'];
+  const render = () => handlers.get('render')?.();
 
   installTrails(map, { theme: 'hiking', basemap: 'dark', before: undefined });
-  check(fadeOf() === 0, 'a flat basemap draws it with no cross-fade');
+  check(!handlers.has('render'), 'a flat basemap is not watched — there the ideal tile is the one drawn');
 
   installTrails(map, { theme: 'hiking', basemap: 'dark', draped: true, before: undefined });
-  check(fadeOf() > 0, 'crossing onto the 3D one gives the layer a real fade');
-  check(map.layers.size === 1 && map.sources.size === 1,
-    'without rebuilding either the layer or the source');
+  check(handlers.has('render'), 'the one with terrain under it is');
+
+  tiles.fresh = { fadeEndTime: undefined };
+  tiles.already = { fadeEndTime: 1234 };
+  render();
+  check(tiles.fresh.fadeEndTime !== undefined && tiles.fresh.fadeEndTime <= 0,
+    'a tile with no end to its fade is given one that has already passed',
+    String(tiles.fresh.fadeEndTime));
+  eq(tiles.already.fadeEndTime, 1234, 'and one that had an end keeps it');
+
+  installTrails(map, { theme: 'hiking', basemap: 'dark', draped: true, before: undefined });
+  check(handlers.size === 1, 'installing again does not stack a second watcher');
 
   installTrails(map, { theme: 'hiking', basemap: 'dark', draped: false, before: undefined });
-  check(fadeOf() === 0, 'and coming back off puts it back');
+  check(!handlers.has('render'), 'and coming off the 3D map stops watching');
 
-  // The source is untouched by any of this: only the layer's paint moves.
-  eq(map.getSource('hexplore-trails-src').tileSize, 256, 'the tiles are the same either way');
+  installTrails(map, { theme: 'hiking', basemap: 'dark', draped: true, before: undefined });
+  removeTrails(map);
+  check(!handlers.has('render'), 'as does taking the overlay off');
+
+  // The whole point of doing it this way: nobody sees anything change. A real
+  // fade over this basemap restores the ink too, and leaves 130-odd stale tiles
+  // in the cache to keep winning by luck.
+  check(trailLayerSpec('dark').paint['raster-fade-duration'] === 0,
+    'and the fade itself never moved, on any basemap');
+
+  // MapLibre keeps its tiles somewhere else and has no such bug. Reaching into a
+  // renderer that is not the one this was written for must not throw on a frame.
+  const flat = { ...map, style: undefined, on: (ev, fn) => handlers.set(ev, fn) };
+  installTrails(flat, { theme: 'hiking', basemap: 'dark', draped: true, before: undefined });
+  handlers.get('render')?.();
+  check(true, 'a renderer that keeps its tiles elsewhere is stepped over rather than thrown on');
 }
 
 console.log('\nWhere the finger was, in the units their API counts in');
