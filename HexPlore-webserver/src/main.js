@@ -38,7 +38,7 @@ import {
 } from './coloring.js';
 import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
 import {
-  AUTO_LIGHT, BASEMAP_IMPORT, LIGHT_CHOICES, STANDARD_STYLE, configureStandard, hasMapboxToken,
+  AUTO_LIGHT, BASEMAP_IMPORT, LIGHT_CHOICES, LIGHT_PRESETS, STANDARD_STYLE, configureStandard, hasMapboxToken,
   lightChoice, lightPreset, mapboxToken, presetTheme, refreshAutoLight, setLightChoice,
   setMapboxToken,
 } from './mapbox.js';
@@ -316,27 +316,59 @@ const ROUTE_HOVER_MS = 160;
 // The default is 0.375 px, which is fine for a drawn polygon and far too fine
 // for a walked line.
 const ROUTE_SIMPLIFY_PX = 2;
-// How much of the glow is edge, as a fraction of its whole width — and the
-// second half of the same fix.
+// How many rings the glow is made of — and the reason it is made of rings at
+// all, which is worth writing down because two earlier attempts at the spikes
+// were aimed at the wrong thing.
 //
-// This used to be a **count of pixels** (4 flat, 9 on the 3D basemap) against a
-// width that runs from 5 px to 35 px depending on the zoom, the basemap and
-// whether the route is the one you have open. Both libraries fade a blurred line
-// from full strength at the centre to nothing at the outer edge over exactly
-// this many pixels, so a blur of 9 on a glow 20 px wide leaves a *single pixel*
-// of it at full strength: not a band with a soft edge, which is what a glow is,
-// but a bright thread with a gradient hung off it. A track wobbles by a couple
-// of pixels, so the thread wobbles with it and crosses itself, and every
-// crossing composites twice — which is the shape the spikes actually had.
+// **`line-blur` is not a blur.** Both libraries fade a line by taking the
+// interpolated normal at each fragment and reading its *length* as a distance
+// from the centre — `dist = length(v_normal) * v_width2.s` in the line fragment
+// shader, character for character the same in Mapbox GL JS and in MapLibre.
+// Across the quad of a straight segment that is exactly right. Across the
+// triangles a **join** is built from it is not: the normal is interpolated along
+// the chord rather than around the arc, so its length dips, the fragment
+// believes it is nearer the centre than it really is, and the whole triangle
+// paints at full strength with a straight, hard edge. That is the wedge — at
+// every bend, in the colour the glow has at its core, bounded by the join
+// triangle rather than by anything on the map.
 //
-// And at the other end the count was larger than the glow: 9 px of falloff on a
-// glow 5.4 px wide at country zoom, which is a halo drawn at a third of the
-// opacity it was given, fading out before it ever reached full strength.
+// It is why `line-join: bevel` did not fix it — a bevel is still a triangle, and
+// one big one instead of a fan of small ones — and why simplifying the track did
+// not either: the bends are real corners of real roads, not noise on the fix.
+// And it is why it was reported on the 3D basemap first. The wedge scales with
+// the width, and the glow there is six times the core, ten times it on the route
+// you have open.
 //
-// A fraction has neither problem. It is the same softness at every zoom, in both
-// states and on both basemaps, and it always leaves a body — at 0.3 the middle
-// 40% of the glow is solid and only the outer 30% either side is gradient.
-const ROUTE_GLOW_EDGE = 0.3;
+// So the glow is drawn as **concentric rings with no blur at all**: the same
+// line at a fraction of the width, at a fraction of the alpha, N of them
+// stacking up towards the middle the way the gradient used to. Nothing is ever
+// asked to compute a falloff, so there is nothing to get wrong at a corner.
+// Eight is where the steps stop being visible as contours — four and six both
+// read as a contour map of the route — and it is cheap for what it is: eight
+// line layers over one source's buffers, against the 288 the railway overlay
+// puts up without trouble.
+//
+// What this does *not* fix is the hairline where a track doubles back on itself
+// and the ink lies over its own, which composites twice and always did. At a
+// ring's share of the alpha it is a pixel wide and barely there; it was a
+// hard-edged wedge before.
+const ROUTE_GLOW_RINGS = 8;
+// Widest first, so the first of them is the bottom of the whole route stack and
+// the thing everything else anchors above.
+const ROUTE_GLOW_IDS = Array.from(
+  { length: ROUTE_GLOW_RINGS },
+  (_, i) => `route-glow-${i + 1}`,
+);
+
+/**
+ * The bottom of the route stack, for the overlays that go under it.
+ *
+ * The railways, the airports and the trails all anchor here, and all three want
+ * the same thing: to be inserted immediately beneath everything a route draws.
+ * That used to be the one glow layer by name; it is now whichever ring is
+ * widest, because that is the one added first.
+ */
+const routeStackBottom = () => (map.getLayer(ROUTE_GLOW_IDS[0]) ? ROUTE_GLOW_IDS[0] : null);
 
 // The trip or day being shown, drawn as a track of dots. Warm amber so it can
 // never be mistaken for a saved route (orange) or the visited wash (the accent,
@@ -1865,6 +1897,19 @@ const routeGlowOpacity = () => {
 // scales that down rather than replacing it.
 const routeLineOpacity = () => ['*', routeAlphaExpr(), 0.95];
 
+// Ring `r` of the glow, counting from 1 at the widest. Its width is that
+// fraction of the whole, so the innermost is a hair narrower than the core line
+// and disappears under it.
+const glowRingWidth = (r) =>
+  routeWidth(glowScale() * ((ROUTE_GLOW_RINGS - r + 1) / ROUTE_GLOW_RINGS), ROUTE_HOVER_SCALE);
+// …and each ring carries the alpha that makes the stack of them come out at the
+// glow's own: N layers of `a` compose to `1 - (1 - a)^N`, so `a` is the inverse
+// of that. Written as an expression rather than a number because the target is
+// one — it asks whether this route is selected, hovered, or an activity you have
+// turned down, and all three have to survive being spread across the rings.
+const glowRingOpacity = () =>
+  ['-', 1, ['^', ['-', 1, routeGlowOpacity()], 1 / ROUTE_GLOW_RINGS]];
+
 // --- Routes on a map with buildings in it -------------------------------------
 //
 // Two things the 3D basemap needs and the flat four do not.
@@ -2036,8 +2081,10 @@ function applyColors() {
   if (map.getLayer('route-line')) {
     map.setPaintProperty('route-line', 'line-color', routeLineColor());
     map.setPaintProperty('route-line', 'line-opacity', routeLineOpacity());
-    map.setPaintProperty('route-glow', 'line-color', routeGlowColor());
-    map.setPaintProperty('route-glow', 'line-opacity', routeGlowOpacity());
+    for (const id of ROUTE_GLOW_IDS) {
+      map.setPaintProperty(id, 'line-color', routeGlowColor());
+      map.setPaintProperty(id, 'line-opacity', glowRingOpacity());
+    }
     // Its opacity never moves — only its colour, which follows the activity.
     if (map.getLayer(ROUTE_GHOST_ID)) {
       map.setPaintProperty(ROUTE_GHOST_ID, 'line-color', routeLineColor());
@@ -3518,7 +3565,12 @@ const ROUTES_KEY = 'visited-map:routes:v1';
 // The two that answer a click. The ghost is deliberately not among them: it is
 // the part of a route you can see *through a building*, and a click that landed
 // on a wall should be about the wall.
-const ROUTE_LAYERS = ['route-glow', 'route-line'];
+const ROUTE_LAYERS = [...ROUTE_GLOW_IDS, 'route-line'];
+// …and the two worth *asking*. The widest ring covers every narrower one, so a
+// hit test over the whole stack would ask the same question eight times and get
+// the same answer. Split out from the list above so that splitting the glow into
+// rings did not quietly make every tap on the map four times the work.
+const ROUTE_TAP_LAYERS = [ROUTE_GLOW_IDS[0], 'route-line'];
 /** Everything drawn for a route, ghost included, for showing and hiding. */
 const routeDrawLayers = () =>
   (map.getLayer(ROUTE_GHOST_ID) ? [ROUTE_GHOST_ID, ...ROUTE_LAYERS] : ROUTE_LAYERS);
@@ -4242,7 +4294,7 @@ function routeAt(point) {
       [point.x - pad, point.y - pad],
       [point.x + pad, point.y + pad],
     ],
-    { layers: ROUTE_LAYERS },
+    { layers: ROUTE_TAP_LAYERS },
   )[0];
   if (!hit) return null;
   return routeList.find((r) => r.id === hit.properties?.id) ?? null;
@@ -4954,8 +5006,10 @@ function repaintRouteColors() {
   if (!map?.getLayer('route-line')) return;
   map.setPaintProperty('route-line', 'line-color', routeLineColor());
   map.setPaintProperty('route-line', 'line-opacity', routeLineOpacity());
-  map.setPaintProperty('route-glow', 'line-color', routeGlowColor());
-  map.setPaintProperty('route-glow', 'line-opacity', routeGlowOpacity());
+  for (const id of ROUTE_GLOW_IDS) {
+    map.setPaintProperty(id, 'line-color', routeGlowColor());
+    map.setPaintProperty(id, 'line-opacity', glowRingOpacity());
+  }
   // Its opacity never moves — only its colour, which follows the activity.
   if (map.getLayer(ROUTE_GHOST_ID)) {
     map.setPaintProperty(ROUTE_GHOST_ID, 'line-color', routeLineColor());
@@ -6520,17 +6574,28 @@ function syncRailLayer() {
   // so on a reload during an outage it already knows which zooms are answerable
   // — installing uncapped first would spend a round of requests on tiles known
   // to fail and show nothing until the rebuild caught up.
+  //
+  // Under the spinner, for the same reason the detailed boundaries are: on a
+  // slow connection the style is 315 KB that has to arrive before anything can
+  // be drawn, and a switch that does nothing visible for twenty seconds is
+  // indistinguishable from a switch that did not work. `busy` is
+  // reference-counted, so a second switch-on while the first is still coming
+  // shares the one ring.
+  const done = busy(t('rail.loading'));
   Promise.all([loadRailStyle(), railDetail()]).then(([, { detail, degraded, lang }]) => {
     if (!styleReady || !railOn) return;
     railDetailCeilings = detail;
     railTileLang = lang;
-    addRailLayer();
     updateLayersUi();
     showRailTrouble(degraded);
     startRailDetailPolling();
+    // Held until the layers are actually on the map rather than until the style
+    // arrived: on the 3D basemap the adding is the long half, and it is now
+    // spread over frames precisely so that the ring can be drawn during it.
+    return addRailLayer();
   }).catch((e) => {
     console.warn('Train tracks could not be loaded.', e);
-  });
+  }).finally(done);
 }
 
 // --- Trails -----------------------------------------------------------------------
@@ -7278,8 +7343,19 @@ function mapboxTokenChanged() {
 
 // The time-of-day row under the basemap picker, which exists only while 3D is
 // the basemap: it is Standard's own light preset, and no other basemap has a
-// sun to move. Built once from LIGHT_CHOICES — auto and then the four suns —
-// and shown or hidden by updateLayersUi().
+// sun to move. Built once from LIGHT_PRESETS — the four suns, and *not* Auto,
+// which is a switch in Settings — and shown or hidden by updateLayersUi().
+//
+// Auto used to be a fifth button here, and the two did not belong in one row.
+// Four of them named a sun and the fifth named a policy about the other four, so
+// pressing Auto looked like choosing a fifth kind of light and leaving it looked
+// like nothing had happened. Splitting them puts each where its question is
+// asked: which sun is up, beside the map you are looking at; who gets to decide,
+// once, in the list of things you decide once.
+//
+// The row still shows the sun Auto resolved to as the active one, rather than
+// showing nothing while Auto is on. That is what is actually lighting the map,
+// and `lightNow` underneath says where it came from.
 const lightHead = document.getElementById('light-head');
 const lightSeg = document.getElementById('light-seg');
 // What Auto currently resolves to, in words, on the line under the row. The
@@ -7290,7 +7366,7 @@ const lightNow = document.getElementById('light-now');
 
 function buildLightRow() {
   if (!lightSeg) return;
-  lightSeg.replaceChildren(...LIGHT_CHOICES.map((choice) => {
+  lightSeg.replaceChildren(...LIGHT_PRESETS.map((choice) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'seg-btn';
@@ -7419,7 +7495,9 @@ function updateLayersUi() {
     lightHead.hidden = !on;
     lightSeg.hidden = !on;
     if (on) {
-      const chosen = lightChoice();
+      // The preset rather than the choice: under Auto there is no `auto` button
+      // to light up, and the honest thing to mark is the sun actually in force.
+      const chosen = lightPreset();
       for (const btn of lightSeg.querySelectorAll('[data-light]')) {
         btn.classList.toggle('active', btn.dataset.light === chosen);
       }
@@ -7756,7 +7834,7 @@ function wireLayersControl() {
 // Both therefore draw over the basemap's own labels, which on CARTO are all
 // below this point. That is already true of every route on the map, and an
 // overlay you switched on is meant to be the thing you are reading.
-const RAIL_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStart());
+const RAIL_BEFORE = () => (routeStackBottom() ?? labelStart());
 
 // The same slot, and therefore above the railways rather than below them —
 // `addLayer(l, before)` inserts immediately beneath `before`, so whichever
@@ -7766,7 +7844,7 @@ const RAIL_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStar
 // is what makes the symbol unreadable rather than the other way about. Both
 // still go under the saved routes, for the reason the railways do — a line you
 // actually travelled beats reference geometry about what exists.
-const AIRPORT_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStart());
+const AIRPORT_BEFORE = () => (routeStackBottom() ?? labelStart());
 
 // The trails take the same anchor as both, and land *under* them — `syncTrailLayer`
 // runs before the other two in installGrid, and `addLayer(l, before)` inserts
@@ -7778,7 +7856,7 @@ const AIRPORT_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelS
 // simply gone. The other two are lines and symbols with transparent ground
 // between them, and they lose nothing by being on top of a picture. Put the
 // other way round, the rule is: the opaque thing goes at the bottom.
-const TRAILS_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStart());
+const TRAILS_BEFORE = () => (routeStackBottom() ?? labelStart());
 
 // The photographs, on the other hand, go *above* the saved routes — the only
 // overlay that does. The reasoning that keeps the other two underneath is that a
@@ -7858,7 +7936,7 @@ function addRailLayer() {
   // layer and this returned having added nothing. The overlay simply stopped
   // existing when you switched to Light or Dark, while every check said it was
   // fine. Namespacing ours puts the question beyond doubt.
-  installRail(map, {
+  return installRail(map, {
     // Whatever upright stack the basemap's own glyph server serves. Their style
     // asks for fonts only their glyph server has, and a style has one glyphs
     // URL — see the note in src/rail.js.
@@ -8063,17 +8141,12 @@ function installGrid() {
   const washBefore = washAnchor();
   basemapLabelStart = readLabelStart(); // …and under the place names — see labelStart().
   const lineLayout = { 'line-join': 'round', 'line-cap': 'round' };
-  // The glow is the same line six times as wide, and a round join is the one
-  // thing that does not scale with it. A round join fills the outside of a
-  // corner with a fan of triangles that overlap each other and the two segments
-  // meeting there; on an opaque stroke that is invisible, and on a translucent
-  // one every overlap composites twice. At a switchback — where a track doubles
-  // back on itself and the fan sweeps most of a half-circle — the doubled
-  // coverage reads as a hard-edged wedge sticking out of the route, in a colour
-  // neither the glow nor the line has. A bevel is one triangle and overlaps
-  // nothing, so the corner is chamfered instead: invisible inside a blur, where
-  // the spike was not.
-  const glowLayout = { ...lineLayout, 'line-join': 'bevel' };
+  // There used to be a second layout here that chamfered the glow's corners, on
+  // the theory that the wedges coming out of every bend were a round join's fan
+  // of triangles overlapping and compositing twice. They were not — see
+  // ROUTE_GLOW_RINGS — and the bevel bought nothing but a corner visibly cut off
+  // wherever a route turns sharply. Both the glow and the trip track are back on
+  // the one layout, and end in the same shape as the lines they are drawn under.
   const isRegion = ['==', ['get', 'k'], 1];
   const isBoundary = ['==', ['get', 'k'], 2];
   const isLabel = ['==', ['get', 'k'], 3];
@@ -8213,7 +8286,7 @@ function installGrid() {
   // the answer to a different question.
   map.addSource('trip', { type: 'geojson', data: EMPTY, tolerance: 0 });
   map.addLayer({
-    id: 'trip-glow', type: 'line', source: 'trip', layout: glowLayout,
+    id: 'trip-glow', type: 'line', source: 'trip', layout: lineLayout,
     paint: { 'line-color': TRACK_COLOR, 'line-opacity': 0.4, 'line-width': 9, 'line-blur': 7 },
   });
   map.addLayer({
@@ -8259,24 +8332,24 @@ function installGrid() {
       },
     }, beforeLabels);
   }
-  map.addLayer({
-    id: 'route-glow', type: 'line', source: 'routes',
-    layout: { ...glowLayout, visibility: routesOn ? 'visible' : 'none' },
-    paint: {
-      'line-color': routeGlowColor(),
-      'line-opacity': routeGlowOpacity(),
-      'line-width': routeWidth(glowScale(), ROUTE_HOVER_SCALE),
-      // The same ramp as the width, scaled down — so the edge stays the same
-      // share of the glow however wide the glow currently is. See
-      // ROUTE_GLOW_EDGE.
-      'line-blur': routeWidth(glowScale() * ROUTE_GLOW_EDGE, ROUTE_HOVER_SCALE),
-      // The whole of the hover animation. Both properties are feature-state
-      // expressions, so writing `hov` is enough to start them — nothing here
-      // steps a value or holds a timer.
-      'line-opacity-transition': { duration: ROUTE_HOVER_MS },
-      'line-width-transition': { duration: ROUTE_HOVER_MS },
-    },
-  }, beforeLabels);
+  // The glow, widest ring first — see ROUTE_GLOW_RINGS for why it is a stack of
+  // them and not one blurred line.
+  ROUTE_GLOW_IDS.forEach((id, i) => {
+    map.addLayer({
+      id, type: 'line', source: 'routes',
+      layout: { ...lineLayout, visibility: routesOn ? 'visible' : 'none' },
+      paint: {
+        'line-color': routeGlowColor(),
+        'line-opacity': glowRingOpacity(),
+        'line-width': glowRingWidth(i + 1),
+        // The whole of the hover animation. Both properties are feature-state
+        // expressions, so writing `hov` is enough to start them — nothing here
+        // steps a value or holds a timer.
+        'line-opacity-transition': { duration: ROUTE_HOVER_MS },
+        'line-width-transition': { duration: ROUTE_HOVER_MS },
+      },
+    }, beforeLabels);
+  });
   map.addLayer({
     id: 'route-line', type: 'line', source: 'routes',
     layout: { ...lineLayout, visibility: routesOn ? 'visible' : 'none' },
@@ -8834,6 +8907,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       pushPrefs();
     },
     snowPossible: () => engine === MAPBOX,
+    sunAuto: () => lightChoice() === AUTO_LIGHT,
+    // Switching it off freezes the sun where it currently is rather than
+    // dropping back to a stored preference or to Day: whatever is on screen is
+    // what somebody looking at the switch means by "stop changing it". Switching
+    // it on re-resolves immediately, so the map is right before the dialog is
+    // shut. No `pushPrefs` — the choice lives in localStorage and nowhere else,
+    // because which sun a *screen* wants is a fact about the screen.
+    onSunAuto: (on) => setLightPresetNow(on ? AUTO_LIGHT : lightPreset()),
     whatsNew: () => bannerMode(),
     onWhatsNew: (mode) => {
       setBannerMode(mode);

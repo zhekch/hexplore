@@ -333,6 +333,11 @@ const featureTitle = (words) =>
 
 let STYLE = null;
 let loading = null;
+// Which install the layers on the map belong to. Moved by every `installRail`
+// and every `removeRail`, and read by the chunked add in `addLayersOverFrames`
+// so that a run interrupted halfway stops rather than finishing into a map that
+// has moved on. See the note there.
+let installSeq = 0;
 
 /**
  * Kick off (or reuse) the one-time load of the built overlay style.
@@ -421,11 +426,11 @@ function addLayers(map, layers, before, fast = true) {
   // one that resolves the `global-state` expressions this style consults 1,529
   // times. Both are in src/gl-engine.js. Without them the layers are added
   // before an anchor that does not exist, reading an expression Mapbox cannot
-  // parse; with them it is 288 ordinary addLayer calls and a wait nobody has
-  // complained about.
+  // parse; with them it is 288 ordinary addLayer calls — and that wait, which
+  // nobody had complained about, turned out to be most of a switch-on that
+  // locked a phone up for the better part of a minute.
   if (!fast || typeof style?.addLayer !== 'function' || typeof map._update !== 'function') {
-    for (const layer of layers) map.addLayer(layer, before);
-    return;
+    return addLayersOverFrames(map, layers, before);
   }
   try {
     for (const layer of layers) style.addLayer(layer, before, { validate: false });
@@ -435,6 +440,50 @@ function addLayers(map, layers, before, fast = true) {
     for (const layer of layers) if (!map.getLayer(layer.id)) map.addLayer(layer, before);
   }
   map._update(true);
+  return Promise.resolve();
+}
+
+// How many of the 288 to add before letting the browser have the thread back.
+//
+// The slow path is a validated `addLayer` each, and on a phone the whole run is
+// seconds — spent in one unbroken block, which is not a slow overlay but a dead
+// application: no scroll, no pan, not even the spinner that was raised to say it
+// was coming, because a frame cannot be painted while this is running.
+//
+// So it is done a chunk at a time with a frame between chunks. The total work is
+// the same and the wall clock is slightly worse; what changes is that the map
+// keeps drawing throughout and the railways arrive in bands over a second or two
+// instead of all at once after a freeze. Twenty-four is small enough that no
+// chunk is a dropped frame on the phones this is for and large enough that the
+// per-frame overhead stays in the noise.
+const RAIL_CHUNK = 24;
+
+const nextFrame = () => new Promise((resolve) => {
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+  else setTimeout(resolve, 0);
+});
+
+/**
+ * The slow path, spread over frames instead of blocking on one.
+ *
+ * Abandoned mid-run if the overlay was taken off, or put on again, while this
+ * was going: `removeRail` and every `installRail` move `installSeq`, and a run
+ * whose number is stale stops where it is. Without that, switching the overlay
+ * off during the second it takes to install would go on adding layers to a map
+ * that had just removed them — and they would stay, because the removal had
+ * already walked the list.
+ */
+async function addLayersOverFrames(map, layers, before) {
+  const mine = installSeq;
+  for (let i = 0; i < layers.length; i += RAIL_CHUNK) {
+    if (i) await nextFrame();
+    if (installSeq !== mine) return;
+    for (const layer of layers.slice(i, i + RAIL_CHUNK)) {
+      // Asked per layer rather than trusted from the top: a rebuild that began
+      // while this was waiting for a frame may have added some of them already.
+      if (!map.getLayer(layer.id)) map.addLayer(layer, before);
+    }
+  }
 }
 
 /**
@@ -470,7 +519,10 @@ function withFont(layer, font) {
  *   keyed on it. See the note where the sources are added.
  */
 export function installRail(map, { font, theme, before, groups, technical = false, detail = {}, lang = null, fastAdd = true }) {
-  if (!STYLE || map.getLayer(STYLE.layers[0].id)) return;
+  if (!STYLE || map.getLayer(STYLE.layers[0].id)) return Promise.resolve();
+  // Claims the map for this install, which is what lets a chunked add know it is
+  // still the current one — and abandons any that was still running.
+  installSeq++;
 
   // Their sprites, under our namespace. Images resolve as `spriteId:name`
   // except for the sprite called `default`, whose names are bare — and the
@@ -560,7 +612,7 @@ export function installRail(map, { font, theme, before, groups, technical = fals
 
   // In their order, each beneath the same anchor, so the 288 layers keep the
   // relative order their style put them in.
-  addLayers(map, STYLE.layers.map((layer) => {
+  return addLayers(map, STYLE.layers.map((layer) => {
     const on = railGroupOn(groups, layer.metadata['hexplore:group']);
     const withVisibility = on
       ? layer
@@ -591,6 +643,9 @@ export function installRail(map, { font, theme, before, groups, technical = fals
  */
 export function removeRail(map, { keepSprites = false } = {}) {
   if (!STYLE) return;
+  // Stops a chunked install that is still running, or it would put layers back
+  // on the map immediately after this walked the list taking them off.
+  installSeq++;
   for (const layer of STYLE.layers) {
     if (map.getLayer(layer.id)) map.removeLayer(layer.id);
   }

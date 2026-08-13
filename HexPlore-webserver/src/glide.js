@@ -126,6 +126,34 @@ function coordsOf(position) {
 
 const now = () => (typeof performance === 'object' ? performance.now() : Date.now());
 
+// --- The dot that would not stop blinking ------------------------------------
+//
+// A marker on a map with **terrain** on it is dimmed to a fifth while it is
+// judged to be behind a hill, and the judging is a knife-edge: Mapbox GL JS
+// unprojects the marker's screen position onto the terrain and asks whether that
+// point is nearer the camera than nine tenths of the way to the marker itself
+// (`_behindTerrain`). A dot standing on the ground *is* the terrain, so the two
+// distances are the same number and which one wins is decided by rounding — and
+// by which DEM tiles have arrived, since the ground moves as they stream in.
+// Every re-evaluation can land the other way, and the dot flicks between full
+// strength and a fifth of it.
+//
+// It shows up on the 3D basemap and nowhere else because that is the only one
+// with terrain under it (`setTerrain` in src/mapbox.js); the flat four never run
+// the test. And it got much worse when the dot started gliding, because a glide
+// re-positions the marker on every animation frame and each of those asks again.
+//
+// The dot is not in the scene. It is an annotation *about* you drawn on top of
+// it — the same argument `selfLit()` in src/gl-engine.js makes for every layer
+// this app adds, and it has the same answer here: the ground is not allowed to
+// dim it. Both libraries keep the factor as a field, so both are named, and
+// setting it on a marker of the other one is a property nothing reads.
+const unoccluded = (marker) => {
+  marker._occludedOpacity = 1; // Mapbox GL JS
+  marker._opacityWhenCovered = '1'; // MapLibre, which stores it as a string
+  return marker;
+};
+
 // --- The dot ------------------------------------------------------------------
 
 /**
@@ -157,7 +185,8 @@ export function smoothLocationDot(control) {
   // Read per frame rather than captured: the control builds these behind an
   // async permission check, so they do not exist when this is installed.
   const markers = () => [control._userLocationDotMarker, control._accuracyCircleMarker]
-    .filter((m) => typeof m?.setLngLat === 'function');
+    .filter((m) => typeof m?.setLngLat === 'function')
+    .map(unoccluded);
 
   const draw = (at) => {
     shown = at;

@@ -29,6 +29,9 @@ import { t } from './i18n.js';
  * @param {(mode:string) => void} [opts.onSnow]
  * @param {() => boolean} [opts.snowPossible] whether the basemap on screen can
  *   show it at all — Mapbox can, the other four cannot
+ * @param {() => boolean} [opts.sunAuto] whether the 3D basemap works its own sun
+ *   out from the clock and where you are, rather than being told which to use
+ * @param {(on:boolean) => void} [opts.onSunAuto]
  * @param {() => string} [opts.whatsNew] how often to say what has changed
  * @param {(mode:string) => void} [opts.onWhatsNew]
  * @param {() => Array<{key:string,label:string}>} [opts.locales] the languages that exist
@@ -50,6 +53,7 @@ import { t } from './i18n.js';
  */
 export function mountPersonal({
   onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, snow, onSnow, snowPossible,
+  sunAuto, onSunAuto,
   whatsNew, onWhatsNew, locales, locale, onLocale,
   sources, rail, airports, mapbox, onReplayIntro, onClearCache, version, update, onReload,
   username, onDeleteAccount,
@@ -63,6 +67,7 @@ export function mountPersonal({
   const clockNote = $('settings-clock-note');
   const snowSel = $('settings-snow');
   const snowNote = $('settings-snow-note');
+  const sunBox = $('settings-light-auto');
   const whatsNewSel = $('settings-whats-new');
   const whatsNewNote = $('settings-whats-new-note');
   const localeSel = $('settings-locale');
@@ -111,6 +116,11 @@ export function mountPersonal({
     // demonstrably does nothing is indistinguishable from a broken one.
     snowSel.value = snow?.() ?? 'off';
     snowNote.textContent = t(snowPossible?.() ? 'personal.snow.on' : 'personal.snow.off');
+    // Unlike snow, this one is not told whether the basemap can show it. The
+    // four suns are a row in the layers menu that appears with the basemap, and
+    // this switch is only about who chooses between them — a question with the
+    // same answer whichever map is currently up.
+    if (sunBox) sunBox.checked = !!sunAuto?.();
     // The note says what each answer actually means, because the words in the
     // list do not: "substantial" is a threshold somebody chose, and a person
     // deciding between three options deserves to know roughly where it sits.
@@ -198,6 +208,10 @@ export function mountPersonal({
   });
   snowSel.addEventListener('change', () => {
     onSnow?.(snowSel.value);
+    draw();
+  });
+  sunBox?.addEventListener('change', () => {
+    onSunAuto?.(sunBox.checked);
     draw();
   });
   whatsNewSel.addEventListener('change', () => {
