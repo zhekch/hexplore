@@ -38,9 +38,9 @@ import { t } from './i18n.js';
  * @param {() => string} [opts.locale] the one in force
  * @param {(key:string) => void} [opts.onLocale] picking one reloads the page
  * @param {{open:Function}} [opts.sources] the Sources dialog, opened from here
- * @param {{open:Function}} [opts.rail] the Train tracks dialog, likewise
- * @param {{open:Function}} [opts.airports] the Airports dialog, likewise
- * @param {{open:Function}} [opts.mapbox] the 3D basemap's token dialog, likewise
+ * @param {{open:Function}} [opts.mapLayers] the Map layers page, which holds the
+ *   railway, the airports and the 3D basemap's token behind one door — they were
+ *   three buttons in this column until the column had six of them
  * @param {() => void} [opts.onReplayIntro] show the introduction again
  * @param {() => Promise<boolean>} [opts.onClearCache] throw the offline copy away
  * @param {() => string|null} [opts.version] the build the server reports
@@ -55,7 +55,7 @@ export function mountPersonal({
   onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, snow, onSnow, snowPossible,
   sunAuto, onSunAuto,
   whatsNew, onWhatsNew, locales, locale, onLocale,
-  sources, rail, airports, mapbox, onReplayIntro, onClearCache, version, update, onReload,
+  sources, mapLayers, onReplayIntro, onClearCache, version, update, onReload,
   username, onDeleteAccount,
 }) {
   const $ = (id) => document.getElementById(id);
@@ -226,7 +226,7 @@ export function mountPersonal({
   // Each of these needs the whole dialog, so this one gets out of the way rather
   // than stacking a second overlay on top of itself — the same hand-off the home
   // picker above does, and the same one the hub used to do to reach Sources.
-  const doors = { sources, rail, airports, mapbox };
+  const doors = { sources, maplayers: mapLayers };
   for (const btn of overlay.querySelectorAll('[data-personal]')) {
     const door = doors[btn.dataset.personal];
     if (!door) continue;

@@ -108,6 +108,7 @@ import { mountPersonal } from './personal-ui.js';
 import { mountRail } from './rail-ui.js';
 import { mountAirports } from './airports-ui.js';
 import { mountMapbox } from './mapbox-ui.js';
+import { mountMapLayers } from './map-layers-ui.js';
 import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
 import { mountIntro } from './intro-ui.js';
@@ -8857,7 +8858,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     },
   });
   const railUi = mountRail({
-    onClose: () => personalUi?.open(),
+    onClose: () => mapLayersUi?.open(),
     groups: () => railGroupsOn,
     onGroup: (key, on) => setRailGroupOn(key, on),
     technical: () => railTechnicalOn,
@@ -8866,12 +8867,12 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onInteractive: (on) => setRailInteractive(on),
   });
   const airportsUi = mountAirports({
-    onClose: () => personalUi?.open(),
+    onClose: () => mapLayersUi?.open(),
     groups: () => airportGroupsChosen,
     onGroup: (key, on) => setAirportGroupOn(key, on),
   });
   mapboxUi = mountMapbox({
-    onClose: () => personalUi?.open(),
+    onClose: () => mapLayersUi?.open(),
     // The token is a preference now, so a change to it is pushed to the account
     // like any other — which is what puts it on the phone without being pasted
     // there. `pushPrefs` rather than waiting out the debounce: this one is worth
@@ -8888,6 +8889,12 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // looked presumptuous — but that reading had it backwards: the only reason
     // to be in this dialog at all is the basemap on the other side of it.
     onUse: () => setStyleKey('mapbox'),
+  });
+  // Between the three above and Settings: they open from here and come back
+  // here, so Back walks the way it came instead of skipping a floor.
+  const mapLayersUi = mountMapLayers({
+    onClose: () => personalUi?.open(),
+    mapLayers: mapLayersUi,
   });
   personalUi = mountPersonal({
     onClose: () => settings?.open(),

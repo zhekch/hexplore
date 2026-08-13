@@ -732,6 +732,11 @@
           </label>
         </div>
 
+
+        <!-- Everything from here to the next heading is about the app itself —
+             the words it uses and how it tells you things. Nothing under it
+             changes what is on the map. -->
+        <div data-i18n="personal.this-app" class="settings-heading">This app</div>
         <!-- The options are filled in from the locale registry rather than
              written here, because the list of languages *is* the registry —
              a second copy in the markup is a second thing to keep in step, and
@@ -753,6 +758,10 @@
           </select>
         </label>
 
+
+        <!-- And from here, the two that change the map itself rather than the
+             app around it: how it is lit, and whether you can draw on it. -->
+        <div data-i18n="personal.the-map" class="settings-heading">The map</div>
         <!-- Whether the 3D basemap works out its own sun. The four suns
              themselves stay in the layers menu: which one is up is a question
              you ask while looking at the map, and you answer it by looking at
@@ -809,20 +818,22 @@
         <!-- The overlay's own settings. The switch that draws it is in the
              layers menu with the other layers; everything about what it draws
              and whether it answers a tap is behind here. -->
-        <button type="button" class="sync-option" data-personal="rail">
-          <!-- Two rails and four sleepers. Drawn straight up the icon rather
-               than in perspective: at 18px a vanishing point is four pixels of
-               mud, and what reads as railway is the ladder. The proportions are
-               the whole of it — rails a third of the sleepers' width apart, and
-               four of them rather than three, or the gaps come out square and
-               the icon is a hash sign. -->
+        <!-- What the map is built out of, behind one door. Three of these
+             stood in this column — the railway overlay, the airports overlay
+             and the 3D basemap's token — and they are the same kind of thing
+             said three times: ingredients, set once, none of them about you or
+             about this device. The three below are about the app, and stayed. -->
+        <button type="button" class="sync-option" data-personal="maplayers">
+          <!-- Three sheets stacked in three-quarter view: the one shape that
+               reads as *layers* at 18px. -->
           <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M10 2.5v19M14 2.5v19" />
-            <path d="M5.5 5h13M5.5 10h13M5.5 15h13M5.5 20h13" />
+            <path d="M12 2.6 21.5 7 12 11.4 2.5 7Z" />
+            <path d="m2.5 12 9.5 4.4 9.5-4.4" />
+            <path d="m2.5 17 9.5 4.4 9.5-4.4" />
           </svg>
           <span class="sync-option-text">
-            <b data-i18n="personal.train-tracks">Train tracks</b>
-            <small data-i18n="personal.what-the-railway-overlay-draws">What the railway overlay draws</small>
+            <b data-i18n="personal.map-layers">Map layers</b>
+            <small data-i18n="settings-maplayers-note.train-tracks-airports-and-the">Train tracks, airports and the 3D basemap</small>
           </span>
           <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 5 7 7-7 7" />
@@ -831,45 +842,12 @@
 
         <!-- The airports overlay's own settings, beside the railway's for the
              same reason: both are about the map's ingredients. -->
-        <button type="button" class="sync-option" data-personal="airports">
-          <!-- A top-down aircraft, the same shape the map icon draws. Nose up
-               and symmetrical: at 18px anything three-quarter-view reads as a
-               blot, and the swept wing is the whole of what says aeroplane. -->
-          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 2c1 1.1 1.3 2.9 1.3 5.1l8 5.6v1.9l-8-2.8v4.5l3 2.4v1.3L12 19l-4.3 1v-1.3l3-2.4v-4.5l-8 2.8v-1.9l8-5.6C10.7 4.9 11 3.1 12 2Z" />
-          </svg>
-          <span class="sync-option-text">
-            <b data-i18n="personal.airports">Airports</b>
-            <small data-i18n="personal.which-airfields-the-overlay-draws">Which airfields the overlay draws</small>
-          </span>
-          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m9 5 7 7-7 7" />
-          </svg>
-        </button>
 
         <!-- The 3D basemap's token. Beside the two overlays above because it is
              the same kind of thing — something the map is built out of, set
              once — and not in the layers menu with the basemap picker, because
              what it holds is a credential and the menu is for what you are
              looking at right now. -->
-        <button type="button" class="sync-option" data-personal="mapbox">
-          <!-- A block seen in three-quarter view: the top face and two walls,
-               which is the least that reads as *extruded* at 18px. Flat-on it
-               would be a rectangle and the icon would say "buildings", not
-               "3D". -->
-          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 2.6 21 7v10l-9 4.4L3 17V7Z" />
-            <path d="m3 7 9 4.4L21 7" />
-            <path d="M12 11.4v10" />
-          </svg>
-          <span class="sync-option-text">
-            <b data-i18n="personal.3d-basemap">3D basemap</b>
-            <small data-i18n="settings-mapbox-note.needs-a-mapbox-token" id="settings-mapbox-note">Needs a Mapbox token</small>
-          </span>
-          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m9 5 7 7-7 7" />
-          </svg>
-        </button>
 
         <button type="button" class="sync-option" data-personal="sources">
           <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -986,6 +964,87 @@
     <!-- What the train-tracks overlay draws. The group rows are built in
          src/rail-ui.js from the built style, so the list cannot fall out of step
          with what is actually on the map. -->
+
+    <!-- Map layers: the three doors that are about what the map is built out
+         of. A signpost and nothing else — see src/map-layers-ui.js for why it
+         deliberately holds no controls of its own. -->
+    <div class="modal-overlay" id="maplayers-overlay" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div data-i18n="maplayers.map-layers" class="modal-title">Map layers</div>
+            <div data-i18n="maplayers.what-the-map-is-built" class="modal-sub">What the map is built out of, and what it draws over the ground</div>
+          </div>
+          <button data-i18n-aria-label="maplayers-close.close" class="cell-info-close" id="maplayers-close" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="sync-options">
+          <button type="button" class="sync-option" data-maplayer="rail">
+          <!-- Two rails and four sleepers. Drawn straight up the icon rather
+          than in perspective: at 18px a vanishing point is four pixels of
+          mud, and what reads as railway is the ladder. The proportions are
+          the whole of it — rails a third of the sleepers' width apart, and
+          four of them rather than three, or the gaps come out square and
+          the icon is a hash sign. -->
+          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 2.5v19M14 2.5v19" />
+          <path d="M5.5 5h13M5.5 10h13M5.5 15h13M5.5 20h13" />
+          </svg>
+          <span class="sync-option-text">
+          <b data-i18n="personal.train-tracks">Train tracks</b>
+          <small data-i18n="personal.what-the-railway-overlay-draws">What the railway overlay draws</small>
+          </span>
+          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 5 7 7-7 7" />
+          </svg>
+          </button>
+
+          <button type="button" class="sync-option" data-maplayer="airports">
+          <!-- A top-down aircraft, the same shape the map icon draws. Nose up
+          and symmetrical: at 18px anything three-quarter-view reads as a
+          blot, and the swept wing is the whole of what says aeroplane. -->
+          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 2c1 1.1 1.3 2.9 1.3 5.1l8 5.6v1.9l-8-2.8v4.5l3 2.4v1.3L12 19l-4.3 1v-1.3l3-2.4v-4.5l-8 2.8v-1.9l8-5.6C10.7 4.9 11 3.1 12 2Z" />
+          </svg>
+          <span class="sync-option-text">
+          <b data-i18n="personal.airports">Airports</b>
+          <small data-i18n="personal.which-airfields-the-overlay-draws">Which airfields the overlay draws</small>
+          </span>
+          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 5 7 7-7 7" />
+          </svg>
+          </button>
+
+          <button type="button" class="sync-option" data-maplayer="mapbox">
+          <!-- A block seen in three-quarter view: the top face and two walls,
+          which is the least that reads as *extruded* at 18px. Flat-on it
+          would be a rectangle and the icon would say "buildings", not
+          "3D". -->
+          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 2.6 21 7v10l-9 4.4L3 17V7Z" />
+          <path d="m3 7 9 4.4L21 7" />
+          <path d="M12 11.4v10" />
+          </svg>
+          <span class="sync-option-text">
+          <b data-i18n="personal.3d-basemap">3D basemap</b>
+          <small data-i18n="settings-mapbox-note.needs-a-mapbox-token" id="settings-mapbox-note">Needs a Mapbox token</small>
+          </span>
+          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 5 7 7-7 7" />
+          </svg>
+          </button>
+        </div>
+
+        <div class="modal-actions">
+          <button data-i18n="maplayers-back.back" type="button" class="modal-btn" id="maplayers-back">Back</button>
+          <button data-i18n="maplayers-done.done" type="button" class="modal-btn primary" id="maplayers-done">Done</button>
+        </div>
+      </div>
+    </div>
     <div class="modal-overlay" id="rail-overlay" hidden>
       <div class="modal-card">
         <div class="modal-head">
