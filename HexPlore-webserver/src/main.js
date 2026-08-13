@@ -84,10 +84,21 @@ import {
 // import: the whole module is a source spec, five names and a fetch, where the
 // railway's is a 315 KB style.
 import {
-  TRAIL_THEMES, bboxAround, describeTrail, installTrails, orderTrails, removeTrails,
-  setTrailMainOnly, setTrailOpacity, setTrailTheme, tapCorners, trailDetails, trailMainOnly,
-  trailOpacity, trailStatsLine, trailTheme, trailThemeLabel, trailsHaveReach, trailsNear,
+  TRAIL_PROVIDERS, TRAIL_THEMES, bboxAround, describeTrail, installTrails, orderTrails,
+  removeTrails, setTrailMainOnly, setTrailOpacity, setTrailProvider, setTrailTheme, tapCorners,
+  trailDetails, trailMainOnly, trailOpacity, trailProvider, trailStatsLine, trailTheme,
+  trailThemeLabel, trailsHaveReach, trailsNear, usableTrailProvider,
 } from './trails.js';
+// The same routes from MapTiler, as vector tiles. A module of its own rather
+// than a branch inside the one above, because almost nothing is shared: that one
+// is a raster source and a lookup API, this one is four styled layers and a
+// filter. See the head of src/trails-vector.js for why both exist.
+import {
+  MAPTILER_THEMES, TRAIL_REACH, installVectorTrails, maptilerHasReach, nearestMaptilerTheme,
+  removeVectorTrails, setTrailReach, setVectorTrailOpacity, setVectorTrailReach, trailReach,
+  trailsAtTap,
+} from './trails-vector.js';
+import { hasMaptilerKey, maptilerKey, setMaptilerKey } from './maptiler.js';
 // Your photographs as points, which only the iOS app can draw: a photo library
 // is on a phone, and the server has never held anything but the coordinates. In
 // a browser `photosAvailable()` is false and the switch is not in the menu at
@@ -109,6 +120,7 @@ import { mountPersonal } from './personal-ui.js';
 import { mountRail } from './rail-ui.js';
 import { mountAirports } from './airports-ui.js';
 import { mountMapbox } from './mapbox-ui.js';
+import { mountMaptiler } from './maptiler-ui.js';
 import { mountMapLayers } from './map-layers-ui.js';
 import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
@@ -133,7 +145,7 @@ import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
 import { busy } from './busy.js';
 import { routesToFC, totalLength, formatDistance, canonicalSport, duplicateRoutes } from './routes.js';
-import { reconcilePrefs, remoteToken } from './prefs.js';
+import { reconcilePrefs, remoteMaptilerKey, remoteToken } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
 // The one place that asks the map where its camera is, and the only arithmetic
@@ -920,6 +932,13 @@ let trailThemeOn = trailTheme();
 // their own. On unless it has been switched off — see MAIN_ONLY_KEY in
 // src/trails.js for why this is the one trail preference with an opinion.
 let trailsMainOnly = trailMainOnly();
+// Who draws them. Read once here for the same reason the theme is, and never
+// used directly: `drawnProvider()` is what the map asks, because a stored
+// `maptiler` with no key on the account is a real state and the answer to it is
+// the overlay that works. See usableTrailProvider in src/trails.js.
+let trailProviderOn = trailProvider();
+// How much of the network the vector provider draws — the reason it exists.
+let trailReachOn = trailReach();
 // Whether the trail controls are unfolded. Deliberately not remembered, like
 // the routes' own fold: it is the state of a menu you have open, not a
 // preference, and a menu that opens with a panel already unfolded is a menu
@@ -3809,6 +3828,11 @@ const prefsPayload = () => ({
   // even when it is `''`, because the key's presence is what tells a device the
   // account has an opinion at all — see remoteToken() in src/prefs.js.
   mapboxToken: mapboxToken(),
+  // The trails provider's MapTiler key, for the same reason as the token above
+  // and one the token does not have: this server reads it off the account to
+  // fetch the tiles at all, so syncing it is not a convenience but the thing
+  // that makes the overlay work. See `accountMaptilerKey` in server/index.js.
+  maptilerKey: maptilerKey(),
   // Which introduction has been sat through. In the account because it is a
   // fact about a *person* — what a trip is does not become news again on a
   // second device — with this browser's own copy beside it only to survive a
@@ -4024,6 +4048,17 @@ function adoptPrefs(prefs) {
   if (token !== null && token !== mapboxToken()) {
     setMapboxToken(token);
     mapboxTokenChanged();
+  }
+
+  // And the trails provider's key, on the same terms. A device that arrives
+  // holding `maptiler` as its provider and no key draws the raster until this
+  // lands — which is the right way round, and is why `drawnProvider()` asks
+  // rather than assuming.
+  const key = remoteMaptilerKey(prefs);
+  if (key !== null && key !== maptilerKey()) {
+    setMaptilerKey(key);
+    updateLayersUi();
+    if (trailsOn) syncTrailLayer();
   }
 }
 
@@ -6353,6 +6388,10 @@ function swapStyle(style) {
 // Declared up here because the basemap picker reaches for it: pressing a
 // basemap that has no token is how you are asked for one.
 let mapboxUi = null;
+// The trails provider's key dialog, mounted beside the one above and opened
+// from the layers menu rather than from Settings — it is a question about an
+// overlay, and the overlay's other controls are all in that menu.
+let maptilerUi = null;
 
 function setStyleKey(key) {
   if (!STYLES[key] || key === styleKey) return;
@@ -6649,7 +6688,16 @@ function setTrailThemeNow(key) {
 function setTrailStrength(pct) {
   setTrailOpacity(themeNow(), pct / 100);
   updateLayersUi();
-  if (trailsOn) syncTrailLayer();
+  if (!trailsOn) return;
+  // The vector provider is four layers with four different opacities derived
+  // from this one number, so it gets its own setter rather than a reinstall —
+  // this is a slider somebody drags, and a rebuild per step would drop every
+  // parsed tile.
+  if (styleReady && drawnProvider() === 'maptiler') {
+    setVectorTrailOpacity(map, trailOpacity(themeNow()));
+    return;
+  }
+  syncTrailLayer();
 }
 
 /** Whether a tap asks the trails rather than the ground. */
@@ -6685,15 +6733,83 @@ function setTrailsMainOnly(on) {
   updateLayersUi();
 }
 
+/**
+ * Which provider is actually drawing, as opposed to which one is chosen.
+ *
+ * The two differ in exactly one case and it is a case that happens: MapTiler
+ * chosen on a device that has not been given a key, which is every device until
+ * the account syncs. Four layers reading a source whose every tile is refused is
+ * not a degraded overlay, it is a blank one — so the map falls back and the menu
+ * says why.
+ */
+const drawnProvider = () => usableTrailProvider(trailProviderOn, hasMaptilerKey());
+
+/** Who draws the trails. Switching takes the other one off the map entirely. */
+function setTrailProviderNow(key) {
+  trailProviderOn = setTrailProvider(key);
+  // The two providers answer a tap with different things — one lists what runs
+  // near the finger, the other names what it hit — so a card from the old one
+  // is a card about a question the map is no longer being asked.
+  closeTrailCard();
+  // Whichever is leaving has to go before the other arrives: they draw at the
+  // same place in the stack, and leaving both installed would be the network
+  // twice over at two different opacities.
+  if (styleReady) {
+    removeTrails(map);
+    removeVectorTrails(map);
+  }
+  updateLayersUi();
+  if (trailsOn) syncTrailLayer();
+}
+
+/**
+ * How much of the network is drawn.
+ *
+ * **A `setFilter` rather than a rebuild.** This is the one control here that
+ * somebody drags through all four positions to see what each does, and
+ * reinstalling four layers per position would throw away every tile the renderer
+ * has parsed and redraw from nothing. `setVectorTrailReach` writes the filters
+ * onto the layers that are already there.
+ *
+ * Nothing happens on the raster provider, and the row is not shown for it: their
+ * tiles are pictures with every route already drawn into them.
+ */
+function setTrailReachNow(key) {
+  trailReachOn = setTrailReach(key);
+  updateLayersUi();
+  if (trailsOn && styleReady && drawnProvider() === 'maptiler') {
+    setVectorTrailReach(map, trailReachOn, nearestMaptilerTheme(trailThemeOn));
+  }
+}
+
 function syncTrailLayer() {
   // A click during initial load or a basemap switch is intentionally deferred;
   // installGrid() calls this again for the newly loaded style.
   if (!styleReady) return;
   if (!trailsOn) {
     removeTrails(map);
+    removeVectorTrails(map);
     closeTrailCard();
     return;
   }
+  if (drawnProvider() === 'maptiler') {
+    removeTrails(map);
+    installVectorTrails(map, {
+      theme: nearestMaptilerTheme(trailThemeOn),
+      basemap: themeNow(),
+      // The strength slider is shared by both providers, which is right: it is a
+      // statement about how loud an overlay should be over this basemap, and
+      // that does not change with who rendered it.
+      opacity: trailOpacity(themeNow()),
+      // The fontstack the basemap already asks its own glyph server for. A stack
+      // it has never heard of is a label that silently never draws.
+      font: styleFont(),
+      reach: trailReachOn,
+      before: TRAILS_BEFORE(),
+    });
+    return;
+  }
+  removeVectorTrails(map);
   installTrails(map, {
     theme: trailThemeOn,
     // Which way round the map underneath is, which is the only thing about the
@@ -7219,6 +7335,20 @@ function closeTrailCard() {
 
 /** Open a card listing whatever waymarked routes run near the tap. */
 function showTrailInfo(e) {
+  // **The vector provider can say "nothing there", and the raster cannot.**
+  // That asymmetry is the whole reason the tap switch exists — see the note on
+  // `trailsInteractive`: a raster overlay takes every tap that reaches it,
+  // because ink under the finger is all it knows. Here the features are real, so
+  // a tap that hit no route stands aside and lets the ground answer, exactly as
+  // the railway overlay does.
+  //
+  // Asked before anything is built, because a popup created and then discarded
+  // is a popup that flickers.
+  const hit = drawnProvider() === 'maptiler'
+    ? trailsAtTap(map, e.point, { reach: trailReachOn })
+    : null;
+  if (hit && !hit.length) return false;
+
   const card = document.createElement('div');
   card.className = 'feature-popup';
   const h = document.createElement('h4');
@@ -7254,6 +7384,20 @@ function showTrailInfo(e) {
     .setDOMContent(card)
     .addTo(map);
 
+  // **The vector provider answered before the card was built**, which is the
+  // whole difference between the two. `queryRenderedFeatures` reads what the
+  // renderer has already drawn, so there is nothing to await and nobody to ask:
+  // the rows are what the finger actually landed on rather than what runs near
+  // it. The heading still says "near here", which is the honest word for a tap
+  // with a radius on it either way.
+  if (hit) {
+    trailCard = {
+      card, list, items, status, routes: [], theme: trailThemeOn, described: hit,
+    };
+    drawTrailCard();
+    return true;
+  }
+
   // The box the finger covers, on the ground. Unprojected here rather than
   // computed from a radius in metres, because the map can be turned and leaned:
   // the four screen corners are what a fingertip actually covers, and only the
@@ -7282,12 +7426,17 @@ function showTrailInfo(e) {
  */
 function drawTrailCard() {
   if (!trailCard) return;
-  const { card, list, items, status, routes, theme } = trailCard;
+  const { card, list, items, status, routes, theme, described } = trailCard;
+  // The vector provider arrives already described and already filtered — the
+  // renderer did the filtering, because on that provider the filter is what is
+  // drawn rather than what is listed. So **Main routes only** has nothing to say
+  // here and its row is hidden; the equivalent control is the reach ladder out
+  // in the menu, which changes the map and the card together.
   // Filtered and ordered before anything is described, so that the count below
   // is of routes rather than of rows — see orderTrails in src/trails.js.
-  const wanted = orderTrails(routes, theme, { mainOnly: trailsMainOnly });
-  const hidden = routes.length - wanted.length;
-  const found = wanted.map((r) => describeTrail(r, theme)).filter(Boolean);
+  const wanted = described ?? orderTrails(routes, theme, { mainOnly: trailsMainOnly });
+  const hidden = described ? 0 : routes.length - wanted.length;
+  const found = described ?? wanted.map((r) => describeTrail(r, theme)).filter(Boolean);
 
   items.replaceChildren();
   card.querySelector('.popup-list-hidden')?.remove();
@@ -7369,10 +7518,17 @@ function trailRow(route, theme) {
   // An anchor rather than plain text: the relation on OpenStreetMap is the rest
   // of the answer, and a list of twenty routes has no room for twenty "view this
   // on OpenStreetMap" lines under it.
-  const a = document.createElement('a');
-  a.href = route.osm;
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
+  //
+  // **Only where there is something to link to.** The vector provider's tiles
+  // carry no relation id — see the head of src/trails-vector.js — so a row from
+  // it is a name and not an address. An anchor with no href is a link that looks
+  // like a link and does nothing, which is worse than plain text.
+  const a = document.createElement(route.osm ? 'a' : 'span');
+  if (route.osm) {
+    a.href = route.osm;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+  }
   // textContent throughout — every string here is an OSM tag value, which is to
   // say something anyone on the internet can edit.
   a.textContent = route.title;
@@ -7406,6 +7562,12 @@ function trailRow(route, theme) {
   stats.hidden = true;
   text.append(stats);
   row.append(text);
+
+  // Nothing to ask, and nobody to ask it of: the length, ascent and descent come
+  // from Waymarked Trails' detail record, which is addressed by relation id. A
+  // row without one is a row whose stats line stays empty rather than one that
+  // spends a request finding that out.
+  if (!route.osm) return row;
 
   const key = `${theme}/${route.id}`;
   const held = trailStatsSeen.get(key) ?? trailDetails(theme, route.id);
@@ -7569,9 +7731,22 @@ buildLightRow();
 // dialogs deep would mean closing the map to change what the map is showing.
 const trailsSeg = document.getElementById('trails-seg');
 
+const trailsReachSeg = document.getElementById('trails-reach-seg');
+const trailsProviderSeg = document.getElementById('trails-provider-seg');
+
+/**
+ * The theme row, from whichever provider is drawing.
+ *
+ * **Rebuilt when the provider changes**, because the two do not offer the same
+ * list: MapTiler's `class` has no MTB value, so that provider offers three
+ * themes where the raster offers four. Built from the module's own list rather
+ * than written into the markup, so the menu cannot fall out of step with what
+ * the tiles can actually answer — see MAPTILER_THEMES in src/trails-vector.js.
+ */
 function buildTrailsRow() {
   if (!trailsSeg) return;
-  trailsSeg.replaceChildren(...TRAIL_THEMES.map((theme) => {
+  const themes = drawnProvider() === 'maptiler' ? MAPTILER_THEMES : TRAIL_THEMES;
+  trailsSeg.replaceChildren(...themes.map((theme) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'seg-btn';
@@ -7581,7 +7756,38 @@ function buildTrailsRow() {
     return btn;
   }));
 }
+
+/** The reach ladder — how much of the network is drawn. */
+function buildTrailsReachRow() {
+  if (!trailsReachSeg) return;
+  trailsReachSeg.replaceChildren(...TRAIL_REACH.map((rung) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'seg-btn';
+    btn.dataset.reach = rung.key;
+    btn.textContent = rung.label();
+    btn.addEventListener('click', () => setTrailReachNow(rung.key));
+    return btn;
+  }));
+}
+
+/** Who draws them. */
+function buildTrailsProviderRow() {
+  if (!trailsProviderSeg) return;
+  trailsProviderSeg.replaceChildren(...TRAIL_PROVIDERS.map((provider) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'seg-btn';
+    btn.dataset.provider = provider.key;
+    btn.textContent = provider.label;
+    btn.addEventListener('click', () => setTrailProviderNow(provider.key));
+    return btn;
+  }));
+}
+
 buildTrailsRow();
+buildTrailsReachRow();
+buildTrailsProviderRow();
 
 /**
  * Move the sun, and everything that follows from where it is.
@@ -7708,20 +7914,65 @@ function updateLayersUi() {
   // The theme row and the tap switch both belong to a layer that may not be
   // drawn, so they follow it on and off rather than sitting there greyed —
   // the same call the light row makes above.
+  const provider = drawnProvider();
   if (trailsSeg) {
     trailsSeg.hidden = !trailsOn;
+    // The row is rebuilt rather than merely re-marked, because the two providers
+    // offer different lists — and only when the list has actually changed, so
+    // that a redraw for some other reason does not throw away the buttons under
+    // a finger that is on one of them.
+    const want = provider === 'maptiler' ? MAPTILER_THEMES : TRAIL_THEMES;
+    const shown = [...trailsSeg.querySelectorAll('[data-trail]')].map((b) => b.dataset.trail);
+    if (shown.join() !== want.map((th) => th.key).join()) buildTrailsRow();
+    // Which one is lit is the theme *this provider* is drawing, not the one
+    // stored: with MapTiler chosen and `mtb` stored, the map is showing cycling
+    // and the row has to say so.
+    const lit = provider === 'maptiler' ? nearestMaptilerTheme(trailThemeOn) : trailThemeOn;
     for (const btn of trailsSeg.querySelectorAll('[data-trail]')) {
-      btn.classList.toggle('active', btn.dataset.trail === trailThemeOn);
+      btn.classList.toggle('active', btn.dataset.trail === lit);
     }
+  }
+  // The ladder: out beside the theme row, and only for the provider that can
+  // answer it. Hidden for pistes, which carry no network for it to read — the
+  // same reason **Main routes only** is hidden on `slopes`.
+  if (trailsReachSeg) {
+    const themeDrawn = provider === 'maptiler' ? nearestMaptilerTheme(trailThemeOn) : trailThemeOn;
+    trailsReachSeg.hidden = !trailsOn || provider !== 'maptiler' || !maptilerHasReach(themeDrawn);
+    for (const btn of trailsReachSeg.querySelectorAll('[data-reach]')) {
+      btn.classList.toggle('active', btn.dataset.reach === trailReachOn);
+    }
+  }
+  if (trailsProviderSeg) {
+    trailsProviderSeg.hidden = !trailsOn;
+    for (const btn of trailsProviderSeg.querySelectorAll('[data-provider]')) {
+      // What is *chosen*, not what is drawn — otherwise choosing MapTiler with
+      // no key would light the button you did not press and leave the setting
+      // looking broken. The key row below is what explains the difference.
+      btn.classList.toggle('active', btn.dataset.provider === trailProviderOn);
+    }
+  }
+  // The key, and the one row here that changes what the row above can do.
+  const trailsKeyRow = document.getElementById('trails-key-row');
+  const trailsKeyState = document.getElementById('trails-key-state');
+  if (trailsKeyRow && trailsKeyState) {
+    trailsKeyRow.hidden = !trailsOn || trailProviderOn !== 'maptiler';
+    const held = hasMaptilerKey();
+    trailsKeyState.textContent = held ? t('trails.key-saved') : t('trails.key-needed');
+    trailsKeyState.classList.toggle('bad', !held);
   }
   trailsTapToggle.checked = trailsInteractive;
   // A setting about what the card lists, so it follows the card: gone while a
   // tap goes to the ground instead, and gone on `slopes`, whose groups say what
   // you would be doing rather than how far the route reaches — there is no local
   // network there to filter out.
+  //
+  // Gone entirely on the vector provider, where the equivalent control is the
+  // reach ladder out in the menu. There the filter is what is *drawn*, so a
+  // second switch that filtered only the card would let the two disagree — a
+  // list of three under a map showing twenty.
   const trailsMainRow = document.getElementById('trails-main-row');
   if (trailsMainRow) {
-    trailsMainRow.hidden = !trailsInteractive || !trailsHaveReach(trailThemeOn);
+    trailsMainRow.hidden = !trailsInteractive || !trailsHaveReach(trailThemeOn) || provider === 'maptiler';
     trailsMainToggle.checked = trailsMainOnly;
   }
   // The fold itself, and everything in it: a chevron over three controls for a
@@ -7964,6 +8215,15 @@ function wireLayersControl() {
   });
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
   trailsToggle.addEventListener('change', () => setTrails(trailsToggle.checked));
+  // The one row in the layers menu that opens a dialog, because what is on the
+  // other side of it is a paragraph explaining why anybody is being asked for a
+  // key at all — and a row in a list is not the place to answer that.
+  //
+  // Unlike the three doors in the Map layers *dialog*, this does not close what
+  // it was opened from: the layers menu is a panel beside the map rather than a
+  // full-screen dialog, so there is nothing to get out of the way of, and
+  // closing it would lose the fold the row was found in.
+  document.getElementById('trails-key-row')?.addEventListener('click', () => maptilerUi?.open());
   trailsTapToggle.addEventListener('change', () => setTrailsInteractive(trailsTapToggle.checked));
   trailsMainToggle?.addEventListener('change', () => setTrailsMainOnly(trailsMainToggle.checked));
   document.getElementById('trails-options-toggle')?.addEventListener('click', () => {
@@ -9081,6 +9341,31 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // looked presumptuous — but that reading had it backwards: the only reason
     // to be in this dialog at all is the basemap on the other side of it.
     onUse: () => setStyleKey('mapbox'),
+  });
+  maptilerUi = mountMaptiler({
+    // No `onClose`, unlike the three above: this one is opened from the layers
+    // menu rather than from the Map layers dialog, and that menu is still open
+    // underneath. Cancel has nothing to walk back to.
+    //
+    // **Pushed rather than debounced, and for a stronger reason than the token
+    // above.** That one is synced so the *other* device does not have to be
+    // asked again; this one is synced because the server reads it to fetch a
+    // tile at all — see `accountMaptilerKey` in server/index.js. Until the push
+    // lands, every tile is a 409 and the overlay is blank on the very device
+    // that just pasted a working key.
+    onKey: () => {
+      touchPrefs();
+      pushPrefs();
+      updateLayersUi();
+      if (trailsOn) syncTrailLayer();
+    },
+    // Done with a working key means *show me the overlay I just paid for*, the
+    // same reading as the basemap above: the only reason to be in this dialog is
+    // the trails on the other side of it.
+    onUse: () => {
+      if (!trailsOn) setTrails(true);
+      setTrailProviderNow('maptiler');
+    },
   });
   // Between the three above and Settings: they open from here and come back
   // here, so Back walks the way it came instead of skipping a floor.

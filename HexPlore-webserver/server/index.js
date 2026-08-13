@@ -101,7 +101,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.58.0';
+export const SERVER_VERSION = '0.59.0';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -234,6 +234,7 @@ import { createRailTiles } from './rail-tiles.js';
 // of that module is about why, and one of the three reasons is that a tile
 // request from this app is a coordinate somebody visited.
 import { createTrailTiles } from './trail-tiles.js';
+import { createMaptilerTiles } from './maptiler-tiles.js';
 import { loadRegions } from '../src/regions.js';
 import { airportAt } from './airport-at.js';
 import { describeCron } from '../src/cron.js';
@@ -247,6 +248,10 @@ const BACKUP_DIR = process.env.BACKUP_DIR || path.join(ROOT, 'backups');
 const REGION_CACHE_DIR = process.env.REGION_CACHE_DIR || path.join(ROOT, 'cache', 'regions');
 const RAIL_CACHE_DIR = process.env.RAIL_CACHE_DIR || path.join(ROOT, 'cache', 'rail');
 const TRAILS_CACHE_DIR = process.env.TRAILS_CACHE_DIR || path.join(ROOT, 'cache', 'trails');
+// The other trails provider's tiles. A directory of its own rather than a
+// prefix inside the one above, so that switching provider for good is a folder
+// somebody can delete, and so the two budgets cannot eat each other.
+const MAPTILER_CACHE_DIR = process.env.MAPTILER_CACHE_DIR || path.join(ROOT, 'cache', 'maptiler');
 const DIST = path.join(ROOT, 'dist');
 const SERVE_STATIC = existsSync(DIST);
 // Sessions are checked against this server-side now, not just handed to the
@@ -547,6 +552,37 @@ const trailTiles = createTrailTiles({
   dir: TRAILS_CACHE_DIR,
   log: (msg) => console.log(`[visited-map] trails: ${msg}`),
 });
+
+// The same routes from MapTiler, as vector tiles, for the accounts that have
+// given a key. Nothing is fetched from them unless somebody has both chosen the
+// provider and supplied the key, so an install that never touches this setting
+// never speaks to MapTiler at all.
+const maptilerTiles = createMaptilerTiles({
+  dir: MAPTILER_CACHE_DIR,
+  log: (msg) => console.log(`[visited-map] maptiler: ${msg}`),
+});
+
+/**
+ * The MapTiler key this account has stored, or null.
+ *
+ * Read from the account's preferences on every tile rather than held in memory,
+ * because the alternative is a cache that has to be invalidated when somebody
+ * changes their key — and the symptom of getting that wrong is an overlay that
+ * goes on failing after the person has already fixed it. A prepared statement
+ * against a local SQLite file is not the cost worth optimising here.
+ *
+ * **The key never leaves this function's callers.** It goes into a URL on
+ * MapTiler's origin and nowhere else: not into the cache key, not into a log
+ * line, and never into anything sent back to the browser.
+ */
+function accountMaptilerKey(user) {
+  try {
+    const held = JSON.parse(q.prefs.get(user.id)?.prefs ?? '{}')?.maptilerKey;
+    return typeof held === 'string' && held.trim() ? held.trim() : null;
+  } catch {
+    return null; // unreadable preferences are the same as unset ones
+  }
+}
 
 const q = {
   insUser: db.prepare('INSERT INTO users(username, pass, created_at) VALUES(?, ?, ?)'),
@@ -3412,10 +3448,47 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
     // their server answers a bare request. `selfOrigin` is therefore not asked
     // for here, which also means this route works when the Host header does not
     // survive whatever is in front of it.
+    // Is this key one MapTiler will answer for? Asked by the settings dialog
+    // before it saves anything, and asked *here* rather than from the page so
+    // that what is checked is the path the tiles will actually take — a key
+    // restricted to other addresses works from a browser and not from this
+    // server, which is precisely the failure worth catching before it becomes an
+    // overlay that draws nothing.
+    //
+    // The key arrives in a body rather than a query string: a URL is the part of
+    // a request that gets written to access logs and proxy logs, and this is
+    // somebody's account.
+    if (req.method === 'POST' && pathname === '/api/trails/mt/check') {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const body = await readBody(req, 4 * 1024);
+      const verdict = await maptilerTiles.check(body?.key ?? '');
+      // `no-store`, because the question contains the key.
+      return send(res, 200, verdict, { 'Cache-Control': 'no-store' });
+    }
+
     if (req.method === 'GET' && pathname.startsWith('/api/trails/')) {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
       const rest = pathname.slice('/api/trails/'.length);
+
+      // `mt/<z>/<x>/<y>.pbf` — the other provider's vector tiles.
+      //
+      // The key comes off the account rather than out of the request, which is
+      // the whole point: the browser never holds a URL that would work against
+      // MapTiler, so a copied tile link, a service worker, or anything reading
+      // this page's network log gets a same-origin path and nothing else. It is
+      // also why this cannot 404 helpfully — an account with no key stored looks
+      // exactly like an account that never chose this provider, and both get the
+      // same answer.
+      const mt = /^mt\/(\d+)\/(\d+)\/(\d+)\.pbf$/.exec(rest);
+      if (mt) {
+        const key = accountMaptilerKey(user);
+        if (!key) return send(res, 409, { error: 'no MapTiler key on this account' });
+        const got = await maptilerTiles.tile(key, mt[1], mt[2], mt[3]);
+        if (!got) return send(res, 404, { error: 'no such tile' });
+        return sendTileBytes(req, res, got);
+      }
 
       // Which routes run near a box, for a tap. Not cached — see the note on
       // `near` in server/trail-tiles.js — and `no-store` for the same reason it

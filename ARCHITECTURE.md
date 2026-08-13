@@ -5384,6 +5384,177 @@ segment on their tile server and a subdomain on their API — and nothing else
 connects them: a theme in the menu and not in the allowlist is a button that
 draws nothing, and the other way round is a rendering nobody can reach.
 
+## The same trails, in data
+
+The second provider of the same routes. `src/trails-vector.js`,
+`server/maptiler-tiles.js`, `src/maptiler.js`, `src/maptiler-ui.js`.
+
+Everything in the section above follows from one fact — Waymarked Trails
+publishes PNGs and nothing else — and the sentence that says so has stopped
+being true of the *data*. [MapTiler](https://www.maptiler.com/)'s Outdoor schema
+publishes the same OpenStreetMap route relations as vector tiles, with a `trail`
+layer carrying `class`, `name`, `ref`, `operator`, `symbol`, `color`, `network`
+and `scale`. So the overlay gained a **provider**, chosen in the layers menu, and
+the raster did not go anywhere.
+
+**Neither is the successor.** They are asymmetric in both directions, which is
+why this is a setting rather than a migration:
+
+| | Waymarked Trails | MapTiler Outdoor |
+|---|---|---|
+| Filter what is drawn | impossible — it arrives as ink | a renderer filter, no round trip |
+| A tap | lists what runs *near* the finger | names what it *hit* |
+| Labels | baked into the tile | ours, in the basemap's own fontstack |
+| Dark maps | opacity only | line colour is ours |
+| Waymark drawing | an SVG per route | `osmc:symbol` as a *string*, unrendered |
+| Length, ascent, descent | a detail API | nothing |
+| Link to OSM | the relation id | **no id in the schema at all** |
+| Deepest zoom | 18 | 14 |
+| Cost | free, a volunteer project | a key, and a monthly ceiling |
+
+The last three are the reason the raster stays. Their features carry no OSM
+relation id — measured against live tiles, not assumed — so a card from this
+provider is a name and not an address: no link, no waymark, no distance.
+`trailRow` in `src/main.js` draws a `<span>` instead of an `<a>` and skips the
+stats fetch when `route.osm` is null, which is the one place the two cards
+differ.
+
+### The layer is not only routes
+
+The thing worth knowing before reading any of the filters. Their `trail` layer
+carries route relations **and** bare OSM paths in the same bucket, separated only
+by what they are tagged with. Counted over live z14 tiles across ten countries:
+256 features, 51 of them with a `network`, over seven distinct network values.
+By zoom, over the Alps:
+
+| z | features | with a `network` |
+|---|---|---|
+| 5 | 759 | 759 — all `iwn`/`icn` |
+| 8 | 93 | 93 |
+| 10 | **3190** | **301** |
+| 12 | 446 | 30 |
+| 14 | 87 | 6 |
+
+At z5–z8 MapTiler has already thinned to the international routes. From z10 the
+layer floods with footpaths that carry no name, no ref, no network and a
+`sac_scale` — nine features in ten. An overlay that drew all of it would be a
+thicket, which is why the default is not "everything".
+
+### The ladder
+
+`network` is the whole answer, and it was the one thing that could not be
+verified from the documentation, which says only "original value of the network
+tag". It is: OSM's `[level][activity]n` — `i`nternational, `n`ational,
+`r`egional, `l`ocal over `w`alking, `c`ycling, `m`ountain bike and `h`orse. So
+`TRAIL_REACH` is four rungs, loosest first:
+
+- **Every path** — no filter. What a raw Outdoor style shows.
+- **Named routes** — a name, a ref, or a network. Drops the unnamed paths, which
+  is most of the volume and none of the answers.
+- **Waymarked** — in a network at all, local included. **The default**, because
+  it is the closest thing to what the raster provider draws: switching provider
+  should change how the routes look, not which ones exist. It is also the half of
+  this data hardest to get anywhere else — a yellow diamond footpath is exactly
+  what *was there already a name for the way I went* is asking about.
+- **Main routes** — international, national and regional. The guidebook's
+  contents page.
+
+`MAIN_NETWORKS` is written out as twelve literals rather than matched on the
+first letter, because `network=Rundweg` is not a national route because it begins
+with an R. An unrecognised network counts as waymarked and never as main, which
+is the conservative way round.
+
+The rungs must nest — main ⊆ waymarked ⊆ named ⊆ all — and nothing about four
+independently-written expressions makes that true, so
+`scripts/test/trails-vector.mjs` asserts it by compiling them with MapLibre's own
+`featureFilter` and running a corpus modelled on the measured tiles through all
+four.
+
+**One trap, and it is the expensive kind.** Their tiles carry `"name": ""`
+rather than omitting the key, and `["!=", ["get","name"], ""]` is *true* for a
+property that is absent — so a filter written the obvious way passes every
+feature in a tile that omits the field, which looks exactly like a map with no
+filter on it. Every field is read through `["coalesce", ["get", …], ""]`.
+
+### Four layers, and why
+
+`line-dasharray` is not data-driven, so "signed routes solid, bare paths dashed"
+cannot be one layer with an expression in it — hence `paths` and `routes` as two
+layers over complementary filters, which the test also pins as non-overlapping
+(if they ever both match, every route is drawn twice at two widths). `casing` is
+a halo under the signed routes only, because an overlay drawn over five different
+basemaps cannot assume contrast. `labels` is the thing a raster overlay can never
+have, and it takes the basemap's own fontstack via `styleFont()` — a stack the
+glyph server has never heard of is a label that silently never draws.
+
+Line weight carries the hierarchy independently of the filter: a main route is
+drawn twice the width of an unsigned path at every zoom, so the map stays
+readable even at the loosest rung. Colour is the waymark's `color` where the
+route has one — about one in eight — and the theme's otherwise, in two palettes
+because a `black` waymark over a near-black basemap is an invisible route.
+
+**Three themes, not four.** Their `class` has no MTB value: an MTB route and a
+cycle route are both `bicycle`, and only individual MTB *paths* carry an
+`mtb:scale`. A theme built on that would show unsigned singletrack and nothing
+else the moment the filter came off "every path". So `mtb` maps to cycling and
+`slopes` to their separate `ski` layer — the same decision as leaving `riding`
+out of the raster provider, and for the same reason.
+
+### The key, and where it is not
+
+Stored per account like the Mapbox token, synced by `src/prefs.js`, entered in a
+dialog that checks it before saving. One difference, and it is the important one:
+**the key is never given to the renderer.** Mapbox GL JS will not take a map any
+other way, so that token is used from the page; these tiles are fetched by this
+server, which reads the key off the account (`accountMaptilerKey`). The browser
+holds a copy only to fill a settings box and to know whether the provider can be
+offered at all.
+
+So MapTiler is never told the viewer's address, and never told which square of
+the world somebody is looking at — the same promise `server/trail-tiles.js`
+makes, and the reason `api.maptiler.com` answering `access-control-allow-origin:
+*` is not taken up. The key is not part of the cache key either: the tile at
+14/8504/5833 is the same tile whoever fetched it, so keying on the account would
+store one copy per person of identical bytes *and* put the key on the disk.
+`scripts/test/maptiler-cache.mjs` checks it appears in neither a filename nor an
+entry's metadata.
+
+`/api/trails/mt/…` answers **409** for an account with no key — which is
+indistinguishable from an account that never chose this provider, and both get
+the same answer. `usableTrailProvider` is what stops that being a blank map: a
+stored `maptiler` with no key draws the raster, and the settings row says why
+rather than silently rewriting the choice.
+
+**The bug this shipped with once, for anybody adding a third provider.** Their
+tiles are gzip on the wire, which makes "store the bytes as they arrived" the
+obvious thing to write and the wrong one: `fetch` has already decoded them by the
+time `arrayBuffer()` resolves, so the obvious version stores protobuf and labels
+it `gzip: true`. The browser then gets `Content-Encoding: gzip` over data that is
+not, and fails inside the transport with `incorrect header check` — before a line
+of this app's code runs, which is why it reads as the server being broken rather
+than as a tile being wrong. `server/rail-tiles.js` does its own `gzipSync` for
+exactly this reason and says so; this one now does too.
+
+Two smaller things their server does that the others do not. An empty square is
+**200 with a zero-byte body**, not a 204 — a real answer meaning "no trails
+here", covering most of the planet, and storing it is what stops every pan over
+open country asking again. And z15 is a **400**, not an empty tile, so
+`MAPTILER_MAX_ZOOM` is enforced on both sides rather than left to fail upstream.
+
+### Where the switches live
+
+The reach ladder sits **out beside the theme row**, not folded away with the
+settings, because it is the same kind of question: what am I looking at, asked
+while looking at it. It is a `setFilter` on layers that are already there rather
+than a reinstall — this is the one control somebody drags through all four
+positions to see what each does, and rebuilding four layers per position would
+throw away every parsed tile.
+
+The provider row and the key row are inside the fold, because those are chosen
+once. **Main routes only** is hidden entirely on this provider: there the filter
+is what is *drawn*, so a second switch filtering only the card would let the two
+disagree — a list of three under a map showing twenty.
+
 ## The photographs themselves, from the phone in your hand
 
 [Photographs](#photographs) covers what the library does to the *map*: it
@@ -7550,3 +7721,7 @@ own string for the imagery.
 - Waymarked routes: [Waymarked Trails](https://waymarkedtrails.org/) raster tiles
   and `by_area` lookup (ODbL via OpenStreetMap, credited on the source so the
   line comes and goes with the overlay) — cached in `server/trail-tiles.js`
+- The same routes as vector tiles: [MapTiler](https://www.maptiler.com/) Outdoor
+  (ODbL via OpenStreetMap, plus MapTiler's own credit — both required, both on
+  the source), on the viewer's own key and free below their monthly allowance for
+  personal use — cached in `server/maptiler-tiles.js`
