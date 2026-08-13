@@ -102,18 +102,7 @@ console.log('\nThe source goes through our own proxy');
   // Both renderers work in 512 internally and derive which zoom to *ask for*
   // from this number. Getting it wrong does not scale the picture; it fetches
   // the wrong tile.
-  check(spec.tileSize === 256, 'declared at their real tile size over a flat map');
-
-  // **The one place this is deliberately not their real tile size.** Mapbox
-  // drapes raster layers over terrain through a texture of fixed resolution, so
-  // ink two pixels wide in a tile a zoom deeper is squeezed to a hairline and
-  // then to nothing — which is what zooming out on the 3D basemap looked like,
-  // and on no other. 512 asks for the shallower tile, whose ink is twice as wide
-  // on the ground, which is the part that survives the drape. See TILE_SIZE.
-  const draped = trailSourceSpec('hiking', { draped: true });
-  check(draped.tileSize === 512, 'and at double that over the one basemap with terrain');
-  eq(draped.tiles, spec.tiles, 'the same tiles either way — only how much ground they cover changes');
-  eq(draped.maxzoom, spec.maxzoom, 'and the same ceiling');
+  check(spec.tileSize === 256, 'declared at their real tile size');
   check(spec.maxzoom === TRAIL_MAX_ZOOM && spec.maxzoom === 18,
     'and capped at the deepest zoom they render', String(spec.maxzoom));
   check(/waymarkedtrails\.org/.test(spec.attribution ?? ''),
@@ -235,20 +224,6 @@ console.log('\nInstalling and removing it');
   check(map.getLayer(layerId).paint['raster-opacity'] === trailLayerSpec('light').paint['raster-opacity'],
     'and only moves the opacity');
 
-  // Going onto the 3D basemap is the other change the source cannot absorb:
-  // `tileSize` is no more settable on a live source than `tiles` is, and getting
-  // this wrong is invisible — the overlay draws, at the wrong zoom, and only
-  // thins away as you zoom out. See TILE_SIZE in src/trails.js.
-  const flat = map.getSource('hexplore-trails-src');
-  installTrails(map, { theme: 'slopes', basemap: 'light', draped: true, before: 'route-glow' });
-  check(map.getSource('hexplore-trails-src') !== flat, 'draping replaces the source');
-  check(map.getSource('hexplore-trails-src').tileSize === 512, 'at the shallower tile size');
-  check(map.layers.size === 1 && map.sources.size === 1, 'and still leaves one of each behind');
-  installTrails(map, { theme: 'slopes', basemap: 'light', draped: true, before: 'route-glow' });
-  check(map.getSource('hexplore-trails-src').tileSize === 512, 'installing again at the same size is a no-op');
-  installTrails(map, { theme: 'slopes', basemap: 'light', draped: false, before: 'route-glow' });
-  check(map.getSource('hexplore-trails-src').tileSize === 256, 'and coming off the 3D map puts it back');
-
   installTrails(map, { theme: 'not-a-theme', basemap: 'dark', before: undefined });
   check(map.getSource('hexplore-trails-src').tiles[0].includes('/hiking/'),
     'an unknown theme lands on hiking rather than on a 404');
@@ -257,6 +232,70 @@ console.log('\nInstalling and removing it');
   check(!map.getLayer(layerId) && !map.getSource('hexplore-trails-src'), 'and it all comes off again');
   removeTrails(map);
   check(true, 'twice, without throwing');
+}
+
+console.log('\nOver terrain, the drape cache has to be told the tiles changed');
+{
+  // Mapbox drapes raster layers when terrain is on, and clears a drape texture
+  // only from `Tile.upload` for two *bucket* classes — which a raster tile does
+  // not have. So a trails tile finishing its download invalidates nothing, and
+  // the mesh keeps the texture it drew when you were zoomed in: the routes stay
+  // thin after zooming out, on that basemap and no other. Writing a paint
+  // property fires the style event that does clear it. See keepDraped.
+  const frames = [];
+  globalThis.requestAnimationFrame = (fn) => { frames.push(fn); return frames.length; };
+  const paints = [];
+  const handlers = new Map();
+  const sources = new Map();
+  const layers = new Map();
+  const map = {
+    sources,
+    layers,
+    getSource: (id) => sources.get(id) ?? undefined,
+    addSource: (id, spec) => sources.set(id, { ...spec }),
+    removeSource: (id) => sources.delete(id),
+    getLayer: (id) => layers.get(id) ?? undefined,
+    addLayer(spec) { layers.set(spec.id, spec); },
+    removeLayer: (id) => layers.delete(id),
+    setPaintProperty: (id, k, v) => paints.push([id, k, v]),
+    on: (ev, fn) => handlers.set(ev, fn),
+    off: (ev) => handlers.delete(ev),
+  };
+  const [layerId] = trailLayerIds();
+
+  installTrails(map, { theme: 'hiking', basemap: 'dark', before: undefined });
+  check(!handlers.has('sourcedata'), 'a flat map is not listened to — there is no cache to expire');
+
+  installTrails(map, { theme: 'hiking', basemap: 'dark', draped: true, before: undefined });
+  check(handlers.has('sourcedata'), 'a draped one is');
+
+  // Installing over an existing layer writes the opacity itself, so the nudges
+  // are counted from there rather than from zero.
+  const base = paints.length;
+  const fire = (e) => handlers.get('sourcedata')?.(e);
+  fire({ sourceId: 'hexplore-trails-src', tile: {} });
+  eq(paints.length - base, 0, 'nothing is written before the frame');
+  frames.splice(0).forEach((fn) => fn());
+  eq(paints.length - base, 1, 'and one write after it');
+  eq(paints[base][0], layerId, 'onto our own layer');
+  eq(paints[base][2], trailOpacity('dark'), 'setting the opacity it already had — a nudge, not a change');
+
+  // A pan over cold ground lands a dozen tiles and they all want the same single
+  // redraw.
+  for (let i = 0; i < 8; i++) fire({ sourceId: 'hexplore-trails-src', tile: {} });
+  frames.splice(0).forEach((fn) => fn());
+  eq(paints.length - base, 2, 'eight tiles in one frame are one nudge');
+
+  fire({ sourceId: 'somebody-else', tile: {} });
+  fire({ sourceId: 'hexplore-trails-src' });
+  frames.splice(0).forEach((fn) => fn());
+  eq(paints.length - base, 2, 'and neither another source nor a tileless event is one at all');
+
+  installTrails(map, { theme: 'hiking', basemap: 'dark', draped: true, before: undefined });
+  check(handlers.size === 1, 'installing again does not stack a second listener');
+
+  removeTrails(map);
+  check(!handlers.has('sourcedata'), 'and taking the overlay off stops listening');
 }
 
 console.log('\nWhere the finger was, in the units their API counts in');

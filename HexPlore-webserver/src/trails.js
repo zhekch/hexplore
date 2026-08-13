@@ -92,39 +92,6 @@ const TAP_RADIUS_PX = 22;
 // asking for z19 is a request that can only fail.
 const MAX_ZOOM = 18;
 
-// What their tiles measure, and what to tell the renderer they measure.
-//
-// **The second number is a lie, told on purpose, and only over the 3D basemap.**
-// `tileSize` is not a description of the image; it is how much ground the
-// renderer should spread it over, and it decides which zoom gets asked for:
-// `round(displayZoom + log2(512 / tileSize))`. So 256 asks a zoom deeper than
-// the view and draws it 1:1, and 512 asks for the view's own zoom and draws it
-// at double size.
-//
-// **Why the 3D map needs the second one.** Mapbox Standard is the one basemap
-// with terrain under it (`setTerrain` in src/mapbox.js), and Mapbox GL JS
-// *drapes* raster layers when terrain is on — its own draped set is `fill`,
-// `line`, `background`, `hillshade`, `raster`. A draped layer is not drawn to
-// the screen; it is drawn into an offscreen texture per terrain tile and then
-// sampled onto the mesh, and that texture is `2 × proxyTileSize` — a fixed size,
-// whatever the screen resolution and whatever the zoom.
-//
-// Waymarked draw their routes about two pixels wide at *every* zoom, so a tile a
-// zoom deeper carries ink that is half as wide **on the ground**. Squeeze that
-// into a texture whose resolution does not change and the line thins until it is
-// a hairline, then until it is nothing — which is exactly what zooming out on
-// the 3D map looked like, and nowhere else. Asking for the shallower tile
-// doubles the ink's width on the ground, which is the one thing that survives a
-// fixed-resolution drape.
-//
-// It costs sharpness — a 256 px image spread over 512 px of ground is soft — and
-// on a draped map that costs nothing, because it is being resampled through that
-// texture regardless. It also asks for a quarter as many tiles, which their
-// servers will not mind. On the flat four the sharpness is real and the lie is
-// not told.
-const TILE_SIZE = 256;
-const DRAPED_TILE_SIZE = 512;
-
 const NS = 'hexplore-trails';
 const SOURCE = `${NS}-src`;
 const LAYER = `${NS}-ink`;
@@ -272,11 +239,11 @@ export function setTrailOpacity(basemap, value) {
  * this number, so getting it wrong does not scale the image — it asks for the
  * wrong tile.
  */
-export function trailSourceSpec(theme, { draped = false } = {}) {
+export function trailSourceSpec(theme) {
   return {
     type: 'raster',
     tiles: [`/api/trails/tile/${theme}/{z}/{x}/{y}.png`],
-    tileSize: draped ? DRAPED_TILE_SIZE : TILE_SIZE,
+    tileSize: 256,
     maxzoom: MAX_ZOOM,
     // On the source rather than on the map's own AttributionControl, the same
     // mechanism the airports and the region boundaries use: a source's credit
@@ -323,24 +290,18 @@ export function trailLayerSpec(basemap) {
 export function installTrails(map, { theme, basemap, draped = false, before }) {
   const want = isTrailTheme(theme) ? theme : DEFAULT_THEME;
   const held = map.getSource(SOURCE);
-  // Either of these means the tiles on the wire are the wrong ones: a different
-  // rendering, or the same rendering at the wrong zoom for what is underneath.
-  // Neither `tiles` nor `tileSize` is settable on a live source in either
-  // renderer, so both are a rebuild.
-  if (held && (held._hexploreTheme !== want || held._hexploreDraped !== draped)) removeTrails(map);
+  if (held && held._hexploreTheme !== want) removeTrails(map);
   if (!map.getSource(SOURCE)) {
-    map.addSource(SOURCE, trailSourceSpec(want, { draped }));
-    // Which theme these tiles are of, and which way they are being drawn. Read
-    // back above rather than tracked in a module variable, because the source
-    // outlives this module's idea of the world: a basemap switch rebuilds the
-    // map and every layer on it, and a variable here would go on claiming a
-    // source that no longer exists.
+    map.addSource(SOURCE, trailSourceSpec(want));
+    // Which theme these tiles are of. Read back above rather than tracked in a
+    // module variable, because the source outlives this module's idea of the
+    // world: a basemap switch rebuilds the map and every layer on it, and a
+    // variable here would go on claiming a source that no longer exists.
     const made = map.getSource(SOURCE);
-    if (made) {
-      made._hexploreTheme = want;
-      made._hexploreDraped = draped;
-    }
+    if (made) made._hexploreTheme = want;
   }
+  // Over terrain the overlay needs one thing more than a layer. See keepDraped.
+  if (draped) keepDraped(map, basemap); else stopKeepingDraped(map);
   if (!map.getLayer(LAYER)) {
     map.addLayer(trailLayerSpec(basemap), before);
   } else {
@@ -371,8 +332,76 @@ export function installTrails(map, { theme, basemap, draped = false, before }) {
   }
 }
 
+// --- Keeping it honest over terrain ------------------------------------------------
+//
+// **The 3D basemap draws this overlay through a cache that nothing tells to
+// expire.** Mapbox Standard is the one basemap with terrain under it, and
+// Mapbox GL JS *drapes* raster layers when terrain is on: the layer is never
+// drawn to the screen, it is drawn into an offscreen texture per terrain tile
+// and that texture is sampled onto the mesh. The textures are kept and reused,
+// which is the whole point of them.
+//
+// What clears one is `_clearRenderCacheForTile`, and in their own `Tile.upload`
+// that call is reached only for two bucket classes — the vector ones. **A raster
+// tile has no buckets at all**, so a trails tile finishing its download clears
+// nothing, and the mesh goes on showing the texture it already had.
+//
+// Which is exactly what it looked like: zoom in, and the drape is rendered from
+// deep tiles whose ink is thin on the ground; zoom out, and the correct
+// shallower tiles arrive and are never drawn, so the routes stay thin. Zooming
+// is what makes it visible, and nothing that happens afterwards fixes it,
+// because nothing else invalidates the cache either.
+//
+// The other thing that does invalidate it is a *style* data event — their
+// handler sets `invalidateRenderCache` on `dataType === 'style'` — and setting
+// a paint property fires one. So this listens for our own tiles arriving and
+// writes the opacity the layer already has, which is a no-op to look at and the
+// nudge the cache needs. Coalesced to one per frame, because a pan over cold
+// ground lands a dozen tiles and they all want the same single redraw.
+//
+// Only over terrain. On the flat four the overlay is drawn straight to the
+// screen, there is no cache, and this would be a listener that does nothing.
+
+const DRAPE_LISTENER = '_hexploreTrailsDrapeListener';
+
+function keepDraped(map, basemap) {
+  if (map[DRAPE_LISTENER]) return;
+  let queued = false;
+  const nudge = (e) => {
+    if (e?.sourceId !== SOURCE || !e.tile || queued) return;
+    queued = true;
+    // `requestAnimationFrame` rather than a timer: the redraw this is asking for
+    // happens on the next frame anyway, so anything sooner is the same frame and
+    // anything later is a frame of the old texture.
+    requestAnimationFrame(() => {
+      queued = false;
+      if (!map.getLayer(LAYER)) return;
+      try {
+        map.setPaintProperty(LAYER, 'raster-opacity', trailOpacity(basemap));
+      } catch {
+        // A style swap between the tile landing and this frame. The overlay is
+        // being rebuilt anyway, which is a stronger invalidation than this one.
+      }
+    });
+  };
+  map[DRAPE_LISTENER] = nudge;
+  map.on('sourcedata', nudge);
+}
+
+function stopKeepingDraped(map) {
+  const held = map[DRAPE_LISTENER];
+  if (!held) return;
+  map[DRAPE_LISTENER] = null;
+  try {
+    map.off('sourcedata', held);
+  } catch {
+    /* a map that is being torn down has nothing to unsubscribe from */
+  }
+}
+
 /** Take it off again — the layer first, then the source it reads. */
 export function removeTrails(map) {
+  stopKeepingDraped(map);
   if (map.getLayer(LAYER)) map.removeLayer(LAYER);
   if (map.getSource(SOURCE)) map.removeSource(SOURCE);
 }
