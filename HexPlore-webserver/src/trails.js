@@ -74,6 +74,41 @@ export const OPACITY_MAX = 1;
 // 2 px wide has nothing left after that.
 const RESAMPLING = 'linear';
 
+// How long a tile takes to fade in — zero everywhere except over terrain, where
+// zero is what made the routes thin to hairlines.
+//
+// **Zero is the right look and, on the 3D basemap, a trap.** Mapbox keeps a
+// tile's deeper children alive while the tile is still *fading*, so that a
+// half-loaded zoom can show the sharper picture it already has. Which tiles
+// count as fading is read off `Tile.fadeEndTime` — and that field is only ever
+// written by `registerFadeDuration`, which begins:
+//
+//     const fadeEndTime = duration + this.timeAdded;
+//     if (fadeEndTime < now()) return;        // ← leaves it undefined
+//
+// With a duration of zero that test is true on every tile, every time, so
+// `fadeEndTime` is *never set on anything*. A tile whose fade has no end never
+// stops fading, so its children are never let go: every z18 tile fetched while
+// you were zoomed in is still in the source cache when you come back out.
+//
+// On the flat four that costs nothing — the ideal tile is the one drawn. Over
+// terrain the layer is draped, and draping sorts the tiles covering each terrain
+// tile **deepest first** and stencils them so the first one wins. So the stale
+// z18 tile is drawn in place of the correct z15 one, squeezed to a quarter of
+// its width: the ink goes to a hairline and the route shields shrink to
+// unreadable dots. It never recovers, because nothing releases those tiles.
+//
+// So over that one basemap the fade is real, which is what gets `fadeEndTime`
+// written and, a fifth of a second later, past — and the children released. It
+// costs the brief double image the comment on `trailLayerSpec` describes, and
+// that is the better half of the trade: a cross-fade you have to be looking for
+// against routes that are permanently wrong.
+//
+// Long enough that a tile is still fading when it is first drawn, which is the
+// whole of what it has to be — 200 ms against the frame or two between a tile
+// landing and the draw that registers it.
+const DRAPED_FADE_MS = 200;
+
 // How far from the finger counts as "near here" when a tap asks what runs past.
 // Pixels rather than metres, because it is a question about a fingertip and not
 // about the ground: the same 22 px is a couple of streets at z14 and a couple of
@@ -254,8 +289,14 @@ export function trailSourceSpec(theme) {
   };
 }
 
-/** The one layer, given which way round the basemap is. */
-export function trailLayerSpec(basemap) {
+/**
+ * The one layer, given which way round the basemap is.
+ *
+ * @param {'light'|'dark'} basemap
+ * @param {object} [opts]
+ * @param {boolean} [opts.draped] whether this basemap has terrain under it
+ */
+export function trailLayerSpec(basemap, { draped = false } = {}) {
   return {
     id: LAYER,
     type: 'raster',
@@ -268,7 +309,11 @@ export function trailLayerSpec(basemap) {
       // at different sharpness, and wrong here: their renderer draws a different
       // *set* of routes at each zoom, so the fade shows two maps at once and
       // reads as the overlay glitching.
-      'raster-fade-duration': 0,
+      //
+      // Except over terrain, where a zero here is what keeps every stale deep
+      // tile in the cache and draws it in place of the right one — see
+      // DRAPED_FADE_MS, which is the whole of why this argument exists.
+      'raster-fade-duration': draped ? DRAPED_FADE_MS : 0,
     },
   };
 }
@@ -300,12 +345,16 @@ export function installTrails(map, { theme, basemap, draped = false, before }) {
     const made = map.getSource(SOURCE);
     if (made) made._hexploreTheme = want;
   }
-  // Over terrain the overlay needs one thing more than a layer. See keepDraped.
-  if (draped) keepDraped(map, basemap); else stopKeepingDraped(map);
+  const spec = trailLayerSpec(basemap, { draped });
   if (!map.getLayer(LAYER)) {
-    map.addLayer(trailLayerSpec(basemap), before);
+    map.addLayer(spec, before);
   } else {
-    map.setPaintProperty(LAYER, 'raster-opacity', trailLayerSpec(basemap).paint['raster-opacity']);
+    map.setPaintProperty(LAYER, 'raster-opacity', spec.paint['raster-opacity']);
+    // And the fade, because crossing onto or off the 3D basemap changes it and
+    // a layer that survives that crossing would keep the wrong one. Unlike the
+    // opacity this is invisible until it is wrong, which is the argument for
+    // writing it every time rather than only when it moves — see DRAPED_FADE_MS.
+    map.setPaintProperty(LAYER, 'raster-fade-duration', spec.paint['raster-fade-duration']);
   }
 
   // **Put it back under the routes, every time, rather than only when it is
@@ -332,76 +381,8 @@ export function installTrails(map, { theme, basemap, draped = false, before }) {
   }
 }
 
-// --- Keeping it honest over terrain ------------------------------------------------
-//
-// **The 3D basemap draws this overlay through a cache that nothing tells to
-// expire.** Mapbox Standard is the one basemap with terrain under it, and
-// Mapbox GL JS *drapes* raster layers when terrain is on: the layer is never
-// drawn to the screen, it is drawn into an offscreen texture per terrain tile
-// and that texture is sampled onto the mesh. The textures are kept and reused,
-// which is the whole point of them.
-//
-// What clears one is `_clearRenderCacheForTile`, and in their own `Tile.upload`
-// that call is reached only for two bucket classes — the vector ones. **A raster
-// tile has no buckets at all**, so a trails tile finishing its download clears
-// nothing, and the mesh goes on showing the texture it already had.
-//
-// Which is exactly what it looked like: zoom in, and the drape is rendered from
-// deep tiles whose ink is thin on the ground; zoom out, and the correct
-// shallower tiles arrive and are never drawn, so the routes stay thin. Zooming
-// is what makes it visible, and nothing that happens afterwards fixes it,
-// because nothing else invalidates the cache either.
-//
-// The other thing that does invalidate it is a *style* data event — their
-// handler sets `invalidateRenderCache` on `dataType === 'style'` — and setting
-// a paint property fires one. So this listens for our own tiles arriving and
-// writes the opacity the layer already has, which is a no-op to look at and the
-// nudge the cache needs. Coalesced to one per frame, because a pan over cold
-// ground lands a dozen tiles and they all want the same single redraw.
-//
-// Only over terrain. On the flat four the overlay is drawn straight to the
-// screen, there is no cache, and this would be a listener that does nothing.
-
-const DRAPE_LISTENER = '_hexploreTrailsDrapeListener';
-
-function keepDraped(map, basemap) {
-  if (map[DRAPE_LISTENER]) return;
-  let queued = false;
-  const nudge = (e) => {
-    if (e?.sourceId !== SOURCE || !e.tile || queued) return;
-    queued = true;
-    // `requestAnimationFrame` rather than a timer: the redraw this is asking for
-    // happens on the next frame anyway, so anything sooner is the same frame and
-    // anything later is a frame of the old texture.
-    requestAnimationFrame(() => {
-      queued = false;
-      if (!map.getLayer(LAYER)) return;
-      try {
-        map.setPaintProperty(LAYER, 'raster-opacity', trailOpacity(basemap));
-      } catch {
-        // A style swap between the tile landing and this frame. The overlay is
-        // being rebuilt anyway, which is a stronger invalidation than this one.
-      }
-    });
-  };
-  map[DRAPE_LISTENER] = nudge;
-  map.on('sourcedata', nudge);
-}
-
-function stopKeepingDraped(map) {
-  const held = map[DRAPE_LISTENER];
-  if (!held) return;
-  map[DRAPE_LISTENER] = null;
-  try {
-    map.off('sourcedata', held);
-  } catch {
-    /* a map that is being torn down has nothing to unsubscribe from */
-  }
-}
-
 /** Take it off again — the layer first, then the source it reads. */
 export function removeTrails(map) {
-  stopKeepingDraped(map);
   if (map.getLayer(LAYER)) map.removeLayer(LAYER);
   if (map.getSource(SOURCE)) map.removeSource(SOURCE);
 }

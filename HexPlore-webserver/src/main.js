@@ -6675,14 +6675,15 @@ function syncTrailLayer() {
     // Which way round the map underneath is — see OPACITY in src/trails.js.
     basemap: themeNow(),
     // And whether that map has terrain under it, which is the other thing about
-    // the basemap this overlay has to react to: Mapbox draws draped layers
-    // through a cache that a raster tile cannot invalidate on its own — see
-    // keepDraped in src/trails.js.
+    // the basemap this overlay has to react to: a draped raster layer with no
+    // cross-fade never releases the deep tiles it loaded while you were zoomed
+    // in, and draws them in place of the right ones — see DRAPED_FADE_MS in
+    // src/trails.js.
     //
     // Keyed off the basemap rather than off `map.getTerrain()`, which is the
     // live answer and the wrong one to ask here: terrain is set when Standard's
     // style parses, and this runs on that same event, so a truthful reading that
-    // arrives one frame late would leave the overlay unwatched for good.
+    // arrives one frame late would leave the fade at zero for good.
     draped: styleKey === 'mapbox',
     before: TRAILS_BEFORE(),
   });

@@ -5281,44 +5281,64 @@ Most local paths carry none of the three and never will, so those rows simply
 have no second line. The alternative — twenty rows each reading "no length
 recorded" — is a wall saying nothing at greater length.
 
-### The 3D map draws it through a cache nothing expires
+### The 3D map keeps every tile it ever loaded, and draws the wrong one
 
-The one place this overlay behaves differently per basemap, and it is not
-taste. Mapbox Standard is the only basemap with terrain under it (`setTerrain`
-in `src/mapbox.js`; the flat four never call it), and Mapbox GL JS **drapes**
-raster layers when terrain is on. Their own draped set is `fill`, `line`,
-`background`, `hillshade`, `raster` — a draped layer is never drawn to the
-screen. It is drawn into an offscreen texture per terrain tile, and that texture
-is kept and reused, which is the point of it.
+The one place this overlay behaves differently per basemap, and it is not taste.
+Mapbox Standard is the only basemap with terrain under it (`setTerrain` in
+`src/mapbox.js`; the flat four never call it), and Mapbox GL JS **drapes** raster
+layers when terrain is on: the layer is drawn into an offscreen texture per
+terrain tile rather than to the screen.
 
-What expires one is `_clearRenderCacheForTile`, and in their `Tile.upload` that
-call sits behind a test on two *bucket* classes, both of them vector. **A raster
-tile has no buckets at all.** So a trails tile finishing its download expires
-nothing, and the mesh goes on sampling the texture it already had.
+Two of their behaviours meet here, and each is reasonable alone.
 
-That is the whole of the symptom: zoom in, and the drape is rendered from deep
-tiles whose ink is thin on the ground; zoom out, and the correct shallower tiles
-arrive and are never drawn. The routes stay thin, and nothing afterwards fixes
-it, because nothing else invalidates the cache either. It reproduces on a laptop
-as readily as on a phone, which is what ruled out every explanation that began
-with the device.
+**One: a fading tile holds its children.** `SourceCache.update` keeps a tile's
+deeper children alive while that tile is still fading in, so a half-loaded zoom
+can show the sharper picture it already has. Which tiles count as fading is read
+off `Tile.fadeEndTime`, and that field has exactly one writer:
 
-The other thing that does invalidate it is a *style* data event — their handler
-sets `invalidateRenderCache` on `dataType === 'style'` — and setting a paint
-property fires one. So `keepDraped` listens for our own tiles arriving and writes
-the opacity the layer already has: a no-op to look at, and the nudge the cache
-needs. One per frame, because a pan over cold ground lands a dozen tiles that all
-want the same single redraw, and only over terrain, because on the flat four
-there is no cache and the listener would do nothing.
+```js
+registerFadeDuration(duration) {
+  const fadeEndTime = duration + this.timeAdded;
+  if (fadeEndTime < now()) return;          // ← leaves it undefined
+  …
+  this.fadeEndTime = fadeEndTime;
+}
+```
 
-**A wrong turn worth recording, because it was plausible and it was tested.** The
-first fix declared `tileSize: 512` over that basemap, on the reasoning that the
-drape texture is `2 × proxyTileSize` — fixed, whatever the zoom — so asking for
-the shallower tile would double the ink's width on the ground and give the drape
-something to keep. Every step of that is true, and it did not fix it, because the
-resolution was never the problem: the texture was not being redrawn at all. It is
-gone. A change whose stated reason has stopped being believed does not get to
-stay on the grounds that it might still help.
+With `raster-fade-duration: 0` — which this overlay set on every basemap, for the
+good reason in the next paragraph — `0 + timeAdded` is always already past, so
+**`fadeEndTime` is never written on any tile at all**. The retention test reads
+`fadeEndTime !== undefined && fadeEndTime <= now`, so a tile that never got one
+never stops fading, and its children are never released. Every z18 tile fetched
+while you were zoomed in is still in the source cache when you come back out.
+
+**Two: draping prefers the deepest tile.** `_setupProxiedCoordsForOrtho` collects
+every source tile overlapping a terrain tile, sorts them `b.overscaledZ -
+a.overscaledZ` — deepest first — and stencils them so the first one wins.
+
+Together: come back out to z13, and the stale z18 tile is drawn in place of the
+correct z15 one, squeezed to a quarter of its width. The routes go to hairlines
+and the numbered shields shrink to unreadable dots, and it never recovers,
+because nothing ever releases those tiles. On the flat four none of it happens —
+the ideal tile is simply the one drawn — which is why this was a 3D-only bug.
+
+So over that one basemap the fade is real (`DRAPED_FADE_MS`, 200 ms) and
+everywhere else it stays zero. Zero is the right look: their renderer draws a
+different *set* of routes at each zoom, so a dissolve shows two maps at once. A
+cross-fade you have to be looking for is the better half of that trade against
+routes that are permanently wrong.
+
+**Two wrong turns worth recording, because both were plausible and both were
+"tested".** The first declared `tileSize: 512` over that basemap, reasoning that
+the drape texture is a fixed `2 × proxyTileSize` so the shallower tile would
+carry wider ink. The second added a listener that wrote a paint property on every
+tile arrival, to expire a drape render cache that `Tile.upload` only clears for
+vector buckets. Both stories are true about Mapbox and neither was the cause:
+forcing `terrain.invalidateRenderCache = true` by hand does **not** bring the ink
+back, which is what ruled the cache out. Both are gone. What settled it was
+measuring the same view before and after a zoom — with the overlay hidden, to
+prove the camera and the basemap were byte-identical — rather than reasoning
+about the renderer from the outside.
 
 ### Where it sits, and how loud it is
 
