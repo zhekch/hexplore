@@ -7230,20 +7230,6 @@ function showTrailInfo(e) {
     .setDOMContent(card)
     .addTo(map);
 
-  // **The vector provider answered before the card was built**, which is the
-  // whole difference between the two. `queryRenderedFeatures` reads what the
-  // renderer has already drawn, so there is nothing to await and nobody to ask:
-  // the rows are what the finger actually landed on rather than what runs near
-  // it. The heading still says "near here", which is the honest word for a tap
-  // with a radius on it either way.
-  if (hit) {
-    trailCard = {
-      card, list, items, status, routes: [], theme: trailThemeOn, described: hit,
-    };
-    drawTrailCard();
-    return true;
-  }
-
   // The box the finger covers, on the ground. Unprojected here rather than
   // computed from a radius in metres, because the map can be turned and leaned:
   // the four screen corners are what a fingertip actually covers, and only the
@@ -7935,6 +7921,8 @@ function wireLayersControl() {
     const key = e.target.closest('[data-source]');
     if (key) toggleSource(key.dataset.source);
   });
+  railToggle.addEventListener('change', () => setRail(railToggle.checked));
+  trailsToggle.addEventListener('change', () => setTrails(trailsToggle.checked));
   trailsTapToggle.addEventListener('change', () => setTrailsInteractive(trailsTapToggle.checked));
   document.getElementById('trails-options-toggle')?.addEventListener('click', () => {
     trailsOptionsOpen = !trailsOptionsOpen;

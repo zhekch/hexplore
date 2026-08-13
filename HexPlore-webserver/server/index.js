@@ -101,7 +101,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.62.0';
+export const SERVER_VERSION = '0.62.1';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -3417,6 +3417,25 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       if (!user) return send(res, 401, { error: 'not authenticated' });
       const rest = pathname.slice('/api/trails/'.length);
 
+      // Which routes run near a box, for a tap. Not cached — see the note on
+      // `near` in server/trail-tiles.js — and `no-store` for the same reason it
+      // is not cached: the box is where somebody just put their finger.
+      if (rest === 'near') {
+        const found = await trailTiles.near(query.get('theme') ?? '', query.get('bbox') ?? '');
+        if (!found) return send(res, 400, { error: 'no such theme, or not a bbox' });
+        return send(res, 200, found, { 'Cache-Control': 'no-store' });
+      }
+
+      // `symbol/<theme>/<id>.svg` — the drawing of one waymark, which the card
+      // shows where it used to print their sentence about it.
+      //
+      // **Served under a CSP of its own**, which nothing else here needs. An SVG
+      // is a document: loaded in an `<img>` it can no more run a script than a
+      // PNG can, but *navigated to* — a copied link, a right-click "open image"
+      // — it would be somebody else's markup running on this origin, next to
+      // this session's cookie. The bytes are theirs and the drawing is why we
+      // fetched it, so the answer is to say what the document may do rather than
+      // to trust that a symbol generator will never emit a `<script>`.
       const sym = /^symbol\/([a-z]+)\/([A-Za-z0-9_.-]{1,120})\.svg$/.exec(rest);
       if (sym) {
         const drawn = await trailTiles.symbol(sym[1], sym[2]);
