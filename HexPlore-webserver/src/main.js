@@ -6672,9 +6672,19 @@ function syncTrailLayer() {
   }
   installTrails(map, {
     theme: trailThemeOn,
-    // Which way round the map underneath is, which is the only thing about the
-    // basemap this overlay reacts to — see OPACITY in src/trails.js.
+    // Which way round the map underneath is — see OPACITY in src/trails.js.
     basemap: themeNow(),
+    // And whether that map has terrain under it, which is the other thing about
+    // the basemap this overlay has to react to. Mapbox drapes raster layers over
+    // terrain through a fixed-size texture, and the tiles have to be asked for a
+    // zoom shallower to survive it — see TILE_SIZE in src/trails.js.
+    //
+    // Keyed off the basemap rather than off `map.getTerrain()`, which is the
+    // live answer and the wrong one to ask here: terrain is set when Standard's
+    // style parses, and this runs on that same event. A truthful reading that
+    // arrives one frame late would build the source at the wrong size and leave
+    // it there, because nothing after it changes.
+    draped: styleKey === 'mapbox',
     before: TRAILS_BEFORE(),
   });
 }

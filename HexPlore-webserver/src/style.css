@@ -777,19 +777,26 @@ body {
   grid-column: span 3;
 }
 
-/* **Four choices split two and two**, which the rule above gets wrong on its
-   own: it is written for five, so the fourth button inherits the wide span
-   meant for the second row of a 3-2 and lands alone under three others. That is
-   Time of day — Dawn, Day, Dusk, Night — and Night sitting by itself under the
-   other three reads as a separate control rather than as the fourth of four.
+/* **Four choices go in one row**, which the rule above gets wrong on its own: it
+   is written for five, so the fourth button inherits the wide span meant for the
+   second row of a 3-2 and lands alone underneath. That is Time of day — Dawn,
+   Day, Dusk, Night — four short words that fit across at any width this panel
+   has, and which read as one control only when they are on one line.
+
+   The grid is respanned rather than the buttons: six columns cannot hold four
+   equal ones, so a `span 1.5` does not exist to ask for. Four columns can.
 
    A quantity query rather than a class from the script that builds the row: the
    count is a fact about the markup, and the two lists this grid serves are
    filled from different modules. Anything that has to be remembered in a second
    place is a thing that comes apart the next time somebody adds a choice. */
+.seg-split:has(.seg-btn:first-child:nth-last-child(4)) {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 .seg-split .seg-btn:first-child:nth-last-child(4),
 .seg-split .seg-btn:first-child:nth-last-child(4) ~ .seg-btn {
-  grid-column: span 3;
+  grid-column: span 1;
 }
 
 /* A segmented control following a row of its own (the coloring modes under

@@ -102,7 +102,18 @@ console.log('\nThe source goes through our own proxy');
   // Both renderers work in 512 internally and derive which zoom to *ask for*
   // from this number. Getting it wrong does not scale the picture; it fetches
   // the wrong tile.
-  check(spec.tileSize === 256, 'declared at their real tile size');
+  check(spec.tileSize === 256, 'declared at their real tile size over a flat map');
+
+  // **The one place this is deliberately not their real tile size.** Mapbox
+  // drapes raster layers over terrain through a texture of fixed resolution, so
+  // ink two pixels wide in a tile a zoom deeper is squeezed to a hairline and
+  // then to nothing — which is what zooming out on the 3D basemap looked like,
+  // and on no other. 512 asks for the shallower tile, whose ink is twice as wide
+  // on the ground, which is the part that survives the drape. See TILE_SIZE.
+  const draped = trailSourceSpec('hiking', { draped: true });
+  check(draped.tileSize === 512, 'and at double that over the one basemap with terrain');
+  eq(draped.tiles, spec.tiles, 'the same tiles either way — only how much ground they cover changes');
+  eq(draped.maxzoom, spec.maxzoom, 'and the same ceiling');
   check(spec.maxzoom === TRAIL_MAX_ZOOM && spec.maxzoom === 18,
     'and capped at the deepest zoom they render', String(spec.maxzoom));
   check(/waymarkedtrails\.org/.test(spec.attribution ?? ''),
@@ -223,6 +234,20 @@ console.log('\nInstalling and removing it');
   check(map.getSource('hexplore-trails-src') === before, 'a basemap change keeps the source');
   check(map.getLayer(layerId).paint['raster-opacity'] === trailLayerSpec('light').paint['raster-opacity'],
     'and only moves the opacity');
+
+  // Going onto the 3D basemap is the other change the source cannot absorb:
+  // `tileSize` is no more settable on a live source than `tiles` is, and getting
+  // this wrong is invisible — the overlay draws, at the wrong zoom, and only
+  // thins away as you zoom out. See TILE_SIZE in src/trails.js.
+  const flat = map.getSource('hexplore-trails-src');
+  installTrails(map, { theme: 'slopes', basemap: 'light', draped: true, before: 'route-glow' });
+  check(map.getSource('hexplore-trails-src') !== flat, 'draping replaces the source');
+  check(map.getSource('hexplore-trails-src').tileSize === 512, 'at the shallower tile size');
+  check(map.layers.size === 1 && map.sources.size === 1, 'and still leaves one of each behind');
+  installTrails(map, { theme: 'slopes', basemap: 'light', draped: true, before: 'route-glow' });
+  check(map.getSource('hexplore-trails-src').tileSize === 512, 'installing again at the same size is a no-op');
+  installTrails(map, { theme: 'slopes', basemap: 'light', draped: false, before: 'route-glow' });
+  check(map.getSource('hexplore-trails-src').tileSize === 256, 'and coming off the 3D map puts it back');
 
   installTrails(map, { theme: 'not-a-theme', basemap: 'dark', before: undefined });
   check(map.getSource('hexplore-trails-src').tiles[0].includes('/hiking/'),
