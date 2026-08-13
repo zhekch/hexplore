@@ -40,7 +40,7 @@ const {
   MAPTILER_THEMES, TRAIL_REACH, describeVectorTrail, isMaptilerTheme, isTrailReach,
   maptilerHasReach, nearestMaptilerTheme, reachFilter, setTrailReach, themeFilters,
   trailReach, trailReachLabel, trailsAtTap, vectorTrailLayerIds, vectorTrailLayerSpecs,
-  vectorTrailSourceSpec, vectorTrailTapLayers,
+  vectorTrailSourceSpec, vectorTrailTapLayers, vectorTrailTileUrl,
 } = await import('../../src/trails-vector.js');
 
 const {
@@ -223,12 +223,28 @@ check(maptilerHasReach('hiking') && !maptilerHasReach('ski'),
 // --- The source and the layers ----------------------------------------------------
 
 console.log('\nThe source');
-const src = vectorTrailSourceSpec();
+const ORIGIN = 'https://map.example.test';
+const src = vectorTrailSourceSpec(ORIGIN);
 eq(src.type, 'vector', 'a vector source, which is the whole point of this provider');
-check(src.tiles.every((u) => u.startsWith('/api/')),
+check(src.tiles.every((u) => u.startsWith(`${ORIGIN}/api/`)),
   'the tiles come through this app’s own server — the key and the coordinates are both on the other side of it');
 check(!JSON.stringify(src).includes('maptiler.com/tiles'),
   'and nothing in the spec points a browser at their tile origin');
+
+// **Absolute, because a relative one does not work at all.** Vector tiles are
+// fetched in a Web Worker, which has no document to resolve a path against: a
+// bare `/api/…` fails with "Failed to construct 'Request'", and the symptom is a
+// source that loads, reports no error to the page, requests nothing, and draws
+// nothing. Measured in a browser, which is the only place it shows up.
+check(src.tiles.every((u) => /^https?:\/\//.test(u)),
+  'and the template is absolute — a worker cannot resolve a bare path, and fails silently when handed one');
+
+// The trap `railUrl` in src/rail.js documents, which is why neither of them is
+// written with `new URL(path, origin)`.
+eq(vectorTrailTileUrl(ORIGIN), `${ORIGIN}/api/trails/mt/{z}/{x}/{y}.pbf`,
+  'with its placeholders intact');
+check(!vectorTrailTileUrl(ORIGIN).includes('%7B'),
+  'not percent-encoded into %7Bz%7D, which no renderer can substitute and every tile 404s on');
 eq(src.maxzoom, MAPTILER_MAX_ZOOM, 'maxzoom is their real ceiling, past which z15 is a 400');
 eq(src.maxzoom, 14, 'which is 14, not the raster provider’s 18');
 check(/maptiler\.com\/copyright/.test(src.attribution) && /openstreetmap\.org\/copyright/.test(src.attribution),
@@ -287,7 +303,7 @@ if (validateStyleMin) {
     });
     const errs = validateStyleMin({
       version: 8,
-      sources: { 'hexplore-mtrails-src': vectorTrailSourceSpec() },
+      sources: { 'hexplore-mtrails-src': vectorTrailSourceSpec(ORIGIN) },
       layers: [s.casing, s.paths, s.routes, s.labels],
     });
     check(errs.length === 0, `${theme}: four valid layers over a valid source`,

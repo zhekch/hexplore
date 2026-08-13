@@ -386,18 +386,46 @@ const widthAt = (scale) => [
   16, ['*', 1.9 * scale, WEIGHT],
 ];
 
+/** Where the tiles come from, on this server. See `vectorTrailTileUrl`. */
+export const TILE_PATH = '/api/trails/mt/{z}/{x}/{y}.pbf';
+
+/**
+ * The tile template, as a URL MapLibre will actually fetch.
+ *
+ * **Absolute, and that is not a style choice — a relative one does not work at
+ * all.** Vector tiles are fetched inside a Web Worker, which has no document to
+ * resolve a path against, so `/api/trails/mt/…` comes back as `Failed to
+ * construct 'Request': Failed to parse URL` and the source sits there loaded and
+ * empty. Nothing draws, nothing 404s, and the network panel shows no request to
+ * explain it. A raster source has none of this trouble because its tiles are
+ * fetched on the main thread, which is why the other trails provider gets away
+ * with a bare path.
+ *
+ * **Concatenated, deliberately, rather than `new URL(path, origin)`.** `URL`
+ * normalises, and normalising a tile template percent-encodes the placeholders
+ * into `%7Bz%7D/%7Bx%7D/%7By%7D` — which MapLibre then cannot substitute, so
+ * every tile is requested with the braces still in the path and every one of
+ * them 404s. `railUrl` in src/rail.js says the same thing for the same reason;
+ * this is the second module to need it and the second to be bitten by it.
+ *
+ * The origin is a parameter so that a test can call this at all: `location` is a
+ * browser thing, and these run in node.
+ */
+export const vectorTrailTileUrl = (origin = location.origin) => origin + TILE_PATH;
+
 /**
  * The source as MapLibre and Mapbox both want it.
  *
- * Exported so a test can hold it to the two things that are not taste: the URL
- * must go through this app's own proxy — the key is on the other side of it, and
- * so is the promise that MapTiler is never told where somebody is looking — and
- * `maxzoom` must be the zoom past which their server answers 400.
+ * Exported so a test can hold it to the things that are not taste: the URL must
+ * go through this app's own proxy — the key is on the other side of it, and so
+ * is the promise that MapTiler is never told where somebody is looking — the
+ * placeholders must survive whatever made it absolute, and `maxzoom` must be the
+ * zoom past which their server answers 400.
  */
-export function vectorTrailSourceSpec() {
+export function vectorTrailSourceSpec(origin) {
   return {
     type: 'vector',
-    tiles: ['/api/trails/mt/{z}/{x}/{y}.pbf'],
+    tiles: [vectorTrailTileUrl(origin)],
     maxzoom: MAX_ZOOM,
     // On the source rather than the map's AttributionControl, the same mechanism
     // every other overlay uses: a source's credit shows only while the source is

@@ -7932,18 +7932,27 @@ function updateLayersUi() {
       btn.classList.toggle('active', btn.dataset.trail === lit);
     }
   }
-  // The ladder: out beside the theme row, and only for the provider that can
-  // answer it. Hidden for pistes, which carry no network for it to read — the
-  // same reason **Main routes only** is hidden on `slopes`.
+  // The ladder, inside the fold, and only for the provider that can answer it.
+  // Hidden for pistes, which carry no network for it to read — the same reason
+  // **Main routes only** is hidden on `slopes`. The label goes with it: a
+  // heading over a control that is not there is a heading over the next thing
+  // down, which is a different control entirely.
   if (trailsReachSeg) {
     const themeDrawn = provider === 'maptiler' ? nearestMaptilerTheme(trailThemeOn) : trailThemeOn;
-    trailsReachSeg.hidden = !trailsOn || provider !== 'maptiler' || !maptilerHasReach(themeDrawn);
+    const noReach = provider !== 'maptiler' || !maptilerHasReach(themeDrawn);
+    trailsReachSeg.hidden = noReach;
+    const head = document.getElementById('trails-reach-head');
+    if (head) head.hidden = noReach;
     for (const btn of trailsReachSeg.querySelectorAll('[data-reach]')) {
       btn.classList.toggle('active', btn.dataset.reach === trailReachOn);
     }
   }
   if (trailsProviderSeg) {
-    trailsProviderSeg.hidden = !trailsOn;
+    // No `trailsOn` test on either of these, unlike the theme row: they live
+    // inside the fold, and the fold is already hidden with the layer.
+    trailsProviderSeg.hidden = false;
+    const head = document.getElementById('trails-provider-head');
+    if (head) head.hidden = false;
     for (const btn of trailsProviderSeg.querySelectorAll('[data-provider]')) {
       // What is *chosen*, not what is drawn — otherwise choosing MapTiler with
       // no key would light the button you did not press and leave the setting
@@ -7955,7 +7964,7 @@ function updateLayersUi() {
   const trailsKeyRow = document.getElementById('trails-key-row');
   const trailsKeyState = document.getElementById('trails-key-state');
   if (trailsKeyRow && trailsKeyState) {
-    trailsKeyRow.hidden = !trailsOn || trailProviderOn !== 'maptiler';
+    trailsKeyRow.hidden = trailProviderOn !== 'maptiler';
     const held = hasMaptilerKey();
     trailsKeyState.textContent = held ? t('trails.key-saved') : t('trails.key-needed');
     trailsKeyState.classList.toggle('bad', !held);

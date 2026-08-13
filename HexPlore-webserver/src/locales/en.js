@@ -526,6 +526,8 @@ export default {
   "sync.strava": "Strava",
   "sync.your-phone": "Your phone",
   "trails-key-row.maptiler-key": "MapTiler key",
+  "trails-provider-head.drawn-by": "Drawn by",
+  "trails-reach-head.which-routes": "Which routes",
   "trails-main-row.main-routes-only": "Main routes only",
   "trails-options-toggle.strength-taps-and-which-routes": "Strength, taps and which routes",
   "trails-tap-row.tap-for-trails": "Tap for trails",

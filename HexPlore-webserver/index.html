@@ -193,15 +193,6 @@
               <input type="checkbox" id="trails-toggle" />
             </label>
             <div class="seg seg-wrap" id="trails-seg" hidden></div>
-            <!-- How much of the network is drawn, and the reason the MapTiler
-                 provider exists at all. Out here beside the theme row rather
-                 than folded away with the settings, because it is the same kind
-                 of question: what am I looking at, asked while looking at it.
-                 Shown only for the provider that can answer it — the raster is
-                 already drawn by the time it arrives, so there is nothing to
-                 filter. Filled in by main.js from TRAIL_REACH in
-                 src/trails-vector.js. -->
-            <div class="seg seg-wrap" id="trails-reach-seg" hidden></div>
             <button type="button" class="menu-expand" id="trails-options-toggle"
               aria-expanded="false" aria-controls="trails-options" hidden>
               <span data-i18n="trails-options-toggle.strength-taps-and-which-routes">Strength, taps and which routes</span>
@@ -241,18 +232,38 @@
                 <span data-i18n-text="trails-main-row.main-routes-only">Main routes only</span>
                 <input type="checkbox" id="trails-main-toggle" />
               </label>
+              <!-- How much of the network is drawn, and the reason the MapTiler
+                   provider exists at all. Folded away with the rest rather than
+                   out beside the theme row: four buttons of filter under four
+                   buttons of theme read as one eight-button control where the
+                   second row silently does nothing on the other provider.
+                   Shown only for the provider that can answer it — the raster
+                   is already drawn by the time it arrives, so there is nothing
+                   left to filter. Filled in by main.js from TRAIL_REACH in
+                   src/trails-vector.js. -->
+              <div class="menu-subhead" id="trails-reach-head" hidden>
+                <span data-i18n="trails-reach-head.which-routes">Which routes</span>
+              </div>
+              <div class="seg seg-wrap" id="trails-reach-seg" hidden></div>
               <!-- Who draws them. Two renderings of the same OSM route
                    relations, and neither is the successor to the other — see
                    the head of src/trails-vector.js for what each can do that
-                   the other cannot. Folded away with the settings rather than
-                   out with the theme row because it is a thing you choose once,
-                   where the theme is a thing you flick between. -->
+                   the other cannot. Folded away because it is a thing you
+                   choose once, where the theme is a thing you flick between. -->
+              <div class="menu-subhead" id="trails-provider-head" hidden>
+                <span data-i18n="trails-provider-head.drawn-by">Drawn by</span>
+              </div>
               <div class="seg seg-wrap" id="trails-provider-seg" hidden></div>
               <!-- MapTiler serves nothing without an account, so this is the
                    row that switches the provider above from a button that
                    cannot work into one that can. Hidden while the raster
                    provider is chosen, because it is a question about the other
-                   one. -->
+                   one.
+
+                   A <button> wearing .menu-row, so it needs .menu-row-btn on
+                   top to undo what a browser does to a button — otherwise it
+                   arrives with a border, a background and a centred label in
+                   the middle of a column of switches. -->
               <button type="button" class="menu-row menu-row-btn" id="trails-key-row" hidden>
                 <span data-i18n="trails-key-row.maptiler-key">MapTiler key</span>
                 <small id="trails-key-state"></small>

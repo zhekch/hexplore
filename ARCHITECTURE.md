@@ -5525,7 +5525,24 @@ the same answer. `usableTrailProvider` is what stops that being a blank map: a
 stored `maptiler` with no key draws the raster, and the settings row says why
 rather than silently rewriting the choice.
 
-**The bug this shipped with once, for anybody adding a third provider.** Their
+**The tile URL has to be absolute, and this is the second module to learn it.**
+Vector tiles are fetched inside a Web Worker, which has no document to resolve a
+path against — so a `tiles` entry of `/api/trails/mt/{z}/{x}/{y}.pbf` fails with
+`Failed to construct 'Request': Failed to parse URL`, and the symptom is a source
+that reports itself loaded, requests nothing, raises nothing the page can see,
+and draws an empty map. Nothing in a network panel explains it because there is
+no request. The raster provider has none of this trouble, because its tiles are
+fetched on the main thread — which is exactly why the mistake is easy to make
+here after working there.
+
+`railUrl` in `src/rail.js` already said this, and said the other half too:
+**concatenate, never `new URL(path, origin)`**. `URL` normalises, and normalising
+a tile template percent-encodes the placeholders into `%7Bz%7D/%7Bx%7D/%7By%7D`,
+which no renderer can substitute — so every tile is requested with the braces
+still in the path and every one of them 404s. `vectorTrailTileUrl` is the same
+three lines, and `scripts/test/trails-vector.mjs` pins both halves.
+
+**The other bug this shipped with, for anybody adding a third provider.** Their
 tiles are gzip on the wire, which makes "store the bytes as they arrived" the
 obvious thing to write and the wrong one: `fetch` has already decoded them by the
 time `arrayBuffer()` resolves, so the obvious version stores protobuf and labels
@@ -5543,17 +5560,30 @@ open country asking again. And z15 is a **400**, not an empty tile, so
 
 ### Where the switches live
 
-The reach ladder sits **out beside the theme row**, not folded away with the
-settings, because it is the same kind of question: what am I looking at, asked
-while looking at it. It is a `setFilter` on layers that are already there rather
-than a reinstall — this is the one control somebody drags through all four
-positions to see what each does, and rebuilding four layers per position would
-throw away every parsed tile.
+Everything this provider adds is **inside the fold**, under two subheads —
+*Which routes* over the ladder, *Drawn by* over the provider, then the key row.
+The ladder was briefly out beside the theme row, on the reasoning that it is the
+same kind of question as the theme: what am I looking at, asked while looking at
+it. In front of a map that is wrong: four buttons of filter directly under four
+buttons of theme read as one eight-button control, and the second row silently
+does nothing on the other provider. A subhead is what makes two adjacent
+segmented rows two controls instead of one.
 
-The provider row and the key row are inside the fold, because those are chosen
-once. **Main routes only** is hidden entirely on this provider: there the filter
-is what is *drawn*, so a second switch filtering only the card would let the two
+The ladder is a `setFilter` on layers that are already there rather than a
+reinstall — this is the one control somebody drags through all four positions to
+see what each does, and rebuilding four layers per position would throw away
+every parsed tile. Measured over Bern at z10.5, the four rungs draw 2201, 1644,
+1602 and 23 features.
+
+**Main routes only** is hidden entirely on this provider: there the filter is
+what is *drawn*, so a second switch filtering only the card would let the two
 disagree — a list of three under a map showing twenty.
+
+The key row is a `<button>` wearing `.menu-row`, so it needs `.menu-row-btn` on
+top of it. Everything in that rule undoes something a browser does to a button on
+its own authority; without it the row arrives with a border, a grey background
+and a centred label in a column of switches that have none of those, which reads
+as a rendering fault rather than as a button.
 
 ## The photographs themselves, from the phone in your hand
 
