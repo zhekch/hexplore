@@ -84,8 +84,9 @@ import {
 // import: the whole module is a source spec, five names and a fetch, where the
 // railway's is a 315 KB style.
 import {
-  TRAIL_THEMES, bboxAround, describeTrail, installTrails, removeTrails, setTrailOpacity,
-  setTrailTheme, tapCorners, trailOpacity, trailTheme, trailThemeLabel, trailsNear,
+  TRAIL_THEMES, bboxAround, describeTrail, installTrails, orderTrails, removeTrails,
+  setTrailMainOnly, setTrailOpacity, setTrailTheme, tapCorners, trailDetails, trailMainOnly,
+  trailOpacity, trailStatsLine, trailTheme, trailThemeLabel, trailsHaveReach, trailsNear,
 } from './trails.js';
 // Your photographs as points, which only the iOS app can draw: a photo library
 // is on a phone, and the server has never held anything but the coordinates. In
@@ -915,6 +916,10 @@ let trailsInteractive = localStorage.getItem(TRAIL_TAP_KEY) === 'on';
 // Which rendering. Read once here so the seg and the layer agree
 // from the first frame; `setTrailTheme` is what writes it back.
 let trailThemeOn = trailTheme();
+// Whether the card lists the whole network or only the routes with names of
+// their own. On unless it has been switched off — see MAIN_ONLY_KEY in
+// src/trails.js for why this is the one trail preference with an opinion.
+let trailsMainOnly = trailMainOnly();
 
 // And the photographs, remembered for the same reason as the airports: the cost
 // of switching them on is a metadata query against a library that is already on
@@ -4809,10 +4814,10 @@ function updateRoutesUi() {
   // stop. The same goes for the distance — the second copy was adding its
   // kilometres to the total as if you had ridden them again.
   const listed = listedRoutes();
-  // The one second line left in this menu, and the shortest thing that still
-  // answers "is there anything here": a count, and how much of it you are
-  // currently looking at. The distance went with the rest of the subtext — it is
-  // in Routes and statistics, which is a screen for reading numbers on.
+  // The row's whole label, where it used to be a second line under "Saved
+  // routes": a count, and how much of it you are currently looking at. The
+  // distance went with the rest of the subtext — it is in Routes and statistics,
+  // which is a screen for reading numbers on.
   note.textContent = listed.length
     ? (shown.length === listed.length
         ? `${t('routes-note.activities')} · ${listed.length}`
@@ -6304,6 +6309,7 @@ const layersMenu = document.getElementById('layers-menu');
 const railToggle = document.getElementById('rail-toggle');
 const trailsToggle = document.getElementById('trails-toggle');
 const trailsTapToggle = document.getElementById('trails-tap-toggle');
+const trailsMainToggle = document.getElementById('trails-main-toggle');
 const trailsStrength = document.getElementById('trails-strength');
 const airportsToggle = document.getElementById('airports-toggle');
 const photosRow = document.getElementById('photos-row');
@@ -6653,6 +6659,20 @@ function setTrailsInteractive(on) {
   // An overlay that no longer answers a tap should not be left holding the last
   // card it opened.
   if (!on) trailPopup?.remove();
+}
+
+/**
+ * Whether the card lists the whole network or only the routes with names.
+ *
+ * The open card goes, rather than being refiltered in place: it is a list of
+ * what was near a point, and what was near that point is exactly what the switch
+ * has just changed its mind about. Rebuilding it would also be a second answer
+ * to a question nobody asked twice — the tap is what asks.
+ */
+function setTrailsMainOnly(on) {
+  trailsMainOnly = setTrailMainOnly(on);
+  trailPopup?.remove();
+  updateLayersUi();
 }
 
 function syncTrailLayer() {
@@ -7213,43 +7233,146 @@ function showTrailInfo(e) {
     // Guarded by the card it was opened for, so a fast second tap cannot land
     // its answer in the first one's popup.
     if (trailPopup?.getElement()?.contains(mine) !== true) return;
-    const found = routes.map((r) => describeTrail(r, trailThemeOn)).filter(Boolean);
+    // Filtered and ordered before anything is described, so that the count below
+    // is of routes rather than of rows — see orderTrails in src/trails.js.
+    const wanted = orderTrails(routes, trailThemeOn, { mainOnly: trailsMainOnly });
+    const hidden = routes.length - wanted.length;
+    const found = wanted.map((r) => describeTrail(r, trailThemeOn)).filter(Boolean);
     if (!found.length) {
-      status.textContent = t('trails.nothing-here');
+      // Two different pieces of ground, and they must not read alike: nothing
+      // here at all, or nothing here that this switch will show you.
+      status.textContent = hidden > 0 ? t('trails.only-local') : t('trails.nothing-here');
       return;
     }
     status.remove();
     list.hidden = false;
-    for (const route of found) {
-      const row = document.createElement('div');
-      row.className = 'popup-list-row';
-      const text = document.createElement('span');
-      text.className = 'popup-list-text';
-      // An anchor rather than plain text: the relation on OpenStreetMap is the
-      // rest of the answer, and a list of twenty routes has no room for twenty
-      // "view this on OpenStreetMap" lines under it.
-      const a = document.createElement('a');
-      a.href = route.osm;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      // textContent throughout — every string here is an OSM tag value, which is
-      // to say something anyone on the internet can edit.
-      a.textContent = route.title;
-      text.append(a);
-      // The kind, where it runs and what is on the post, after the name and in
-      // the muted colour: the name is what you are scanning for, and twenty
-      // routes' worth of detail at full weight is a wall.
-      if (route.notes.length) {
-        const tail = document.createElement('span');
-        tail.className = 'popup-list-tail muted';
-        tail.textContent = ` ${route.notes.join(' · ')}`;
-        text.append(tail);
-      }
-      row.append(text);
-      items.append(row);
+    for (const route of found) items.append(trailRow(route, trailThemeOn));
+
+    // What the switch is holding back. Without this the card is indistinguishable
+    // from a card about emptier ground — and the whole point of the filter is
+    // that the legs it hides are real routes somebody may want after all.
+    if (hidden > 0) {
+      const note = document.createElement('p');
+      note.className = 'feature-popup-note popup-list-hidden';
+      note.textContent = t(hidden === 1 ? 'trails.hidden.one' : 'trails.hidden.other', { n: hidden });
+      card.append(note);
     }
   });
   return true;
+}
+
+// What a row has already been told about itself, so that closing and reopening a
+// card — or tapping the same junction twice — does not ask again. Keyed by theme
+// and relation, because a route id means a different route on each of their four
+// renderings.
+const trailStatsSeen = new Map();
+
+// Static markup, no interpolation — the same chevron the menu's fold uses.
+const CHEVRON_SVG =
+  '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+
+/**
+ * One route as a row: the sign it is signed with, what it is called, where it
+ * runs, and a way to ask how far.
+ *
+ * The symbol is an `<img>` and deliberately not inlined SVG. Their drawing is
+ * markup from a server this app does not own, and markup put into this document
+ * is this document's — a `<script>` in a waymark would be running on the page
+ * that holds the map. Inside an `<img>` it is a picture and can be nothing else,
+ * which is the same reason the tiles are `<img>`s and not documents.
+ */
+function trailRow(route, theme) {
+  const row = document.createElement('div');
+  row.className = `popup-list-row trail-row${route.main ? ' main' : ''}`;
+
+  // Always the same slot, whether or not there is a sign to put in it — the
+  // reasoning the railway's hollow dot is drawn with. A route with no waymark
+  // tagged is common, and a list whose names start at two different left edges
+  // reads as a rendering fault rather than as a gap in the data.
+  if (route.symbol) {
+    const sign = document.createElement('img');
+    sign.className = 'trail-symbol';
+    sign.src = route.symbol.url;
+    // Their sentence about the sign, in whatever language it was tagged in.
+    // `alt` rather than beside the name: it is a description of the picture, so
+    // it belongs where the picture cannot be seen and nowhere else.
+    sign.alt = route.symbol.alt;
+    if (route.symbol.alt) sign.title = route.symbol.alt;
+    sign.width = 16;
+    sign.height = 16;
+    sign.loading = 'lazy';
+    // A waymark their generator cannot draw leaves a broken-image glyph in the
+    // middle of the list, which reads as this app being broken rather than as a
+    // symbol being missing. Hidden rather than removed, so the row keeps its
+    // slot and the column of names stays a column.
+    sign.addEventListener('error', () => { sign.style.visibility = 'hidden'; }, { once: true });
+    row.append(sign);
+  } else {
+    const gap = document.createElement('span');
+    gap.className = 'trail-symbol';
+    row.append(gap);
+  }
+
+  const text = document.createElement('span');
+  text.className = 'popup-list-text';
+  // An anchor rather than plain text: the relation on OpenStreetMap is the rest
+  // of the answer, and a list of twenty routes has no room for twenty "view this
+  // on OpenStreetMap" lines under it.
+  const a = document.createElement('a');
+  a.href = route.osm;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  // textContent throughout — every string here is an OSM tag value, which is to
+  // say something anyone on the internet can edit.
+  a.textContent = route.title;
+  text.append(a);
+  // Where it runs, after the name and in the muted colour: the name is what you
+  // are scanning for, and twenty routes' worth of detail at full weight is a
+  // wall. The separator is its own node rather than a leading space in the tail,
+  // because the tail is an `inline-block` and a leading space inside one of those
+  // is collapsed away — which is exactly how "Frutigen – RiedWaymark" happened.
+  if (route.between) {
+    text.append(' ');
+    const tail = document.createElement('span');
+    tail.className = 'popup-list-tail muted';
+    tail.textContent = route.between;
+    text.append(tail);
+  }
+  const stats = document.createElement('span');
+  stats.className = 'trail-stats';
+  stats.hidden = true;
+  text.append(stats);
+  row.append(text);
+
+  // How far and how much climb, on request. Not with the rest of the row,
+  // because it is not in the answer the card already has: it is a second
+  // question upstream, one route at a time, behind a quarter of a megabyte of
+  // geometry each. See `details` in server/trail-tiles.js.
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'trail-more';
+  more.setAttribute('aria-expanded', 'false');
+  more.setAttribute('aria-label', t('trails.how-far'));
+  more.title = t('trails.how-far');
+  more.innerHTML = CHEVRON_SVG;
+  more.addEventListener('click', () => {
+    const open = more.getAttribute('aria-expanded') === 'true';
+    more.setAttribute('aria-expanded', open ? 'false' : 'true');
+    stats.hidden = open;
+    if (open || stats.dataset.asked) return;
+    stats.dataset.asked = '1';
+    const key = `${theme}/${route.id}`;
+    stats.textContent = t('trails.looking');
+    const held = trailStatsSeen.get(key) ?? trailDetails(theme, route.id);
+    trailStatsSeen.set(key, held);
+    held.then((about) => {
+      // Most local paths carry no `distance` tag and never will. Saying so is
+      // the honest answer; leaving "Looking…" on screen is not.
+      stats.textContent = (about && trailStatsLine(about)) || t('trails.nothing-measured');
+    });
+  });
+  row.append(more);
+  return row;
 }
 
 // --- Which railway the cursor is on --------------------------------------------
@@ -7545,6 +7668,15 @@ function updateLayersUi() {
   const trailsTapRow = document.getElementById('trails-tap-row');
   if (trailsTapRow) trailsTapRow.hidden = !trailsOn;
   trailsTapToggle.checked = trailsInteractive;
+  // A setting about what the card lists, so it follows the card: not while the
+  // overlay is off, not while a tap goes to the ground instead, and not on
+  // `slopes`, whose groups say what you would be doing rather than how far the
+  // route reaches — there is no local network there to filter out.
+  const trailsMainRow = document.getElementById('trails-main-row');
+  if (trailsMainRow) {
+    trailsMainRow.hidden = !trailsOn || !trailsInteractive || !trailsHaveReach(trailThemeOn);
+    trailsMainToggle.checked = trailsMainOnly;
+  }
   const trailsStrengthRow = document.getElementById('trails-strength-row');
   if (trailsStrengthRow) trailsStrengthRow.hidden = !trailsOn;
   if (trailsOn) {
@@ -7778,6 +7910,7 @@ function wireLayersControl() {
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
   trailsToggle.addEventListener('change', () => setTrails(trailsToggle.checked));
   trailsTapToggle.addEventListener('change', () => setTrailsInteractive(trailsTapToggle.checked));
+  trailsMainToggle?.addEventListener('change', () => setTrailsMainOnly(trailsMainToggle.checked));
   // `input`, not `change`: the whole point of a slider over a number field is
   // watching the map answer while you drag it.
   trailsStrength.addEventListener('input', () => setTrailStrength(Number(trailsStrength.value)));

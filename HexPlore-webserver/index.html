@@ -198,6 +198,15 @@
               <span data-i18n-text="trails-tap-row.tap-for-trails">Tap for trails</span>
               <input type="checkbox" id="trails-tap-toggle" />
             </label>
+            <!-- What that tap comes back with: the routes that are a thing in
+                 themselves, or those plus every leg of the local network they
+                 are stitched out of. On by default, and hidden entirely unless
+                 a tap can open a card at all — see isMainTrail in
+                 src/trails.js for why reach is what this reads. -->
+            <label class="menu-row" id="trails-main-row" hidden>
+              <span data-i18n-text="trails-main-row.main-routes-only">Main routes only</span>
+              <input type="checkbox" id="trails-main-toggle" />
+            </label>
 
             <!-- Same deal as the tracks above: the switch is a question about
                  the view and belongs here, while which kinds of airfield are
@@ -210,8 +219,13 @@
 
           <section class="menu-section">
             <div data-i18n="layers-menu.your-map" class="menu-heading">Your map</div>
+            <!-- Labelled by its own second line, because the second line was
+                 the informative one. "Saved routes" over "Activities · 12" is
+                 the same fact told twice, and the row is a switch beside a
+                 count either way — so the count is the label, and what to do
+                 about an empty map is the label when there is no count. -->
             <label class="menu-row" id="routes-row">
-              <span data-i18n-text="routes-row.saved-routes">Saved routes<small data-i18n="routes-note.import-a-gpx-or-kml" id="routes-note">Import a GPX or KML track to save one</small></span>
+              <span data-i18n="routes-note.import-a-gpx-or-kml" id="routes-note">Import a GPX or KML track</span>
               <input type="checkbox" id="routes-toggle" />
             </label>
             <!-- Folded away by default: these are per-activity controls and
@@ -656,7 +670,7 @@
             </svg>
             <span class="sync-option-text">
               <b data-i18n="settings.settings">Settings</b>
-              <small data-i18n="settings.home-clock-editing-sources-and">Home, clock, editing, sources and cached data</small>
+              <small data-i18n="settings.home-the-map-and-what">Home, the map, and what it is built from</small>
             </span>
             <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
@@ -714,11 +728,21 @@
           </button>
         </div>
 
+        <!-- Three headings, and the order is who each group is about: you, then
+             the map, then what the map is made of. It used to be four — "This
+             app", "The map", "Easter eggs" and an unheaded row of doors — which
+             split the two questions somebody actually arrives with. Where is
+             home and what language is this are the same question ("is this set
+             up for me"); the sun, editing and snow are the same question ("what
+             is the map doing"); and snow under a heading of its own said only
+             that whoever wrote it found it funny. -->
+        <div data-i18n="personal.personal" class="settings-heading">Personal</div>
+
         <div class="home-row">
           <div class="home-line">
             <span class="home-text">
               <b id="settings-home-name"></b>
-              <small data-i18n="personal.home-everything-on-the-map">Home — everything on the map is measured from it</small>
+              <small data-i18n="personal.distances-are-measured-from-here">Distances are measured from here</small>
             </span>
             <button data-i18n="settings-home-set.change" type="button" class="home-set" id="settings-home-set">Change</button>
           </div>
@@ -727,30 +751,28 @@
               <path d="M4 11 12 4l8 7" />
               <path d="M6 10v9h12v-9" />
             </svg>
-            <span data-i18n="personal.show-home-on-the-map">Show home on the map</span>
+            <span data-i18n="personal.show-on-the-map">Show on the map</span>
             <input type="checkbox" id="settings-home-shown" />
           </label>
         </div>
 
-
-        <!-- Everything from here to the next heading is about the app itself —
-             the words it uses and how it tells you things. Nothing under it
-             changes what is on the map. -->
-        <div data-i18n="personal.this-app" class="settings-heading">This app</div>
         <!-- The options are filled in from the locale registry rather than
              written here, because the list of languages *is* the registry —
              a second copy in the markup is a second thing to keep in step, and
              the one it would disagree with is the one that decides what can
              actually be loaded. Each is named in its own language: a list of
              languages is the one list nobody wants translated, since whoever is
-             reading it is looking for the one they can read. -->
+             reading it is looking for the one they can read.
+
+             No second line: a select reading "English" beside the word Language
+             has already answered every question a second line could. -->
         <label class="import-row">
-          <span data-i18n-text="personal.language">Language<small data-i18n="settings-locale-note.the-language-the-app-is" id="settings-locale-note">The language the app is in</small></span>
+          <span data-i18n="personal.language">Language</span>
           <select id="settings-locale"></select>
         </label>
 
         <label class="import-row">
-          <span data-i18n-text="personal.clock">Clock<small data-i18n="settings-clock-note.times-follow-this-device" id="settings-clock-note">Times follow this device</small></span>
+          <span data-i18n-text="personal.clock">Clock<small data-i18n="settings-clock-note.follows-this-device" id="settings-clock-note">Follows this device</small></span>
           <select id="settings-clock">
             <option data-i18n="settings-clock.follow-this-device" value="auto">Follow this device</option>
             <option data-i18n="settings-clock.24-hour" value="24">24-hour</option>
@@ -758,25 +780,11 @@
           </select>
         </label>
 
-
-        <!-- And from here, the two that change the map itself rather than the
-             app around it: how it is lit, and whether you can draw on it. -->
-        <div data-i18n="personal.the-map" class="settings-heading">The map</div>
-        <!-- Whether the 3D basemap works out its own sun. The four suns
-             themselves stay in the layers menu: which one is up is a question
-             you ask while looking at the map, and you answer it by looking at
-             what changed. Whether the map should decide for itself is the other
-             kind — set once, never revisited — which is what this list is for.
-             It sits under Clock because it is the same subject: both are the
-             app being told what time it is. -->
-        <label class="import-row">
-          <span data-i18n-text="personal.time-of-day">Time of day<small data-i18n="settings-light-note.the-3d-basemap-is-lit" id="settings-light-note">The 3D basemap is lit for the time where you are</small></span>
-          <input type="checkbox" id="settings-light-auto" />
-        </label>
-
         <!-- How often the map volunteers what has changed. Not a switch,
              because "never" and "always" are both wrong for most people and the
-             useful answer is the middle one. -->
+             useful answer is the middle one. With the clock and the language
+             because it is the third thing that is about being spoken to rather
+             than about the map. -->
         <label class="import-row">
           <span data-i18n-text="personal.what-s-new">What's new<small data-i18n="settings-whats-new-note.a-line-on-opening-when" id="settings-whats-new-note">A line on opening, when the map has grown</small></span>
           <select id="settings-whats-new">
@@ -786,20 +794,31 @@
           </select>
         </label>
 
-        <!-- The one switch that changes what a tap on the map *does* rather
-             than what it shows, which is why it is last and why it is here
-             rather than in the menu you open to change the view. -->
+
+        <!-- And from here, what the map itself does: how it is lit, whether you
+             can draw on it, and whether it snows. -->
+        <div data-i18n="personal.the-map" class="settings-heading">The map</div>
+        <!-- Whether the 3D basemap works out its own sun. The four suns
+             themselves stay in the layers menu: which one is up is a question
+             you ask while looking at the map, and you answer it by looking at
+             what changed. Whether the map should decide for itself is the other
+             kind — set once, never revisited — which is what this list is for. -->
         <label class="import-row">
-          <span data-i18n-text="personal.editing">Editing<small data-i18n="personal.allows-manual-editing-of-the">Allows manual editing of the map</small></span>
+          <span data-i18n-text="personal.time-of-day">Time of day<small data-i18n="settings-light-note.the-3d-map-follows-the">The 3D map follows the sun where you are</small></span>
+          <input type="checkbox" id="settings-light-auto" />
+        </label>
+
+        <!-- The one switch that changes what a tap on the map *does* rather
+             than what it shows, which is why it is here rather than in the menu
+             you open to change the view. -->
+        <label class="import-row">
+          <span data-i18n-text="personal.editing">Editing<small data-i18n="personal.add-and-remove-cells-by">Add and remove cells by hand</small></span>
           <input type="checkbox" id="edit-toggle" />
         </label>
 
-        <!-- Its own heading because it is its own kind of thing. Everything
-             above answers a question about the map; nothing under here does,
-             and putting snow in the same run of rows as the clock would make
-             the list read as if one of them were a mistake. -->
-        <div data-i18n="personal.easter-eggs" class="settings-heading">Easter eggs</div>
-
+        <!-- Snow is weather, and weather is something the map does. It had a
+             heading of its own reading "Easter eggs", which is a label for the
+             person who wrote it rather than for the person reading it. -->
         <label class="import-row">
           <span data-i18n-text="personal.snow">Snow<small data-i18n="settings-snow-note.only-on-the-3d-basemap" id="settings-snow-note">Only on the 3D basemap</small></span>
           <select id="settings-snow">
@@ -809,20 +828,19 @@
           </select>
         </label>
 
-        <!-- The two that are about the map's ingredients rather than about you.
-             Both used to be rows in the hub, which made a list of five doors
-             where two of them belonged behind this one. In the same container
-             the hub uses, which is where a row of this shape gets its spacing
-             from — on their own they sit flush against each other. -->
+        <!-- What the map is made of, and what to do when it is stale. Doors
+             rather than rows, because each is a page of its own.
+             In the same container the hub uses, which is where a row of this
+             shape gets its spacing from — on their own they sit flush against
+             each other. -->
+        <div data-i18n="personal.other" class="settings-heading">Other</div>
         <div class="sync-options">
-        <!-- The overlay's own settings. The switch that draws it is in the
-             layers menu with the other layers; everything about what it draws
-             and whether it answers a tap is behind here. -->
-        <!-- What the map is built out of, behind one door. Three of these
-             stood in this column — the railway overlay, the airports overlay
-             and the 3D basemap's token — and they are the same kind of thing
-             said three times: ingredients, set once, none of them about you or
-             about this device. The three below are about the app, and stayed. -->
+        <!-- What the map is built out of, behind one door. Three of these stood
+             in this column — the railway overlay, the airports overlay and the
+             3D basemap's token — and they are the same kind of thing said three
+             times: ingredients, set once, none of them about you or about this
+             device. The switches that *draw* those layers stay in the layers
+             menu; everything about what they draw is behind here. -->
         <button type="button" class="sync-option" data-personal="maplayers">
           <!-- Three sheets stacked in three-quarter view: the one shape that
                reads as *layers* at 18px. -->
@@ -840,15 +858,6 @@
           </svg>
         </button>
 
-        <!-- The airports overlay's own settings, beside the railway's for the
-             same reason: both are about the map's ingredients. -->
-
-        <!-- The 3D basemap's token. Beside the two overlays above because it is
-             the same kind of thing — something the map is built out of, set
-             once — and not in the layers menu with the basemap picker, because
-             what it holds is a credential and the menu is for what you are
-             looking at right now. -->
-
         <button type="button" class="sync-option" data-personal="sources">
           <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 7h16" />
@@ -857,7 +866,7 @@
           </svg>
           <span class="sync-option-text">
             <b data-i18n="personal.sources">Sources</b>
-            <small data-i18n="settings-sources-note.where-does-your-data-come" id="settings-sources-note">Where does your data come from</small>
+            <small data-i18n="settings-sources-note.where-your-data-comes-from" id="settings-sources-note">Where your data comes from</small>
           </span>
           <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 5 7 7-7 7" />

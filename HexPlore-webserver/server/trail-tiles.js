@@ -117,6 +117,23 @@ const SWEEP_EVERY_MS = 5 * 60 * 1000;
 // starts hiding the answer somebody was looking for.
 const NEAR_LIMIT = 20;
 
+/**
+ * A symbol id, as their listing hands it back — `swiss_REG_00320036`,
+ * `osmc_LOC_empty_yellow-diamond`.
+ *
+ * It goes into a URL on their server, so this is the check that it cannot go
+ * anywhere else. No slash is the whole of it: without one, neither a `..` walk
+ * nor a scheme nor a second host can be spelled, and what is left is the
+ * alphabet their generator actually uses.
+ */
+export const validSymbolId = (id) => (/^[A-Za-z0-9_.-]{1,120}$/.test(String(id ?? '')) ? String(id) : null);
+
+/** An OSM relation id, which is what a route is. */
+export function validRelationId(id) {
+  const n = /^\d{1,12}$/.test(String(id ?? '')) ? Number(id) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 /** `{z}/{x}/{y}` is only ever three integers, and x/y only ever fit the zoom. */
 export function validTileCoords(z, x, y) {
   const nums = [z, x, y].map((v) => (/^\d+$/.test(String(v)) ? Number(v) : NaN));
@@ -206,10 +223,59 @@ function oneRoute(r) {
     group: typeof r.group === 'number' ? r.group : (str(r.group) ?? ''),
     // Where it runs between, as a list of places. Absent on most local routes.
     itinerary: Array.isArray(r.itinerary) ? r.itinerary.filter((v) => str(v)).slice(0, 8) : [],
-    // The waymark you would actually see on a post, described in words. Their
-    // own field, and the single most useful thing on the card when you are
-    // standing at a junction.
+    // The waymark you would actually see on a post, twice over: their drawing of
+    // it, and their sentence about it.
+    //
+    // The card shows the drawing and keeps the sentence as its `alt` — which is
+    // the right way round for the thing you are holding the phone up to compare
+    // against a post, and the reason the sentence is still fetched at all. It is
+    // in German here, French an hour west and Italian over the pass, because it
+    // is written by whoever tagged the route; the picture is not.
+    symbolId: validSymbolId(r.symbol_id),
     symbol: str(r.symbol_description),
+  };
+}
+
+/**
+ * One of their *detail* records, reduced to the three numbers a card shows.
+ *
+ * **This is why the details endpoint is called from the server at all.** Their
+ * answer is the whole route — every way, every coordinate — which is 230 KB for
+ * a regional loop and over a megabyte for a national one. What a card wants out
+ * of it is how far, how much up and how much down: about eighty bytes. Fetching
+ * that from the page would be a third of a megabyte per route somebody glanced
+ * at, so the fetch happens here, once, and what is cached and sent on is the
+ * eighty bytes.
+ *
+ * Length twice over, in their own two senses. `official_length` is the
+ * `distance` tag — what the route *says* it is, which is the number on the
+ * signpost and in the guidebook. `route.length` is what their renderer measured
+ * along the ways that are actually mapped. They disagree by a few percent on a
+ * well-mapped route and by a lot on a half-mapped one, and the signposted number
+ * is the one somebody is checking against, so it wins where it exists.
+ */
+export function oneDetail(d) {
+  if (!d || typeof d !== 'object') return null;
+  // Their tag values are OSM tag values: "2200", "1,200", "2200 m", "about 40".
+  // Anything that does not start with a number is not a measurement, and a
+  // measurement past the height of the sky is a typo rather than a fact.
+  const num = (v, max) => {
+    const m = /^\s*(\d+(?:\.\d+)?)/.exec(String(v ?? '').replace(/,(?=\d{3}\b)/g, ''));
+    const n = m ? Number(m[1]) : NaN;
+    return Number.isFinite(n) && n > 0 && n <= max ? n : null;
+  };
+  const tags = d.tags && typeof d.tags === 'object' ? d.tags : {};
+  return {
+    // Metres, both of them, and the client does the arithmetic — a number in one
+    // unit is one fewer thing to get wrong across a wire.
+    length: num(d.official_length, 60_000_000) ?? num(d.route?.length, 60_000_000),
+    ascent: num(tags.ascent, 100_000),
+    descent: num(tags.descent, 100_000),
+    // Whether this relation is a route made of other routes. It is the only
+    // place the distinction exists — their *listing* has no field for it, which
+    // is why the card's "main routes" filter reads reach instead. See
+    // `isMainTrail` in src/trails.js.
+    superroute: tags.type === 'superroute',
   };
 }
 
@@ -371,15 +437,15 @@ export function createTrailTiles({
   }
 
   /** Fetch one tile, or ask them to confirm the one we hold is still good. */
-  async function fromUpstream(upstreamPath, previous) {
+  async function fromUpstream(upstreamPath, previous, origin = tileOrigin) {
     // Resolved against the origin rather than glued to it. The theme is already
     // matched against the allowlist and the coordinates are already three
     // integers, so nothing else can reach here — but that is a promise made
     // elsewhere and checked nowhere. Resolving keeps it true where it matters:
     // `//elsewhere/x`, a `..` walk or a scheme all come out as a different
     // origin, and a different origin is not somebody we fetch from.
-    const url = new URL(upstreamPath, `${tileOrigin}/`).href;
-    if (!url.startsWith(`${tileOrigin}/`)) {
+    const url = new URL(upstreamPath, `${origin}/`).href;
+    if (!url.startsWith(`${origin}/`)) {
       noteFailure(upstreamPath, 'refused: resolves off upstream');
       return { failed: true, status: 0 };
     }
@@ -414,51 +480,137 @@ export function createTrailTiles({
     }
   }
 
+  /**
+   * Anything of theirs, held on disk under a key of ours.
+   *
+   * One flight per key however many browsers ask at once, and last week's copy
+   * when upstream cannot answer — an old tile beats no map, and an old symbol
+   * beats a blank where a waymark goes.
+   *
+   * `keep` is what makes this serve three different things. A tile is stored as
+   * it arrived; a detail record is 230 KB of geometry that is thrown away here
+   * and stored as the three numbers a card wants. It runs once per fetch rather
+   * than once per read, which is the whole point of it running here.
+   */
+  async function cached(key, upstreamPath, { origin = tileOrigin, keep } = {}) {
+    const existing = await readEntry(key);
+    const age = existing ? Date.now() - existing.fetchedAt : Infinity;
+
+    // A stored failure is an answer too, and honouring its TTL is the whole
+    // point: without it, a tile they cannot serve is asked for again on every
+    // pan across it.
+    if (existing?.failed) {
+      if (age < existing.ttl) return null;
+    } else if (existing && age < (existing.ttl ?? TILE_TTL_MS)) {
+      touch(existing.file);
+      return existing;
+    }
+
+    if (inFlight.has(key)) return inFlight.get(key);
+    const job = (async () => {
+      // No `If-None-Match` when what we hold is not what they sent. A 304 would
+      // hand back the stored body as if it were theirs, which is true for a tile
+      // and false for a record we rewrote on the way in.
+      const previous = existing?.failed || keep ? null : existing;
+      const got = await fromUpstream(upstreamPath, previous, origin);
+      if (got.failed) {
+        if (existing && !existing.failed) return existing;
+        const ttl = Math.min(FAIL_TTL_MAX_MS, (existing?.ttl ?? FAIL_TTL_MS / 2) * 2);
+        await writeEntry(key, { failed: true, status: got.status, ttl, fetchedAt: Date.now() }, Buffer.alloc(0));
+        return null;
+      }
+      const meta = { ...got.meta };
+      let body = got.body;
+      if (keep) {
+        const held = keep(body);
+        if (!held) {
+          // They answered, and the answer was not one. Remembered as a failure
+          // so it is not asked for again on every opening of the same card.
+          await writeEntry(key, {
+            failed: true, status: 0, ttl: FAIL_TTL_MAX_MS, fetchedAt: Date.now(),
+          }, Buffer.alloc(0));
+          return null;
+        }
+        body = held.body;
+        meta.type = held.type;
+        meta.etag = null; // theirs described the answer we threw away
+      }
+      await writeEntry(key, meta, body);
+      return { ...meta, body };
+    })().finally(() => inFlight.delete(key));
+
+    inFlight.set(key, job);
+    return job;
+  }
+
   return {
     dir,
     themes,
 
     /**
      * One raster tile, or null for anything we will not or cannot answer.
-     *
-     * One flight per tile however many browsers ask at once, and last week's
-     * copy when upstream cannot answer — an old tile beats no map.
      */
     async tile(theme, z, x, y) {
       if (!themes.has(theme)) return null;
       const at = validTileCoords(z, x, y);
       if (!at) return null;
+      return cached(
+        `trail:${theme}/${at.z}/${at.x}/${at.y}`,
+        `${theme}/${at.z}/${at.x}/${at.y}.png`,
+      );
+    },
 
-      const key = `trail:${theme}/${at.z}/${at.x}/${at.y}`;
-      const upstreamPath = `${theme}/${at.z}/${at.x}/${at.y}.png`;
-      const existing = await readEntry(key);
-      const age = existing ? Date.now() - existing.fetchedAt : Infinity;
+    /**
+     * The drawing of one waymark — the sign you would meet on a post, as an SVG
+     * a few hundred bytes long.
+     *
+     * Worth caching where the tap lookup below is not, and for the opposite
+     * reason: a symbol is the same picture for everybody and there are only so
+     * many of them, so one route in the Bernese Oberland warms the cache for
+     * every yellow diamond in Switzerland.
+     */
+    async symbol(theme, id) {
+      if (!themes.has(theme)) return null;
+      const clean = validSymbolId(id);
+      if (!clean) return null;
+      return cached(`trail-symbol:${theme}/${clean}`, `api/v1/symbols/id/${clean}?format=svg`, {
+        origin: apiOrigin.replace('{theme}', theme),
+      });
+    },
 
-      // A stored failure is an answer too, and honouring its TTL is the whole
-      // point: without it, a tile they cannot serve is asked for again on every
-      // pan across it.
-      if (existing?.failed) {
-        if (age < existing.ttl) return null;
-      } else if (existing && age < (existing.ttl ?? TILE_TTL_MS)) {
-        touch(existing.file);
-        return existing;
+    /**
+     * How far one route runs, and how much of it is up and down.
+     *
+     * **Asked for one route at a time, because somebody asked about that route.**
+     * Their detail record is the entire geometry — see `oneDetail` — so doing
+     * this for a whole list on the chance it is read would be a megabyte a tap
+     * of somebody else's bandwidth for numbers nobody looked at. That is exactly
+     * the trade the head of this file exists to refuse.
+     *
+     * @returns {Promise<object|null>} the three numbers, or null
+     */
+    async details(theme, id) {
+      if (!themes.has(theme)) return null;
+      const oid = validRelationId(id);
+      if (!oid) return null;
+      const got = await cached(`trail-detail:${theme}/${oid}`, `api/v1/details/relation/${oid}`, {
+        origin: apiOrigin.replace('{theme}', theme),
+        keep: (body) => {
+          let parsed;
+          try {
+            parsed = oneDetail(JSON.parse(body.toString('utf8')));
+          } catch {
+            return null; // not JSON; not an answer
+          }
+          return parsed && { body: Buffer.from(JSON.stringify(parsed)), type: 'application/json' };
+        },
+      });
+      if (!got?.body?.length) return null;
+      try {
+        return JSON.parse(got.body.toString('utf8'));
+      } catch {
+        return null; // a corrupt entry reads as a miss and is overwritten
       }
-
-      if (inFlight.has(key)) return inFlight.get(key);
-      const job = (async () => {
-        const got = await fromUpstream(upstreamPath, existing?.failed ? null : existing);
-        if (got.failed) {
-          if (existing && !existing.failed) return existing;
-          const ttl = Math.min(FAIL_TTL_MAX_MS, (existing?.ttl ?? FAIL_TTL_MS / 2) * 2);
-          await writeEntry(key, { failed: true, status: got.status, ttl, fetchedAt: Date.now() }, Buffer.alloc(0));
-          return null;
-        }
-        await writeEntry(key, got.meta, got.body);
-        return { ...got.meta, body: got.body };
-      })().finally(() => inFlight.delete(key));
-
-      inFlight.set(key, job);
-      return job;
     },
 
     /**

@@ -65,9 +65,12 @@ number of approaches that were tried and abandoned.
   walk you recorded followed a route that already had a name. **Strength** sets
   how loudly the routes sit over the map, and is remembered per basemap, because
   what reads well over aerial photography is glare over CARTO Dark. Turn on **Tap
-  for trails** and a tap lists what runs past that spot — the route's name and
-  number, where it runs between, and what is painted on the waymark, which is the
-  thing to look for when you are actually standing at the junction.
+  for trails** and a tap lists what runs past that spot: the waymark itself,
+  drawn — the sign you are looking for when you are standing at the junction —
+  then the route's name and where it runs between, and a chevron for how far it
+  goes and how much of it is up and down. A junction can sit on twenty routes,
+  nineteen of them legs of the local network, so **Main routes only** is on by
+  default; turn it off and they come back, below the routes they belong to.
 - **Airports.** Every airport, airfield and helipad on Earth, from the
   public-domain OurAirports dataset — built into the app, so there is no key to
   get, nothing to sign up for, and it works offline. Switch it on in the layers

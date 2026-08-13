@@ -101,7 +101,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.56.1';
+export const SERVER_VERSION = '0.57.0';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -2070,8 +2070,8 @@ function send(res, status, body, headers = {}) {
  * process at all. The ETag is over the bytes, so a revalidation after the
  * max-age is a 304 rather than a tile.
  */
-function sendTileBytes(req, res, out) {
-  const head = { ...BASE_SECURITY_HEADERS };
+function sendTileBytes(req, res, out, extra = {}) {
+  const head = { ...BASE_SECURITY_HEADERS, ...extra };
   if (out.status === 204 || !out.body?.length) {
     res.writeHead(204, { ...head, 'Cache-Control': 'private, max-age=86400' });
     return res.end();
@@ -3424,6 +3424,37 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
         const found = await trailTiles.near(query.get('theme') ?? '', query.get('bbox') ?? '');
         if (!found) return send(res, 400, { error: 'no such theme, or not a bbox' });
         return send(res, 200, found, { 'Cache-Control': 'no-store' });
+      }
+
+      // `symbol/<theme>/<id>.svg` — the drawing of one waymark, which the card
+      // shows where it used to print their sentence about it.
+      //
+      // **Served under a CSP of its own**, which nothing else here needs. An SVG
+      // is a document: loaded in an `<img>` it can no more run a script than a
+      // PNG can, but *navigated to* — a copied link, a right-click "open image"
+      // — it would be somebody else's markup running on this origin, next to
+      // this session's cookie. The bytes are theirs and the drawing is why we
+      // fetched it, so the answer is to say what the document may do rather than
+      // to trust that a symbol generator will never emit a `<script>`.
+      const sym = /^symbol\/([a-z]+)\/([A-Za-z0-9_.-]{1,120})\.svg$/.exec(rest);
+      if (sym) {
+        const drawn = await trailTiles.symbol(sym[1], sym[2]);
+        if (!drawn) return send(res, 404, { error: 'no such symbol' });
+        return sendTileBytes(req, res, drawn, {
+          'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+        });
+      }
+
+      // `route/<theme>/<id>` — how far one route runs and how much of it is up
+      // and down. Three numbers, extracted here from a record that is the whole
+      // geometry; see `oneDetail` in server/trail-tiles.js.
+      const one = /^route\/([a-z]+)\/(\d{1,12})$/.exec(rest);
+      if (one) {
+        const about = await trailTiles.details(one[1], one[2]);
+        if (!about) return send(res, 404, { error: 'nothing known about that route' });
+        // Cacheable by the browser, unlike `near` above: this is a fact about a
+        // route rather than about where somebody put their finger.
+        return send(res, 200, about, { 'Cache-Control': 'private, max-age=86400' });
       }
 
       // `tile/<theme>/<z>/<x>/<y>.png`. The theme is matched against the

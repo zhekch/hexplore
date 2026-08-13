@@ -26,6 +26,7 @@ const check = (ok, label, detail) => {
 // A palette PNG with a tRNS chunk is what they actually serve; the bytes do not
 // matter here, only that they arrive unchanged.
 const TILE = Buffer.from('\x89PNG\r\n\x1a\n' + 'x'.repeat(600), 'binary');
+const SYMBOL = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><path d="M1 8 8 4l7 4-7 4"/></svg>';
 
 /** A stand-in for their nginx, with a lever on every behaviour worth testing. */
 function upstream() {
@@ -57,6 +58,29 @@ function upstream() {
           { type: 'relation', name: 'no id' },
           null,
         ],
+      }));
+    }
+
+    // The drawing of one waymark. A few hundred bytes of SVG, and the same
+    // picture for everybody — which is what makes it worth a cache entry.
+    if (req.url.startsWith('/api/v1/symbols/id/')) {
+      if (mode === 'down') return void res.writeHead(502).end('Bad Gateway');
+      return void res.writeHead(200, { 'Content-Type': 'image/svg+xml' }).end(SYMBOL);
+    }
+
+    // Their detail record: the whole route, every coordinate of it. The point of
+    // the test below is that none of this reaches a browser.
+    if (req.url.startsWith('/api/v1/details/relation/')) {
+      if (mode === 'down') return void res.writeHead(502).end('Bad Gateway');
+      if (req.url.endsWith('/404')) return void res.writeHead(404).end('Not Found');
+      if (req.url.endsWith('/999')) {
+        return void res.writeHead(200, { 'Content-Type': 'application/json' }).end('not json at all');
+      }
+      return void res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({
+        id: 12359033,
+        official_length: 50700,
+        tags: { ascent: '3076', descent: '2235', distance: '50.7', type: 'superroute' },
+        route: { length: 49812, main: [{ ways: Array.from({ length: 400 }, (_, i) => ({ id: i })) }] },
       }));
     }
 
@@ -238,7 +262,8 @@ console.log('\nWhat runs near a point');
   check(first.name === 'Via Alpina' && first.ref === '1' && first.group === 'NAT',
     'the fields a card shows come through');
   check(first.symbol === 'weisse 1 auf grünem Rechteck', 'including what is painted on the post');
-  check(!('symbol_id' in first) && !('linear' in first),
+  check(first.symbolId === 'swiss_NAT_0031', 'and the id of the drawing of it, which is what a row shows');
+  check(!('symbol_id' in first) && !('linear' in first) && !('type' in first),
     'and nothing else does — their response shape is not this app\'s client contract');
   // A `'5'` and a `5` look the same on the wire and land in different halves of
   // the lookup at the other end.
@@ -249,6 +274,53 @@ console.log('\nWhat runs near a point');
   check(await tt.near('hiking', '7.44,46.94,7.46,46.96') === null,
     'and an outage is nothing rather than a throw');
   up.setMode('ok');
+}
+
+console.log('\nThe drawing of a waymark');
+{
+  const tt = make();
+  const before = up.seen.length;
+  const drawn = await tt.symbol('hiking', 'osmc_LOC_empty_yellow-diamond');
+  check(drawn?.body?.toString() === SYMBOL, 'a symbol comes back as their bytes');
+  check(/svg/.test(drawn.type), 'labelled as what it is', drawn.type);
+  check(up.seen[before].url === '/api/v1/symbols/id/osmc_LOC_empty_yellow-diamond?format=svg',
+    'asked for by id, on the API origin rather than the tile one', up.seen[before].url);
+
+  // The reason this one is cached where the tap lookup is not: a waymark is the
+  // same picture for everybody, and one route in the Oberland warms the entry
+  // for every yellow diamond in the country.
+  await tt.symbol('hiking', 'osmc_LOC_empty_yellow-diamond');
+  check(up.seen.length - before === 1, 'and a second route wearing it costs them nothing');
+
+  check(await tt.symbol('hiking', '../../etc/passwd') === null, 'a path walk is refused');
+  check(await tt.symbol('not_a_theme', 'x') === null, 'and so is a theme they do not publish');
+}
+
+console.log('\nHow far a route runs, without the route');
+{
+  const tt = make();
+  const before = up.seen.length;
+  const about = await tt.details('hiking', 12359033);
+  check(about?.length === 50700 && about.ascent === 3076 && about.descent === 2235,
+    'the three numbers a card shows', JSON.stringify(about));
+  check(about.superroute === true, 'and whether it is a route made of routes');
+  check(!('route' in about) && !('tags' in about),
+    'and none of the geometry that came with them');
+  // The whole reason this happens on the server. Their answer is the route; what
+  // is kept is under a hundred bytes of it, which is what a browser is sent and
+  // what sits on disk.
+  const kept = JSON.stringify(about).length;
+  check(kept < 120, 'the entry is the answer, not their record', `${kept} bytes`);
+  check(up.seen[before].url === '/api/v1/details/relation/12359033',
+    'asked for one route at a time, because somebody asked about that route');
+
+  await tt.details('hiking', 12359033);
+  check(up.seen.length - before === 1, 'and asked once');
+
+  check(await tt.details('hiking', 'nine') === null, 'a relation id that is not one is refused');
+  check(await tt.details('hiking', 404) === null, 'a route they do not know is nothing');
+  // A 200 that is not JSON is not an answer, and must not be stored as one.
+  check(await tt.details('hiking', 999) === null, 'nor is a 200 that is not their record');
 }
 
 console.log('\nNothing is fetched that a person did not just look at');

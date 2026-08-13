@@ -34,13 +34,16 @@ globalThis.localStorage = {
 await (await import('../../src/i18n.js')).loadLocale('en');
 
 const {
-  OPACITY_MAX, OPACITY_MIN, TRAIL_THEMES, bboxAround, describeTrail, installTrails, isTrailTheme,
-  removeTrails, setTrailOpacity, setTrailTheme, tapCorners, trailLayerIds, trailLayerSpec,
-  trailOpacity, trailSourceSpec, trailTheme, trailThemeLabel,
+  OPACITY_MAX, OPACITY_MIN, TRAIL_THEMES, bboxAround, describeTrail, installTrails, isMainTrail,
+  isTrailTheme, orderTrails, removeTrails, setTrailMainOnly, setTrailOpacity, setTrailTheme,
+  tapCorners, trailLayerIds, trailLayerSpec, trailMainOnly, trailOpacity, trailSourceSpec,
+  trailStatsLine, trailTheme, trailThemeLabel, trailsHaveReach,
 } = await import('../../src/trails.js');
 
-const { TRAIL_THEMES: SERVER_THEMES, TRAIL_MAX_ZOOM, mercatorBbox, toMercator, validTileCoords } =
-  await import('../../server/trail-tiles.js');
+const {
+  TRAIL_THEMES: SERVER_THEMES, TRAIL_MAX_ZOOM, mercatorBbox, oneDetail, toMercator,
+  validRelationId, validSymbolId, validTileCoords,
+} = await import('../../server/trail-tiles.js');
 
 let pass = 0;
 let fail = 0;
@@ -293,19 +296,23 @@ console.log('\nWhat a route says about itself');
 {
   const viaAlpina = describeTrail({
     id: 12359033, name: 'Via Alpina', ref: '1', group: 'NAT',
-    itinerary: ['Vaduz', 'Montreux'], symbol: 'weisse 1 auf grünem Rechteck',
+    itinerary: ['Vaduz', 'Montreux'],
+    symbolId: 'swiss_NAT_00310031', symbol: 'weisse 1 auf grünem Rechteck',
   }, 'hiking');
   check(viaAlpina.title === 'Via Alpina', 'the name is the title');
-  check(viaAlpina.kind === 'National route', 'the group is put into words');
-  // Composed clauses rather than label-and-value pairs: this is a list of up to
-  // twenty routes, not a table about one. Each clause carries whatever word it
-  // needs to stand alone, and none carries a word it does not.
-  eq(viaAlpina.notes, [
-    'National route',
-    'No. 1',
-    'Vaduz → Montreux',
-    'Waymark: weisse 1 auf grünem Rechteck',
-  ], 'and each clause reads on its own');
+  check(viaAlpina.between === 'Vaduz → Montreux', 'and where it runs is one clause after it');
+  // The waymark used to be a clause reading "Waymark: weisse 1 auf grünem
+  // Rechteck" — a German sentence in the middle of an English list, describing a
+  // picture nobody was being shown. It is the picture now.
+  check(!JSON.stringify(viaAlpina).includes('Waymark'), 'and the waymark is not a sentence any more');
+  check(viaAlpina.symbol.url === '/api/trails/symbol/hiking/swiss_NAT_00310031.svg',
+    'the sign is drawn, through our own proxy', viaAlpina.symbol.url);
+  check(viaAlpina.symbol.alt === 'weisse 1 auf grünem Rechteck',
+    'with their sentence about it kept as the alt, which is what an alt is for');
+  // The number is on the symbol — that is the whole point of the symbol being a
+  // picture — so a "No. 1" clause beside it is the same fact twice.
+  check(!viaAlpina.between?.includes('No.'), 'and the number is not repeated beside it');
+  check(viaAlpina.main === true, 'a national route is one of the main ones');
   check(viaAlpina.osm === 'https://www.openstreetmap.org/relation/12359033',
     'with the relation as the way back to the original');
 
@@ -313,32 +320,148 @@ console.log('\nWhat a route says about itself');
   // over a route signed as 57 would lose the one thing on the sign.
   const leg = describeTrail({ id: 1, ref: '57', group: 'NDS', itinerary: [] }, 'hiking');
   check(leg.title === '57', 'a route with only a number is called its number');
-  eq(leg.notes, ['Node network'], 'and does not then repeat it in a clause');
-  check(leg.kind === 'Node network', 'node networks are named as such');
+  check(leg.between === null, 'with nothing after it when it goes nowhere named');
+  check(leg.symbol === null, 'and no picture when their listing has no symbol for it');
+  check(leg.main === false, 'a node-network leg is not a main route');
+
+  // The case the whole rewrite is about: a route with no name at all. It used to
+  // read "Unnamed route · Interlaken → Grindelwald"; the second half was always
+  // the better title.
+  const unnamed = describeTrail({ id: 7, group: 'AL1', itinerary: ['Interlaken', 'Grindelwald'] }, 'hiking');
+  check(unnamed.title === 'Interlaken → Grindelwald', 'an unnamed route is called where it runs');
+  check(unnamed.between === null, 'and does not then say so twice');
 
   const bare = describeTrail({ id: 2, group: '' }, 'hiking');
-  check(bare.title === 'Unnamed route', 'a route with neither gets a word rather than a blank');
-  check(bare.kind === null, 'and an unrecognised group says nothing at all');
-  eq(bare.notes, [], 'leaving no empty clause behind');
-  // Hiking hands back AL1..AL4 and LOC for levels of a local hierarchy, and
-  // there is no sentence about reach that is true of all of them. A row reading
-  // "Other route" would be "we did not recognise this" dressed as a fact.
-  check(describeTrail({ id: 3, group: 'AL2' }, 'hiking').kind === null,
-    'including the ones their own site buckets as other');
+  check(bare.title === 'Unnamed route', 'a route with none of the three gets a word rather than a blank');
+  check(bare.between === null, 'leaving no empty clause behind');
 
   // The one theme that groups by *what you would be doing* rather than by reach,
   // and says so with an integer. Reading 1..6 as a difficulty is the obvious
-  // misreading; 5 is a cleared footpath.
-  check(describeTrail({ id: 4, name: 'Bort', group: 5 }, 'slopes').kind === 'Winter hiking',
-    'a winter route is named by what it is for');
-  check(describeTrail({ id: 5, name: 'x', group: 1 }, 'slopes').kind === 'Downhill piste',
+  // misreading; 5 is a cleared footpath. It is the last-resort title now: a
+  // piste with no name, no number and no ends is still a piste.
+  check(describeTrail({ id: 4, group: 5 }, 'slopes').title === 'Winter hiking',
+    'a nameless winter route is named by what it is for');
+  check(describeTrail({ id: 5, group: 1 }, 'slopes').title === 'Downhill piste',
     'and 1 is a piste rather than the easiest of anything');
   // The same integer under hiking means nothing, and must not be read off the
   // other table.
-  check(describeTrail({ id: 6, name: 'x', group: 5 }, 'hiking').kind === null,
+  check(describeTrail({ id: 6, group: 5 }, 'hiking').title === 'Unnamed route',
     'and the two vocabularies do not leak into each other');
+  // Hiking hands back AL1..AL4 and LOC for levels of a local hierarchy, and
+  // there is no sentence about reach that is true of all of them. A row reading
+  // "Other route" would be "we did not recognise this" dressed as a fact.
+  check(describeTrail({ id: 3, group: 'AL2' }, 'hiking').title === 'Unnamed route',
+    'including the ones their own site buckets as other');
 
   check(describeTrail(null, 'hiking') === null, 'nothing describes as nothing');
+}
+
+console.log('\nWhich routes are the ones you have heard of');
+{
+  // Reach, because the listing has no superroute flag and the record that does
+  // is a quarter of a megabyte per route. See MAIN_GROUPS in src/trails.js.
+  for (const g of ['INT', 'NAT', 'REG']) {
+    check(isMainTrail({ group: g }, 'hiking'), `${g} is a main route`);
+  }
+  for (const g of ['LOC', 'NDS', 'AL1', 'AL4', '', undefined]) {
+    check(!isMainTrail({ group: g }, 'hiking'), `${g || 'nothing'} is not`);
+  }
+  // Slopes group by what you would be doing rather than by how far the route
+  // reaches, so there is no local network to filter out and the switch that
+  // would do it is not shown.
+  check(isMainTrail({ group: 1 }, 'slopes') && isMainTrail({ group: 5 }, 'slopes'),
+    'every piste is a main route, because pistes have no hierarchy');
+  check(!trailsHaveReach('slopes'), 'so the filter says it does not apply there');
+  check(trailsHaveReach('hiking') && trailsHaveReach('mtb'), 'and does everywhere else');
+
+  const near = [
+    { id: 1, group: 'AL1' }, { id: 2, group: 'NAT' }, { id: 3, group: 'LOC' },
+    { id: 4, group: 'REG' }, { id: 5, group: 'NDS' },
+  ];
+  eq(orderTrails(near, 'hiking', { mainOnly: true }).map((r) => r.id), [2, 4],
+    'with the filter on, only the routes with names of their own');
+  // Ordered rather than only filtered: with the switch off the legs are still
+  // below the routes they belong to, which is the order a junction reads in.
+  eq(orderTrails(near, 'hiking', { mainOnly: false }).map((r) => r.id), [2, 4, 1, 3, 5],
+    'with it off, main routes first and their own order kept inside each half');
+  eq(orderTrails(near, 'hiking').map((r) => r.id), [2, 4, 1, 3, 5], 'and unfiltered by default');
+  eq(orderTrails([], 'hiking', { mainOnly: true }), [], 'nothing in, nothing out');
+
+  stored = {};
+  check(trailMainOnly() === true, 'nothing stored means only the main ones');
+  check(setTrailMainOnly(false) === false, 'it can be turned off');
+  check(trailMainOnly() === false, 'and is remembered');
+  check(setTrailMainOnly(true) === true && trailMainOnly() === true, 'and turned back on');
+  stored['visited-map:trail-main-only:v1'] = 'nonsense';
+  check(trailMainOnly() === true, 'and anything else reads as on, which is the default');
+  stored = {};
+}
+
+console.log('\nHow far, how much up, how much down');
+{
+  // Metres in — what OSM tags and their renderer both count in — kilometres and
+  // metres out, which is how anybody planning a walk says it.
+  check(trailStatsLine({ length: 50_700, ascent: 3076, descent: 2235 })
+    === '50.7 km · ↑ 3,076 m · ↓ 2,235 m',
+    'the three numbers, with their units', trailStatsLine({ length: 50_700, ascent: 3076, descent: 2235 }));
+  check(trailStatsLine({ length: 510_000 }) === '510 km',
+    'a long route drops the decimal it cannot mean', trailStatsLine({ length: 510_000 }));
+  check(trailStatsLine({ length: 8420 }) === '8.4 km', 'a short one keeps it');
+  // Most local paths carry no `distance` tag and never will, and a card that
+  // said "0 km" about one would be inventing a measurement.
+  check(trailStatsLine({}) === null, 'a route that says none of the three says nothing');
+  check(trailStatsLine({ length: 0, ascent: 0 }) === null, 'and zero is not a measurement');
+  check(trailStatsLine() === null, 'nor does it throw when handed nothing at all');
+  check(trailStatsLine({ ascent: 1200 }) === '↑ 1,200 m', 'climb alone still reads');
+}
+
+console.log('\nAnd what the server keeps of a detail record');
+{
+  // Their answer is the whole route — every way, every coordinate. What a card
+  // wants out of it is eighty bytes, which is why this reduction happens on the
+  // server and not in the page.
+  const full = oneDetail({
+    official_length: 63000, route: { length: 59959 },
+    tags: { ascent: '2200', descent: '2100', type: 'route' },
+  });
+  eq(full, { length: 63000, ascent: 2200, descent: 2100, superroute: false },
+    'the three numbers and nothing else');
+  // The signposted number wins over the measured one: it is what the guidebook
+  // says and what somebody is checking against.
+  check(oneDetail({ official_length: 63000, route: { length: 59959 }, tags: {} }).length === 63000,
+    'the distance on the sign beats the distance along the ways');
+  check(oneDetail({ route: { length: 59959 }, tags: {} }).length === 59959,
+    'and the measured one is used when the route does not claim one');
+  // OSM tag values are typed by people. Half of these are real.
+  check(oneDetail({ tags: { ascent: '1,200' } }).ascent === 1200, 'a thousands comma is read');
+  check(oneDetail({ tags: { ascent: '2200 m' } }).ascent === 2200, 'and a unit somebody typed');
+  check(oneDetail({ tags: { ascent: 'about 40' } }).ascent === null, 'a sentence is not a measurement');
+  check(oneDetail({ tags: { ascent: '-5' } }).ascent === null, 'nor is a negative climb');
+  check(oneDetail({ tags: { ascent: '999999' } }).ascent === null, 'nor is one past the sky');
+  check(oneDetail({ tags: { type: 'superroute' } }).superroute === true,
+    'a route made of routes says so — the one place that distinction exists');
+  check(oneDetail(null) === null && oneDetail('nope') === null, 'and nothing reduces to nothing');
+}
+
+console.log('\nThe two ids that go into their URLs');
+{
+  check(validSymbolId('osmc_LOC_empty_yellow-diamond') === 'osmc_LOC_empty_yellow-diamond',
+    'a symbol id passes');
+  check(validSymbolId('swiss_REG_00320036') === 'swiss_REG_00320036', 'and the other kind');
+  // No slash is the whole of the check: without one there is no path to walk up
+  // and no second host to name.
+  check(validSymbolId('../../etc/passwd') === null, 'a path walk is refused');
+  check(validSymbolId('//evil.example/x') === null, 'and so is another origin');
+  check(validSymbolId('a b') === null, 'and a space, which their generator never emits');
+  check(validSymbolId('') === null && validSymbolId(undefined) === null, 'and nothing at all');
+  check(validSymbolId('x'.repeat(200)) === null, 'and a symbol id longer than any symbol id');
+
+  check(validRelationId('12359033') === 12359033, 'a relation id is a number');
+  check(validRelationId(12359033) === 12359033, 'given either way');
+  check(validRelationId('0') === null, 'zero is not a relation');
+  check(validRelationId('-1') === null, 'nor is a negative one');
+  check(validRelationId('12e3') === null, 'nor is exponent notation');
+  check(validRelationId('1/../2') === null, 'and nothing with a path in it');
 }
 
 console.log('\nAnd the tile coordinates the proxy will accept');

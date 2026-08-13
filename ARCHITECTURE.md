@@ -1746,8 +1746,12 @@ nothing produces no second file either, and that retention counts.
 The visited map is about *ground covered*, which throws away the shape of the
 journey. A route keeps that shape: import an activity (a run, a ride, a flight,
 a Timeline day) with **Save routes** ticked and the line itself is stored
-alongside the cells it lit up, drawn over your colored map. **Saved routes** in
-the menu toggles them; the count and total distance sit under the switch.
+alongside the cells it lit up, drawn over your colored map. A row in the menu
+toggles them, **labelled by the count itself** — "Activities · 82", or
+"Activities · 34 of 82" while some are hidden, or what to do about an empty map
+when there are none. It used to read "Saved routes" with that count as a second
+line underneath, which is one row saying the same thing twice: the switch is
+beside a count either way, and the count is the half that tells you something.
 
 Tapping a route line on the map opens a small card — what it was, how far, how
 long — with two ways on: **Zoom to route**, or **More info**, which hands over
@@ -1763,15 +1767,15 @@ so each route stores a 28-point normalised outline worked out once when it is
 saved: ~200 bytes each, about 16 KB for a map of 82. Routes saved before this
 had theirs derived from the geometry already in the row.
 
-Under **Saved routes** in the menu, a chevron opens per-activity controls: an
+Under that row, a chevron opens per-activity controls: an
 eye to hide an activity from the map, and a colour for each one. These follow
 the **account**, not the browser — they are written to `user_prefs` and read
 back at sign-in, so the phone and the laptop agree — with a `localStorage` copy
 kept alongside so dragging a colour is instant and works offline. Keys are run
 through `canonicalSport()` on the way in, so a colour set under an old name
-(`Hike`, `Road ride`) still applies after the vocabulary was tidied. The route
-count says "34 of 82 shown" while anything is hidden, so a filtered map never
-reads as a broken one.
+(`Hike`, `Road ride`) still applies after the vocabulary was tidied. The row says
+"34 of 82" while anything is hidden, so a filtered map never reads as a broken
+one.
 It stays folded away by default: it is one row per activity and a map can easily
 have a dozen.
 
@@ -4107,10 +4111,14 @@ that.
 ### Snow, which is the only thing here that is not information
 
 `src/snow.js`. Everything else the app draws answers a question — where you have
-been, how often, what that ground is called. This answers none, which is why the
-control is under a heading that says **Easter eggs** rather than sitting among
-the preferences: a switch for weather on a map with no weather in it needs to
-admit what it is, or it reads as a feature that is broken.
+been, how often, what that ground is called. This answers none.
+
+It had a heading of its own for that reason, reading **Easter eggs**, and it does
+not any more: that is a label written for the person who added the row rather
+than for the person reading it, and it made a section of one. Snow is weather,
+weather is something a map does, and it now sits under **The map** with the sun
+and the editing switch — which is also the honest grouping, since all three
+change what the map is doing rather than what it knows.
 
 **It is Mapbox's, so it is the 3D basemap's alone.** `setSnow` renders inside the
 same 3D scene as the terrain and the buildings. MapLibre has no equivalent and
@@ -5173,6 +5181,98 @@ because the map turns and leans: the extent of a rotated square is not the exten
 of two opposite corners of it. The radius is in pixels — a question about a
 fingertip, not about the ground.
 
+### What a row of that card says
+
+Four things, and the first of them is a picture: **the waymark, the name, where
+it runs, and a fold with how far.**
+
+The waymark used to be a clause. Their listing carries `symbol_description` — the
+sign in words, written by whoever tagged the route — and the card printed it as
+"Waymark: gelber Diamant", which is a German sentence in the middle of an English
+list, describing a picture nobody was being shown. They also publish the picture,
+at `api/v1/symbols/id/{id}?format=svg`, and it is 600 bytes. So the row shows the
+sign and keeps the sentence as the image's `alt`, which is what an `alt` is for.
+The proxy caches these like tiles, and this is the one thing in the file where
+caching pays off far better than it does for tiles: a symbol is the same picture
+for everybody, so one route in the Bernese Oberland warms the entry for every
+yellow diamond in Switzerland.
+
+It is an `<img>` and never inlined SVG. Their drawing is markup from a server
+this app does not own, and markup put into this document is this document's — a
+`<script>` in a waymark would be running on the page that holds the map. Inside
+an `<img>` it is a picture and can be nothing else. The response also carries a
+`Content-Security-Policy` of its own (`default-src 'none'; sandbox`), which
+nothing else here needs: an SVG *navigated to* rather than drawn is a document,
+and a copied link should not be somebody else's markup running on this origin.
+
+Two clauses went with the waymark sentence, both of them redundant rather than
+merely long. **The number is painted on the symbol** — that is the whole point of
+the symbol being a picture — so a "No. 26" beside a green rectangle with a white
+26 in it is the same fact twice. And the kind ("Regional route") is what the
+switch below has already sorted the list on. What is left is a name and, after
+it, where the route runs, muted.
+
+A route with no name is now called **where it runs** rather than "Unnamed route",
+which was the strictly least informative thing on any line of that card. The
+fallback chain is name, then number, then itinerary, then what kind of thing it
+is — the last for a piste with no name, no number and no ends, where "Downhill
+piste" is the whole of what is known.
+
+### Main routes, and why the test for one is reach
+
+A tap in the Alps comes back with the Via Alpina and then twenty legs of the
+local network — each a real relation, each signed, and none of them the answer to
+*what is this path*. So the card lists **main routes only** by default, with the
+rest one switch away.
+
+**The honest word for what somebody wants here is `type=superroute`, and it
+cannot be used.** That tag exists only in their *detail* record, which is a
+quarter of a megabyte per route: deciding what to put in a list of twenty would
+cost a hundred times what the list costs, in order to sort it. So `isMainTrail`
+reads **reach** instead, which their listing gives for free — `INT`, `NAT` and
+`REG` are the routes with a name, a number and an operator behind them, and
+`AL1`…`AL4`, `LOC` and `NDS` are the network they are stitched out of. It is not
+the same test and does not pretend to be; it is the one that can be made without
+asking their servers for a megabyte per tap.
+
+With the switch off the legs come back but stay **below** the routes they belong
+to, and the main ones are set in a heavier weight. The two positions are the same
+question asked with different patience, and the order is how a junction reads:
+what is this path, and then what else is here. Whatever the switch hides is
+counted under the list — "3 local routes hidden" — because an empty card and a
+filtered one must not look alike.
+
+`slopes` has no such hierarchy: its group is *what you would be doing* rather
+than how far the route reaches, so everything there is a main route and the row
+that would filter them is not shown at all. A control that demonstrably does
+nothing is indistinguishable from a broken one.
+
+### How far, how much up, how much down
+
+Behind a fold on each row, and fetched one route at a time when it is opened.
+
+Their `details/relation/{id}` answer is the **whole route** — every way, every
+coordinate — 235 KB for a regional loop. What a card wants out of it is the
+length, the ascent and the descent: about eighty bytes. Doing that in the page
+would be a third of a megabyte per route somebody glanced at, and doing it for a
+whole list on the chance it is read would be a megabyte a tap of somebody else's
+bandwidth for numbers nobody looked at — exactly the trade the proxy exists to
+refuse. So `oneDetail` in `server/trail-tiles.js` reduces the record where it
+arrives, and what is cached and sent on is the eighty bytes. The cache stores the
+*answer* rather than their record, which is also why that entry does not carry
+their `ETag`: a 304 would hand back a body we rewrote as if it were theirs.
+
+Length is their two numbers in order of what somebody is checking against:
+`official_length` — the `distance` tag, which is the number on the signpost —
+falling back to the length their renderer measured along the ways that are
+actually mapped. The two disagree by a few percent on a well-mapped route and by
+a lot on a half-mapped one. Ascent and descent are OSM tag values, which is to
+say strings people typed: `1,200`, `2200 m` and `about 40` all arrive, and only
+the first two are measurements.
+
+Most local paths carry none of the three and never will, so the fold says so
+rather than showing an empty line.
+
 ### Where it sits, and how loud it is
 
 It goes **under** the railways and the airports, at the same anchor, by being
@@ -5232,14 +5332,20 @@ open wants the paths on it.
 
 ### Where the switches live
 
-All of them — the switch, the theme row, the strength slider and the tap switch —
-are in the **layers menu**, which is the opposite of where the railway's ended
+All of them — the switch, the theme row, the strength slider, the tap switch and
+**Main routes only** — are in the **layers menu**, which is the opposite of where the railway's ended
 up, and the difference is about how they are used rather than how many there are. You set what the railway draws once and then read the map, so a
 column of checkboxes in the middle of a menu you flick through was in the way.
 Switching from hiking to cycling is the other kind: a question about the view,
 asked while looking at it — the same kind of question as Detail or Color by, both
 of which are a segmented row in that menu already. Burying it two dialogs deep
 would mean closing the map to change what the map is showing.
+
+The last of those is the exception that proves the rule: it is not about the
+view at all but about what the *card* lists, which is why it is hidden unless a
+tap can open one — no overlay, no tap switch, no row. It sits under the tap
+switch it depends on rather than in a dialog, because the moment anybody wants it
+is the moment they have just read a card full of legs.
 
 The theme row is built from the list in `src/trails.js` rather than written into
 the markup, and `scripts/test/trails.mjs` pins that list equal to the allowlist in

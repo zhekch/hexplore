@@ -4725,6 +4725,15 @@ body {
   line-height: 1.45;
 }
 
+/* Air between the entries, which they had none of. A list where a two-line
+   route and the next route's name are 1.45 line-heights apart is a paragraph:
+   the eye has nothing to tell it where one entry ends, and the trails card — whose
+   rows wrap constantly, because a route name and its two endpoints do not fit
+   280 px — read as a wall of text held together by underlines. */
+.popup-list-row + .popup-list-row {
+  margin-top: 7px;
+}
+
 /* The dot is a flex child; everything else lives inside one text box so that it
    wraps as ordinary inline content. `min-width: 0` is what lets that box be
    narrower than its longest word inside a flex row. */
@@ -4801,12 +4810,115 @@ body {
   color: inherit;
 }
 
-/* The clause after the name: what kind of route it is, where it runs, what is
-   painted on the post. Muted, so a list of six reads as six names with detail
-   attached rather than as a wall. The railway's journey ends use the same
-   element and are *not* muted, because there the endpoints are the answer. */
+/* The clause after the name: where the route runs. Muted, so a list of six
+   reads as six names with detail attached rather than as a wall. The railway's
+   journey ends use the same element and are *not* muted, because there the
+   endpoints are the answer. */
 .popup-list-tail.muted {
   color: rgba(255, 255, 255, 0.55);
+}
+
+/* --- The trails list ------------------------------------------------------
+   A row of it is the waymark, the name, where it runs, and a fold with how far.
+   Everything below is what those four need that the railway's rows do not. */
+
+/* The sign on the post, drawn rather than described — see trailRow in
+   src/main.js. Also the empty slot where a route has no waymark tagged, which
+   is why the box is stated rather than left to the image.
+
+   15px against 12px text: a waymark is a shape read at a glance
+   (a yellow diamond, a red-and-white flash) and below about this it stops
+   being one, while much above it starts competing with the name beside it.
+
+   The nudge is because the row aligns on the baseline and an image's baseline
+   is its bottom edge, so an untouched 15px symbol hangs three pixels of the
+   line's ascender above the capital letters next to it. Down rather than a
+   switch to `align-items: center`, which would centre it against a *wrapped*
+   row's two lines and leave it floating in the middle of the entry. */
+.trail-symbol {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  transform: translateY(3px);
+}
+
+/* The routes that are a thing in themselves rather than a leg of the network,
+   in the weight that says so. Only meaningful while the filter is off — with it
+   on, every row is one of these and nothing is emphasised against anything. */
+.trail-row.main .popup-list-text > a {
+  font-weight: 650;
+}
+
+/* How far, how much up, how much down: its own line under the name, because it
+   is three numbers and a name is not, and putting them on the end of the route
+   would push the wrap into the middle of "Interlaken → Grindelwald". */
+.trail-stats {
+  display: block;
+  margin-top: 1px;
+  color: rgba(255, 255, 255, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+.trail-stats[hidden] {
+  display: none;
+}
+
+/* The fold. Quiet until it is wanted — twenty of these at full contrast is a
+   column of chevrons down the side of the card, competing with the names.
+   `flex: none` and a fixed box so a row that wraps to three lines does not
+   stretch it. */
+.trail-more {
+  flex: none;
+  /* On the first line, not on the baseline: a flex item with no text of its own
+     baselines against its bottom edge, which drops a 20px button below a 12px
+     line and pushes the whole row apart to make room for it. */
+  align-self: flex-start;
+  margin-top: -1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, transform 0.15s ease;
+}
+
+.trail-more:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.trail-more[aria-expanded='true'] {
+  color: rgba(255, 255, 255, 0.75);
+  transform: rotate(180deg);
+}
+
+/* What the main-routes switch is holding back, under the list rather than in
+   it: it is a fact about the card, not a route. */
+.popup-list-hidden {
+  margin-top: 8px;
+}
+
+[data-theme='light'] .trail-stats {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+[data-theme='light'] .trail-more {
+  color: rgba(15, 23, 42, 0.42);
+}
+
+[data-theme='light'] .trail-more:hover {
+  background: rgba(15, 23, 42, 0.07);
+  color: rgba(15, 23, 42, 0.85);
+}
+
+[data-theme='light'] .trail-more[aria-expanded='true'] {
+  color: rgba(15, 23, 42, 0.7);
 }
 
 /* The same values `.cell-info` uses in light, for the same reason. */

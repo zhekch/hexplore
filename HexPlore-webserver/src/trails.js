@@ -346,6 +346,134 @@ export async function trailsNear(theme, bbox) {
   }
 }
 
+/**
+ * How far one route runs, and how much of it is up and down.
+ *
+ * A second request, made when somebody opens a row rather than when the card
+ * opens. What is behind it upstream is the whole geometry of the route — a
+ * quarter of a megabyte for a regional loop — which the server reduces to these
+ * three numbers before it answers. See `oneDetail` in server/trail-tiles.js for
+ * why that reduction happens there and not here.
+ *
+ * @returns {Promise<{length: number|null, ascent: number|null, descent: number|null}|null>}
+ */
+export async function trailDetails(theme, id) {
+  try {
+    const res = await fetch(`/api/trails/route/${encodeURIComponent(theme)}/${encodeURIComponent(id)}`, {
+      credentials: 'same-origin',
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body && typeof body === 'object' ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Where the drawing of one waymark lives — this app's own proxy, as ever. */
+export const trailSymbolUrl = (theme, id) =>
+  `/api/trails/symbol/${encodeURIComponent(theme)}/${encodeURIComponent(id)}.svg`;
+
+/**
+ * How far, how much up, how much down — as the one line a row shows.
+ *
+ * Metres in, because that is what OSM tags and their renderer both count in; a
+ * distance in kilometres and a climb in metres out, because that is how anybody
+ * planning a walk says it. Arrows rather than the words "ascent" and "descent":
+ * three labelled pairs do not fit the width of this card, and ↑ 1,240 m under a
+ * route name is not ambiguous.
+ *
+ * Returns null when the route says none of the three, which is normal — most
+ * local paths carry no `distance` tag at all.
+ */
+export function trailStatsLine({ length, ascent, descent } = {}) {
+  const parts = [];
+  if (Number.isFinite(length) && length > 0) {
+    const km = length / 1000;
+    parts.push(t('trails.km', { v: km >= 100 ? Math.round(km).toLocaleString() : km.toFixed(1) }));
+  }
+  if (Number.isFinite(ascent) && ascent > 0) parts.push(t('trails.ascent', { v: Math.round(ascent).toLocaleString() }));
+  if (Number.isFinite(descent) && descent > 0) parts.push(t('trails.descent', { v: Math.round(descent).toLocaleString() }));
+  return parts.length ? parts.join(' · ') : null;
+}
+
+// --- Which routes are the ones you have heard of ----------------------------------
+//
+// **The listing does not say which routes are made of other routes**, and that
+// is the thing somebody actually wants filtered out. A tap in the Alps comes
+// back with the Via Alpina and then twenty legs of the local network — "Ried –
+// Gempelen", "Reinisch – Rohrbach" — each a real relation, each signed, and none
+// of them the answer to "what is this path".
+//
+// The honest word for a route made of other routes is `type=superroute`, and it
+// exists only in their *detail* record, which is a quarter of a megabyte per
+// route. Reading twenty of those to decide what to put in a list would cost a
+// hundred times what the list itself costs, to sort it.
+//
+// So this reads reach instead, which the listing gives for free and which is the
+// same distinction from the other side: INT, NAT and REG are the routes with a
+// name, a number and an operator behind them — the ones on the guidebook's
+// contents page — and AL1…AL4, LOC and NDS are the network they are stitched
+// out of. It is not the same test and it does not pretend to be; it is the one
+// that can be made without asking their servers for a megabyte per tap.
+//
+// `slopes` has no such hierarchy at all — its group is *what you would be doing*
+// rather than how far the route reaches — so everything there is a main route
+// and the switch that would filter them is not shown.
+const MAIN_GROUPS = new Set(['INT', 'NAT', 'REG']);
+
+/** Is this one of the routes with a name of its own, rather than a leg? */
+export const isMainTrail = (route, theme) =>
+  theme === 'slopes' || MAIN_GROUPS.has(String(route?.group ?? ''));
+
+/** Whether the filter means anything for this rendering. See MAIN_GROUPS. */
+export const trailsHaveReach = (theme) => theme !== 'slopes';
+
+// Default on, which is the one preference in this module that is not simply
+// "leave it as we found it". A card that opens with the Via Alpina on it has
+// answered the question; the same card with the Via Alpina eleventh has not, and
+// the eleven above it are the ones nobody can tell apart. Off is one switch away
+// and is remembered.
+const MAIN_ONLY_KEY = 'visited-map:trail-main-only:v1';
+
+/** Whether the card lists only the routes above the local network. */
+export function trailMainOnly() {
+  try {
+    return localStorage.getItem(MAIN_ONLY_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+/** Set it. Returns what is now stored, so a caller can mirror it without reading back. */
+export function setTrailMainOnly(on) {
+  try {
+    localStorage.setItem(MAIN_ONLY_KEY, on ? 'on' : 'off');
+  } catch {
+    /* private mode — it comes back on next load, which is the default anyway */
+  }
+  return !!on;
+}
+
+/**
+ * The list a card shows: main routes first, and the rest of the network after
+ * them or not at all.
+ *
+ * Ordered rather than only filtered, because the two switch positions are the
+ * same question asked with different patience. With the filter on, the legs are
+ * gone; with it off they are still below the routes they belong to, which is
+ * the order somebody reads a junction in — what is this path, and then what else
+ * is here.
+ *
+ * A stable partition: their own order survives inside each half, and theirs is
+ * by reach already.
+ */
+export function orderTrails(routes, theme, { mainOnly = false } = {}) {
+  const main = routes.filter((r) => isMainTrail(r, theme));
+  if (mainOnly) return main;
+  return [...main, ...routes.filter((r) => !isMainTrail(r, theme))];
+}
+
 // --- What a route says about itself -----------------------------------------------
 
 // How far a route runs, in their vocabulary. Three of the four themes speak this
@@ -378,7 +506,15 @@ const SLOPE_GROUPS = {
 };
 
 /**
- * One route as a card: a title, a kind, and the rows worth showing.
+ * One route as a row: the sign, what it is called, and where it runs.
+ *
+ * **Three things and no labels.** This used to compose clauses — the kind, the
+ * number, the itinerary, and the waymark as a sentence beginning "Waymark:" —
+ * and a list of twenty routes made a wall of them, in which the one word you
+ * were scanning for (the name) was the shortest thing on every line. Two of the
+ * four are now redundant rather than dropped: the number is *painted on the
+ * symbol*, which is the whole point of the symbol being a picture, and the kind
+ * is what the main-routes switch above has already sorted on.
  *
  * Every string in here is an OSM tag value, which is to say something anyone on
  * the internet can edit — so the caller sets them with `textContent` and this
@@ -386,38 +522,34 @@ const SLOPE_GROUPS = {
  */
 export function describeTrail(route, theme) {
   if (!route) return null;
-  // A route with a reference and no name is normal and is not anonymous: a
-  // numbered node-network leg or a piste is *called* its number, and printing
-  // "Unnamed route" over a route signed as 57 would be losing the one thing on
-  // the sign.
-  const title = route.name || route.ref || t('trails.unnamed-route');
   const kind = theme === 'slopes' ? SLOPE_GROUPS[route.group] : GROUPS[route.group];
-
-  // One clause each, composed rather than returned as label-and-value pairs.
-  // The railway's card is a `dl` about one feature and can afford a column of
-  // labels; this is a list of up to twenty routes, and twenty three-row tables
-  // is not a card. So each clause carries whatever word it needs to stand on its
-  // own and none carries a word it does not: "Thun → Meiringen" says what it is,
-  // where a bare "weisse 1 auf grünem Rechteck" would read as a stray German
-  // phrase floating in the middle of a sentence.
-  const notes = [];
-  if (kind) notes.push(kind());
-  // The number on the post, and only when it is not already the title — an entry
-  // headed "57" that then reads "No. 57" is repeating itself.
-  if (route.ref && route.ref !== title) notes.push(t('trails.number', { ref: route.ref }));
   // Their `itinerary` is an ordered list of places, so an arrow is the honest
   // join: these are stops in sequence, not a set.
-  if (route.itinerary?.length) notes.push(route.itinerary.join(' → '));
-  // What you would actually see on a post — the most useful thing on the card
-  // when you are standing at a junction, and the one thing no basemap will ever
-  // tell you.
-  if (route.symbol) notes.push(t('trails.waymark', { symbol: route.symbol }));
+  const between = route.itinerary?.length ? route.itinerary.join(' → ') : null;
+
+  // What to head the row with, in the order of how much it tells you. A route
+  // with a reference and no name is not anonymous — a numbered node-network leg
+  // or a piste is *called* its number — and a route with neither is still
+  // "Interlaken → Grindelwald", which says more than "Unnamed route" ever did.
+  // The last two are for the case that is left: a piste with no name, no number
+  // and no ends, where "Downhill piste" is the whole of what is known.
+  const title = route.name || route.ref || between || (kind ? kind() : null)
+    || t('trails.unnamed-route');
 
   return {
     id: route.id,
     title,
-    kind: kind ? kind() : null,
-    notes,
+    // Where it runs, unless that is what the row is already called.
+    between: between === title ? null : between,
+    // Which half of the list this belongs in, and whether it is set in the
+    // weight that says "you have heard of this one".
+    main: isMainTrail(route, theme),
+    // The sign itself. Their sentence about it becomes the `alt`, which is what
+    // it is for: a description of a picture, in the language of whoever tagged
+    // the route, read out where the picture cannot be seen.
+    symbol: route.symbolId
+      ? { url: trailSymbolUrl(theme, route.symbolId), alt: route.symbol ?? '' }
+      : null,
     // The way back to the original. Their own site is the better page to land on
     // — it has the elevation profile and the map — but it is a single-page app
     // whose deep links are its own business and not something to hard-code from
