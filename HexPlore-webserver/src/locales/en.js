@@ -382,7 +382,6 @@ export default {
   "photo-info-close.close": "Close",
   "photo-info-play.play-video": "Play video",
   "photo-info-title.photo": "Photo",
-  "photos-note.where-your-pictures-were-taken": "Where your pictures were taken",
   "photos-row.photos": "Photos",
   "rail-back.back": "Back",
   "rail-bar-dismiss.dismiss": "Dismiss",

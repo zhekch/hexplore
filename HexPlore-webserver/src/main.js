@@ -85,8 +85,8 @@ import {
 // railway's is a 315 KB style.
 import {
   TRAIL_THEMES, bboxAround, describeTrail, installTrails, orderTrails, removeTrails,
-  setTrailOpacity, setTrailTheme, tapCorners, trailDetails, trailOpacity, trailStatsLine,
-  trailTheme, trailThemeLabel, trailsNear,
+  setTrailOpacity, setTrailTheme, tapCorners, trailDetails, trailLayerIds, trailOpacity,
+  trailStatsLine, trailTheme, trailThemeLabel, trailsNear,
 } from './trails.js';
 // Your photographs as points, which only the iOS app can draw: a photo library
 // is on a phone, and the server has never held anything but the coordinates. In
@@ -8056,6 +8056,48 @@ const TRAILS_BEFORE = () => (routeStackBottom() ?? labelStart());
 // of them says it directly and cannot drift. It lands immediately above the
 // saved routes, which is where it was always meant to be.
 const PHOTO_BEFORE = () => (map.getLayer('place-pin') ? 'place-pin' : labelStart());
+
+/**
+ * Put the three reference overlays back in their intended order, under the
+ * routes.
+ *
+ * **Order is decided at `addLayer` and never revisited**, which is fine when the
+ * anchor is there and wrong when it is not. `routeStackBottom()` returns null
+ * until the route layers exist, and every one of these falls back to
+ * `labelStart()` when it does — so a style whose routes arrive late, or a
+ * basemap that keeps its own layers inside an import where the anchor resolves
+ * somewhere else, ends up with an order nobody chose. On a phone that meant the
+ * trails drawn over the saved routes: the trails are a *picture*, so what they
+ * cover is not dimmed but gone, and what they were covering was the tracks
+ * somebody had actually walked.
+ *
+ * Moving rather than re-adding, because re-adding would drop every tile the
+ * renderer has parsed for a layer that is already correct — and this runs on
+ * every style load.
+ *
+ * Bottom to top: trails, railways, airports, then the routes above all three.
+ * A picture at the bottom (see TRAILS_BEFORE), then lines, then the symbols that
+ * lines would otherwise cover (see AIRPORT_BEFORE). Each is moved to sit
+ * immediately beneath the anchor in turn, so the later ones end up above the
+ * earlier ones — the same arrangement install order produces when it works.
+ */
+function orderOverlays() {
+  const anchor = routeStackBottom() ?? labelStart();
+  if (!anchor || !map.getLayer(anchor)) return;
+  const stack = [trailLayerIds(), railLayerIds(), airportLayerIds()];
+  for (const ids of stack) {
+    for (const id of ids) {
+      if (!map.getLayer(id)) continue;
+      try {
+        map.moveLayer(id, anchor);
+      } catch {
+        // An anchor inside somebody else's style import is not always a legal
+        // target. Leaving a layer where it is beats throwing on a basemap
+        // switch, and the overlay still draws.
+      }
+    }
+  }
+}
 let firstInstall = true;
 
 // How deep the server says each of OpenRailwayMap's sources can currently be
@@ -8622,6 +8664,21 @@ function installGrid() {
   // After the railways, which is what puts the airports above them — see
   // AIRPORT_BEFORE.
   syncAirportLayer();
+  // And once more, now that the routes are certainly in the style.
+  //
+  // **The three overlays choose their place at `addLayer` and never again**, and
+  // that one chance falls at a moment none of them controls: if the route stack
+  // was not built yet, or the anchor resolved differently under a basemap whose
+  // own layers arrive inside a style import, whatever order came out is the
+  // order that stays. On a phone that came out with the trails — a sheet of
+  // pixels — sitting over the tracks somebody had actually walked, which is the
+  // one place the overlay must never be.
+  //
+  // Re-asserting all three in the same order costs three no-ops when it was
+  // already right, and is the whole fix when it was not. Trails first, so they
+  // land at the bottom of the three; see TRAILS_BEFORE.
+  orderOverlays();
+
   // And the photographs above the routes, which is a different anchor rather
   // than a matter of order — see PHOTO_BEFORE.
   syncPhotoLayer();

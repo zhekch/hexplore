@@ -262,7 +262,13 @@
                    description but the row's only status — "Reading your
                    library…", a refused permission, or how many pictures and
                    videos are actually on the map. -->
-              <span data-i18n-text="photos-row.photos">Photos<small data-i18n="photos-note.where-your-pictures-were-taken" id="photos-note">Where your pictures were taken</small></span>
+              <span data-i18n-text="photos-row.photos">Photos<!-- Empty until there is something to say. It was "Where your
+                     pictures were taken", which described the row rather than
+                     reporting on it — and cost this row a second line that the
+                     switches above it do not have, so "Your map" read as more
+                     loosely spaced than the overlays. main.js fills it in with
+                     the real status: reading the library, a refused permission,
+                     or how many pictures are on the map. --><small id="photos-note"></small></span>
               <input type="checkbox" id="photos-toggle" />
             </label>
             <!-- Whether the ground answers a tap at all. On by default, because

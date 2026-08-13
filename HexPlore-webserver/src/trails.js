@@ -300,8 +300,34 @@ export function installTrails(map, { theme, basemap, before }) {
     const made = map.getSource(SOURCE);
     if (made) made._hexploreTheme = want;
   }
-  if (!map.getLayer(LAYER)) map.addLayer(trailLayerSpec(basemap), before);
-  else map.setPaintProperty(LAYER, 'raster-opacity', trailLayerSpec(basemap).paint['raster-opacity']);
+  if (!map.getLayer(LAYER)) {
+    map.addLayer(trailLayerSpec(basemap), before);
+  } else {
+    map.setPaintProperty(LAYER, 'raster-opacity', trailLayerSpec(basemap).paint['raster-opacity']);
+  }
+
+  // **Put it back under the routes, every time, rather than only when it is
+  // first added.** `addLayer(layer, before)` is the only chance a layer gets to
+  // choose where it sits, and that chance comes at install — which is a moment
+  // this module does not control and cannot see. If the anchor did not exist
+  // yet, or resolved differently under a basemap whose layers arrive inside a
+  // style import, the overlay lands wherever it landed and stays there for the
+  // life of the style: a sheet of pixels over the routes, which is the one
+  // place it must never be. This is a picture, so whatever it covers is simply
+  // gone — and what it was covering was the tracks somebody actually walked.
+  //
+  // `moveLayer` is cheap and idempotent, and every caller already passes the
+  // anchor it wants, so re-asserting it on each sync costs a no-op in the case
+  // that was already right and fixes the case that was not.
+  if (before && map.getLayer(LAYER) && map.getLayer(before)) {
+    try {
+      map.moveLayer(LAYER, before);
+    } catch {
+      // A `before` that exists but sits inside somebody else's import is not
+      // always a legal target. Leaving the layer where it is beats throwing on
+      // a basemap switch.
+    }
+  }
 }
 
 /** Take it off again — the layer first, then the source it reads. */

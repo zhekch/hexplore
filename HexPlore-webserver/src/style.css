@@ -777,6 +777,21 @@ body {
   grid-column: span 3;
 }
 
+/* **Four choices split two and two**, which the rule above gets wrong on its
+   own: it is written for five, so the fourth button inherits the wide span
+   meant for the second row of a 3-2 and lands alone under three others. That is
+   Time of day — Dawn, Day, Dusk, Night — and Night sitting by itself under the
+   other three reads as a separate control rather than as the fourth of four.
+
+   A quantity query rather than a class from the script that builds the row: the
+   count is a fact about the markup, and the two lists this grid serves are
+   filled from different modules. Anything that has to be remembered in a second
+   place is a thing that comes apart the next time somebody adds a choice. */
+.seg-split .seg-btn:first-child:nth-last-child(4),
+.seg-split .seg-btn:first-child:nth-last-child(4) ~ .seg-btn {
+  grid-column: span 3;
+}
+
 /* A segmented control following a row of its own (the coloring modes under
    "Train tracks") keeps the same rhythm as everything else in the section. */
 .menu-row + .seg,
@@ -1069,6 +1084,15 @@ body {
   font-weight: 400;
   line-height: 1.35;
   color: rgba(255, 255, 255, 0.45);
+}
+
+/* A second line with nothing in it still costs its margin, which is enough to
+   knock one row out of a column of otherwise identical switches. The Photos row
+   carries a `small` that is empty until there is a status to report, so without
+   this "Your map" sits on a wider rhythm than the overlays above it for as long
+   as nothing has gone wrong. */
+.menu-row small:empty {
+  display: none;
 }
 
 .menu-row input[type='color'],
