@@ -164,80 +164,6 @@ export function setTrailTheme(key) {
 export const trailThemeLabel = (key) =>
   TRAIL_THEMES.find((th) => th.key === key)?.label ?? key;
 
-// --- Which map of trails, from whom -----------------------------------------------
-//
-// **Two providers of the same routes, and the choice between them is a real
-// one.** Waymarked Trails renders the OSM route relations as pixels; MapTiler
-// publishes them as vector tiles under their Outdoor schema. Everything each
-// can do that the other cannot is set out at the head of src/trails-vector.js,
-// and none of it makes either the successor: the raster has waymark drawings,
-// elevation profiles, a link back to the relation and no key; the vector has a
-// filter, a tap that knows what it hit, labels and a dark map.
-//
-// So this is a setting rather than a migration. It lives here beside the theme
-// because the two are the same kind of thing — what is drawn — and because the
-// opacity below is shared by both and would otherwise have nowhere to sit.
-export const TRAIL_PROVIDERS = [
-  { key: 'waymarked', label: t('trails.provider-waymarked') },
-  { key: 'maptiler', label: t('trails.provider-maptiler') },
-];
-
-// The one that needs nothing. Somebody who has never opened this setting — and
-// anybody who has no MapTiler key, which is everybody until they make an account
-// — gets the overlay that has always been here.
-const DEFAULT_PROVIDER = 'waymarked';
-const PROVIDER_KEY = 'visited-map:trail-provider:v1';
-
-/** Is this a provider we know? Every way in goes through it, as with the theme. */
-export const isTrailProvider = (key) => TRAIL_PROVIDERS.some((p) => p.key === key);
-
-/**
- * Which provider is chosen, falling back to Waymarked Trails for anything odd
- * or absent.
- *
- * **Says nothing about whether it can be used.** A stored `maptiler` with no key
- * on the account is a real state — it is what a device that has not synced yet
- * looks like, and what an account whose key was removed looks like — and the
- * answer to it is a settings row that explains itself, not a silent fallback
- * that makes the setting look broken. `usableTrailProvider` below is the one
- * that decides what to draw.
- */
-export function trailProvider() {
-  let held;
-  try {
-    held = localStorage.getItem(PROVIDER_KEY);
-  } catch {
-    held = null;
-  }
-  return isTrailProvider(held) ? held : DEFAULT_PROVIDER;
-}
-
-/** Choose one. Returns what is now stored, so a caller can mirror it without reading back. */
-export function setTrailProvider(key) {
-  const clean = isTrailProvider(key) ? key : DEFAULT_PROVIDER;
-  try {
-    localStorage.setItem(PROVIDER_KEY, clean);
-  } catch {
-    /* private mode — it falls back to the raster next load, which is the safe way round */
-  }
-  return clean;
-}
-
-/**
- * Which provider to actually draw with, given whether there is a key.
- *
- * The one place the two questions are combined. MapTiler without a key is not a
- * degraded overlay, it is four layers reading a source whose every tile is a
- * 400 — so the map falls back to the provider that works, and the settings row
- * says why rather than pretending the choice did not happen.
- */
-export const usableTrailProvider = (chosen, hasKey) =>
-  (chosen === 'maptiler' && !hasKey ? DEFAULT_PROVIDER : (isTrailProvider(chosen) ? chosen : DEFAULT_PROVIDER));
-
-/** What to call a provider, for a sentence rather than a button. */
-export const trailProviderLabel = (key) =>
-  TRAIL_PROVIDERS.find((p) => p.key === key)?.label ?? key;
-
 // --- How loud ---------------------------------------------------------------------
 //
 // **Two stored values, one per basemap theme, which is the same shape the
@@ -509,52 +435,26 @@ const MAIN_GROUPS = new Set(['INT', 'NAT', 'REG']);
 export const isMainTrail = (route, theme) =>
   theme === 'slopes' || MAIN_GROUPS.has(String(route?.group ?? ''));
 
-/** Whether the filter means anything for this rendering. See MAIN_GROUPS. */
-export const trailsHaveReach = (theme) => theme !== 'slopes';
-
-// Default on, which is the one preference in this module that is not simply
-// "leave it as we found it". A card that opens with the Via Alpina on it has
-// answered the question; the same card with the Via Alpina eleventh has not, and
-// the eleven above it are the ones nobody can tell apart. Off is one switch away
-// and is remembered.
-const MAIN_ONLY_KEY = 'visited-map:trail-main-only:v1';
-
-/** Whether the card lists only the routes above the local network. */
-export function trailMainOnly() {
-  try {
-    return localStorage.getItem(MAIN_ONLY_KEY) !== 'off';
-  } catch {
-    return true;
-  }
-}
-
-/** Set it. Returns what is now stored, so a caller can mirror it without reading back. */
-export function setTrailMainOnly(on) {
-  try {
-    localStorage.setItem(MAIN_ONLY_KEY, on ? 'on' : 'off');
-  } catch {
-    /* private mode — it comes back on next load, which is the default anyway */
-  }
-  return !!on;
-}
-
 /**
- * The list a card shows: main routes first, and the rest of the network after
- * them or not at all.
+ * The list a card shows: the routes with names of their own first, then the
+ * legs of the local network they are stitched out of.
  *
- * Ordered rather than only filtered, because the two switch positions are the
- * same question asked with different patience. With the filter on, the legs are
- * gone; with it off they are still below the routes they belong to, which is
- * the order somebody reads a junction in — what is this path, and then what else
- * is here.
+ * **Ordered, and no longer filtered.** There used to be a *Main routes only*
+ * switch that dropped the second half, on by default. It went because it
+ * answered a question nobody was asking twice: the ordering already puts the
+ * named routes at the top, so the legs it hid cost a line each at the bottom of
+ * a card somebody had already decided to open — and getting them back meant
+ * finding the switch. A card is a short list read once, not a directory to be
+ * pruned.
  *
  * A stable partition: their own order survives inside each half, and theirs is
  * by reach already.
  */
-export function orderTrails(routes, theme, { mainOnly = false } = {}) {
-  const main = routes.filter((r) => isMainTrail(r, theme));
-  if (mainOnly) return main;
-  return [...main, ...routes.filter((r) => !isMainTrail(r, theme))];
+export function orderTrails(routes, theme) {
+  return [
+    ...routes.filter((r) => isMainTrail(r, theme)),
+    ...routes.filter((r) => !isMainTrail(r, theme)),
+  ];
 }
 
 // --- What a route says about itself -----------------------------------------------

@@ -35,9 +35,9 @@ await (await import('../../src/i18n.js')).loadLocale('en');
 
 const {
   OPACITY_MAX, OPACITY_MIN, TRAIL_THEMES, bboxAround, describeTrail, installTrails, isMainTrail,
-  isTrailTheme, orderTrails, removeTrails, setTrailMainOnly, setTrailOpacity, setTrailTheme,
-  tapCorners, trailLayerIds, trailLayerSpec, trailMainOnly, trailOpacity, trailSourceSpec,
-  trailStatsLine, trailTheme, trailThemeLabel, trailsHaveReach,
+  isTrailTheme, orderTrails, removeTrails, setTrailOpacity, setTrailTheme,
+  tapCorners, trailLayerIds, trailLayerSpec, trailOpacity, trailSourceSpec,
+  trailStatsLine, trailTheme, trailThemeLabel,
 } = await import('../../src/trails.js');
 
 const {
@@ -373,34 +373,22 @@ console.log('\nWhich routes are the ones you have heard of');
     check(!isMainTrail({ group: g }, 'hiking'), `${g || 'nothing'} is not`);
   }
   // Slopes group by what you would be doing rather than by how far the route
-  // reaches, so there is no local network to filter out and the switch that
-  // would do it is not shown.
+  // reaches, so every piste counts as a route with a name of its own.
   check(isMainTrail({ group: 1 }, 'slopes') && isMainTrail({ group: 5 }, 'slopes'),
     'every piste is a main route, because pistes have no hierarchy');
-  check(!trailsHaveReach('slopes'), 'so the filter says it does not apply there');
-  check(trailsHaveReach('hiking') && trailsHaveReach('mtb'), 'and does everywhere else');
 
   const near = [
     { id: 1, group: 'AL1' }, { id: 2, group: 'NAT' }, { id: 3, group: 'LOC' },
     { id: 4, group: 'REG' }, { id: 5, group: 'NDS' },
   ];
-  eq(orderTrails(near, 'hiking', { mainOnly: true }).map((r) => r.id), [2, 4],
-    'with the filter on, only the routes with names of their own');
-  // Ordered rather than only filtered: with the switch off the legs are still
-  // below the routes they belong to, which is the order a junction reads in.
-  eq(orderTrails(near, 'hiking', { mainOnly: false }).map((r) => r.id), [2, 4, 1, 3, 5],
-    'with it off, main routes first and their own order kept inside each half');
-  eq(orderTrails(near, 'hiking').map((r) => r.id), [2, 4, 1, 3, 5], 'and unfiltered by default');
-  eq(orderTrails([], 'hiking', { mainOnly: true }), [], 'nothing in, nothing out');
-
-  stored = {};
-  check(trailMainOnly() === true, 'nothing stored means only the main ones');
-  check(setTrailMainOnly(false) === false, 'it can be turned off');
-  check(trailMainOnly() === false, 'and is remembered');
-  check(setTrailMainOnly(true) === true && trailMainOnly() === true, 'and turned back on');
-  stored['visited-map:trail-main-only:v1'] = 'nonsense';
-  check(trailMainOnly() === true, 'and anything else reads as on, which is the default');
-  stored = {};
+  // **Ordered, never filtered.** The *Main routes only* switch is gone, so the
+  // legs are always listed — below the routes they belong to, which is the order
+  // a junction reads in. A card that silently dropped four of these five was the
+  // thing being fixed.
+  eq(orderTrails(near, 'hiking').map((r) => r.id), [2, 4, 1, 3, 5],
+    'main routes first, and their own order kept inside each half');
+  eq(orderTrails(near, 'hiking').length, near.length, 'and nothing is dropped');
+  eq(orderTrails([], 'hiking'), [], 'nothing in, nothing out');
 }
 
 console.log('\nHow far, how much up, how much down');

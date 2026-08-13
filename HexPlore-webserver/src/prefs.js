@@ -59,21 +59,3 @@ export function reconcilePrefs({ localStamp = 0, dirty = false, remote } = {}) {
 export function remoteToken(prefs) {
   return typeof prefs?.mapboxToken === 'string' ? prefs.mapboxToken.trim() : null;
 }
-
-/**
- * The MapTiler key the account holds, or null if the account has no opinion.
- *
- * Every word of the note above applies here — presence of the key is the whole
- * signal, `''` is a real answer, and an account written before this was synced
- * must not read as an instruction to wipe a device that has one.
- *
- * **And this one has a second reader.** The Mapbox token is synced so that a new
- * device does not have to be told it again; this is synced for that *and*
- * because the server reads it to fetch tiles at all — see `accountMaptilerKey`
- * in server/index.js. So a key that has been typed into a device and not yet
- * pushed is a key the map cannot use yet, which is why the settings dialog
- * pushes on save rather than waiting for the next sync.
- */
-export function remoteMaptilerKey(prefs) {
-  return typeof prefs?.maptilerKey === 'string' ? prefs.maptilerKey.trim() : null;
-}

@@ -1029,45 +1029,6 @@ body {
   margin-top: 7px;
 }
 
-/* A .menu-row that is a <button> rather than a <label> — the MapTiler key row,
-   which opens a dialog instead of flipping a switch.
-
-   Every line here undoes something a browser does to a button on its own
-   authority. Without them the row arrives with a border, a grey background and a
-   centred, smaller label, in the middle of a column of switches that have none
-   of those — which reads as a rendering fault rather than as a button. */
-.menu-row-btn {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-}
-
-.menu-row-btn:hover {
-  color: rgba(255, 255, 255, 0.92);
-}
-
-/* The state on the right — "Saved", "Needed" — where `.menu-row small` otherwise
-   means a second line underneath the label. Same element, opposite job, so the
-   block-and-margin has to go or it lands under the name instead of opposite it. */
-.menu-row-btn small {
-  display: inline;
-  flex: none;
-  margin-top: 0;
-}
-
-/* A key that is wanted and not there. The one thing in this fold that is not a
-   preference but a missing prerequisite, so it is the one thing coloured. */
-.menu-row-btn small.bad {
-  color: #ff9a4d;
-}
-
 /* A label over a segmented row inside a fold. Not a .menu-heading, which draws
    the line between sections and would be far too loud for this: these only say
    which of two adjacent four-button rows is which. */

@@ -5218,12 +5218,12 @@ fallback chain is name, then number, then itinerary, then what kind of thing it
 is — the last for a piste with no name, no number and no ends, where "Downhill
 piste" is the whole of what is known.
 
-### Main routes, and why the test for one is reach
+### Which routes lead the list, and why the test is reach
 
 A tap in the Alps comes back with the Via Alpina and then twenty legs of the
 local network — each a real relation, each signed, and none of them the answer to
-*what is this path*. So the card lists **main routes only** by default, with the
-rest one switch away.
+*what is this path*. So the card puts the routes with names of their own at the
+top, in a heavier weight, and the legs below them.
 
 **The honest word for what somebody wants here is `type=superroute`, and it
 cannot be used.** That tag exists only in their *detail* record, which is a
@@ -5235,25 +5235,18 @@ reads **reach** instead, which their listing gives for free — `INT`, `NAT` and
 the same test and does not pretend to be; it is the one that can be made without
 asking their servers for a megabyte per tap.
 
-With the switch off the legs come back but stay **below** the routes they belong
-to, and the main ones are set in a heavier weight. The two positions are the same
-question asked with different patience, and the order is how a junction reads:
-what is this path, and then what else is here. Whatever the switch hides is
-counted under the list — "3 local routes hidden" — because an empty card and a
-filtered one must not look alike.
+**It orders and no longer filters.** There was a *Main routes only* switch here,
+on by default, that dropped the second half — along with a counted note saying
+how many it had hidden, and a redraw-in-place so that flipping it rewrote the
+open card. All of it went. The ordering already answers *what is this path* in
+the first row, so what the switch bought was a shorter list at the cost of a
+control to find, a preference to store, an empty-versus-filtered distinction to
+word, and a second tap to undo. A card is a short list read once, not a directory
+to be pruned.
 
-**Flipping it rewrites the card that is open**, rather than closing it. Closing
-was the first version and read as the switch doing nothing: it changes what to
-show of an answer already in hand, so the answer is kept (`trailCard`) and the
-list redrawn from it — no second request for the same box, and no tapping the
-same spot twice to see what you just asked for. The ink on the map is untouched
-and cannot be otherwise: their tiles are pictures with every route already drawn
-into them.
-
-`slopes` has no such hierarchy: its group is *what you would be doing* rather
-than how far the route reaches, so everything there is a main route and the row
-that would filter them is not shown at all. A control that demonstrably does
-nothing is indistinguishable from a broken one.
+`slopes` has no hierarchy to read: its group is *what you would be doing* rather
+than how far the route reaches, so `isMainTrail` calls every piste a main route
+and the order comes out as their server sent it.
 
 ### How far, how much up, how much down
 
@@ -5273,8 +5266,8 @@ sent on is the eighty bytes — once, for everybody, for a week. The cache store
 the *answer* rather than their record, which is also why that entry does not
 carry their `ETag`: a 304 would hand back a body we rewrote as if it were theirs.
 
-What bounds the upstream cost is not a fold but **Main routes only**, which is
-why that switch is on by default: the usual list is three rows, not twenty.
+What bounds the upstream cost is the tap itself: one request per row of one
+card, sent as the row is drawn, for a route somebody has just asked about.
 
 Length is their two numbers in order of what somebody is checking against:
 `official_length` — the `distance` tag, which is the number on the signpost —
@@ -5372,296 +5365,12 @@ tracks and the airfields, which are a switch each. With them in the middle, the
 controls belonging to Trails were separated from the Trails row by two unrelated
 switches.
 
-**Main routes only** is the odd one in that list: it is not about the view at all
-but about what the *card* lists, which is why it is gone unless a tap can open
-one — no tap switch, no row — and gone on Slopes, which has no local network to
-filter.
-
 The theme row is built from the list in `src/trails.js` rather than written into
 the markup, and `scripts/test/trails.mjs` pins that list equal to the allowlist in
 `server/trail-tiles.js`. They are the same four tokens in two places — a path
 segment on their tile server and a subdomain on their API — and nothing else
 connects them: a theme in the menu and not in the allowlist is a button that
 draws nothing, and the other way round is a rendering nobody can reach.
-
-## The same trails, in data
-
-The second provider of the same routes. `src/trails-vector.js`,
-`server/maptiler-tiles.js`, `src/maptiler.js`, `src/maptiler-ui.js`.
-
-Everything in the section above follows from one fact — Waymarked Trails
-publishes PNGs and nothing else — and the sentence that says so has stopped
-being true of the *data*. [MapTiler](https://www.maptiler.com/)'s Outdoor schema
-publishes the same OpenStreetMap route relations as vector tiles, with a `trail`
-layer carrying `class`, `name`, `ref`, `operator`, `symbol`, `color`, `network`
-and `scale`. So the overlay gained a **provider**, chosen in the layers menu, and
-the raster did not go anywhere.
-
-**Neither is the successor.** They are asymmetric in both directions, which is
-why this is a setting rather than a migration:
-
-| | Waymarked Trails | MapTiler Outdoor |
-|---|---|---|
-| Filter what is drawn | impossible — it arrives as ink | a renderer filter, no round trip |
-| A tap | lists what runs *near* the finger | names what it *hit* |
-| Labels | baked into the tile | ours, in the basemap's own fontstack |
-| Dark maps | opacity only | line colour is ours |
-| Waymark drawing | an SVG per route, by id | the same SVG, rendered *from the tag* — see below |
-| Length, ascent, descent | a detail API | nothing |
-| Link to OSM | the relation id | **no id in the schema at all** |
-| Deepest zoom | 18 | 14 |
-| Cost | free, a volunteer project | a key, and a monthly ceiling |
-
-The last three are the reason the raster stays. Their features carry no OSM
-relation id — measured against live tiles, not assumed — so a card from this
-provider is a name and not an address: no link and no distance. `trailRow` in
-`src/main.js` draws a `<span>` instead of an `<a>` and skips the stats fetch when
-`route.osm` is null, which is the one place the two cards differ. The waymark is
-*not* on that list of losses, for a reason worth its own section below.
-
-### The layer is not only routes
-
-The thing worth knowing before reading any of the filters. Their `trail` layer
-carries route relations **and** bare OSM paths in the same bucket, separated only
-by what they are tagged with. Counted over live z14 tiles across ten countries:
-256 features, 51 of them with a `network`, over seven distinct network values.
-By zoom, over the Alps:
-
-| z | features | with a `network` |
-|---|---|---|
-| 5 | 759 | 759 — all `iwn`/`icn` |
-| 8 | 93 | 93 |
-| 10 | **3190** | **301** |
-| 12 | 446 | 30 |
-| 14 | 87 | 6 |
-
-At z5–z8 MapTiler has already thinned to the international routes. From z10 the
-layer floods with footpaths that carry no name, no ref, no network and a
-`sac_scale` — nine features in ten. An overlay that drew all of it would be a
-thicket, which is why the default is not "everything".
-
-### The ladder
-
-`network` is the whole answer, and it was the one thing that could not be
-verified from the documentation, which says only "original value of the network
-tag". It is: OSM's `[level][activity]n` — `i`nternational, `n`ational,
-`r`egional, `l`ocal over `w`alking, `c`ycling, `m`ountain bike and `h`orse. So
-`TRAIL_REACH` is four rungs, loosest first:
-
-- **Every path** — no filter. What a raw Outdoor style shows.
-- **Named routes** — a name, a ref, or a network. Drops the unnamed paths, which
-  is most of the volume and none of the answers.
-- **Waymarked** — in a network at all, local included. **The default**, because
-  it is the closest thing to what the raster provider draws: switching provider
-  should change how the routes look, not which ones exist. It is also the half of
-  this data hardest to get anywhere else — a yellow diamond footpath is exactly
-  what *was there already a name for the way I went* is asking about.
-- **Main routes** — international, national and regional. The guidebook's
-  contents page.
-
-`MAIN_NETWORKS` is written out as twelve literals rather than matched on the
-first letter, because `network=Rundweg` is not a national route because it begins
-with an R. An unrecognised network counts as waymarked and never as main, which
-is the conservative way round.
-
-The rungs must nest — main ⊆ waymarked ⊆ named ⊆ all — and nothing about four
-independently-written expressions makes that true, so
-`scripts/test/trails-vector.mjs` asserts it by compiling them with MapLibre's own
-`featureFilter` and running a corpus modelled on the measured tiles through all
-four.
-
-**One trap, and it is the expensive kind.** Their tiles carry `"name": ""`
-rather than omitting the key, and `["!=", ["get","name"], ""]` is *true* for a
-property that is absent — so a filter written the obvious way passes every
-feature in a tile that omits the field, which looks exactly like a map with no
-filter on it. Every field is read through `["coalesce", ["get", …], ""]`.
-
-### Four layers, and why
-
-`line-dasharray` is not data-driven, so "signed routes solid, bare paths dashed"
-cannot be one layer with an expression in it — hence `paths` and `routes` as two
-layers over complementary filters, which the test also pins as non-overlapping
-(if they ever both match, every route is drawn twice at two widths). `casing` is
-a halo under the signed routes only, because an overlay drawn over five different
-basemaps cannot assume contrast. `labels` is the thing a raster overlay can never
-have, and it takes the basemap's own fontstack via `styleFont()` — a stack the
-glyph server has never heard of is a label that silently never draws.
-
-Line weight carries the hierarchy independently of the filter: a main route is
-drawn twice the width of an unsigned path at every zoom, so the map stays
-readable even at the loosest rung. Colour is the waymark's `color` where the
-route has one — about one in eight — and the theme's otherwise, in two palettes
-because a `black` waymark over a near-black basemap is an invisible route.
-
-Line weight carries the hierarchy a second time, and it is deliberately heavy:
-a national route is about 4 px at z12 against under 2 for a footpath. The first
-version was half that, which was legible alone and looked provisional the moment
-somebody switched providers to compare — Waymarked Trails draws a route as a
-confident stroke, and a 2 px line beside it reads as a draft of one.
-
-### Mountain bike is a theme of trails, not of routes
-
-This row was left out at first, on the reasoning that their `class` has no MTB
-value — an MTB route and a cycle route are both `bicycle` — and that a theme
-built on `mtb:scale` would show unsigned singletrack and nothing else. Half
-right, wrong conclusion, and the numbers are what settled it. Counted over 3370
-features across twelve mountain-bike destinations (Finale Ligure, Whistler,
-Morzine, Davos, Livigno, Bikepark Wales, Sedona…):
-
-- The MTB **network** codes `imn`/`nmn`/`rmn` appear **zero** times. Not rare —
-  absent. The only MTB-ish network in the sample was a single free-text `mtb`.
-  Those rows stay in `MAIN_NETWORKS` because they are correct OSM and cost
-  nothing, but nothing should be built on the assumption that they fire.
-- 1651 `bicycle` features carry a numeric `mtb:scale`, graded 0–6, on named
-  trails that are the actual reason people go there.
-
-So MTB here is a bicycle way with a grade and no network — `IS_MTB`. It is a real
-row; it is just not made of route relations, which is why the reach ladder is
-hidden for it. Cycling and MTB **partition** `bicycle` between them, and a signed
-cycle route stays in Cycling even if it is also graded, so no feature falls down
-the gap.
-
-It shares cycling's colour rather than being graded green-to-black. Difficulty is
-a real axis and it is not this overlay's question; a second palette competing
-with the waymark colours would be two legends on one map. The grade goes in the
-tap card instead, as its number — six invented adjectives would be this app
-asserting a scale it did not define.
-
-**The bug this exposed.** The dashes mean "not in a signed network", which only
-means anything where networks exist. Pistes never carry one, so `ski` was drawing
-its entire theme dashed — every run rendered as though it were a shortcut —
-and MTB would have done the same. `maptilerHasReach` now decides the dashes and
-the casing as well as the ladder: a theme with no networks puts everything in the
-solid layer and leaves the dashed one unsatisfiable.
-
-`slopes` on the raster provider maps to `ski` here, which is the same thing under
-another name. `horse` and `wheelchair` remain absent from every theme — real, and
-not what any of these rows say, the same decision as leaving `riding` out of the
-raster provider.
-
-### The waymark, which this provider was not supposed to have
-
-The table above says MapTiler carries `osmc:symbol` as an unrendered string and
-no drawing, and that its features have no OSM id to look a drawing up by. Both
-are true, and the conclusion drawn from them — that this provider cannot show
-waymarks — was not.
-
-**Waymarked Trails will render a symbol from the tag itself**:
-`symbols/from_tags/{style}?osmc:symbol=…`. That needs no id, no relation, and no
-agreement between the two services beyond the OSM tag they both read. So the
-vector provider gets the same 16 px waymarks as the raster one, and the only
-thing still missing from its card is the length/ascent/descent, which really does
-need a relation id.
-
-Three things measured rather than assumed:
-
-- **The style in the path is not cosmetic.** The same tag under `INT` and `LOC`
-  is different bytes, because the style picks the shield the waymark sits on — so
-  the network level travels with the tag (`symbolStyleFor`).
-- **Always their *hiking* host, whatever the route is for.** Asking the matching
-  host is the obvious thing and it returns nothing: the cycling host answers 404
-  to `from_tags` for *every* tag, including ones hiking renders happily. It is
-  not a data gap, it is what their cycling map is — numbered shields rather than
-  painted waymarks, so no osmc renderer sits behind that host.
-- **The tag needs no tight alphabet**, unlike a symbol id, because it goes into a
-  query *parameter* and is percent-encoded: no value can spell a second
-  parameter, a path segment or another host. Its text segments are free text —
-  `yellow:white:yellow_diamond:WHR:black` paints letters on the sign — so a tight
-  alphabet would reject valid waymarks. What is checked is length and control
-  characters.
-
-The `alt` is the waymark's colour, not the tag: `alt` describes a picture for
-somebody who cannot see it, and `yellow::yellow_diamond` is its source code.
-
-Cached harder than anything else in that file, and it is the one place really
-worth it: a symbol *id* is per route, a *tag* is per signage scheme.
-`yellow::yellow_diamond` is every waymarked footpath in the Bernese Oberland, so
-one fetch serves thousands of routes across every account on the server.
-
-### The key, and where it is not
-
-Stored per account like the Mapbox token, synced by `src/prefs.js`, entered in a
-dialog that checks it before saving. One difference, and it is the important one:
-**the key is never given to the renderer.** Mapbox GL JS will not take a map any
-other way, so that token is used from the page; these tiles are fetched by this
-server, which reads the key off the account (`accountMaptilerKey`). The browser
-holds a copy only to fill a settings box and to know whether the provider can be
-offered at all.
-
-So MapTiler is never told the viewer's address, and never told which square of
-the world somebody is looking at — the same promise `server/trail-tiles.js`
-makes, and the reason `api.maptiler.com` answering `access-control-allow-origin:
-*` is not taken up. The key is not part of the cache key either: the tile at
-14/8504/5833 is the same tile whoever fetched it, so keying on the account would
-store one copy per person of identical bytes *and* put the key on the disk.
-`scripts/test/maptiler-cache.mjs` checks it appears in neither a filename nor an
-entry's metadata.
-
-`/api/trails/mt/…` answers **409** for an account with no key — which is
-indistinguishable from an account that never chose this provider, and both get
-the same answer. `usableTrailProvider` is what stops that being a blank map: a
-stored `maptiler` with no key draws the raster, and the settings row says why
-rather than silently rewriting the choice.
-
-**The tile URL has to be absolute, and this is the second module to learn it.**
-Vector tiles are fetched inside a Web Worker, which has no document to resolve a
-path against — so a `tiles` entry of `/api/trails/mt/{z}/{x}/{y}.pbf` fails with
-`Failed to construct 'Request': Failed to parse URL`, and the symptom is a source
-that reports itself loaded, requests nothing, raises nothing the page can see,
-and draws an empty map. Nothing in a network panel explains it because there is
-no request. The raster provider has none of this trouble, because its tiles are
-fetched on the main thread — which is exactly why the mistake is easy to make
-here after working there.
-
-`railUrl` in `src/rail.js` already said this, and said the other half too:
-**concatenate, never `new URL(path, origin)`**. `URL` normalises, and normalising
-a tile template percent-encodes the placeholders into `%7Bz%7D/%7Bx%7D/%7By%7D`,
-which no renderer can substitute — so every tile is requested with the braces
-still in the path and every one of them 404s. `vectorTrailTileUrl` is the same
-three lines, and `scripts/test/trails-vector.mjs` pins both halves.
-
-**The other bug this shipped with, for anybody adding a third provider.** Their
-tiles are gzip on the wire, which makes "store the bytes as they arrived" the
-obvious thing to write and the wrong one: `fetch` has already decoded them by the
-time `arrayBuffer()` resolves, so the obvious version stores protobuf and labels
-it `gzip: true`. The browser then gets `Content-Encoding: gzip` over data that is
-not, and fails inside the transport with `incorrect header check` — before a line
-of this app's code runs, which is why it reads as the server being broken rather
-than as a tile being wrong. `server/rail-tiles.js` does its own `gzipSync` for
-exactly this reason and says so; this one now does too.
-
-Two smaller things their server does that the others do not. An empty square is
-**200 with a zero-byte body**, not a 204 — a real answer meaning "no trails
-here", covering most of the planet, and storing it is what stops every pan over
-open country asking again. And z15 is a **400**, not an empty tile, so
-`MAPTILER_MAX_ZOOM` is enforced on both sides rather than left to fail upstream.
-
-### Where the switches live
-
-Everything this provider adds is **inside the fold**, under two subheads —
-*Which routes* over the ladder, *Drawn by* over the provider, then the key row.
-The ladder was briefly out beside the theme row, on the reasoning that it is the
-same kind of question as the theme: what am I looking at, asked while looking at
-it. In front of a map that is wrong: four buttons of filter directly under four
-buttons of theme read as one eight-button control, and the second row silently
-does nothing on the other provider. A subhead is what makes two adjacent
-segmented rows two controls instead of one.
-
-The ladder is a `setFilter` on layers that are already there rather than a
-reinstall — this is the one control somebody drags through all four positions to
-see what each does, and rebuilding four layers per position would throw away
-every parsed tile. Measured over Bern at z10.5, the four rungs draw 2201, 1644,
-1602 and 23 features.
-
-**Main routes only** is hidden entirely on this provider: there the filter is
-what is *drawn*, so a second switch filtering only the card would let the two
-disagree — a list of three under a map showing twenty.
-
-The key row is a `<button>` wearing `.menu-row`, so it needs `.menu-row-btn` on
-top of it. Everything in that rule undoes something a browser does to a button on
-its own authority; without it the row arrives with a border, a grey background
-and a centred label in a column of switches that have none of those, which reads
-as a rendering fault rather than as a button.
 
 ## The photographs themselves, from the phone in your hand
 
@@ -7829,7 +7538,3 @@ own string for the imagery.
 - Waymarked routes: [Waymarked Trails](https://waymarkedtrails.org/) raster tiles
   and `by_area` lookup (ODbL via OpenStreetMap, credited on the source so the
   line comes and goes with the overlay) — cached in `server/trail-tiles.js`
-- The same routes as vector tiles: [MapTiler](https://www.maptiler.com/) Outdoor
-  (ODbL via OpenStreetMap, plus MapTiler's own credit — both required, both on
-  the source), on the viewer's own key and free below their monthly allowance for
-  personal use — cached in `server/maptiler-tiles.js`

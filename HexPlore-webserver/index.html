@@ -195,7 +195,7 @@
             <div class="seg seg-wrap" id="trails-seg" hidden></div>
             <button type="button" class="menu-expand" id="trails-options-toggle"
               aria-expanded="false" aria-controls="trails-options" hidden>
-              <span data-i18n="trails-options-toggle.strength-taps-and-which-routes">Strength, taps and which routes</span>
+              <span data-i18n="trails-options-toggle.strength-and-taps">Strength and taps</span>
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m6 9 6 6 6-6" />
@@ -223,51 +223,6 @@
                 <span data-i18n-text="trails-tap-row.tap-for-trails">Tap for trails</span>
                 <input type="checkbox" id="trails-tap-toggle" />
               </label>
-              <!-- What that tap comes back with: the routes that are a thing in
-                   themselves, or those plus every leg of the local network they
-                   are stitched out of. On by default, and gone entirely unless
-                   a tap can open a card at all — see isMainTrail in
-                   src/trails.js for why reach is what this reads. -->
-              <label class="menu-row" id="trails-main-row">
-                <span data-i18n-text="trails-main-row.main-routes-only">Main routes only</span>
-                <input type="checkbox" id="trails-main-toggle" />
-              </label>
-              <!-- How much of the network is drawn, and the reason the MapTiler
-                   provider exists at all. Folded away with the rest rather than
-                   out beside the theme row: four buttons of filter under four
-                   buttons of theme read as one eight-button control where the
-                   second row silently does nothing on the other provider.
-                   Shown only for the provider that can answer it — the raster
-                   is already drawn by the time it arrives, so there is nothing
-                   left to filter. Filled in by main.js from TRAIL_REACH in
-                   src/trails-vector.js. -->
-              <div class="menu-subhead" id="trails-reach-head" hidden>
-                <span data-i18n="trails-reach-head.which-routes">Which routes</span>
-              </div>
-              <div class="seg seg-wrap" id="trails-reach-seg" hidden></div>
-              <!-- Who draws them. Two renderings of the same OSM route
-                   relations, and neither is the successor to the other — see
-                   the head of src/trails-vector.js for what each can do that
-                   the other cannot. Folded away because it is a thing you
-                   choose once, where the theme is a thing you flick between. -->
-              <div class="menu-subhead" id="trails-provider-head" hidden>
-                <span data-i18n="trails-provider-head.drawn-by">Drawn by</span>
-              </div>
-              <div class="seg seg-wrap" id="trails-provider-seg" hidden></div>
-              <!-- MapTiler serves nothing without an account, so this is the
-                   row that switches the provider above from a button that
-                   cannot work into one that can. Hidden while the raster
-                   provider is chosen, because it is a question about the other
-                   one.
-
-                   A <button> wearing .menu-row, so it needs .menu-row-btn on
-                   top to undo what a browser does to a button — otherwise it
-                   arrives with a border, a background and a centred label in
-                   the middle of a column of switches. -->
-              <button type="button" class="menu-row menu-row-btn" id="trails-key-row" hidden>
-                <span data-i18n="trails-key-row.maptiler-key">MapTiler key</span>
-                <small id="trails-key-state"></small>
-              </button>
             </div>
           </section>
 
@@ -1232,64 +1187,6 @@
         <div class="modal-actions">
           <button data-i18n="mapbox-cancel.cancel" type="button" class="modal-btn" id="mapbox-cancel">Cancel</button>
           <button data-i18n="mapbox-done.done" type="button" class="modal-btn primary" id="mapbox-done">Done</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- The second credential, and the same dialog as the one above because it
-         is the same question about a different account. See src/maptiler-ui.js.
-
-         What is said here that is not said there: this key buys a *filter*.
-         The raster trails overlay draws whatever their cartographer decided,
-         and the only reason to give MapTiler an account is that their tiles
-         arrive as data — so "only the routes you have heard of" becomes
-         something the renderer can be asked for. That is what the paragraph
-         has to get across, because otherwise this reads as a second way to
-         draw the same lines. -->
-    <div class="modal-overlay" id="maptiler-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="maptiler.trails-from-maptiler" class="modal-title">Trails from MapTiler</div>
-            <div data-i18n-text="maptiler.the-same-routes-as-data" class="modal-sub">The same routes as data rather than a picture, so you can hide the local paths and keep the routes with names. Press <b data-i18n="maptiler.done">Done</b> with a working key and the trails overlay switches straight to it.</div>
-          </div>
-          <button data-i18n-aria-label="maptiler-close.close" class="cell-info-close" id="maptiler-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="ha-scroll">
-          <p data-i18n-text="maptiler.maptiler-will-not-serve-these" class="ha-help">
-            MapTiler will not serve these tiles without an account, and this app does not have one —
-            so the overlay runs on <b data-i18n="maptiler.your">your</b> key, free below their monthly
-            allowance for personal use. Make one at
-            <a data-i18n="maptiler.cloud-maptiler-com" href="https://cloud.maptiler.com/account/keys/" target="_blank" rel="noreferrer noopener">cloud.maptiler.com</a>;
-            the default key is the right one.
-          </p>
-          <label class="token-field">
-            <span data-i18n="maptiler.key">Key</span>
-            <!-- Not type=password, for the same reason the token above is not:
-                 hiding it would only make a paste impossible to check. `off` on
-                 autocapitalize because a phone keyboard will otherwise
-                 capitalise the first letter of a case-sensitive key. -->
-            <input data-i18n-placeholder="maptiler-key.placeholder" type="text" id="maptiler-key" placeholder="V7kQ2mXb…"
-              autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-          </label>
-          <div class="token-note" id="maptiler-note" hidden></div>
-
-          <div data-i18n="maptiler.the-key-is-saved-to" class="import-note">
-            The key is saved to your HexPlore account rather than to this device, because it is this
-            server that fetches the tiles with it — so MapTiler is never told which part of the map
-            you are looking at. Empty the box and press Done to take it off; revoking it is done at
-            MapTiler.
-          </div>
-        </div>
-
-        <div class="modal-actions">
-          <button data-i18n="maptiler-cancel.cancel" type="button" class="modal-btn" id="maptiler-cancel">Cancel</button>
-          <button data-i18n="maptiler-done.done" type="button" class="modal-btn primary" id="maptiler-done">Done</button>
         </div>
       </div>
     </div>
