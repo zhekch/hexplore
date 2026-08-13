@@ -7483,6 +7483,15 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   cursor: pointer;
 }
 
+/* The same control in the layers menu, which is half the width of the export
+   dialog — so it is narrower, and the label beside it keeps the room. */
+.menu-range {
+  flex: none;
+  width: 96px;
+  accent-color: #60acff;
+  cursor: pointer;
+}
+
 .export-switch {
   display: flex;
   align-items: center;

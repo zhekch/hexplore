@@ -41,16 +41,23 @@ import { t } from './i18n.js';
 
 // --- Tuning -------------------------------------------------------------------
 
-// How strongly the ink lands, per basemap theme. Two numbers rather than one
-// because the same PNG has to sit on CARTO Dark and on aerial photography.
+// How strongly the ink lands, per basemap theme, until somebody says otherwise.
+// Two numbers rather than one because the same PNG has to sit on CARTO Dark and
+// on aerial photography.
 //
-// Over a light map their colours are already tuned and full strength is right.
-// Over a dark one the white casing around every route reads as glare — the
-// routes stop being lines on a map and become a lit sign in front of it — so it
-// comes down, far enough to sit in the map rather than on it and no further:
+// Over a light map their colours are already tuned and near full strength is
+// right. Over a dark one the white casing around every route reads as glare —
+// the routes stop being lines on a map and become a lit sign in front of it — so
+// it comes down, far enough to sit in the map rather than on it and no further:
 // below about 0.6 a local footpath in pale yellow stops being visible at all,
 // which is the half of the data that is hardest to get anywhere else.
-const OPACITY = { light: 0.95, dark: 0.72 };
+const DEFAULT_OPACITY = { light: 0.95, dark: 0.72 };
+
+// What the slider will go to. Below the floor the overlay is a rumour, and
+// somebody who wants it gone has a switch for that; the ceiling is opacity 1,
+// which is the most a raster layer has.
+export const OPACITY_MIN = 0.2;
+export const OPACITY_MAX = 1;
 
 // Smooth the ink when the renderer is scaling a tile — which, with no `@2x` and
 // a `maxzoom` of 18, is most of the time on most screens. `nearest` keeps the
@@ -86,18 +93,23 @@ export const trailLayerIds = () => [LAYER];
 // --- Which map of trails ---------------------------------------------------------
 
 /**
- * The five renderings they publish.
+ * The renderings this map offers.
  *
  * `key` is the path segment on their tile server *and* the subdomain their API
  * lives on — theirs, not ours, and the reason server/trail-tiles.js keeps the
  * same list. `label` is read at import time and so is in whatever language was
  * loaded before this module was, which src/boot.js guarantees is the right one.
  */
+// Their fifth, `riding`, is deliberately absent. It is horse riding — not a
+// second word for cycling, which is what everybody reads it as, and the reason
+// it is gone rather than relabelled: this is a map for the ways its owner
+// actually travels, and a row nobody will ever press costs a quarter of the
+// menu's width and one moment of "what is that?" for every person who meets it.
+// Nothing but this list stands between it and coming back.
 export const TRAIL_THEMES = [
   { key: 'hiking', label: t('trails.hiking') },
   { key: 'cycling', label: t('trails.cycling') },
   { key: 'mtb', label: t('trails.mtb') },
-  { key: 'riding', label: t('trails.riding') },
   { key: 'slopes', label: t('trails.slopes') },
 ];
 
@@ -143,6 +155,67 @@ export function setTrailTheme(key) {
 export const trailThemeLabel = (key) =>
   TRAIL_THEMES.find((th) => th.key === key)?.label ?? key;
 
+// --- How loud ---------------------------------------------------------------------
+//
+// **Two stored values, one per basemap theme, which is the same shape the
+// visited colour keeps and for the same reason.** A single number was the
+// obvious version and it is wrong in the case that actually happens: the split
+// above is not two preferences, it is a correction for what is underneath, so a
+// strength chosen while looking at Light becomes glare the moment you switch to
+// Dark. Storing one per side means switching basemap moves the slider — which is
+// why the row says which map it is talking about, exactly as `Visited color ·
+// light map` does a few rows up.
+//
+// Absent means the tuned default above, so anybody who never touches this keeps
+// the version that was measured rather than a number somebody dragged once.
+const OPACITY_KEY = 'visited-map:trail-opacity:v1';
+
+/** Light or dark, and never anything else — an unknown basemap reads as dark. */
+const sideOf = (basemap) => (basemap === 'light' ? 'light' : 'dark');
+
+const clamp = (v) => Math.min(OPACITY_MAX, Math.max(OPACITY_MIN, v));
+
+function storedOpacities() {
+  try {
+    const held = JSON.parse(localStorage.getItem(OPACITY_KEY));
+    return held && typeof held === 'object' ? held : {};
+  } catch {
+    // Absent, unparseable, or a private-mode throw. All three mean "no opinion",
+    // which is the answer that leaves the measured defaults in place.
+    return {};
+  }
+}
+
+/**
+ * How strong the ink should be over this basemap: what was chosen, or the
+ * measured default.
+ *
+ * The stored value is validated rather than trusted — it is a number in
+ * `localStorage`, which a newer build, an older one, or a person with the
+ * devtools open can all have written. A `raster-opacity` of `"loud"` is a layer
+ * that does not render at all.
+ */
+export function trailOpacity(basemap) {
+  const held = storedOpacities()[sideOf(basemap)];
+  return Number.isFinite(held) ? clamp(held) : DEFAULT_OPACITY[sideOf(basemap)];
+}
+
+/**
+ * Set it for one side. Returns what is now in force, so a caller can mirror it
+ * without reading back.
+ */
+export function setTrailOpacity(basemap, value) {
+  const side = sideOf(basemap);
+  if (!Number.isFinite(value)) return trailOpacity(basemap);
+  const clean = clamp(value);
+  try {
+    localStorage.setItem(OPACITY_KEY, JSON.stringify({ ...storedOpacities(), [side]: clean }));
+  } catch {
+    /* private mode — it falls back to the measured default next load */
+  }
+  return clean;
+}
+
 // --- Putting it on the map --------------------------------------------------------
 
 /**
@@ -173,13 +246,13 @@ export function trailSourceSpec(theme) {
 }
 
 /** The one layer, given which way round the basemap is. */
-export function trailLayerSpec(theme) {
+export function trailLayerSpec(basemap) {
   return {
     id: LAYER,
     type: 'raster',
     source: SOURCE,
     paint: {
-      'raster-opacity': OPACITY[theme === 'light' ? 'light' : 'dark'],
+      'raster-opacity': trailOpacity(basemap),
       'raster-resampling': RESAMPLING,
       // No cross-fade between zoom levels. The default half-second dissolve is
       // right for aerial photography, where the two zooms are the same picture
@@ -275,7 +348,7 @@ export async function trailsNear(theme, bbox) {
 
 // --- What a route says about itself -----------------------------------------------
 
-// How far a route runs, in their vocabulary. Four of the five themes speak this
+// How far a route runs, in their vocabulary. Three of the four themes speak this
 // one; `slopes` speaks the other one below.
 //
 // **Their own site buckets everything else as "other", and this omits it

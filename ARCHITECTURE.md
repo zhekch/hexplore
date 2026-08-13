@@ -5039,10 +5039,20 @@ The third reference overlay, and the one that is a picture rather than data.
 
 [Waymarked Trails](https://waymarkedtrails.org/) renders the waymarked routes of
 OpenStreetMap — the ones somebody has signed and painted onto a post — as five
-separate maps: hiking, cycling, mountain bike, riding, and slopes for pistes, ski
-tours, sledge runs and cleared winter footpaths. It answers the question this app
-could not otherwise ask about a recorded walk: *was there already a name for the
-way I went?*
+separate maps. Four of them are offered here: hiking, cycling, mountain bike, and
+slopes for pistes, ski tours, sledge runs and cleared winter footpaths. It
+answers the question this app could not otherwise ask about a recorded walk: *was
+there already a name for the way I went?*
+
+**Their fifth is `riding`, and it is left out of both lists rather than
+relabelled.** It is horse riding, which is not what the word says to most people
+looking at a menu — the first question it drew was "is that cycling?". Renaming
+the button to "Horse riding" would have answered that and left a row nobody here
+will ever press taking a fifth of the segmented control's width. So it is absent
+from `TRAIL_THEMES` in `src/trails.js` *and* from the allowlist in
+`server/trail-tiles.js`: an allowlist that quietly permitted a theme nothing can
+ask for would be a proxy onto a path this app does not use. Putting it back is
+one entry in each list, which `scripts/test/trails.mjs` checks stay equal.
 
 **It is raster because there is nothing else on offer.** They publish 256 px
 palette PNGs and no vector service, so unlike the railways there is no style to
@@ -5142,6 +5152,23 @@ otherwise reads as glare and the routes stop being lines on a map and become a
 lit sign in front of it. Recolouring was never on the table: `raster-hue-rotate`
 applied to somebody's waymark colours would be inventing signage.
 
+Those two numbers are the *defaults* for a **Strength** slider in the layers
+menu, and the slider stores **two values rather than one** — the same shape the
+visited colour keeps, and the same row label saying which map it is talking
+about. One number was the obvious version and is wrong in the case that actually
+happens: the split is not two preferences, it is a correction for what is
+underneath, so a strength chosen while looking at Light becomes glare the moment
+you switch to Dark. Absent means the measured default, so anybody who never
+touches it keeps the version that was tuned rather than a number somebody dragged
+once. The stored value is validated on the way out — it is a number in
+`localStorage`, and a `raster-opacity` of `"loud"` is a layer that does not
+render at all.
+
+Dragging costs one `setPaintProperty` per step rather than a rebuild, because
+`installTrails` is idempotent and sets the paint property on a layer that is
+already there. The listener is on `input` rather than `change`: watching the map
+answer while you drag is the whole reason this is a slider.
+
 Two smaller decisions, both of them refusals:
 
 - **There is no retina.** `@2x` is a 404 on their server, so on a 2× display this
@@ -5167,9 +5194,9 @@ open wants the paths on it.
 
 ### Where the switches live
 
-All three of them are in the **layers menu**, which is the opposite of where the
-railway's ended up, and the difference is about how they are used rather than how
-many there are. You set what the railway draws once and then read the map, so a
+All of them — the switch, the theme row, the strength slider and the tap switch —
+are in the **layers menu**, which is the opposite of where the railway's ended
+up, and the difference is about how they are used rather than how many there are. You set what the railway draws once and then read the map, so a
 column of checkboxes in the middle of a menu you flick through was in the way.
 Switching from hiking to cycling is the other kind: a question about the view,
 asked while looking at it — the same kind of question as Detail or Color by, both
@@ -5178,7 +5205,7 @@ would mean closing the map to change what the map is showing.
 
 The theme row is built from the list in `src/trails.js` rather than written into
 the markup, and `scripts/test/trails.mjs` pins that list equal to the allowlist in
-`server/trail-tiles.js`. They are the same five tokens in two places — a path
+`server/trail-tiles.js`. They are the same four tokens in two places — a path
 segment on their tile server and a subdomain on their API — and nothing else
 connects them: a theme in the menu and not in the allowlist is a button that
 draws nothing, and the other way round is a rendering nobody can reach.

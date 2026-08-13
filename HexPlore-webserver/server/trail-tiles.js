@@ -54,13 +54,18 @@ const API_ORIGIN = process.env.TRAILS_API_ORIGIN || 'https://{theme}.waymarkedtr
 const USER_AGENT = 'HexPlore/0.1 (+https://github.com/zhekch/hexplore; personal map, server-side tile cache)';
 
 /**
- * The five renderings they publish, in the order the layers menu offers them.
+ * The renderings this map offers, in the order the layers menu offers them.
  *
  * The allowlist and the client's list are the same list in two places — a raster
  * theme is a path segment on their server and a label in a menu, and neither
  * half can own both. scripts/test/trails.mjs is what keeps them equal.
+ *
+ * **Four of their five.** They also publish `riding`, which is horse riding
+ * rather than a second word for cycling, and it is left out here as well as in
+ * the menu — an allowlist that quietly permitted a theme nothing can ask for
+ * would be a proxy onto a path this app does not use.
  */
-export const TRAIL_THEMES = ['hiking', 'cycling', 'mtb', 'riding', 'slopes'];
+export const TRAIL_THEMES = ['hiking', 'cycling', 'mtb', 'slopes'];
 
 // The deepest zoom they render. z19 is a 404, so asking for it is a request that
 // can only fail — the client caps its source at this and lets the renderer
