@@ -160,6 +160,13 @@ self.addEventListener('fetch', (event) => {
     // server sends, and the disk cache behind it in server/rail-tiles.js. A
     // third one here would be unbounded and redundant.
     if (url.pathname.startsWith('/api/rail/')) return;
+    // And the trails, for the same reasons and one of its own. The tiles are
+    // the argument above word for word. The lookup a tap makes is the extra
+    // one: it is a box around a point somebody just touched, it is never asked
+    // for twice, and the server sends it `no-store` precisely so that nothing
+    // keeps a record of where the finger went. A cache here would be the one
+    // place that did.
+    if (url.pathname.startsWith('/api/trails/')) return;
     event.respondWith(networkFirst(DATA, request));
   }
 });

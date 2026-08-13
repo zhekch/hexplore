@@ -69,7 +69,8 @@
 // ./backups) for where the timed copies of data.db are written,
 // REGION_CACHE_DIR (default ./cache/regions) for the detailed boundary cache,
 // RAIL_CACHE_DIR (default ./cache/rail) and RAIL_CACHE_BYTES (default 512 MB)
-// for the OpenRailwayMap tile cache.
+// for the OpenRailwayMap tile cache, TRAILS_CACHE_DIR (default ./cache/trails)
+// and TRAILS_CACHE_BYTES (default 256 MB) for the Waymarked Trails one.
 
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
@@ -100,7 +101,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.51.0';
+export const SERVER_VERSION = '0.52.0';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -228,6 +229,11 @@ import { createFineRegions } from './regions-fine.js';
 // every browser separately. Read the policy note at the top of that module
 // before touching how often it asks upstream.
 import { createRailTiles } from './rail-tiles.js';
+// The trails overlay's raster tiles, and the lookup behind the card a tap
+// opens. Both proxied rather than fetched from the page — the note at the top
+// of that module is about why, and one of the three reasons is that a tile
+// request from this app is a coordinate somebody visited.
+import { createTrailTiles } from './trail-tiles.js';
 import { loadRegions } from '../src/regions.js';
 import { airportAt } from './airport-at.js';
 import { describeCron } from '../src/cron.js';
@@ -240,6 +246,7 @@ const IMPORT_OWNER = process.env.IMPORT_OWNER || null;
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(ROOT, 'backups');
 const REGION_CACHE_DIR = process.env.REGION_CACHE_DIR || path.join(ROOT, 'cache', 'regions');
 const RAIL_CACHE_DIR = process.env.RAIL_CACHE_DIR || path.join(ROOT, 'cache', 'rail');
+const TRAILS_CACHE_DIR = process.env.TRAILS_CACHE_DIR || path.join(ROOT, 'cache', 'trails');
 const DIST = path.join(ROOT, 'dist');
 const SERVE_STATIC = existsSync(DIST);
 // Sessions are checked against this server-side now, not just handed to the
@@ -530,6 +537,15 @@ const railTiles = createRailTiles({
   sources: railSources,
   featureViews: railFeatureViews,
   log: (msg) => console.log(`[visited-map] rail: ${msg}`),
+});
+
+// No allowlist argument, unlike the railways above: their five themes are five
+// path segments on somebody else's server, not a style this app builds and can
+// be read for what it uses. The list lives in the module and is pinned to the
+// client's copy by scripts/test/trails.mjs.
+const trailTiles = createTrailTiles({
+  dir: TRAILS_CACHE_DIR,
+  log: (msg) => console.log(`[visited-map] trails: ${msg}`),
 });
 
 const q = {
@@ -2040,10 +2056,13 @@ function send(res, status, body, headers = {}) {
 /**
  * Send bytes we are holding on somebody else's behalf: a tile, a sprite sheet.
  *
- * Not `send`, which speaks JSON and gzips on the way out. These arrive already
- * compressed from the cache — see the storage note in server/rail-tiles.js — so
- * the encoding is passed straight through to the ~every client that accepts it
- * and undone for the one that does not.
+ * Not `send`, which speaks JSON and gzips on the way out. A railway tile arrives
+ * already compressed from its cache — see the storage note in
+ * server/rail-tiles.js — so the encoding is passed straight through to the
+ * ~every client that accepts it and undone for the one that does not. A trails
+ * tile is a PNG and arrives uncompressed for the reason given there, so it takes
+ * the `out.gzip === false` path and is sent as it is; gzipping a PNG on the way
+ * out would be work for nothing.
  *
  * **`private`, and cached hard.** The route is session-gated, so no shared cache
  * may keep a copy; the browser's own is exactly where these belong, and it is
@@ -2051,7 +2070,7 @@ function send(res, status, body, headers = {}) {
  * process at all. The ETag is over the bytes, so a revalidation after the
  * max-age is a 304 rather than a tile.
  */
-function sendRailBytes(req, res, out) {
+function sendTileBytes(req, res, out) {
   const head = { ...BASE_SECURITY_HEADERS };
   if (out.status === 204 || !out.body?.length) {
     res.writeHead(204, { ...head, 'Cache-Control': 'private, max-age=86400' });
@@ -3381,7 +3400,40 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       }
 
       if (!out) return send(res, 404, { error: 'no such tile' });
-      return sendRailBytes(req, res, out);
+      return sendTileBytes(req, res, out);
+    }
+
+    // --- Trails -----------------------------------------------------------------
+    // A caching proxy onto Waymarked Trails' raster tiles, and the lookup behind
+    // the card a tap opens. Session-gated like the railways: it spends somebody
+    // else's bandwidth, and an open one would let anyone spend it.
+    //
+    // No Referer is sent upstream, and none is needed — unlike OpenRailwayMap,
+    // their server answers a bare request. `selfOrigin` is therefore not asked
+    // for here, which also means this route works when the Host header does not
+    // survive whatever is in front of it.
+    if (req.method === 'GET' && pathname.startsWith('/api/trails/')) {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+      const rest = pathname.slice('/api/trails/'.length);
+
+      // Which routes run near a box, for a tap. Not cached — see the note on
+      // `near` in server/trail-tiles.js — and `no-store` for the same reason it
+      // is not cached: the box is where somebody just put their finger.
+      if (rest === 'near') {
+        const found = await trailTiles.near(query.get('theme') ?? '', query.get('bbox') ?? '');
+        if (!found) return send(res, 400, { error: 'no such theme, or not a bbox' });
+        return send(res, 200, found, { 'Cache-Control': 'no-store' });
+      }
+
+      // `tile/<theme>/<z>/<x>/<y>.png`. The theme is matched against the
+      // module's own list and the coordinates are three integers checked
+      // against the zoom, so nothing here can be talked into proxying an
+      // arbitrary path on their origin.
+      const m = /^tile\/([a-z]+)\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(rest);
+      const out = m ? await trailTiles.tile(m[1], m[2], m[3], m[4]) : null;
+      if (!out) return send(res, 404, { error: 'no such tile' });
+      return sendTileBytes(req, res, out);
     }
 
     // --- Backups --------------------------------------------------------------

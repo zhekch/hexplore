@@ -57,6 +57,15 @@ number of approaches that were tried and abandoned.
   **Interactable** and the railway answers the pointer: whatever is under it
   lights up, and a tap opens a card with the track number, the operator, the
   voltage, the platform, and every service that calls there.
+- **Trails.** The waymarked routes — the ones somebody has signed and painted
+  onto a post — from Waymarked Trails, over whatever basemap you are on. Switch
+  it on in the layers menu and pick which map of them you want: **Hiking**,
+  **Cycling**, **Mountain bike**, **Riding**, or **Slopes** for pistes, ski
+  tours, sledge runs and cleared winter footpaths. It is the quickest way to see
+  whether the walk you recorded followed a route that already had a name. Turn on
+  **Tap for trails** and a tap lists what runs past that spot — the route's name
+  and number, where it runs between, and what is painted on the waymark, which is
+  the thing to look for when you are actually standing at the junction.
 - **Airports.** Every airport, airfield and helipad on Earth, from the
   public-domain OurAirports dataset — built into the app, so there is no key to
   get, nothing to sign up for, and it works offline. Switch it on in the layers
@@ -454,6 +463,9 @@ allowed to connect to, and why each limit is where it is — is in
 - Basemaps: [CARTO](https://carto.com/basemaps/), [OpenFreeMap](https://openfreemap.org/), Esri World Imagery, [Mapbox](https://www.mapbox.com/) (3D, your own token)
 - Railways: [OpenRailwayMap](https://www.openrailwaymap.org/) vector tiles
   ([openrailwaymap.app](https://openrailwaymap.app/), ODbL via OpenStreetMap)
+- Waymarked routes: [Waymarked Trails](https://waymarkedtrails.org/) raster tiles
+  and route lookup (ODbL via OpenStreetMap), cached by this server rather than
+  fetched by every browser
 - Boundaries and lakes: [Natural Earth](https://www.naturalearthdata.com/) (public domain)
 - Detailed region boundaries, fetched per country on demand:
   [geoBoundaries](https://www.geoboundaries.org/) (CC BY 4.0, compositing national survey data)

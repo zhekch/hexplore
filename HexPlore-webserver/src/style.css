@@ -4541,10 +4541,16 @@ body {
    second visual language for one idea.
 
    `.feature-popup` is the shared card — a heading, a kind, and a `dl` of
-   label-and-value rows — used by both reference overlays: a tapped railway and a
-   tapped airport are the same sort of answer and should not look like two. The
-   `.rail-popup-route*` rules below are the railway's own, because the list of
-   services calling at a station is not a shape anything else has. */
+   label-and-value rows — used by all three reference overlays: a tapped railway,
+   a tapped airport and a tapped trail are the same sort of answer and should not
+   look like three.
+
+   `.popup-list*` below is the second shape a card can take: a scrolling list of
+   named things rather than a table about one thing. These rules were the
+   railway's own, on the grounds that the services calling at a station were not
+   a shape anything else had — which stopped being true the moment a tap on the
+   trails had to answer with every route running past, because a raster overlay
+   cannot say which one you hit. Renamed rather than copied. */
 :is(.maplibregl-popup-content, .mapboxgl-popup-content) {
   padding: 14px 16px 12px;
   border-radius: 24px;
@@ -4604,6 +4610,17 @@ body {
   color: rgba(255, 255, 255, 0.55);
 }
 
+/* A sentence in the same quiet voice as the kind above — "Looking…", "No
+   waymarked route runs near here." — and deliberately not that class, which
+   capitalises. That is right for the thing it was written for, an OSM tag value
+   arriving lowercase, and turns a sentence into a headline: this rendered as
+   "No Waymarked Route Runs Near Here." until it had its own rule. */
+.feature-popup-note {
+  margin: 7px 0 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
 /* Label and value in two columns, so a run of them lines up as a table rather
    than as sentences. The value wraps; the label never does. */
 .feature-popup dl {
@@ -4632,20 +4649,21 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* The services running over the line. A list rather than a `dl` row: these are
-   sentences ("IC 8: Brig => Romanshorn"), not label-and-value, and they arrive
-   after the card has already opened. */
-.rail-popup-routes {
+/* The services running over a line, or the waymarked routes running past a
+   point. A list rather than a `dl` row: these are sentences ("IC 8: Brig =>
+   Romanshorn", "Via Alpina — national route"), not label-and-value, and both
+   arrive after the card has already opened. */
+.popup-list {
   margin-top: 10px;
   padding-top: 9px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-.rail-popup-routes[hidden] {
+.popup-list[hidden] {
   display: none;
 }
 
-.rail-popup-routes h5 {
+.popup-list h5 {
   margin: 0 0 5px;
   font-size: 10.5px;
   font-weight: 600;
@@ -4662,7 +4680,7 @@ body {
    which is enough to read as a list that continues rather than as a clipped one.
    `overscroll-behavior` stops a flick that reaches the bottom of the list from
    carrying on into the page behind the popup. */
-.rail-popup-route-list {
+.popup-list-items {
   max-height: 13em;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -4675,20 +4693,20 @@ body {
 
 /* Faint, and only there while the list is scrollable — a permanent groove down
    the side of a two-route list would read as a divider. */
-.rail-popup-route-list::-webkit-scrollbar {
+.popup-list-items::-webkit-scrollbar {
   width: 5px;
 }
 
-.rail-popup-route-list::-webkit-scrollbar-thumb {
+.popup-list-items::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.22);
   border-radius: 3px;
 }
 
-[data-theme='light'] .rail-popup-route-list::-webkit-scrollbar-thumb {
+[data-theme='light'] .popup-list-items::-webkit-scrollbar-thumb {
   background: rgba(15, 23, 42, 0.22);
 }
 
-.rail-popup-route {
+.popup-list-row {
   display: flex;
   align-items: baseline;
   gap: 7px;
@@ -4699,7 +4717,7 @@ body {
 /* The dot is a flex child; everything else lives inside one text box so that it
    wraps as ordinary inline content. `min-width: 0` is what lets that box be
    narrower than its longest word inside a flex row. */
-.rail-popup-route-text {
+.popup-list-text {
   flex: 1;
   min-width: 0;
 }
@@ -4709,14 +4727,14 @@ body {
    "Interlaken Ost <=> Zweisimmen". `inline-block` is what does it: the box is
    placed whole when it fits on the line and moved down entire when it does not,
    and only breaks inside itself when it is too wide for a line of its own. */
-.rail-popup-route-ends {
+.popup-list-tail {
   display: inline-block;
   overflow-wrap: anywhere;
 }
 
 /* The route's own colour, which is the one thing about it a rider recognises
    before reading the words. */
-.rail-popup-route-dot {
+.popup-list-dot {
   flex: none;
   box-sizing: border-box;
   width: 7px;
@@ -4728,12 +4746,12 @@ body {
 
 /* No `colour` on the OSM relation. Hollow rather than absent, so the labels
    keep one left edge and the gap reads as unknown rather than as a bug. */
-.rail-popup-route-dot.unknown {
+.popup-list-dot.unknown {
   background: none;
   border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
-[data-theme='light'] .rail-popup-route-dot.unknown {
+[data-theme='light'] .popup-list-dot.unknown {
   border-color: rgba(15, 23, 42, 0.3);
 }
 
@@ -4746,6 +4764,38 @@ body {
 
 .feature-popup a:hover {
   color: rgba(255, 255, 255, 0.92);
+}
+
+/* A name inside a list is also a link, and must not take the treatment above.
+   That one is for the "view this on OpenStreetMap" line at the foot of a card —
+   a quiet afterthought, standing alone, with room above it. In the trails list
+   the link *is* the route's name and the thing you are scanning for, so it keeps
+   the list's own size and colour.
+
+   The browser's own underline is left on rather than traded for a hover, which
+   is the one place these differ from every other link in the app: this is a list
+   of twenty names with nothing else marking which of them can be followed, and
+   the device most of them are read on has no pointer to hover with.
+
+   After the rules it is undoing, because they are equally specific and source
+   order is what settles it. */
+.popup-list-text a {
+  display: inline;
+  margin: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.popup-list-text a:hover {
+  color: inherit;
+}
+
+/* The clause after the name: what kind of route it is, where it runs, what is
+   painted on the post. Muted, so a list of six reads as six names with detail
+   attached rather than as a wall. The railway's journey ends use the same
+   element and are *not* muted, because there the endpoints are the answer. */
+.popup-list-tail.muted {
+  color: rgba(255, 255, 255, 0.55);
 }
 
 /* The same values `.cell-info` uses in light, for the same reason. */
@@ -4770,18 +4820,30 @@ body {
 /* The routes heading was missed here and came out white on a light card —
    invisible, and the only thing in the popup that was. */
 [data-theme='light'] .feature-popup-kind,
+[data-theme='light'] .feature-popup-note,
 [data-theme='light'] .feature-popup dt,
 [data-theme='light'] .feature-popup a,
-[data-theme='light'] .rail-popup-routes h5 {
+[data-theme='light'] .popup-list h5 {
   color: rgba(15, 23, 42, 0.58);
 }
 
-[data-theme='light'] .rail-popup-routes {
+[data-theme='light'] .popup-list {
   border-top-color: rgba(15, 23, 42, 0.12);
 }
 
 [data-theme='light'] .feature-popup a:hover {
   color: rgba(15, 23, 42, 0.9);
+}
+
+/* Both halves again on a light card, where the rules above are outweighed by the
+   `[data-theme]` on the ones they undo. */
+[data-theme='light'] .popup-list-text a,
+[data-theme='light'] .popup-list-text a:hover {
+  color: inherit;
+}
+
+[data-theme='light'] .popup-list-tail.muted {
+  color: rgba(15, 23, 42, 0.58);
 }
 
 .route-option {
