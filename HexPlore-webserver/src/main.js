@@ -79,6 +79,14 @@ import {
   airportGroupsOn, airportLayerIds, describeAirportFeature,
   installAirports, loadAirports, removeAirports,
 } from './airports.js';
+// The waymarked trails, which are pixels where the railways are vectors — see
+// the head of src/trails.js for what that changes and what it costs. Not a lazy
+// import: the whole module is a source spec, five names and a fetch, where the
+// railway's is a 315 KB style.
+import {
+  TRAIL_THEMES, bboxAround, describeTrail, installTrails, removeTrails,
+  setTrailTheme, tapCorners, trailTheme, trailThemeLabel, trailsNear,
+} from './trails.js';
 // Your photographs as points, which only the iOS app can draw: a photo library
 // is on a phone, and the server has never held anything but the coordinates. In
 // a browser `photosAvailable()` is false and the switch is not in the menu at
@@ -849,6 +857,31 @@ let railOn = false;
 // nothing to spare anyone by forgetting the answer overnight.
 const AIRPORTS_KEY = 'visited-map:airports:v1';
 let airportsOn = localStorage.getItem(AIRPORTS_KEY) === 'on';
+
+// The trails are remembered too, which puts them on the airports' side of that
+// argument rather than the railways'. They are somebody else's tile server, so
+// the first half of the railway's reasoning applies — but not the half that
+// decides it: there is no sprite atlas, no style to fetch and no health check,
+// only PNGs of a kilobyte or two for the tiles already on screen, and this
+// app's own server holds them so a second look costs nobody anything. Somebody
+// who walks with this map open wants the paths on it, and being asked again
+// every morning is the wrong question.
+const TRAILS_KEY = 'visited-map:trails:v1';
+let trailsOn = localStorage.getItem(TRAILS_KEY) === 'on';
+
+// Whether a tap asks the trails what runs past instead of asking the ground.
+//
+// Off unless switched on, like the railway's equivalent and for a sharper
+// version of the same reason. A raster overlay cannot tell whether the tap
+// landed on a route at all — there is nothing in a picture to hit-test — so
+// unlike the railways, this cannot answer when it has something and stand aside
+// when it does not. While it is on it takes *every* tap that reaches it. That is
+// a real trade rather than a free affordance, so it is asked for.
+const TRAIL_TAP_KEY = 'visited-map:trails-tap:v1';
+let trailsInteractive = localStorage.getItem(TRAIL_TAP_KEY) === 'on';
+// Which of their five renderings. Read once here so the seg and the layer agree
+// from the first frame; `setTrailTheme` is what writes it back.
+let trailThemeOn = trailTheme();
 
 // And the photographs, remembered for the same reason as the airports: the cost
 // of switching them on is a metadata query against a library that is already on
@@ -6210,6 +6243,8 @@ function updateDetailNow(level = currentLevel) {
 const layersBtn = document.getElementById('layers-btn');
 const layersMenu = document.getElementById('layers-menu');
 const railToggle = document.getElementById('rail-toggle');
+const trailsToggle = document.getElementById('trails-toggle');
+const trailsTapToggle = document.getElementById('trails-tap-toggle');
 const airportsToggle = document.getElementById('airports-toggle');
 const photosRow = document.getElementById('photos-row');
 const photosToggle = document.getElementById('photos-toggle');
@@ -6494,6 +6529,61 @@ function syncRailLayer() {
     startRailDetailPolling();
   }).catch((e) => {
     console.warn('Train tracks could not be loaded.', e);
+  });
+}
+
+// --- Trails -----------------------------------------------------------------------
+
+function setTrails(on) {
+  trailsOn = on;
+  try {
+    localStorage.setItem(TRAILS_KEY, on ? 'on' : 'off');
+  } catch {
+    /* fine */
+  }
+  updateLayersUi();
+  syncTrailLayer();
+}
+
+/** One of their five renderings. Switching it replaces the source — see installTrails. */
+function setTrailThemeNow(key) {
+  trailThemeOn = setTrailTheme(key);
+  // A card about hiking routes, still open over a map that is now showing ski
+  // slopes, is a card about a different question.
+  trailPopup?.remove();
+  updateLayersUi();
+  if (trailsOn) syncTrailLayer();
+}
+
+/** Whether a tap asks the trails rather than the ground. */
+function setTrailsInteractive(on) {
+  trailsInteractive = on;
+  try {
+    localStorage.setItem(TRAIL_TAP_KEY, on ? 'on' : 'off');
+  } catch {
+    /* fine */
+  }
+  updateLayersUi();
+  // An overlay that no longer answers a tap should not be left holding the last
+  // card it opened.
+  if (!on) trailPopup?.remove();
+}
+
+function syncTrailLayer() {
+  // A click during initial load or a basemap switch is intentionally deferred;
+  // installGrid() calls this again for the newly loaded style.
+  if (!styleReady) return;
+  if (!trailsOn) {
+    removeTrails(map);
+    trailPopup?.remove();
+    return;
+  }
+  installTrails(map, {
+    theme: trailThemeOn,
+    // Which way round the map underneath is, which is the only thing about the
+    // basemap this overlay reacts to — see OPACITY in src/trails.js.
+    basemap: STYLES[styleKey].theme,
+    before: TRAILS_BEFORE(),
   });
 }
 
@@ -6908,7 +6998,7 @@ function showRailInfo(e) {
   // built only if the answer has something in it.
   if (info.routeCount || info.mayHaveRoutes) {
     const routes = document.createElement('div');
-    routes.className = 'rail-popup-routes';
+    routes.className = 'popup-list';
     const heading = document.createElement('h5');
     const plural = (n) => (n === 1 ? '1 route' : `${n} routes`);
     // The tile's own count until the names arrive, then the count of what is
@@ -6920,7 +7010,7 @@ function showRailInfo(e) {
     // than the map. Its own scroller, so the card stays the size of a card and
     // everything above it — the name, the operator, the code — stays on screen.
     const list = document.createElement('div');
-    list.className = 'rail-popup-route-list';
+    list.className = 'popup-list-items';
     routes.append(list);
     routes.hidden = !info.routeCount;
     card.append(routes);
@@ -6933,7 +7023,7 @@ function showRailInfo(e) {
       if (found.length) heading.textContent = plural(found.length);
       for (const route of found) {
         const line = document.createElement('div');
-        line.className = 'rail-popup-route';
+        line.className = 'popup-list-row';
         // The dot is always there, coloured or not. Plenty of OSM route
         // relations carry no `colour` tag — their API hands those back as an
         // empty string — and only drawing it for the ones that do left the
@@ -6941,7 +7031,7 @@ function showRailInfo(e) {
         // as missing data. A hollow dot says "no colour recorded" and keeps the
         // column straight.
         const dot = document.createElement('span');
-        dot.className = 'rail-popup-route-dot';
+        dot.className = 'popup-list-dot';
         if (route.color) dot.style.background = route.color;
         else dot.classList.add('unknown');
         line.append(dot);
@@ -6951,10 +7041,10 @@ function showRailInfo(e) {
         // strings anyone on the internet can edit.
         const { name, ends } = splitRouteLabel(route.label);
         const text = document.createElement('span');
-        text.className = 'rail-popup-route-text';
+        text.className = 'popup-list-text';
         if (name) text.append(`${name} `);
         const label = document.createElement('span');
-        label.className = 'rail-popup-route-ends';
+        label.className = 'popup-list-tail';
         label.textContent = ends;
         text.append(label);
         line.append(text);
@@ -6969,6 +7059,110 @@ function showRailInfo(e) {
     .setLngLat(hit.geometry?.type === 'Point' ? hit.geometry.coordinates.slice() : e.lngLat)
     .setDOMContent(card)
     .addTo(map);
+  return true;
+}
+
+// --- What runs past here ---------------------------------------------------------
+//
+// The trails card, and the one place where being a raster overlay is visible to
+// somebody using the app rather than only to somebody reading the code.
+//
+// The railway card above opens on a *feature*: the tile that drew the line
+// carries the line, so the tap knows what it hit before it asks anyone. There is
+// no equivalent here. A PNG under the finger proves that some route passes
+// through the neighbourhood and cannot say which, so this asks their API what
+// runs near the point and lists the answers — and the heading says "near here",
+// because that is the question that was actually answered.
+//
+// It therefore opens *before* the answer arrives and fills in, which the railway
+// card only does for its secondary rows. A card that waited would be a tap with
+// half a second of nothing after it, on the one overlay that cannot show you
+// something instantly.
+let trailPopup = null;
+
+/** Open a card listing whatever waymarked routes run near the tap. */
+function showTrailInfo(e) {
+  const card = document.createElement('div');
+  card.className = 'feature-popup';
+  const h = document.createElement('h4');
+  h.textContent = t('trails.trails-near-here');
+  card.append(h);
+  const kind = document.createElement('p');
+  kind.className = 'feature-popup-kind';
+  kind.textContent = trailThemeLabel(trailThemeOn);
+  card.append(kind);
+
+  const list = document.createElement('div');
+  list.className = 'popup-list';
+  // Hidden until there is something in it. The class carries a top rule, and an
+  // empty one under the theme name is a divider with nothing on the far side of
+  // it — which is what the card would show for the whole time it is asking, and
+  // for good if the answer comes back empty.
+  list.hidden = true;
+  const items = document.createElement('div');
+  items.className = 'popup-list-items';
+  list.append(items);
+  card.append(list);
+
+  // What it says while it is asking. Replaced whichever way the answer goes, so
+  // there is no state in which this is the last word.
+  const status = document.createElement('p');
+  status.className = 'feature-popup-note';
+  status.textContent = t('trails.looking');
+  card.append(status);
+
+  trailPopup?.remove();
+  trailPopup = new gl.Popup({ closeButton: true, maxWidth: '280px' })
+    .setLngLat(e.lngLat)
+    .setDOMContent(card)
+    .addTo(map);
+
+  // The box the finger covers, on the ground. Unprojected here rather than
+  // computed from a radius in metres, because the map can be turned and leaned:
+  // the four screen corners are what a fingertip actually covers, and only the
+  // map knows where they land.
+  const corners = tapCorners(e.point).map((p) => map.unproject(p));
+  const mine = card;
+  trailsNear(trailThemeOn, bboxAround(corners)).then((routes) => {
+    // Guarded by the card it was opened for, so a fast second tap cannot land
+    // its answer in the first one's popup.
+    if (trailPopup?.getElement()?.contains(mine) !== true) return;
+    const found = routes.map((r) => describeTrail(r, trailThemeOn)).filter(Boolean);
+    if (!found.length) {
+      status.textContent = t('trails.nothing-here');
+      return;
+    }
+    status.remove();
+    list.hidden = false;
+    for (const route of found) {
+      const row = document.createElement('div');
+      row.className = 'popup-list-row';
+      const text = document.createElement('span');
+      text.className = 'popup-list-text';
+      // An anchor rather than plain text: the relation on OpenStreetMap is the
+      // rest of the answer, and a list of twenty routes has no room for twenty
+      // "view this on OpenStreetMap" lines under it.
+      const a = document.createElement('a');
+      a.href = route.osm;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      // textContent throughout — every string here is an OSM tag value, which is
+      // to say something anyone on the internet can edit.
+      a.textContent = route.title;
+      text.append(a);
+      // The kind, where it runs and what is on the post, after the name and in
+      // the muted colour: the name is what you are scanning for, and twenty
+      // routes' worth of detail at full weight is a wall.
+      if (route.notes.length) {
+        const tail = document.createElement('span');
+        tail.className = 'popup-list-tail muted';
+        tail.textContent = ` ${route.notes.join(' · ')}`;
+        text.append(tail);
+      }
+      row.append(text);
+      items.append(row);
+    }
+  });
   return true;
 }
 
@@ -7092,6 +7286,34 @@ function buildLightRow() {
 }
 buildLightRow();
 
+// Which of Waymarked Trails' five renderings is drawn, in the same shape as the
+// light row above and for the same reason: it exists only while the thing it
+// configures is on screen.
+//
+// **In the layers menu rather than in Settings**, which is the opposite of where
+// the railway's eight controls ended up. That decision was about how the
+// controls are *used*: you set what the railway draws once and then read the map,
+// so a column of checkboxes in the middle of a menu you flick through was in the
+// way. This is the other kind. Switching from hiking to cycling is a question
+// about the view you ask while looking at it — the same kind of question as
+// Detail or Color by, both of which are a segmented row here — and burying it two
+// dialogs deep would mean closing the map to change what the map is showing.
+const trailsSeg = document.getElementById('trails-seg');
+
+function buildTrailsRow() {
+  if (!trailsSeg) return;
+  trailsSeg.replaceChildren(...TRAIL_THEMES.map((theme) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'seg-btn';
+    btn.dataset.trail = theme.key;
+    btn.textContent = theme.label;
+    btn.addEventListener('click', () => setTrailThemeNow(theme.key));
+    return btn;
+  }));
+}
+buildTrailsRow();
+
 /**
  * Move the sun, and everything that follows from where it is.
  *
@@ -7211,6 +7433,19 @@ function updateLayersUi() {
   }
   updateDetailNow();
   railToggle.checked = railOn;
+  trailsToggle.checked = trailsOn;
+  // The theme row and the tap switch both belong to a layer that may not be
+  // drawn, so they follow it on and off rather than sitting there greyed —
+  // the same call the light row makes above.
+  if (trailsSeg) {
+    trailsSeg.hidden = !trailsOn;
+    for (const btn of trailsSeg.querySelectorAll('[data-trail]')) {
+      btn.classList.toggle('active', btn.dataset.trail === trailThemeOn);
+    }
+  }
+  const trailsTapRow = document.getElementById('trails-tap-row');
+  if (trailsTapRow) trailsTapRow.hidden = !trailsOn;
+  trailsTapToggle.checked = trailsInteractive;
   airportsToggle.checked = airportsOn;
   updateRoutesUi();
   // Absent rather than disabled anywhere the host cannot answer, which is every
@@ -7429,6 +7664,8 @@ function wireLayersControl() {
     if (key) toggleSource(key.dataset.source);
   });
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
+  trailsToggle.addEventListener('change', () => setTrails(trailsToggle.checked));
+  trailsTapToggle.addEventListener('change', () => setTrailsInteractive(trailsTapToggle.checked));
   airportsToggle.addEventListener('change', () => setAirports(airportsToggle.checked));
   photosToggle.addEventListener('change', () => setPhotos(photosToggle.checked));
   cellsTapToggle.addEventListener('change', () => setCellsInteractive(cellsTapToggle.checked));
@@ -7498,6 +7735,18 @@ const RAIL_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStar
 // still go under the saved routes, for the reason the railways do — a line you
 // actually travelled beats reference geometry about what exists.
 const AIRPORT_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStart());
+
+// The trails take the same anchor as both, and land *under* them — `syncTrailLayer`
+// runs before the other two in installGrid, and `addLayer(l, before)` inserts
+// immediately beneath `before`, so whichever installs last sits on top.
+//
+// That is the order these three want, and the reason is what each one is made
+// of. This is a **sheet of pixels**: it covers what it is drawn over rather than
+// threading between it, so an airport icon or a station symbol underneath it is
+// simply gone. The other two are lines and symbols with transparent ground
+// between them, and they lose nothing by being on top of a picture. Put the
+// other way round, the rule is: the opaque thing goes at the bottom.
+const TRAILS_BEFORE = () => (map.getLayer('route-glow') ? 'route-glow' : labelStart());
 
 // The photographs, on the other hand, go *above* the saved routes — the only
 // overlay that does. The reasoning that keeps the other two underneath is that a
@@ -8083,6 +8332,10 @@ function installGrid() {
   });
 
   styleReady = true;
+  // First of the three reference overlays, which is what puts it underneath the
+  // other two — see TRAILS_BEFORE for why a sheet of pixels belongs at the
+  // bottom of them.
+  syncTrailLayer();
   syncRailLayer();
   // After the railways, which is what puts the airports above them — see
   // AIRPORT_BEFORE.
@@ -8208,6 +8461,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
         // over six layers of a point source. An icon you can see and cannot tap
         // is the worse answer when tapping it is nearly free.
         else if (airportsOn && showAirportInfo(e)) { /* the card is the whole of the tap */ }
+        // Then the trails, last of the three and for a reason that is not about
+        // drawing order: this one cannot be asked whether it was hit. The other
+        // two answer "nothing there" and stand aside; a raster overlay has no
+        // features to query, so `showTrailInfo` always claims the tap and always
+        // returns true. That is why it is behind a switch that is off by
+        // default — see `trailsInteractive` — and why it sits below everything
+        // that *can* say no.
+        else if (trailsOn && trailsInteractive && showTrailInfo(e)) { /* the card is the whole of the tap */ }
         // At the three vector levels there are no hexes on screen, so a tap is
         // about the shape it landed on — whether or not you have been to it — and
         // where there is no shape, about nothing. See showInfoAt.

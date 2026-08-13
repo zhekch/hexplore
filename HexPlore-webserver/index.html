@@ -163,6 +163,30 @@
               <input type="checkbox" id="rail-toggle" />
             </label>
 
+            <!-- The waymarked routes, and — unlike the tracks above — the two
+                 controls that go with them, right here under the switch.
+
+                 Which rendering you are looking at is a question about the view,
+                 asked while looking at it, and the row is filled in by main.js
+                 from the list in src/trails.js so the menu cannot fall out of
+                 step with what the proxy will actually fetch. Whether a tap asks
+                 the trails is next to it because it is the one setting somebody
+                 will want to undo the moment they meet it: a raster overlay
+                 cannot tell whether it was hit, so while that is on it takes
+                 every tap the ground would have had.
+
+                 Both are hidden while the overlay is off — a control for a layer
+                 that is not drawn is a question nobody asked. -->
+            <label class="menu-row">
+              <span data-i18n-text="layers-menu.trails">Trails<small data-i18n="layers-menu.waymarked-trails">Waymarked Trails</small></span>
+              <input type="checkbox" id="trails-toggle" />
+            </label>
+            <div class="seg seg-wrap" id="trails-seg" hidden></div>
+            <label class="menu-row" id="trails-tap-row" hidden>
+              <span data-i18n-text="trails-tap-row.tap-for-trails">Tap for trails<small data-i18n="trails-tap-row.a-tap-lists-the-routes">A tap lists the routes running near it, instead of asking the ground</small></span>
+              <input type="checkbox" id="trails-tap-toggle" />
+            </label>
+
             <!-- Same deal as the tracks above: the switch is a question about
                  the view and belongs here, while which kinds of airfield are
                  drawn is a setting you make once. -->

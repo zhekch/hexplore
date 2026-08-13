@@ -5032,6 +5032,157 @@ than assumed. This is a file the app already ships, cached by the service worker
 drawn from one GeoJSON source — there is nothing to spare anyone by forgetting
 the answer overnight.
 
+## The trails, in pixels
+
+The third reference overlay, and the one that is a picture rather than data.
+`src/trails.js`, `server/trail-tiles.js`.
+
+[Waymarked Trails](https://waymarkedtrails.org/) renders the waymarked routes of
+OpenStreetMap — the ones somebody has signed and painted onto a post — as five
+separate maps: hiking, cycling, mountain bike, riding, and slopes for pistes, ski
+tours, sledge runs and cleared winter footpaths. It answers the question this app
+could not otherwise ask about a recorded walk: *was there already a name for the
+way I went?*
+
+**It is raster because there is nothing else on offer.** They publish 256 px
+palette PNGs and no vector service, so unlike the railways there is no style to
+restyle, no filter to apply, no feature to hit-test, and no way to draw it for a
+dark map. What arrives is ink: already coloured, already labelled by their
+cartographer, unchangeable from here beyond an opacity. Every awkward thing below
+follows from that one fact, and each of them was worth checking against the
+alternative before accepting it.
+
+### Why it is proxied when their CORS says it need not be
+
+Their tiles come back with `access-control-allow-origin: *`, which is an explicit
+invitation to fetch them from the page — and the four basemaps do exactly that
+with CARTO's, OpenFreeMap's and Esri's. Three things make this one different, and
+only the third is decisive:
+
+- **They are a volunteer project on donated hosting**, where the others are
+  funded services behind CDNs. A shared cache turns every device that ever opens
+  this map into one fetch rather than one fetch each, and the politeness argument
+  is worth most exactly where the provider is smallest.
+- **The cheap half of the bargain works.** Their tiles carry an `ETag` and answer
+  `If-None-Match` with a 304 — measured, not assumed — so a tile already held
+  costs them a few hundred bytes rather than a PNG.
+- **The browser never has to say where it is looking.** This is a map of
+  somebody's location history. Every tile request is a coordinate, and a tile
+  fetched from the page is that coordinate handed to a third party. The proxy is
+  the difference between "this server fetched a tile" and "this person was here".
+  The tap lookup goes through the same door for the same reason and it is the
+  stronger case of the two, because a tap is a *point* — which is also why the
+  service worker is told to leave `/api/trails/` alone entirely: the answer is
+  sent `no-store` so that nothing keeps a record of where the finger went, and a
+  cache in the page would be the one place that did.
+
+`server/trail-tiles.js` is deliberately **not** `server/rail-tiles.js`, and the
+duplication is the point. That one stores gzipped, because a vector tile is
+protobuf and compresses to a third; a PNG is already compressed. That one keys on
+a language, carries sprite sheets and a feature API, and tracks a per-zoom hit
+rate so the overlay can step down a zoom when their CDN is cold. None of that
+exists here: there is one image per coordinate, and when it is missing the honest
+answer is no trails rather than blurrier ones. What is left is small enough to
+read in one sitting, which is worth more than sharing four functions with a file
+whose comments are all about somebody else's usage policy.
+
+Their `Expires` is three hours out and is deliberately ignored: that is an answer
+about how long a *browser* should hold a tile, not a statement about how often a
+route relation changes. The stored TTL is a week, revalidated with the ETag.
+
+### A tap cannot say what you hit
+
+`queryRenderedFeatures` over a raster layer returns nothing, because there is
+nothing there to return — the tile is a picture of a route, not the route. So the
+card a tap opens asks their API which routes run **near** the point and says
+exactly that. It is a list of candidates rather than an identification, and the
+heading is written to be honest about it.
+
+Reading the tile's own alpha to narrow it down was considered and abandoned. It
+would work — the proxy is same-origin, so the PNG is already in the browser cache
+and a canvas can be read back untainted — and it would buy a more confident card
+rather than a more correct one: ink under the finger proves a route is there and
+can never say which of four overlapping ones it belongs to.
+
+That is also why interaction is behind a switch, off by default. The railway can
+answer "nothing there" and stand aside; this cannot, so while it is on it takes
+**every** tap that reaches it, and the ground stops answering. A real trade, so
+it is asked for. In the click handler it sits below everything that *can* say no.
+
+The lookup itself has one trap in it worth writing down, because nothing anywhere
+documents it: **`by_area` takes its bounding box in EPSG:3857 metres**, not
+degrees. A box in degrees is a perfectly valid request that answers
+`{"results":[]}` for everywhere on earth — which reads as empty ground, looks
+like the overlay working, and is the most expensive kind of wrong. Their own site
+hands it an OpenLayers map extent, which is metres because their view is, and
+that is the whole of the documentation. The client sends degrees, because degrees
+are what a map click gives you; `mercatorBbox` in `server/trail-tiles.js` is the
+one place that knows about their units, and `scripts/test/trails.mjs` asserts the
+number leaving it is six digits rather than one.
+
+The box is four unprojected screen corners rather than a radius in metres,
+because the map turns and leans: the extent of a rotated square is not the extent
+of two opposite corners of it. The radius is in pixels — a question about a
+fingertip, not about the ground.
+
+### Where it sits, and how loud it is
+
+It goes **under** the railways and the airports, at the same anchor, by being
+installed first. The reason is not drawing order for its own sake: this is a
+sheet of pixels, so it covers what it is drawn over rather than threading between
+it, and an airport icon or a station symbol underneath it would simply be gone.
+The other two are lines and symbols with transparent ground between them and lose
+nothing by being on top of a picture. The rule is *the opaque thing goes at the
+bottom*.
+
+Their palette assumes a pale map underneath, which is true of one of the five
+basemaps. What changes per basemap is the **opacity and nothing else** — 0.95
+over a light map, 0.72 over a dark one, where the white casing around every route
+otherwise reads as glare and the routes stop being lines on a map and become a
+lit sign in front of it. Recolouring was never on the table: `raster-hue-rotate`
+applied to somebody's waymark colours would be inventing signage.
+
+Two smaller decisions, both of them refusals:
+
+- **There is no retina.** `@2x` is a 404 on their server, so on a 2× display this
+  is the one soft thing on the map. Declaring `tileSize: 128` would make the
+  renderer ask a zoom deeper and shrink the result, which fixes it and costs them
+  four times the traffic for a cosmetic gain — the exact trade the proxy exists
+  to refuse. `raster-resampling: linear` is the whole of the mitigation.
+- **There is no zoom floor**, which the snow and the basemap diet both have.
+  Their renderer already thins by network level as you zoom out; at z6 what is
+  left is the continental routes and nothing else. A floor here would hide data
+  that is both true and drawn on purpose. `maxzoom: 18` is the one number that is
+  ours and it is not taste: z19 is a 404, so asking for it is a request that can
+  only fail, and the renderer overzooms the z18 tile correctly because it knows
+  the tile is a parent.
+
+**The overlay is remembered across reloads**, putting it on the airports' side of
+that argument rather than the railways'. The first half of the tracks' reasoning
+applies — it is somebody else's tile server — but not the half that decides it:
+there is no sprite atlas, no style to fetch and no health check, only PNGs of a
+kilobyte or two for what is already on screen, and this app's own server holds
+them so a second look costs nobody anything. Somebody who walks with this map
+open wants the paths on it.
+
+### Where the switches live
+
+All three of them are in the **layers menu**, which is the opposite of where the
+railway's ended up, and the difference is about how they are used rather than how
+many there are. You set what the railway draws once and then read the map, so a
+column of checkboxes in the middle of a menu you flick through was in the way.
+Switching from hiking to cycling is the other kind: a question about the view,
+asked while looking at it — the same kind of question as Detail or Color by, both
+of which are a segmented row in that menu already. Burying it two dialogs deep
+would mean closing the map to change what the map is showing.
+
+The theme row is built from the list in `src/trails.js` rather than written into
+the markup, and `scripts/test/trails.mjs` pins that list equal to the allowlist in
+`server/trail-tiles.js`. They are the same five tokens in two places — a path
+segment on their tile server and a subdomain on their API — and nothing else
+connects them: a theme in the menu and not in the allowlist is a button that
+draws nothing, and the other way round is a rendering nobody can reach.
+
 ## The photographs themselves, from the phone in your hand
 
 [Photographs](#photographs) covers what the library does to the *map*: it
@@ -7195,3 +7346,6 @@ own string for the imagery.
   (public domain) — `npm run build:countries`, `npm run build:places`
 - Town names: [GeoNames](https://www.geonames.org/) `cities1000`, thinned
   (CC BY 4.0, credited in the map attribution)
+- Waymarked routes: [Waymarked Trails](https://waymarkedtrails.org/) raster tiles
+  and `by_area` lookup (ODbL via OpenStreetMap, credited on the source so the
+  line comes and goes with the overlay) — cached in `server/trail-tiles.js`
