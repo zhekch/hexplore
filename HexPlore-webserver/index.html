@@ -103,12 +103,16 @@
                  has a time of day: it is Standard's own light preset, and two
                  of the four turn the whole map dark. Unhidden by main.js.
 
-                 The same control is in Settings beside the token, which is
-                 where you set it once; this is where you play with it, next to
-                 the basemap it belongs to and without leaving the map. Both
-                 rows are built from LIGHT_PRESETS. -->
+                 Five buttons, built from LIGHT_CHOICES: Auto and then the four
+                 suns. `seg-split` for the same reason the basemap picker above
+                 has it — five equal choices, split three and two, rather than
+                 one of them wrapping onto a line of its own.
+
+                 The line under it says what Auto resolved to, and is there only
+                 while Auto is the choice. -->
             <div class="menu-subhead" id="light-head" hidden><span data-i18n="light-head.time-of-day">Time of day</span></div>
-            <div class="seg" id="light-seg" hidden></div>
+            <div class="seg seg-split" id="light-seg" hidden></div>
+            <div class="seg-note" id="light-now" hidden></div>
 
             <div class="menu-subhead">
               <span data-i18n="layers-menu.detail">Detail</span>
@@ -119,7 +123,7 @@
               <button data-i18n="detail-seg.region" type="button" class="seg-btn" data-detail="region">Region</button>
               <button data-i18n="detail-seg.country" type="button" class="seg-btn" data-detail="country">Country</button>
             </div>
-            <div class="detail-now" id="detail-now"></div>
+            <div class="seg-note" id="detail-now"></div>
 
             <div class="menu-subhead">
               <span data-i18n="layers-menu.color-by">Color by</span>

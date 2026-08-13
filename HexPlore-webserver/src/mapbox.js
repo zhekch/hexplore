@@ -1,9 +1,9 @@
 // Mapbox Standard: the token it needs, and the two knobs it has.
 //
 // This is the fifth basemap — 3D buildings, modelled landmarks, trees you can
-// see the shape of, and a sun that can be put in four places. It is drawn by
-// Mapbox GL JS rather than by MapLibre; `src/gl-engine.js` is where that
-// decision lives and why.
+// see the shape of, and a sun that can be put in four places or left to follow
+// the one outside the viewer's own window. It is drawn by Mapbox GL JS rather
+// than by MapLibre; `src/gl-engine.js` is where that decision lives and why.
 //
 // **What this file used to be.** The first version of the 3D basemap ran on
 // MapLibre, because keeping one engine was worth a lot: it fetched
@@ -47,6 +47,8 @@
 // need it: the map is built before the session is resolved — `boot.js` picks a
 // map library from `hasMapboxToken()` synchronously, long before `/api/prefs`
 // has answered anything — and the basemap has to keep working offline.
+
+import { timeOfDay } from './sun.js';
 
 const API = 'https://api.mapbox.com';
 
@@ -104,6 +106,23 @@ export const LIGHT_PRESETS = [
   { key: 'night', label: 'Night', theme: 'dark' },
 ];
 const DEFAULT_PRESET = 'day';
+
+// **Auto is a fifth choice and not a fifth preset**, and the distinction is the
+// whole shape of this. Standard has four suns; `auto` is an instruction to pick
+// one of them from the clock and the client's own latitude — see src/sun.js,
+// which is where the reason a table of hours will not do is written down. So it
+// is stored like a preset, offered like a preset, and *never* handed to Mapbox:
+// everything downstream of `lightPreset()` goes on seeing one of the four.
+export const AUTO_LIGHT = 'auto';
+
+/** What the row of buttons offers, which is auto and then the four suns. */
+export const LIGHT_CHOICES = [{ key: AUTO_LIGHT, label: 'Auto' }, ...LIGHT_PRESETS];
+
+// The default, and it is auto rather than day. A map whose subject is where you
+// have been is looked at in the evening as often as at noon, and opening it on
+// a midday sun at eleven at night is the one answer that is never right. Anyone
+// who wants a fixed sun says so once and is never asked again.
+const DEFAULT_CHOICE = AUTO_LIGHT;
 
 // --- What Standard draws of its own -------------------------------------------
 // Config on the imported basemap, set once its style has parsed. Each of these
@@ -290,26 +309,95 @@ function gateLandmarks(map) {
   });
 }
 
-/** Which light preset is chosen, falling back to the default for anything odd. */
-export function lightPreset() {
+/**
+ * Which of the five the viewer chose — one of the suns, or `auto`.
+ *
+ * The row of buttons is drawn from this; everything that lights a map reads
+ * `lightPreset()` instead, which is this with `auto` answered.
+ */
+export function lightChoice() {
   let held;
   try {
     held = localStorage.getItem(PRESET_KEY);
   } catch {
     held = null;
   }
-  return LIGHT_PRESETS.some((p) => p.key === held) ? held : DEFAULT_PRESET;
+  return LIGHT_CHOICES.some((p) => p.key === held) ? held : DEFAULT_CHOICE;
 }
 
 /** Choose one. Returns what is now stored. */
-export function setLightPreset(key) {
-  const clean = LIGHT_PRESETS.some((p) => p.key === key) ? key : DEFAULT_PRESET;
+export function setLightChoice(key) {
+  const clean = LIGHT_CHOICES.some((p) => p.key === key) ? key : DEFAULT_CHOICE;
   try {
     localStorage.setItem(PRESET_KEY, clean);
   } catch {
-    /* fine — it falls back to Day next time */
+    /* fine — it falls back to Auto next time */
   }
+  // A sun chosen by hand ends the auto answer's life, so that switching back to
+  // Auto a week later resolves afresh rather than restoring a week-old evening.
+  autoNow = clean === AUTO_LIGHT ? autoNow : null;
   return clean;
+}
+
+// What `auto` currently means, resolved rather than recomputed per call.
+//
+// **It is held rather than asked each time**, and that is not an optimisation —
+// the arithmetic is free. It is that `lightPreset()` is read from a dozen places
+// across a single repaint (the chrome, the wash's alpha, every route's contrast
+// mix) and all of them have to agree. A function that consults the clock would
+// answer `dusk` to the first caller and `night` to the ninth on exactly the one
+// evening a year somebody is watching, and the map would come out lit one way
+// and coloured the other. So the sun moves at the moments listed on
+// `refreshAutoLight` and at no others.
+let autoNow = null;
+
+/**
+ * The preset in force: always one of Standard's four, never `auto`.
+ *
+ * @returns {'dawn'|'day'|'dusk'|'night'}
+ */
+export function lightPreset() {
+  const held = lightChoice();
+  if (held !== AUTO_LIGHT) return held;
+  if (!autoNow) autoNow = sunNow();
+  return autoNow;
+}
+
+/**
+ * What the sun says, or Day if it cannot be asked.
+ *
+ * `DEFAULT_PRESET` earns its keep here and nowhere else. Everything in
+ * src/sun.js is arithmetic on a `Date` and cannot fail on any input this app
+ * gives it — but it is arithmetic against a device's own clock, and the cost of
+ * being wrong about that must be a map lit the ordinary way, never no map.
+ */
+function sunNow(when) {
+  try {
+    return timeOfDay(when);
+  } catch {
+    return DEFAULT_PRESET;
+  }
+}
+
+/**
+ * Work out what `auto` means now, and say whether that has changed.
+ *
+ * Called at the three moments the answer can move: the app opening, the client's
+ * position becoming known (the site the sun is put over — see `sunSite` in
+ * src/sun.js — improves from a time zone to a real latitude one round trip in),
+ * and time passing with the app left open. Cheap enough to call on any of them
+ * without checking first, and a caller that only acts on `changed` relights the
+ * map exactly when the sky did.
+ *
+ * @param {Date} [when]
+ * @returns {{preset: string, changed: boolean}} `preset` is what is in force
+ *   afterwards, which for a viewer who has chosen a sun by hand is that sun.
+ */
+export function refreshAutoLight(when = new Date()) {
+  if (lightChoice() !== AUTO_LIGHT) return { preset: lightPreset(), changed: false };
+  const before = autoNow;
+  autoNow = sunNow(when);
+  return { preset: autoNow, changed: !!before && before !== autoNow };
 }
 
 /**

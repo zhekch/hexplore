@@ -32,8 +32,9 @@ globalThis.localStorage = {
 };
 
 const {
-  BASEMAP_IMPORT, LIGHT_PRESETS, configureStandard, hasMapboxToken, landmarksVisibleAt, lightPreset,
-  mapboxToken, presetTheme, setLightPreset, setMapboxToken, standardConfig, tokenComplaint,
+  AUTO_LIGHT, BASEMAP_IMPORT, LIGHT_CHOICES, LIGHT_PRESETS, configureStandard, hasMapboxToken,
+  landmarksVisibleAt, lightChoice, lightPreset, mapboxToken, presetTheme, refreshAutoLight,
+  setLightChoice, setMapboxToken, standardConfig, tokenComplaint,
 } = await import('../../src/mapbox.js');
 const {
   LABEL_SLOT_ID, WASH_SLOT_ID, ctrlClass, ctrlClasses, ctrlSelector, geolocateStateOf, hasCtrlClass,
@@ -71,21 +72,56 @@ console.log('\nHolding on to it');
 
 console.log('\nWhere the sun is');
 {
-  eq(lightPreset(), 'day', 'the default is Day');
+  eq(lightChoice(), AUTO_LIGHT, 'the default is Auto');
+  check(LIGHT_PRESETS.some((p) => p.key === lightPreset()),
+    'which resolves to one of the four Standard has, whatever the clock says');
+  check(!LIGHT_PRESETS.some((p) => p.key === AUTO_LIGHT),
+    'and auto is not one of them — nothing may hand it to Mapbox');
+  eq(LIGHT_CHOICES.map((c) => c.key), ['auto', 'dawn', 'day', 'dusk', 'night'],
+    'the row offers auto and then the four');
+
   for (const preset of LIGHT_PRESETS) {
-    setLightPreset(preset.key);
+    setLightChoice(preset.key);
     eq(lightPreset(), preset.key, `${preset.label} can be chosen`);
     eq(presetTheme(), preset.theme, `and reports the ${preset.theme} theme`);
   }
   // The one that decides whether the app's chrome is legible.
   eq(presetTheme('night'), 'dark', 'night is a dark map');
   eq(presetTheme('day'), 'light', 'day is a light one');
-  setLightPreset('nonsense');
-  eq(lightPreset(), 'day', 'and anything else falls back to Day rather than being stored');
+  setLightChoice('nonsense');
+  eq(lightChoice(), AUTO_LIGHT, 'and anything else falls back to Auto rather than being stored');
   // A value that predates this list, or a hand-edited one.
   stored['visited-map:mapbox-light:v1'] = 'midnight';
-  eq(lightPreset(), 'day', 'as does a stored value the list has never heard of');
+  eq(lightChoice(), AUTO_LIGHT, 'as does a stored value the list has never heard of');
   eq(presetTheme('midnight'), 'light', 'and an unknown preset is assumed light rather than crashing');
+}
+
+console.log('\nAuto follows the clock, and reports only when it has moved');
+{
+  // Bern, so the answers below are ones a person can check against a window.
+  stored['visited-map:sun-site:v1'] = JSON.stringify([46.9, 7.4]);
+  setLightChoice(AUTO_LIGHT);
+  const at = (iso) => refreshAutoLight(new Date(iso));
+
+  eq(at('2026-06-21T10:00:00Z').preset, 'day', 'a June lunchtime is Day');
+  eq(at('2026-06-21T21:30:00Z').preset, 'night', 'and half eleven that night is Night');
+  check(at('2026-06-21T21:35:00Z').changed === false,
+    'a second call five minutes later reports no change, so nothing is relit');
+  check(at('2026-06-22T03:00:00Z').changed === true,
+    'and one that crosses back into dawn says so');
+  eq(at('2026-06-22T03:00:00Z').preset, 'dawn', 'five in the morning in June is Dawn');
+  // Eight in the evening, Bern time, in each half of the year — the same hour
+  // on the same clock, and the whole argument for computing the sun rather than
+  // tabulating hours. A table would darken both, and be wrong about one.
+  eq(at('2026-12-21T19:00:00Z').preset, 'night', 'eight on a December evening is Night');
+  eq(at('2026-06-21T18:00:00Z').preset, 'day', 'and eight on a June evening is still Day');
+
+  setLightChoice('night');
+  check(at('2026-06-21T10:00:00Z').changed === false,
+    'a sun chosen by hand is never moved by the clock');
+  eq(lightPreset(), 'night', 'and stays exactly where it was put');
+  setLightChoice(AUTO_LIGHT);
+  delete stored['visited-map:sun-site:v1'];
 }
 
 console.log('\nThe two anchors, on a map whose layers cannot be read');
@@ -205,6 +241,8 @@ console.log('\nStandard is told what to draw');
   check(!('showLandmarkIconLabels' in want),
     'and nothing is said about their labels, which only mean anything once the icons are on');
   check(want.lightPreset === lightPreset(), 'the light preset is read when it is set, not at import');
+  check(LIGHT_PRESETS.some((p) => p.key === want.lightPreset),
+    'and it is one of the four suns even under Auto, which Standard has never heard of');
 
   // Standard starts `building-models` at 14 and every other building layer at
   // 15, and the layer's own minzoom cannot be reached from outside the import.

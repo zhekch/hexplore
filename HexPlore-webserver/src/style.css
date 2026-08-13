@@ -662,10 +662,12 @@ body {
   color: rgba(255, 255, 255, 0.82);
 }
 
-/* What the Detail buttons are actually producing right now. The numbers mean
-   nothing on their own, and a cell's ground size depends on the latitude on
-   screen, so the size is read out rather than printed on the buttons. */
-.detail-now {
+/* What a segmented row is actually producing right now, on a line under it.
+   Two rows have an answer of their own to give: Detail, where the numbers mean
+   nothing on their own and a cell's ground size depends on the latitude on
+   screen, and Time of day, where Auto has to say which sun it picked. Both are
+   the same sentence in the same voice, so both are the same class. */
+.seg-note {
   margin-top: var(--menu-row-gap);
   font-size: 11.5px;
   color: rgba(255, 255, 255, 0.5);
@@ -3945,7 +3947,7 @@ body {
 }
 
 [data-theme='light'] .import-note,
-[data-theme='light'] .detail-now,
+[data-theme='light'] .seg-note,
 [data-theme='light'] .legend-note,
 [data-theme='light'] .stats-loading,
 [data-theme='light'] .stats-row,
@@ -6651,7 +6653,7 @@ body {
   color: rgba(15, 23, 42, 0.55);
 }
 
-[data-chrome='light'] .detail-now,
+[data-chrome='light'] .seg-note,
 [data-chrome='light'] .legend-note {
   color: rgba(15, 23, 42, 0.58);
 }
