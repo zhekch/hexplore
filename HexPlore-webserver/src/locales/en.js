@@ -545,6 +545,7 @@ export default {
   "trails.local": "Local route",
   "trails.looking": "Looking…",
   "trails.mtb": "MTB",
+  "trails.mtb-grade": "MTB grade {v}",
   "trails.national": "National route",
   "trails.node-network": "Node network",
   "trails.nordic": "Nordic trail",

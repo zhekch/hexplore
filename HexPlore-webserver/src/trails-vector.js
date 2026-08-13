@@ -79,6 +79,14 @@ import { t } from './i18n.js';
 // begins with an R. An unrecognised network still counts as *waymarked* below —
 // it is a network, whatever it is called — and does not count as main, which is
 // the conservative way round.
+// **The mountain-bike and horse rows are kept and have never once matched.**
+// Counted over 3370 features across twelve mountain-bike destinations — Finale
+// Ligure, Whistler, Morzine, Davos, Livigno, Bikepark Wales, Sedona and the rest
+// — `imn`/`nmn`/`rmn` appear exactly zero times, and the only MTB-ish network in
+// the whole sample was one free-text `mtb`. They stay because they are correct
+// OSM and cost nothing to carry; nothing should be built on the assumption that
+// they will fire. What mountain biking actually looks like in this schema is
+// MTB_SCALES below.
 const MAIN_NETWORKS = [
   'iwn', 'nwn', 'rwn',
   'icn', 'ncn', 'rcn',
@@ -93,6 +101,39 @@ const MAIN_NETWORKS = [
 const NETWORK = ['coalesce', ['get', 'network'], ''];
 const NAME = ['coalesce', ['get', 'name'], ''];
 const REF = ['coalesce', ['get', 'ref'], ''];
+const SCALE = ['coalesce', ['get', 'scale'], ''];
+
+// --- What mountain biking is here ---------------------------------------------
+//
+// **Not a class, and not a network — a grade.** Their `class` has no MTB value:
+// a downhill trail and a Sunday cycle route are both `bicycle`. And the MTB
+// network codes never appear (see MAIN_NETWORKS). What *is* there, and in
+// quantity, is `mtb:scale` in the `scale` field: 1651 of the 3370 features
+// counted across twelve bike destinations carry one, on named trails that are
+// the actual reason people go — "Dolmen" and "Trail Ruote di Pietra" above
+// Finale Ligure, and their equivalents at Whistler and Morzine.
+//
+// So an MTB trail here is a bicycle way with a grade on it, which is a theme of
+// *trails* where hiking and cycling are themes of *routes*. That difference is
+// why the reach ladder is hidden for it, exactly as it is for pistes.
+//
+// **Written out rather than matched on the leading digit**, for the same reason
+// MAIN_NETWORKS is: `scale` also carries `sac_scale` for walkers ("hiking",
+// "mountain_hiking") and whatever anybody has typed — the sample held `yes`,
+// `bad` and `0+` — and "starts with a 0" is a test that a value like `0 metres`
+// would pass. These twenty-one are every spelling mtb:scale actually has.
+const MTB_SCALES = ['0', '1', '2', '3', '4', '5', '6']
+  .flatMap((n) => [n, `${n}+`, `${n}-`]);
+
+/** A bicycle way somebody has graded, and that nobody has signed as a route. */
+const IS_MTB = ['all',
+  ['in', SCALE, ['literal', MTB_SCALES]],
+  // Signed cycle routes stay in Cycling even where one is also graded, so the
+  // two themes partition `bicycle` between them and no feature falls down the
+  // gap. In the measured sample the two never co-occur, but a route that is both
+  // belongs under the sign it carries.
+  ['==', NETWORK, ''],
+];
 
 /**
  * How much of the network to draw — the reason this provider exists.
@@ -190,21 +231,29 @@ export function reachFilter(reach) {
 /**
  * The renderings this provider offers.
  *
- * **Three, where the raster provider has four, and the missing one is mountain
- * bike.** Their `class` field is `foot | hiking | via_ferrata | bicycle | horse
- * | wheelchair`, with no MTB value in it — an MTB route and a cycle route are
- * both `bicycle`, and the only thing separating them is that individual MTB
- * *paths* carry an `mtb:scale` in `scale`. A theme built on that would show
- * unsigned singletrack and nothing else the moment the reach filter came off
- * "all", which is a row that lies about what it contains.
+ * Four, the same count as the raster provider, and two of them mean something
+ * different here.
  *
- * The same decision as `riding` on the other provider, for the same reason: a
- * menu entry that cannot do what its label says costs more than its absence.
- * See src/trails.js.
+ * **Mountain bike is a theme of trails, not of routes.** Their `class` is `foot
+ * | hiking | via_ferrata | bicycle | horse | wheelchair` with no MTB value in
+ * it, and the MTB network codes never appear — so this row was left out at
+ * first, on the reasoning that there was nothing honest to put in it. That was
+ * half right and the wrong conclusion: what MapTiler carries is `mtb:scale` on
+ * individual ways, in quantity and on the named trails people actually ride. See
+ * IS_MTB. It is a real row; it is just not made of route relations, which is why
+ * the reach ladder is hidden for it.
+ *
+ * **`ski` is their separate layer**, and is the same shape of thing — graded by
+ * difficulty rather than ranked by reach.
+ *
+ * `horse` and `wheelchair` are still absent from every theme. They are real and
+ * they are not what any of these rows say, which is the same decision as
+ * `riding` on the other provider. See src/trails.js.
  */
 export const MAPTILER_THEMES = [
   { key: 'hiking', label: t('trails.hiking') },
   { key: 'cycling', label: t('trails.cycling') },
+  { key: 'mtb', label: t('trails.mtb') },
   { key: 'ski', label: t('trails.ski') },
 ];
 
@@ -216,14 +265,13 @@ export const isMaptilerTheme = (key) => MAPTILER_THEMES.some((th) => th.key === 
 /**
  * The nearest theme this provider can draw to the one that is chosen.
  *
- * The two providers do not offer the same list, so switching provider has to
- * land somewhere. `mtb` becomes `cycling`, which is the same tiles minus a
- * distinction MapTiler does not carry, and `slopes` becomes `ski`, which is the
- * same thing under another name. Anything else falls back to hiking.
+ * The two providers offer the same four rows under three shared names, so the
+ * only one that has to move is the raster's `slopes`, which is this one's `ski`
+ * — the same thing under another name. Anything unrecognised falls back to
+ * hiking.
  */
 export const nearestMaptilerTheme = (key) => {
   if (isMaptilerTheme(key)) return key;
-  if (key === 'mtb') return 'cycling';
   if (key === 'slopes') return 'ski';
   return DEFAULT_THEME;
 };
@@ -233,7 +281,7 @@ export const nearestMaptilerTheme = (key) => {
 // `ski` is a layer of its own in their schema rather than a class — it carries
 // pistes, lifts, pylons and avalanche fencing together — so the two are not
 // interchangeable and the theme decides which is read.
-const SOURCE_LAYER = { hiking: 'trail', cycling: 'trail', ski: 'ski' };
+const SOURCE_LAYER = { hiking: 'trail', cycling: 'trail', mtb: 'trail', ski: 'ski' };
 
 // The classes each theme draws.
 //
@@ -249,15 +297,33 @@ const SOURCE_LAYER = { hiking: 'trail', cycling: 'trail', ski: 'ski' };
 const THEME_CLASSES = {
   hiking: ['hiking', 'foot', 'via_ferrata'],
   cycling: ['bicycle'],
+  mtb: ['bicycle'],
   ski: ['downhill', 'nordic', 'skitour', 'sled', 'hike', 'connection', 'playground'],
 };
 
-/** Whether the reach filter means anything for this theme. */
-// Pistes carry no `network` — they are graded by difficulty, which is a
-// different question — so every rung of the ladder would draw the same map and
-// the row is not shown. The same shape as `trailsHaveReach` on the other
-// provider, and for the same reason.
-export const maptilerHasReach = (theme) => theme !== 'ski';
+// What a theme wants beyond its classes. Cycling and mountain bike read the same
+// class and split it between them — see IS_MTB — so a feature belongs to exactly
+// one of the two rows, and neither row silently contains the whole of the other.
+const THEME_EXTRA = {
+  mtb: IS_MTB,
+  cycling: ['!', IS_MTB],
+};
+
+/**
+ * Whether this theme is made of signed routes at all.
+ *
+ * The two that are not — pistes, graded by difficulty, and mountain bike trails,
+ * graded by `mtb:scale` — carry no `network` between them, so every rung of the
+ * ladder would draw the identical map and the row is not shown. The same shape
+ * as `trailsHaveReach` on the other provider.
+ *
+ * **It decides more than the ladder.** A theme with no networks has no
+ * signed-versus-unsigned distinction either, so the dashes and the casing follow
+ * it too — see `themeFilters`. Drawing an entire theme dashed, which is what was
+ * happening to `ski` before anybody looked at it, says "none of this is a real
+ * route" about a map on which nothing could ever be one.
+ */
+export const maptilerHasReach = (theme) => theme !== 'ski' && theme !== 'mtb';
 
 // --- How it is drawn ---------------------------------------------------------------
 
@@ -305,9 +371,15 @@ const WAYMARK_COLORS = {
 // like a road layer that had lost its labels. A hiking route is red on almost
 // every printed map in Europe and Waymarked Trails draws it red too, so this is
 // the colour somebody already expects for the thing they switched on.
+// Mountain bike deliberately shares cycling's colour rather than taking one of
+// its own or being graded green-to-black by `mtb:scale`. Difficulty is a real
+// axis and it is not this overlay's question — this is a map of where you have
+// been, and a second palette competing with the waymark colours would be two
+// legends on one map. The grade is in the tap card, where somebody asking about
+// one trail can read it.
 const THEME_COLORS = {
-  light: { hiking: '#c2410c', cycling: '#1d4ed8', ski: '#0e7490' },
-  dark: { hiking: '#fb923c', cycling: '#60a5fa', ski: '#22d3ee' },
+  light: { hiking: '#c2410c', cycling: '#1d4ed8', mtb: '#1d4ed8', ski: '#0e7490' },
+  dark: { hiking: '#fb923c', cycling: '#60a5fa', mtb: '#60a5fa', ski: '#22d3ee' },
 };
 
 /** Light or dark, and never anything else — an unknown basemap reads as dark. */
@@ -332,17 +404,44 @@ const sideOf = (basemap) => (basemap === 'light' ? 'light' : 'dark');
 export function themeFilters(theme) {
   const want = isMaptilerTheme(theme) ? theme : DEFAULT_THEME;
   const classes = THEME_CLASSES[want];
-  const base = ['all',
+  const core = [
     ['==', ['geometry-type'], 'LineString'],
     ['in', ['coalesce', ['get', 'class'], ''], ['literal', classes]],
   ];
-  const signed = ['all', ...base.slice(1), ['!=', NETWORK, '']];
+  const extra = THEME_EXTRA[want];
+  if (extra) core.push(extra);
+
+  // **A theme with no networks has no unsigned half.** Pistes and graded MTB
+  // trails are all "unsigned" in the letter of the data, so splitting them the
+  // way hiking is split puts every feature in the dashed layer and none in the
+  // solid one — a whole map drawn as though it were a collection of shortcuts.
+  // For those themes the routes layer takes everything and the paths layer takes
+  // nothing.
+  if (!maptilerHasReach(want)) {
+    return {
+      base: ['all', ...core],
+      casing: ['all', ...core],
+      // Deliberately unsatisfiable rather than absent: the layer still exists,
+      // because the four are added and removed as a set, and a filter that
+      // cannot match is the cheapest way to say "not on this theme".
+      //
+      // Written with `['literal', 1]` rather than a bare `1`, which is not
+      // pedantry: `['==', 1, 0]` is read as the *legacy* filter syntax, where
+      // the first argument is a property name and must be a string — so the
+      // plain spelling does not evaluate to false, it fails to compile.
+      paths: ['==', ['literal', 1], 0],
+      routes: ['all', ...core],
+      labels: ['all', ...core, ['!=', NAME, '']],
+    };
+  }
+
+  const signed = ['all', ...core, ['!=', NETWORK, '']];
   return {
-    base,
+    base: ['all', ...core],
     casing: signed,
-    paths: ['all', ...base.slice(1), ['==', NETWORK, '']],
+    paths: ['all', ...core, ['==', NETWORK, '']],
     routes: signed,
-    labels: ['all', ...base.slice(1), ['!=', NETWORK, ''], ['!=', NAME, '']],
+    labels: ['all', ...core, ['!=', NETWORK, ''], ['!=', NAME, '']],
   };
 }
 
@@ -379,11 +478,18 @@ const WEIGHT = [
   1.0,
 ];
 
+// **Weighted to sit beside Waymarked Trails rather than under it.** The first
+// version was about half of this, which was legible on its own and looked thin
+// and provisional the moment somebody switched providers to compare — their
+// cartography draws a route as a confident stroke, and a 2 px line beside it
+// reads as a draft of one. Multiplied through WEIGHT above, a national route is
+// about 4 px at z12 where a footpath is under 2, which is the same span their
+// renderer uses.
 const widthAt = (scale) => [
   'interpolate', ['linear'], ['zoom'],
-  8, ['*', 0.55 * scale, WEIGHT],
-  12, ['*', 1.0 * scale, WEIGHT],
-  16, ['*', 1.9 * scale, WEIGHT],
+  8, ['*', 0.7 * scale, WEIGHT],
+  12, ['*', 1.9 * scale, WEIGHT],
+  16, ['*', 3.2 * scale, WEIGHT],
 ];
 
 /** Where the tiles come from, on this server. See `vectorTrailTileUrl`. */
@@ -487,7 +593,10 @@ export function vectorTrailLayerSpecs({ theme, basemap, opacity, font }) {
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': side === 'light' ? '#ffffff' : '#0b0b0d',
-        'line-width': widthAt(2.6),
+        // A hair over the line it sits under, not a multiple of it: now the
+        // lines are heavier, a 2.6× casing is a 3 px halo each side and the
+        // overlay reads as a road network. 1.55 keeps it to about a pixel.
+        'line-width': widthAt(1.55),
         'line-opacity': opacity * 0.55,
       },
     },
@@ -679,13 +788,24 @@ export function describeVectorTrail(feature) {
     // which network of paths you are standing in. Falls back to how far the
     // route reaches, so a row is never a bare name where the other provider
     // would have said something.
-    between: str(p.operator) || (name ? reachWord(network) : null),
+    // A graded trail carries no operator and no network, so without this a
+    // mountain bike row is a bare name — and the grade is the one fact somebody
+    // looking at an unfamiliar trail actually wants.
+    between: str(p.operator) || mtbGrade(p) || (name ? reachWord(network) : null),
     main: !!network && MAIN_NETWORKS.includes(network),
+    // **The waymark, which this provider was not supposed to be able to show.**
     // Their `symbol` is the raw `osmc:symbol` tag — `yellow::yellow_diamond` —
-    // not a drawing of it. Showing the tag would be showing somebody the source
-    // code of a picture, so the card gets nothing here and the colour of the
-    // line carries what it can instead.
-    symbol: null,
+    // and there is no id to look a drawing up by. What makes it work anyway is
+    // that Waymarked Trails renders a symbol *from the tag*, needing nothing the
+    // two services have to agree on beyond the OSM tag they both read. See
+    // `validSymbolTag` in server/trail-tiles.js.
+    //
+    // The `alt` is the waymark's colour rather than the tag: `alt` describes a
+    // picture for somebody who cannot see it, and `yellow::yellow_diamond` is
+    // the source code of one.
+    symbol: str(p.symbol)
+      ? { url: vectorTrailSymbolUrl(str(p.symbol), network), alt: str(p.color) ?? '' }
+      : null,
     // Nothing to link to: without a relation id there is no OSM page for this.
     osm: null,
     // The parts the other provider has no equivalent of, which the card shows
@@ -719,6 +839,45 @@ const LEVEL_WORDS = {
 // these four count as local: a free-text network beginning with an L is not a
 // local route any more than `Rundweg` is a regional one.
 const LOCAL_NETWORKS = ['lwn', 'lcn', 'lmn', 'lhn'];
+
+// **Always their hiking host, whatever the route is for.** Their symbol API is
+// per activity and the obvious thing is to ask the one that matches — a cycle
+// route from `cycling`, a walk from `hiking`. Measured, that is wrong: the
+// cycling host answers 404 to `from_tags` for *every* tag, including ones the
+// hiking host renders happily. It is not a gap in their data, it is what their
+// cycling map is: cycle routes are drawn as numbered shields rather than painted
+// waymarks, so there is no osmc renderer behind that host to call.
+//
+// Which is fine, because `osmc:symbol` is a waymarking convention rather than a
+// walking one — a blue bar painted on a post is the same picture whoever it is
+// for — and the hiking renderer draws all of them.
+const SYMBOL_HOST = 'hiking';
+
+/**
+ * Where the drawing of one waymark lives — this app's own proxy, as ever.
+ *
+ * The network travels with the tag because it picks the frame the waymark is
+ * drawn on: the same tag under `INT` and under `LOC` is different bytes. See
+ * `symbolStyleFor` in server/trail-tiles.js.
+ */
+export const vectorTrailSymbolUrl = (tag, network) =>
+  `/api/trails/symbol-tag.svg?theme=${SYMBOL_HOST}`
+  + `&osmc=${encodeURIComponent(tag)}&network=${encodeURIComponent(network ?? '')}`;
+
+/**
+ * How hard a mountain bike trail is, as a phrase — or null if this is not one.
+ *
+ * `mtb:scale` runs 0 (a smooth track) to 6 (unrideable by nearly everybody), and
+ * it is left as its number rather than translated into words. Six invented
+ * adjectives would be this app asserting a difficulty scale it did not define
+ * and cannot calibrate; the number is what the tag says and what every guide to
+ * it is written in.
+ */
+export function mtbGrade(props) {
+  const scale = typeof props?.scale === 'string' ? props.scale.trim() : '';
+  if (props?.class !== 'bicycle' || !MTB_SCALES.includes(scale)) return null;
+  return t('trails.mtb-grade', { v: scale });
+}
 
 export function reachWord(network) {
   if (!network) return null;

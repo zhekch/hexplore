@@ -153,6 +153,48 @@ if (featureFilter) {
   check(!named.includes('absent') && !waymarked.includes('absent') && !main.includes('absent'),
     'a feature with no properties at all is excluded, not passed by an absent-field comparison');
 
+  console.log('\nMountain bike, which is a theme of trails rather than of routes');
+  const drawsIt = (theme, props) => featureFilter(themeFilters(theme).base)
+    .filter({ zoom: 13 }, { type: 2, properties: props });
+
+  // What MTB actually looks like in this schema: a graded bicycle way, unsigned.
+  const graded = { class: 'bicycle', name: 'Dolmen', ref: '', operator: '', symbol: '', network: '', scale: '1' };
+  const gradedPlus = { ...graded, name: 'Ruote di Pietra', scale: '2+' };
+  const cycleRoute = F.cycleNat;
+
+  check(drawsIt('mtb', graded) && drawsIt('mtb', gradedPlus),
+    'a graded trail is mountain bike, suffixed grades included');
+  check(!drawsIt('mtb', cycleRoute), 'a signed cycle route is not');
+  check(drawsIt('cycling', cycleRoute), 'and it stays in cycling');
+  check(!drawsIt('cycling', graded), 'while the graded trail leaves it');
+  // The partition: every bicycle feature belongs to exactly one of the two rows.
+  for (const [k, p] of CORPUS.filter(([, p]) => p.class === 'bicycle')) {
+    const inCycling = drawsIt('cycling', p);
+    const inMtb = drawsIt('mtb', p);
+    check(inCycling !== inMtb, `${k}: in exactly one of cycling and mtb`);
+  }
+  // sac_scale is a word and is not a bike grade — the trap of matching on
+  // "there is a scale" rather than on which scale.
+  check(!drawsIt('mtb', { class: 'hiking', scale: 'hiking', network: '' }),
+    'a walker’s sac_scale is not an MTB grade');
+  check(!drawsIt('mtb', { class: 'bicycle', scale: 'yes', network: '' }),
+    'and neither is somebody typing "yes" into mtb:scale');
+
+  console.log('\nA theme with no networks is not drawn as though it were all shortcuts');
+  // The bug this pins: pistes and graded trails have no network, so splitting
+  // them signed/unsigned put every feature in the dashed layer and none in the
+  // solid one — a whole theme drawn as though none of it were real.
+  for (const theme of ['ski', 'mtb']) {
+    const f = themeFilters(theme);
+    const sample = theme === 'ski'
+      ? { class: 'downhill', name: 'Kandahar', network: '' }
+      : graded;
+    check(featureFilter(f.routes).filter({ zoom: 13 }, { type: 2, properties: sample }),
+      `${theme}: draws solid`);
+    check(!featureFilter(f.paths).filter({ zoom: 13 }, { type: 2, properties: sample }),
+      `${theme}: and never dashed`);
+  }
+
   console.log('\nThe two line layers must not overlap');
   for (const theme of ['hiking', 'cycling']) {
     const f = themeFilters(theme);
@@ -208,17 +250,20 @@ eq(usableTrailProvider('waymarked', true), 'waymarked', 'the raster never needs 
 // --- The themes ------------------------------------------------------------------
 
 console.log('\nThe themes this provider can honestly offer');
-eq(MAPTILER_THEMES.map((t) => t.key), ['hiking', 'cycling', 'ski'],
-  'three, and mtb is not among them — their `class` has no MTB value');
+eq(MAPTILER_THEMES.map((t) => t.key), ['hiking', 'cycling', 'mtb', 'ski'],
+  'four rows, the same count as the raster provider');
 check(MAPTILER_THEMES.every((t) => typeof t.label === 'string' && t.label && !t.label.startsWith('trails.')),
   'every theme label resolved rather than printing its key');
-eq(nearestMaptilerTheme('mtb'), 'cycling', 'mtb lands on cycling, which is the same tiles');
+eq(nearestMaptilerTheme('mtb'), 'mtb', 'mtb is a row here now, made of graded trails rather than routes');
 eq(nearestMaptilerTheme('slopes'), 'ski', 'slopes lands on ski, which is the same thing renamed');
 eq(nearestMaptilerTheme('hiking'), 'hiking', 'and a theme both providers have is left alone');
 eq(nearestMaptilerTheme('riding'), 'hiking', 'anything else falls back');
-check(isMaptilerTheme('ski') && !isMaptilerTheme('mtb'), 'the themes are checked, not trusted');
-check(maptilerHasReach('hiking') && !maptilerHasReach('ski'),
-  'pistes carry no network, so the ladder means nothing for them');
+check(isMaptilerTheme('ski') && isMaptilerTheme('mtb') && !isMaptilerTheme('riding'),
+  'the themes are checked, not trusted');
+check(maptilerHasReach('hiking') && maptilerHasReach('cycling'),
+  'routes are ranked by reach');
+check(!maptilerHasReach('ski') && !maptilerHasReach('mtb'),
+  'and the two themes graded rather than signed carry no network, so the ladder is hidden for them');
 
 // --- The source and the layers ----------------------------------------------------
 
@@ -318,7 +363,32 @@ const row = describeVectorTrail({ properties: F.viaAlpina });
 eq(row.title, 'Via Alpina', 'a named route is called its name');
 check(row.main, 'and a national route is a main one');
 eq(row.osm, null, 'there is no OSM link, because their schema carries no relation id');
-eq(row.symbol, null, 'and no waymark drawing, because `symbol` is the tag and not a picture');
+
+// The waymark, which this provider was not supposed to be able to show: their
+// tiles carry the raw tag and no id, and Waymarked Trails renders from the tag.
+check(!!row.symbol, 'but there is a waymark, drawn from the osmc:symbol tag');
+check(row.symbol.url.startsWith('/api/trails/'),
+  'through this app’s own proxy, like every other picture here');
+check(row.symbol.url.includes(encodeURIComponent('green:green::1:white')),
+  'carrying the tag, encoded so its free text cannot spell a second parameter');
+check(row.symbol.url.includes('network=nwn'),
+  'and the network, which picks the frame the waymark is drawn on');
+eq(row.symbol.alt, 'green',
+  'described by its colour — `alt` is for somebody who cannot see the picture, and the tag is its source code');
+eq(describeVectorTrail({ properties: { class: 'hiking', name: 'x', network: 'lwn' } }).symbol, null,
+  'a route with no waymark tagged gets none, rather than a broken image');
+// Measured against the live API: their *cycling* host 404s `from_tags` for
+// every tag, including ones the hiking host renders — cycle routes are drawn as
+// numbered shields there, so no osmc renderer sits behind it. Asking the
+// matching host is the obvious thing and it returns nothing.
+check(describeVectorTrail({ properties: { ...F.cycleNat, symbol: 'blue::blue_bar' } }).symbol.url.includes('theme=hiking'),
+  'even a cycle route asks their hiking host, which is the only one that draws waymarks');
+
+console.log('\nMountain bike grade, in the card');
+eq(describeVectorTrail({ properties: { class: 'bicycle', name: 'Dolmen', network: '', scale: '2' } }).between,
+  'MTB grade 2', 'a graded trail says how hard it is, where a route would name its operator');
+eq(describeVectorTrail({ properties: { class: 'hiking', name: 'x', network: '', scale: 'hiking' } }).between,
+  null, 'and a walker’s sac_scale is not reported as one');
 eq(describeVectorTrail({ properties: F.cycleLocal }).title, '7', 'a route with only a number is called its number');
 eq(describeVectorTrail({ properties: F.localLoop }).main, false, 'a local route is not a main one');
 eq(describeVectorTrail({ properties: {} }).title, 'Unnamed route', 'and a feature that says nothing says so');

@@ -101,7 +101,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.59.1';
+export const SERVER_VERSION = '0.60.0';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -3509,6 +3509,23 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       // this session's cookie. The bytes are theirs and the drawing is why we
       // fetched it, so the answer is to say what the document may do rather than
       // to trust that a symbol generator will never emit a `<script>`.
+      // `symbol-tag/<theme>.svg?osmc=…&network=…` — the same drawing, asked for
+      // by the raw `osmc:symbol` tag instead of by a relation's symbol id.
+      //
+      // This is what lets the vector provider show waymarks at all: MapTiler's
+      // features carry the tag and no id, and Waymarked Trails will render from
+      // the tag. Under the same CSP as the route below, and for the same reason
+      // — the bytes are somebody else's markup.
+      if (rest === 'symbol-tag.svg') {
+        const drawn = await trailTiles.symbolFromTag(
+          query.get('theme') ?? '', query.get('osmc') ?? '', query.get('network') ?? '',
+        );
+        if (!drawn) return send(res, 404, { error: 'no such symbol' });
+        return sendTileBytes(req, res, drawn, {
+          'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+        });
+      }
+
       const sym = /^symbol\/([a-z]+)\/([A-Za-z0-9_.-]{1,120})\.svg$/.exec(rest);
       if (sym) {
         const drawn = await trailTiles.symbol(sym[1], sym[2]);

@@ -5406,7 +5406,7 @@ why this is a setting rather than a migration:
 | A tap | lists what runs *near* the finger | names what it *hit* |
 | Labels | baked into the tile | ours, in the basemap's own fontstack |
 | Dark maps | opacity only | line colour is ours |
-| Waymark drawing | an SVG per route | `osmc:symbol` as a *string*, unrendered |
+| Waymark drawing | an SVG per route, by id | the same SVG, rendered *from the tag* — see below |
 | Length, ascent, descent | a detail API | nothing |
 | Link to OSM | the relation id | **no id in the schema at all** |
 | Deepest zoom | 18 | 14 |
@@ -5414,10 +5414,10 @@ why this is a setting rather than a migration:
 
 The last three are the reason the raster stays. Their features carry no OSM
 relation id — measured against live tiles, not assumed — so a card from this
-provider is a name and not an address: no link, no waymark, no distance.
-`trailRow` in `src/main.js` draws a `<span>` instead of an `<a>` and skips the
-stats fetch when `route.osm` is null, which is the one place the two cards
-differ.
+provider is a name and not an address: no link and no distance. `trailRow` in
+`src/main.js` draws a `<span>` instead of an `<a>` and skips the stats fetch when
+`route.osm` is null, which is the one place the two cards differ. The waymark is
+*not* on that list of losses, for a reason worth its own section below.
 
 ### The layer is not only routes
 
@@ -5493,12 +5493,90 @@ readable even at the loosest rung. Colour is the waymark's `color` where the
 route has one — about one in eight — and the theme's otherwise, in two palettes
 because a `black` waymark over a near-black basemap is an invisible route.
 
-**Three themes, not four.** Their `class` has no MTB value: an MTB route and a
-cycle route are both `bicycle`, and only individual MTB *paths* carry an
-`mtb:scale`. A theme built on that would show unsigned singletrack and nothing
-else the moment the filter came off "every path". So `mtb` maps to cycling and
-`slopes` to their separate `ski` layer — the same decision as leaving `riding`
-out of the raster provider, and for the same reason.
+Line weight carries the hierarchy a second time, and it is deliberately heavy:
+a national route is about 4 px at z12 against under 2 for a footpath. The first
+version was half that, which was legible alone and looked provisional the moment
+somebody switched providers to compare — Waymarked Trails draws a route as a
+confident stroke, and a 2 px line beside it reads as a draft of one.
+
+### Mountain bike is a theme of trails, not of routes
+
+This row was left out at first, on the reasoning that their `class` has no MTB
+value — an MTB route and a cycle route are both `bicycle` — and that a theme
+built on `mtb:scale` would show unsigned singletrack and nothing else. Half
+right, wrong conclusion, and the numbers are what settled it. Counted over 3370
+features across twelve mountain-bike destinations (Finale Ligure, Whistler,
+Morzine, Davos, Livigno, Bikepark Wales, Sedona…):
+
+- The MTB **network** codes `imn`/`nmn`/`rmn` appear **zero** times. Not rare —
+  absent. The only MTB-ish network in the sample was a single free-text `mtb`.
+  Those rows stay in `MAIN_NETWORKS` because they are correct OSM and cost
+  nothing, but nothing should be built on the assumption that they fire.
+- 1651 `bicycle` features carry a numeric `mtb:scale`, graded 0–6, on named
+  trails that are the actual reason people go there.
+
+So MTB here is a bicycle way with a grade and no network — `IS_MTB`. It is a real
+row; it is just not made of route relations, which is why the reach ladder is
+hidden for it. Cycling and MTB **partition** `bicycle` between them, and a signed
+cycle route stays in Cycling even if it is also graded, so no feature falls down
+the gap.
+
+It shares cycling's colour rather than being graded green-to-black. Difficulty is
+a real axis and it is not this overlay's question; a second palette competing
+with the waymark colours would be two legends on one map. The grade goes in the
+tap card instead, as its number — six invented adjectives would be this app
+asserting a scale it did not define.
+
+**The bug this exposed.** The dashes mean "not in a signed network", which only
+means anything where networks exist. Pistes never carry one, so `ski` was drawing
+its entire theme dashed — every run rendered as though it were a shortcut —
+and MTB would have done the same. `maptilerHasReach` now decides the dashes and
+the casing as well as the ladder: a theme with no networks puts everything in the
+solid layer and leaves the dashed one unsatisfiable.
+
+`slopes` on the raster provider maps to `ski` here, which is the same thing under
+another name. `horse` and `wheelchair` remain absent from every theme — real, and
+not what any of these rows say, the same decision as leaving `riding` out of the
+raster provider.
+
+### The waymark, which this provider was not supposed to have
+
+The table above says MapTiler carries `osmc:symbol` as an unrendered string and
+no drawing, and that its features have no OSM id to look a drawing up by. Both
+are true, and the conclusion drawn from them — that this provider cannot show
+waymarks — was not.
+
+**Waymarked Trails will render a symbol from the tag itself**:
+`symbols/from_tags/{style}?osmc:symbol=…`. That needs no id, no relation, and no
+agreement between the two services beyond the OSM tag they both read. So the
+vector provider gets the same 16 px waymarks as the raster one, and the only
+thing still missing from its card is the length/ascent/descent, which really does
+need a relation id.
+
+Three things measured rather than assumed:
+
+- **The style in the path is not cosmetic.** The same tag under `INT` and `LOC`
+  is different bytes, because the style picks the shield the waymark sits on — so
+  the network level travels with the tag (`symbolStyleFor`).
+- **Always their *hiking* host, whatever the route is for.** Asking the matching
+  host is the obvious thing and it returns nothing: the cycling host answers 404
+  to `from_tags` for *every* tag, including ones hiking renders happily. It is
+  not a data gap, it is what their cycling map is — numbered shields rather than
+  painted waymarks, so no osmc renderer sits behind that host.
+- **The tag needs no tight alphabet**, unlike a symbol id, because it goes into a
+  query *parameter* and is percent-encoded: no value can spell a second
+  parameter, a path segment or another host. Its text segments are free text —
+  `yellow:white:yellow_diamond:WHR:black` paints letters on the sign — so a tight
+  alphabet would reject valid waymarks. What is checked is length and control
+  characters.
+
+The `alt` is the waymark's colour, not the tag: `alt` describes a picture for
+somebody who cannot see it, and `yellow::yellow_diamond` is its source code.
+
+Cached harder than anything else in that file, and it is the one place really
+worth it: a symbol *id* is per route, a *tag* is per signage scheme.
+`yellow::yellow_diamond` is every waymarked footpath in the Bernese Oberland, so
+one fetch serves thousands of routes across every account on the server.
 
 ### The key, and where it is not
 

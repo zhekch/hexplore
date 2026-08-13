@@ -128,6 +128,49 @@ const NEAR_LIMIT = 20;
  */
 export const validSymbolId = (id) => (/^[A-Za-z0-9_.-]{1,120}$/.test(String(id ?? '')) ? String(id) : null);
 
+/**
+ * A raw `osmc:symbol` tag — `yellow::yellow_diamond`, `green:green::1:white`.
+ *
+ * **This is the bridge between the two providers**, and it was nearly not built
+ * because the obvious reading of the schema says it cannot be. MapTiler's vector
+ * tiles carry `symbol` as the unrendered tag and no waymark drawing, and their
+ * features have no OSM id, so there is nothing to look a drawing up *by*. What
+ * closes the gap is that Waymarked Trails will render a symbol **from the tag
+ * itself** — `symbols/from_tags/{style}?osmc:symbol=…` — which needs no id, no
+ * relation and no agreement between the two services beyond the OSM tag they
+ * both read. Verified against the real endpoint: every tag shape their tiles
+ * actually emit comes back as a 16 px SVG, and an unparseable one 404s.
+ *
+ * Unlike `validSymbolId` this cannot be a tight alphabet, because the tag's text
+ * segments are free text — `yellow:white:yellow_diamond:WHR:black` puts letters
+ * on the sign, and elsewhere those are accented, spaced or punctuated. It does
+ * not need to be: this goes into a *query parameter* and is percent-encoded on
+ * the way, so no value can spell a second parameter, a path segment or another
+ * host. What is left to check is that it is short and is not control characters.
+ */
+export function validSymbolTag(tag) {
+  const s = String(tag ?? '').trim();
+  if (!s || s.length > 120) return null;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(s)) return null;
+  return s;
+}
+
+/**
+ * Which of their symbol styles to draw a tag in.
+ *
+ * Not cosmetic and not ignorable: the same tag rendered under `INT` and under
+ * `LOC` comes back as different bytes, because the style decides the shield the
+ * waymark sits on. So the network level has to travel with the tag, or every
+ * local footpath gets an international route's frame.
+ */
+export function symbolStyleFor(network) {
+  const level = { i: 'INT', n: 'NAT', r: 'REG', l: 'LOC' }[String(network ?? '')[0]];
+  // Anything unrecognised — a free-text network, or none at all — is drawn as
+  // local, which is the plainest of their frames and the least of an assertion.
+  return level ?? 'LOC';
+}
+
 /** An OSM relation id, which is what a route is. */
 export function validRelationId(id) {
   const n = /^\d{1,12}$/.test(String(id ?? '')) ? Number(id) : NaN;
@@ -576,6 +619,36 @@ export function createTrailTiles({
       return cached(`trail-symbol:${theme}/${clean}`, `api/v1/symbols/id/${clean}?format=svg`, {
         origin: apiOrigin.replace('{theme}', theme),
       });
+    },
+
+    /**
+     * The same drawing, asked for by tag rather than by id — what the vector
+     * provider needs, because its features have no id to ask by.
+     *
+     * **Cached harder than anything else here, and it is the one place that is
+     * really worth it.** A symbol id is per route; a tag is per *signage
+     * scheme*. `yellow::yellow_diamond` is every waymarked footpath in the
+     * Bernese Oberland and a good deal of the rest of Switzerland, so one fetch
+     * serves thousands of routes across every account on this server. In a
+     * region with one waymarking convention the whole overlay resolves to a
+     * handful of entries.
+     *
+     * @param {string} theme which of their hosts to ask
+     * @param {string} tag the raw `osmc:symbol`
+     * @param {string} network the route's network, which picks the frame
+     */
+    async symbolFromTag(theme, tag, network) {
+      if (!themes.has(theme)) return null;
+      const clean = validSymbolTag(tag);
+      if (!clean) return null;
+      const style = symbolStyleFor(network);
+      // The tag is percent-encoded into a query parameter, which is what makes
+      // its free-text segments safe to pass through — see validSymbolTag.
+      return cached(
+        `trail-symbol-tag:${theme}/${style}/${clean}`,
+        `api/v1/symbols/from_tags/${style}?osmc:symbol=${encodeURIComponent(clean)}`,
+        { origin: apiOrigin.replace('{theme}', theme) },
+      );
     },
 
     /**
