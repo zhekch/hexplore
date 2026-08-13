@@ -4851,7 +4851,11 @@ body {
 
 /* How far, how much up, how much down: its own line under the name, because it
    is three numbers and a name is not, and putting them on the end of the route
-   would push the wrap into the middle of "Interlaken → Grindelwald". */
+   would push the wrap into the middle of "Interlaken → Grindelwald".
+
+   Hidden until its answer arrives rather than reserved: the numbers come one
+   request per route and most local paths have none at all, so a reserved line
+   would be a blank gap under two rows in three. */
 .trail-stats {
   display: block;
   margin-top: 1px;
@@ -4863,41 +4867,6 @@ body {
   display: none;
 }
 
-/* The fold. Quiet until it is wanted — twenty of these at full contrast is a
-   column of chevrons down the side of the card, competing with the names.
-   `flex: none` and a fixed box so a row that wraps to three lines does not
-   stretch it. */
-.trail-more {
-  flex: none;
-  /* On the first line, not on the baseline: a flex item with no text of its own
-     baselines against its bottom edge, which drops a 20px button below a 12px
-     line and pushes the whole row apart to make room for it. */
-  align-self: flex-start;
-  margin-top: -1px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: rgba(255, 255, 255, 0.4);
-  cursor: pointer;
-  transition: color 0.12s ease, background 0.12s ease, transform 0.15s ease;
-}
-
-.trail-more:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.trail-more[aria-expanded='true'] {
-  color: rgba(255, 255, 255, 0.75);
-  transform: rotate(180deg);
-}
-
 /* What the main-routes switch is holding back, under the list rather than in
    it: it is a fact about the card, not a route. */
 .popup-list-hidden {
@@ -4906,19 +4875,6 @@ body {
 
 [data-theme='light'] .trail-stats {
   color: rgba(15, 23, 42, 0.58);
-}
-
-[data-theme='light'] .trail-more {
-  color: rgba(15, 23, 42, 0.42);
-}
-
-[data-theme='light'] .trail-more:hover {
-  background: rgba(15, 23, 42, 0.07);
-  color: rgba(15, 23, 42, 0.85);
-}
-
-[data-theme='light'] .trail-more[aria-expanded='true'] {
-  color: rgba(15, 23, 42, 0.7);
 }
 
 /* The same values `.cell-info` uses in light, for the same reason. */

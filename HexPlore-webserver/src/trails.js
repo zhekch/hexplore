@@ -41,17 +41,26 @@ import { t } from './i18n.js';
 
 // --- Tuning -------------------------------------------------------------------
 
-// How strongly the ink lands, per basemap theme, until somebody says otherwise.
-// Two numbers rather than one because the same PNG has to sit on CARTO Dark and
-// on aerial photography.
+// How strongly the ink lands, until somebody says otherwise.
 //
-// Over a light map their colours are already tuned and near full strength is
-// right. Over a dark one the white casing around every route reads as glare —
-// the routes stop being lines on a map and become a lit sign in front of it — so
-// it comes down, far enough to sit in the map rather than on it and no further:
-// below about 0.6 a local footpath in pale yellow stops being visible at all,
-// which is the half of the data that is hardest to get anywhere else.
-const DEFAULT_OPACITY = { light: 0.95, dark: 0.72 };
+// **Three quarters, on both sides, and it used to be two numbers.** The split
+// was 0.95 over a light map — where their palette is already tuned and near
+// full strength is right — against 0.72 over a dark one, where the white casing
+// around every route reads as glare and the routes stop being lines on a map and
+// become a lit sign in front of it. The reasoning holds and the numbers were the
+// wrong conclusion from it: near-full over Light is ink laid *on* the map rather
+// than in it, and the difference between the two sides was never worth a basemap
+// switch moving the slider under you. 0.75 is a route you can follow and a map
+// you can still read underneath, either way round.
+//
+// It is still stored per basemap — see OPACITY_KEY — because a strength somebody
+// *chooses* while looking at one map is still a statement about that map. What
+// changed is what they are given before they choose anything.
+//
+// The floor is what it is for the same reason as ever: below about 0.6 a local
+// footpath in pale yellow stops being visible at all, which is the half of the
+// data that is hardest to get anywhere else.
+const DEFAULT_OPACITY = { light: 0.75, dark: 0.75 };
 
 // What the slider will go to. Below the floor the overlay is a rumour, and
 // somebody who wants it gone has a switch for that; the ceiling is opacity 1,

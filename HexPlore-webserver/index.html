@@ -163,51 +163,6 @@
               <input type="checkbox" id="rail-toggle" />
             </label>
 
-            <!-- The waymarked routes, and — unlike the tracks above — the two
-                 controls that go with them, right here under the switch.
-
-                 Which rendering you are looking at is a question about the view,
-                 asked while looking at it, and the row is filled in by main.js
-                 from the list in src/trails.js so the menu cannot fall out of
-                 step with what the proxy will actually fetch. Whether a tap asks
-                 the trails is next to it because it is the one setting somebody
-                 will want to undo the moment they meet it: a raster overlay
-                 cannot tell whether it was hit, so while that is on it takes
-                 every tap the ground would have had.
-
-                 Both are hidden while the overlay is off — a control for a layer
-                 that is not drawn is a question nobody asked. -->
-            <label class="menu-row">
-              <span data-i18n-text="layers-menu.trails">Trails</span>
-              <input type="checkbox" id="trails-toggle" />
-            </label>
-            <div class="seg seg-wrap" id="trails-seg" hidden></div>
-            <!-- How loud the ink is. Stored per basemap, so the label says which
-                 one it is talking about — the same arrangement, and the same
-                 wording, as Visited color a few rows up. -->
-            <label class="menu-row" id="trails-strength-row" hidden>
-              <span><span id="trails-strength-label">Strength</span></span>
-              <!-- step="1", where the export dialog's sliders all use 5. Not a
-                   taste for finer control: the defaults are measured numbers
-                   (0.72 over a dark map) and a step of 5 cannot represent 72,
-                   so the handle sat at 70 while the layer was at 0.72 and the
-                   control was lying about the map from the moment it opened. -->
-              <input class="menu-range" id="trails-strength" type="range" min="20" max="100" step="1" />
-            </label>
-            <label class="menu-row" id="trails-tap-row" hidden>
-              <span data-i18n-text="trails-tap-row.tap-for-trails">Tap for trails</span>
-              <input type="checkbox" id="trails-tap-toggle" />
-            </label>
-            <!-- What that tap comes back with: the routes that are a thing in
-                 themselves, or those plus every leg of the local network they
-                 are stitched out of. On by default, and hidden entirely unless
-                 a tap can open a card at all — see isMainTrail in
-                 src/trails.js for why reach is what this reads. -->
-            <label class="menu-row" id="trails-main-row" hidden>
-              <span data-i18n-text="trails-main-row.main-routes-only">Main routes only</span>
-              <input type="checkbox" id="trails-main-toggle" />
-            </label>
-
             <!-- Same deal as the tracks above: the switch is a question about
                  the view and belongs here, while which kinds of airfield are
                  drawn is a setting you make once. -->
@@ -215,6 +170,69 @@
               <span data-i18n-text="layers-menu.airports">Airports</span>
               <input type="checkbox" id="airports-toggle" />
             </label>
+
+            <!-- The waymarked routes, and — unlike the two above — the controls
+                 that go with them, right here under the switch. Last of the
+                 three because it is the only one with anything under it: with
+                 the tracks and the airfields between the switch and its own
+                 controls, the section read as four switches and some strays.
+
+                 Which rendering you are looking at is a question about the view,
+                 asked while looking at it, so the segmented row is out here. It
+                 is filled in by main.js from the list in src/trails.js, so the
+                 menu cannot fall out of step with what the proxy will fetch.
+
+                 Everything else is folded away, the same arrangement the routes
+                 use below: three rows you set once — how loud, whether a tap
+                 asks the trails, and what the card lists when it does — against
+                 a menu you flick through to change what is drawn. All of it is
+                 hidden while the overlay is off, because a control for a layer
+                 that is not drawn is a question nobody asked. -->
+            <label class="menu-row">
+              <span data-i18n-text="layers-menu.trails">Trails</span>
+              <input type="checkbox" id="trails-toggle" />
+            </label>
+            <div class="seg seg-wrap" id="trails-seg" hidden></div>
+            <button type="button" class="menu-expand" id="trails-options-toggle"
+              aria-expanded="false" aria-controls="trails-options" hidden>
+              <span data-i18n="trails-options-toggle.strength-taps-and-which-routes">Strength, taps and which routes</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+            <div id="trails-options" hidden>
+              <!-- How loud the ink is. Stored per basemap, so the label says
+                   which one it is talking about — the same arrangement, and the
+                   same wording, as Visited color a few rows up. -->
+              <label class="menu-row" id="trails-strength-row">
+                <span><span id="trails-strength-label">Strength</span></span>
+                <!-- step="1", where the export dialog's sliders all use 5. Not
+                     a taste for finer control: a stored strength is any number
+                     between the floor and 1, and a step of 5 cannot represent
+                     72 — so a handle that snapped to fives would sit at 70
+                     while the layer was at 0.72, lying about the map from the
+                     moment it opened. -->
+                <input class="menu-range" id="trails-strength" type="range" min="20" max="100" step="1" />
+              </label>
+              <!-- A raster overlay cannot tell whether it was hit, so while this
+                   is on it takes every tap the ground would have had. That is a
+                   real trade rather than a free affordance, which is why it is
+                   asked for rather than assumed. -->
+              <label class="menu-row" id="trails-tap-row">
+                <span data-i18n-text="trails-tap-row.tap-for-trails">Tap for trails</span>
+                <input type="checkbox" id="trails-tap-toggle" />
+              </label>
+              <!-- What that tap comes back with: the routes that are a thing in
+                   themselves, or those plus every leg of the local network they
+                   are stitched out of. On by default, and gone entirely unless
+                   a tap can open a card at all — see isMainTrail in
+                   src/trails.js for why reach is what this reads. -->
+              <label class="menu-row" id="trails-main-row">
+                <span data-i18n-text="trails-main-row.main-routes-only">Main routes only</span>
+                <input type="checkbox" id="trails-main-toggle" />
+              </label>
+            </div>
           </section>
 
           <section class="menu-section">

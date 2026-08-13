@@ -920,6 +920,11 @@ let trailThemeOn = trailTheme();
 // their own. On unless it has been switched off — see MAIN_ONLY_KEY in
 // src/trails.js for why this is the one trail preference with an opinion.
 let trailsMainOnly = trailMainOnly();
+// Whether the trail controls are unfolded. Deliberately not remembered, like
+// the routes' own fold: it is the state of a menu you have open, not a
+// preference, and a menu that opens with a panel already unfolded is a menu
+// that has grown since you last looked at it.
+let trailsOptionsOpen = false;
 
 // And the photographs, remembered for the same reason as the airports: the cost
 // of switching them on is a metadata query against a library that is already on
@@ -6627,7 +6632,7 @@ function setTrailThemeNow(key) {
   trailThemeOn = setTrailTheme(key);
   // A card about hiking routes, still open over a map that is now showing ski
   // slopes, is a card about a different question.
-  trailPopup?.remove();
+  closeTrailCard();
   updateLayersUi();
   if (trailsOn) syncTrailLayer();
 }
@@ -6658,20 +6663,25 @@ function setTrailsInteractive(on) {
   updateLayersUi();
   // An overlay that no longer answers a tap should not be left holding the last
   // card it opened.
-  if (!on) trailPopup?.remove();
+  if (!on) closeTrailCard();
 }
 
 /**
  * Whether the card lists the whole network or only the routes with names.
  *
- * The open card goes, rather than being refiltered in place: it is a list of
- * what was near a point, and what was near that point is exactly what the switch
- * has just changed its mind about. Rebuilding it would also be a second answer
- * to a question nobody asked twice — the tap is what asks.
+ * The open card is **refiltered in place** rather than closed. It used to close,
+ * on the reasoning that a card is the answer to one tap — which is true and is
+ * not the point: this switch changes what to show of an answer already in hand,
+ * so closing the card made the switch look like it had done nothing at all, and
+ * left you tapping the same spot again to see the change.
+ *
+ * The ink on the map is untouched, and cannot be otherwise: their tiles are
+ * pictures with every route already drawn into them, so there is nothing here
+ * to filter. This is a setting about the card.
  */
 function setTrailsMainOnly(on) {
   trailsMainOnly = setTrailMainOnly(on);
-  trailPopup?.remove();
+  drawTrailCard();
   updateLayersUi();
 }
 
@@ -6681,7 +6691,7 @@ function syncTrailLayer() {
   if (!styleReady) return;
   if (!trailsOn) {
     removeTrails(map);
-    trailPopup?.remove();
+    closeTrailCard();
     return;
   }
   installTrails(map, {
@@ -7186,6 +7196,27 @@ function showRailInfo(e) {
 // something instantly.
 let trailPopup = null;
 
+// The answer the open card was built from, and the parts of it that get
+// rewritten. Kept so that flipping **Main routes only** refilters the card that
+// is on screen rather than closing it: the switch changes what to *show* of an
+// answer already in hand, and asking their server again for the same box would
+// be a second request to redraw a list.
+let trailCard = null;
+
+/**
+ * Take the card away, and forget the answer it was holding.
+ *
+ * One function rather than a `remove()` at each site, because the answer and the
+ * popup have to go together: a `trailCard` left behind is an answer about a
+ * theme, or a tap, that is no longer on screen — and the next thing to call
+ * `drawTrailCard` would fill a card nobody can see.
+ */
+function closeTrailCard() {
+  trailPopup?.remove();
+  trailPopup = null;
+  trailCard = null;
+}
+
 /** Open a card listing whatever waymarked routes run near the tap. */
 function showTrailInfo(e) {
   const card = document.createElement('div');
@@ -7217,7 +7248,7 @@ function showTrailInfo(e) {
   status.textContent = t('trails.looking');
   card.append(status);
 
-  trailPopup?.remove();
+  closeTrailCard();
   trailPopup = new gl.Popup({ closeButton: true, maxWidth: '280px' })
     .setLngLat(e.lngLat)
     .setDOMContent(card)
@@ -7233,32 +7264,56 @@ function showTrailInfo(e) {
     // Guarded by the card it was opened for, so a fast second tap cannot land
     // its answer in the first one's popup.
     if (trailPopup?.getElement()?.contains(mine) !== true) return;
-    // Filtered and ordered before anything is described, so that the count below
-    // is of routes rather than of rows — see orderTrails in src/trails.js.
-    const wanted = orderTrails(routes, trailThemeOn, { mainOnly: trailsMainOnly });
-    const hidden = routes.length - wanted.length;
-    const found = wanted.map((r) => describeTrail(r, trailThemeOn)).filter(Boolean);
-    if (!found.length) {
-      // Two different pieces of ground, and they must not read alike: nothing
-      // here at all, or nothing here that this switch will show you.
-      status.textContent = hidden > 0 ? t('trails.only-local') : t('trails.nothing-here');
-      return;
-    }
-    status.remove();
-    list.hidden = false;
-    for (const route of found) items.append(trailRow(route, trailThemeOn));
-
-    // What the switch is holding back. Without this the card is indistinguishable
-    // from a card about emptier ground — and the whole point of the filter is
-    // that the legs it hides are real routes somebody may want after all.
-    if (hidden > 0) {
-      const note = document.createElement('p');
-      note.className = 'feature-popup-note popup-list-hidden';
-      note.textContent = t(hidden === 1 ? 'trails.hidden.one' : 'trails.hidden.other', { n: hidden });
-      card.append(note);
-    }
+    trailCard = {
+      card, list, items, status, routes, theme: trailThemeOn,
+    };
+    drawTrailCard();
   });
   return true;
+}
+
+/**
+ * Fill the open card from the answer it already has.
+ *
+ * Separate from the tap so that **Main routes only** can rewrite the list under
+ * you. The switch is about what to show of an answer, not about which answer —
+ * closing the card would make somebody tap the same spot twice to see what they
+ * had just asked for.
+ */
+function drawTrailCard() {
+  if (!trailCard) return;
+  const { card, list, items, status, routes, theme } = trailCard;
+  // Filtered and ordered before anything is described, so that the count below
+  // is of routes rather than of rows — see orderTrails in src/trails.js.
+  const wanted = orderTrails(routes, theme, { mainOnly: trailsMainOnly });
+  const hidden = routes.length - wanted.length;
+  const found = wanted.map((r) => describeTrail(r, theme)).filter(Boolean);
+
+  items.replaceChildren();
+  card.querySelector('.popup-list-hidden')?.remove();
+  if (!found.length) {
+    // Two different pieces of ground, and they must not read alike: nothing here
+    // at all, or nothing here that this switch will show you.
+    status.textContent = hidden > 0 ? t('trails.only-local') : t('trails.nothing-here');
+    // Put back rather than left removed: the card is redrawn in place, so the
+    // line that says why it is empty has to be able to return.
+    if (!status.isConnected) card.append(status);
+    list.hidden = true;
+    return;
+  }
+  status.remove();
+  list.hidden = false;
+  for (const route of found) items.append(trailRow(route, theme));
+
+  // What the switch is holding back. Without this the card is indistinguishable
+  // from a card about emptier ground — and the whole point of the filter is that
+  // the legs it hides are real routes somebody may want after all.
+  if (hidden > 0) {
+    const note = document.createElement('p');
+    note.className = 'feature-popup-note popup-list-hidden';
+    note.textContent = t(hidden === 1 ? 'trails.hidden.one' : 'trails.hidden.other', { n: hidden });
+    card.append(note);
+  }
 }
 
 // What a row has already been told about itself, so that closing and reopening a
@@ -7267,13 +7322,9 @@ function showTrailInfo(e) {
 // renderings.
 const trailStatsSeen = new Map();
 
-// Static markup, no interpolation — the same chevron the menu's fold uses.
-const CHEVRON_SVG =
-  '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
-
 /**
  * One route as a row: the sign it is signed with, what it is called, where it
- * runs, and a way to ask how far.
+ * runs, and how far.
  *
  * The symbol is an `<img>` and deliberately not inlined SVG. Their drawing is
  * markup from a server this app does not own, and markup put into this document
@@ -7338,40 +7389,38 @@ function trailRow(route, theme) {
     tail.textContent = route.between;
     text.append(tail);
   }
+  // How far, and how much of it is up and down. A second request per route, and
+  // it goes out as soon as the row is drawn rather than waiting to be asked:
+  // these are the numbers somebody is opening the card *for*, and a fold in
+  // front of them made the card answer "there is a route here" and nothing else.
+  //
+  // What that costs is real and is bounded on the other side of the wire — see
+  // `details` in server/trail-tiles.js, where a quarter of a megabyte of
+  // geometry becomes eighty bytes, once, for everybody. **Main routes only** is
+  // the other half of the bound: a list of three, not of twenty.
   const stats = document.createElement('span');
   stats.className = 'trail-stats';
+  // Empty rather than "Looking…": most of these answer inside a blink from a
+  // warm cache, and a line of placeholder text that long would make the whole
+  // list jump as each row landed.
   stats.hidden = true;
   text.append(stats);
   row.append(text);
 
-  // How far and how much climb, on request. Not with the rest of the row,
-  // because it is not in the answer the card already has: it is a second
-  // question upstream, one route at a time, behind a quarter of a megabyte of
-  // geometry each. See `details` in server/trail-tiles.js.
-  const more = document.createElement('button');
-  more.type = 'button';
-  more.className = 'trail-more';
-  more.setAttribute('aria-expanded', 'false');
-  more.setAttribute('aria-label', t('trails.how-far'));
-  more.title = t('trails.how-far');
-  more.innerHTML = CHEVRON_SVG;
-  more.addEventListener('click', () => {
-    const open = more.getAttribute('aria-expanded') === 'true';
-    more.setAttribute('aria-expanded', open ? 'false' : 'true');
-    stats.hidden = open;
-    if (open || stats.dataset.asked) return;
-    stats.dataset.asked = '1';
-    const key = `${theme}/${route.id}`;
-    stats.textContent = t('trails.looking');
-    const held = trailStatsSeen.get(key) ?? trailDetails(theme, route.id);
-    trailStatsSeen.set(key, held);
-    held.then((about) => {
-      // Most local paths carry no `distance` tag and never will. Saying so is
-      // the honest answer; leaving "Looking…" on screen is not.
-      stats.textContent = (about && trailStatsLine(about)) || t('trails.nothing-measured');
-    });
+  const key = `${theme}/${route.id}`;
+  const held = trailStatsSeen.get(key) ?? trailDetails(theme, route.id);
+  trailStatsSeen.set(key, held);
+  held.then((about) => {
+    // Most local paths carry no `distance` tag and never will. A row that says
+    // nothing is the honest answer there — the alternative is twenty rows all
+    // reading "no length recorded", which is a wall saying nothing at more
+    // length. Guarded on still being in the document, because the card can be
+    // closed or refiltered inside one of these.
+    const line = about && trailStatsLine(about);
+    if (!line || !stats.isConnected) return;
+    stats.textContent = line;
+    stats.hidden = false;
   });
-  row.append(more);
   return row;
 }
 
@@ -7665,20 +7714,26 @@ function updateLayersUi() {
       btn.classList.toggle('active', btn.dataset.trail === trailThemeOn);
     }
   }
-  const trailsTapRow = document.getElementById('trails-tap-row');
-  if (trailsTapRow) trailsTapRow.hidden = !trailsOn;
   trailsTapToggle.checked = trailsInteractive;
-  // A setting about what the card lists, so it follows the card: not while the
-  // overlay is off, not while a tap goes to the ground instead, and not on
-  // `slopes`, whose groups say what you would be doing rather than how far the
-  // route reaches — there is no local network there to filter out.
+  // A setting about what the card lists, so it follows the card: gone while a
+  // tap goes to the ground instead, and gone on `slopes`, whose groups say what
+  // you would be doing rather than how far the route reaches — there is no local
+  // network there to filter out.
   const trailsMainRow = document.getElementById('trails-main-row');
   if (trailsMainRow) {
-    trailsMainRow.hidden = !trailsOn || !trailsInteractive || !trailsHaveReach(trailThemeOn);
+    trailsMainRow.hidden = !trailsInteractive || !trailsHaveReach(trailThemeOn);
     trailsMainToggle.checked = trailsMainOnly;
   }
-  const trailsStrengthRow = document.getElementById('trails-strength-row');
-  if (trailsStrengthRow) trailsStrengthRow.hidden = !trailsOn;
+  // The fold itself, and everything in it: a chevron over three controls for a
+  // layer that is not drawn is a question nobody asked.
+  const trailsFold = document.getElementById('trails-options-toggle');
+  const trailsBox = document.getElementById('trails-options');
+  if (trailsFold && trailsBox) {
+    trailsFold.hidden = !trailsOn;
+    trailsFold.setAttribute('aria-expanded', trailsOptionsOpen && trailsOn ? 'true' : 'false');
+    trailsFold.classList.toggle('open', trailsOptionsOpen && trailsOn);
+    trailsBox.hidden = !trailsOn || !trailsOptionsOpen;
+  }
   if (trailsOn) {
     // Read back from the module rather than remembered here, because the value
     // is per basemap: switching from Dark to Light has to move the slider, and
@@ -7911,6 +7966,10 @@ function wireLayersControl() {
   trailsToggle.addEventListener('change', () => setTrails(trailsToggle.checked));
   trailsTapToggle.addEventListener('change', () => setTrailsInteractive(trailsTapToggle.checked));
   trailsMainToggle?.addEventListener('change', () => setTrailsMainOnly(trailsMainToggle.checked));
+  document.getElementById('trails-options-toggle')?.addEventListener('click', () => {
+    trailsOptionsOpen = !trailsOptionsOpen;
+    updateLayersUi();
+  });
   // `input`, not `change`: the whole point of a slider over a number field is
   // watching the map answer while you drag it.
   trailsStrength.addEventListener('input', () => setTrailStrength(Number(trailsStrength.value)));

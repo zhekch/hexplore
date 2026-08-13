@@ -120,8 +120,13 @@ console.log('\nAnd the layer knows which way round the map is');
   stored = {};
   const dark = trailLayerSpec('dark').paint['raster-opacity'];
   const light = trailLayerSpec('light').paint['raster-opacity'];
-  check(light > dark, 'the ink is quieter over a dark basemap than a light one', `${light} vs ${dark}`);
-  check(dark > 0.5, 'but never so quiet that a pale local path disappears', String(dark));
+  // One number for both sides now. It was 0.95 against 0.72 — the reasoning held
+  // and the numbers were the wrong conclusion from it, since near-full over
+  // Light is ink laid *on* the map rather than in it. What is still per basemap
+  // is the strength somebody chooses, which is checked below.
+  check(light === dark && light === 0.75, 'the ink lands at three quarters, either way round',
+    `${light} vs ${dark}`);
+  check(dark > 0.5, 'never so quiet that a pale local path disappears', String(dark));
   check(light <= 1 && dark > 0, 'and both are opacities');
   // Their renderer draws a different *set* of routes at each zoom, so the
   // default half-second dissolve shows two maps at once.
@@ -134,7 +139,7 @@ console.log('\nAnd the layer knows which way round the map is');
     'an unknown basemap is treated as dark rather than as an error');
 }
 
-console.log('\nHow loud, which is two answers rather than one');
+console.log('\nHow loud, which is stored as two answers rather than one');
 {
   stored = {};
   const lightDefault = trailOpacity('light');
@@ -142,20 +147,21 @@ console.log('\nHow loud, which is two answers rather than one');
 
   check(setTrailOpacity('light', 0.5) === 0.5, 'a strength is taken');
   check(trailOpacity('light') === 0.5, 'and read back');
-  // The whole reason this is stored per side: the split exists to correct for
-  // what is underneath, so one number chosen while looking at Light becomes
-  // glare the moment the basemap goes dark.
+  // The whole reason a *chosen* strength is stored per side: it is a correction
+  // for what is underneath, so one number set while looking at Light is not the
+  // same statement the moment the basemap goes dark. The defaults agree; what
+  // somebody drags does not have to.
   check(trailOpacity('dark') === darkDefault, 'without touching the other side',
     String(trailOpacity('dark')));
   setTrailOpacity('dark', 0.9);
   check(trailOpacity('light') === 0.5 && trailOpacity('dark') === 0.9, 'both are kept at once');
   check(trailLayerSpec('light').paint['raster-opacity'] === 0.5, 'and the layer reads them');
 
-  // Anything absent still gets the number that was measured, not a number
-  // somebody dragged once.
+  // Anything absent still gets the default, not a number somebody dragged once
+  // on the other side.
   stored = {};
   check(trailOpacity('light') === lightDefault && trailOpacity('dark') === darkDefault,
-    'nothing stored means the tuned defaults');
+    'nothing stored means three quarters on both');
 
   // It is a number in localStorage: a newer build, an older one, or somebody
   // with the devtools open can all have written it. A `raster-opacity` of

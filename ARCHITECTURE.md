@@ -5242,6 +5242,14 @@ what is this path, and then what else is here. Whatever the switch hides is
 counted under the list — "3 local routes hidden" — because an empty card and a
 filtered one must not look alike.
 
+**Flipping it rewrites the card that is open**, rather than closing it. Closing
+was the first version and read as the switch doing nothing: it changes what to
+show of an answer already in hand, so the answer is kept (`trailCard`) and the
+list redrawn from it — no second request for the same box, and no tapping the
+same spot twice to see what you just asked for. The ink on the map is untouched
+and cannot be otherwise: their tiles are pictures with every route already drawn
+into them.
+
 `slopes` has no such hierarchy: its group is *what you would be doing* rather
 than how far the route reaches, so everything there is a main route and the row
 that would filter them is not shown at all. A control that demonstrably does
@@ -5249,18 +5257,24 @@ nothing is indistinguishable from a broken one.
 
 ### How far, how much up, how much down
 
-Behind a fold on each row, and fetched one route at a time when it is opened.
+Under the name of every row, one request per route, sent as the row is drawn.
+
+They were behind a fold for one afternoon, on the reasoning below about what
+they cost. That was the wrong reading of the same fact: these are the numbers
+somebody opens the card *for*, and a chevron in front of them made the card
+answer "there is a route here" and stop.
 
 Their `details/relation/{id}` answer is the **whole route** — every way, every
 coordinate — 235 KB for a regional loop. What a card wants out of it is the
-length, the ascent and the descent: about eighty bytes. Doing that in the page
-would be a third of a megabyte per route somebody glanced at, and doing it for a
-whole list on the chance it is read would be a megabyte a tap of somebody else's
-bandwidth for numbers nobody looked at — exactly the trade the proxy exists to
-refuse. So `oneDetail` in `server/trail-tiles.js` reduces the record where it
-arrives, and what is cached and sent on is the eighty bytes. The cache stores the
-*answer* rather than their record, which is also why that entry does not carry
-their `ETag`: a 304 would hand back a body we rewrote as if it were theirs.
+length, the ascent and the descent: about eighty bytes. Doing that reduction in
+the page would be a third of a megabyte per row. So `oneDetail` in
+`server/trail-tiles.js` does it where the record arrives, and what is cached and
+sent on is the eighty bytes — once, for everybody, for a week. The cache stores
+the *answer* rather than their record, which is also why that entry does not
+carry their `ETag`: a 304 would hand back a body we rewrote as if it were theirs.
+
+What bounds the upstream cost is not a fold but **Main routes only**, which is
+why that switch is on by default: the usual list is three rows, not twenty.
 
 Length is their two numbers in order of what somebody is checking against:
 `official_length` — the `distance` tag, which is the number on the signpost —
@@ -5270,8 +5284,9 @@ a lot on a half-mapped one. Ascent and descent are OSM tag values, which is to
 say strings people typed: `1,200`, `2200 m` and `about 40` all arrive, and only
 the first two are measurements.
 
-Most local paths carry none of the three and never will, so the fold says so
-rather than showing an empty line.
+Most local paths carry none of the three and never will, so those rows simply
+have no second line. The alternative — twenty rows each reading "no length
+recorded" — is a wall saying nothing at greater length.
 
 ### Where it sits, and how loud it is
 
@@ -5284,23 +5299,26 @@ nothing by being on top of a picture. The rule is *the opaque thing goes at the
 bottom*.
 
 Their palette assumes a pale map underneath, which is true of one of the five
-basemaps. What changes per basemap is the **opacity and nothing else** — 0.95
-over a light map, 0.72 over a dark one, where the white casing around every route
-otherwise reads as glare and the routes stop being lines on a map and become a
-lit sign in front of it. Recolouring was never on the table: `raster-hue-rotate`
-applied to somebody's waymark colours would be inventing signage.
+basemaps. What can change per basemap is the **opacity and nothing else**:
+recolouring was never on the table, since `raster-hue-rotate` applied to
+somebody's waymark colours would be inventing signage.
 
-Those two numbers are the *defaults* for a **Strength** slider in the layers
-menu, and the slider stores **two values rather than one** — the same shape the
-visited colour keeps, and the same row label saying which map it is talking
-about. One number was the obvious version and is wrong in the case that actually
-happens: the split is not two preferences, it is a correction for what is
-underneath, so a strength chosen while looking at Light becomes glare the moment
-you switch to Dark. Absent means the measured default, so anybody who never
-touches it keeps the version that was tuned rather than a number somebody dragged
-once. The stored value is validated on the way out — it is a number in
-`localStorage`, and a `raster-opacity` of `"loud"` is a layer that does not
-render at all.
+The default is **0.75, on both sides**, and it used to be two numbers — 0.95 over
+a light map, 0.72 over a dark one, where the white casing around every route
+reads as glare and the routes stop being lines on a map and become a lit sign in
+front of it. The reasoning held and the numbers were the wrong conclusion from
+it: near-full strength over Light is ink laid *on* the map rather than in it, and
+a split default meant switching basemap moved the slider under you before you had
+ever touched it. Three quarters is a route you can follow and a map you can still
+read underneath, either way round.
+
+It is still **stored as two values rather than one** — the same shape the visited
+colour keeps, and the same row label saying which map it is talking about —
+because a strength somebody *chooses* while looking at one map is still a
+statement about that map, and one number would carry it to the other. What
+changed is only what they are given before choosing anything. The stored value is
+validated on the way out: it is a number in `localStorage`, and a
+`raster-opacity` of `"loud"` is a layer that does not render at all.
 
 Dragging costs one `setPaintProperty` per step rather than a rebuild, because
 `installTrails` is idempotent and sets the paint property on a layer that is
@@ -5332,20 +5350,32 @@ open wants the paths on it.
 
 ### Where the switches live
 
-All of them — the switch, the theme row, the strength slider, the tap switch and
-**Main routes only** — are in the **layers menu**, which is the opposite of where the railway's ended
-up, and the difference is about how they are used rather than how many there are. You set what the railway draws once and then read the map, so a
+All of them are in the **layers menu**, which is the opposite of where the
+railway's ended up, and the difference is about how they are used rather than how
+many there are. You set what the railway draws once and then read the map, so a
 column of checkboxes in the middle of a menu you flick through was in the way.
 Switching from hiking to cycling is the other kind: a question about the view,
 asked while looking at it — the same kind of question as Detail or Color by, both
 of which are a segmented row in that menu already. Burying it two dialogs deep
 would mean closing the map to change what the map is showing.
 
-The last of those is the exception that proves the rule: it is not about the
-view at all but about what the *card* lists, which is why it is hidden unless a
-tap can open one — no overlay, no tap switch, no row. It sits under the tap
-switch it depends on rather than in a dialog, because the moment anybody wants it
-is the moment they have just read a card full of legs.
+But only two of them are that kind of question, so only two are on show: the
+switch and the theme row. **Strength**, **Tap for trails** and **Main routes
+only** are behind a chevron — the same fold the saved routes use a section
+below — because each is set once and then left, and three rows of them under a
+switch made the section read as four layers and some strays. The fold is not
+remembered between openings: it is the state of a menu you have open, not a
+preference.
+
+The trails sit **last of the three overlays** for the same reason, under the
+tracks and the airfields, which are a switch each. With them in the middle, the
+controls belonging to Trails were separated from the Trails row by two unrelated
+switches.
+
+**Main routes only** is the odd one in that list: it is not about the view at all
+but about what the *card* lists, which is why it is gone unless a tap can open
+one — no tap switch, no row — and gone on Slopes, which has no local network to
+filter.
 
 The theme row is built from the list in `src/trails.js` rather than written into
 the markup, and `scripts/test/trails.mjs` pins that list equal to the allowlist in

@@ -67,10 +67,11 @@ number of approaches that were tried and abandoned.
   what reads well over aerial photography is glare over CARTO Dark. Turn on **Tap
   for trails** and a tap lists what runs past that spot: the waymark itself,
   drawn — the sign you are looking for when you are standing at the junction —
-  then the route's name and where it runs between, and a chevron for how far it
-  goes and how much of it is up and down. A junction can sit on twenty routes,
-  nineteen of them legs of the local network, so **Main routes only** is on by
-  default; turn it off and they come back, below the routes they belong to.
+  then the route's name, where it runs between, and how far it goes with how much
+  of it is up and down. A junction can sit on twenty routes, nineteen of them legs
+  of the local network, so **Main routes only** is on by default; turn it off and
+  they come back, below the routes they belong to and in lighter type. Those three
+  settings are behind the chevron under the switch.
 - **Airports.** Every airport, airfield and helipad on Earth, from the
   public-domain OurAirports dataset — built into the app, so there is no key to
   get, nothing to sign up for, and it works offline. Switch it on in the layers
