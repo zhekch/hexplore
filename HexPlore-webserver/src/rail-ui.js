@@ -1,5 +1,5 @@
-// The "Train tracks" dialog: what the overlay draws, and whether it answers a
-// tap.
+// The Train tracks section of the Map layers page: what the overlay draws, and
+// whether it answers a tap.
 //
 // These used to be a disclosure inside the layers menu, folded under the switch
 // that turns the overlay on. That was the right place for two checkboxes and the
@@ -11,9 +11,14 @@
 //
 // The switch itself deliberately stays behind: "is this layer drawn" is the same
 // question as "is the heatmap drawn", and it belongs beside it.
+//
+// **It used to be a dialog of its own** and is now a section of one — see
+// src/map-layers-ui.js for why the page of doors went away. Nothing about what
+// is wired changed: the same three ids, the same three callbacks. What went is
+// the overlay, its Back and Done, and the Escape handler, all of which now
+// belong to the page this draws into.
 
 import { loadRailStyle, railGroups, railGroupOn } from './rail.js';
-import { onBackdropClick } from './dismiss.js';
 
 /**
  * What each group is, in words that are about the map rather than about OSM.
@@ -33,7 +38,7 @@ const GROUP_NOTES = {
 
 /**
  * @param {object} opts
- * @param {() => void} [opts.onClose] called when the dialog is dismissed with Back
+ * @param {() => void} [opts.onGrew] the rows landed, so the page can re-measure
  * @param {() => Record<string, boolean>} opts.groups what has been chosen so far
  * @param {(key: string, on: boolean) => void} opts.onGroup
  * @param {() => boolean} opts.technical
@@ -42,26 +47,12 @@ const GROUP_NOTES = {
  * @param {(on: boolean) => void} opts.onInteractive
  */
 export function mountRail({
-  onClose, groups, onGroup, technical, onTechnical, interactive, onInteractive,
+  onGrew, groups, onGroup, technical, onTechnical, interactive, onInteractive,
 }) {
   const $ = (id) => document.getElementById(id);
-  const overlay = $('rail-overlay');
-  const scroller = overlay.querySelector('.ha-scroll');
   const list = $('rail-groups');
   const technicalBox = $('rail-technical');
   const interactiveBox = $('rail-interactive');
-
-  /**
-   * Fade the last few pixels once there is more below the fold, the same as the
-   * other dialogs that outgrow a phone. CSS cannot tell whether a box overflows,
-   * so the class is put on from here — and re-checked after the group rows land,
-   * since until they do there is nothing to overflow with.
-   */
-  function markOverflow() {
-    const over = scroller.scrollHeight - scroller.clientHeight;
-    scroller.classList.toggle('more', over > 4);
-    scroller.classList.toggle('at-end', scroller.scrollTop >= over - 4);
-  }
 
   /**
    * The group checkboxes, once there is a style loaded to name the groups.
@@ -94,43 +85,30 @@ export function mountRail({
       row.append(text, input);
       return row;
     }));
-    markOverflow();
+    // The page around this measures its own scroll, and until these rows
+    // land there is nothing to overflow with — the style behind them is a
+    // lazily imported chunk that may arrive well after the page is open.
+    onGrew?.();
   }
 
+  /**
+   * Read the current state into the controls, and fill the group list.
+   *
+   * Called by the page when it opens rather than by an `open()` of this
+   * module's own: there is no dialog here to open any more.
+   */
   function draw() {
     technicalBox.checked = !!technical?.();
     interactiveBox.checked = !!interactive?.();
     drawGroups();
-  }
-
-  scroller.addEventListener('scroll', markOverflow, { passive: true });
-
-  const open = () => {
-    draw();
-    overlay.hidden = false;
-    markOverflow();
-    // Never fatal, and never awaited before the dialog is up: the two switches
-    // below are settings of ours and work whether or not their style ever
-    // arrives. If it does, the list fills in underneath.
+    // Never fatal, and never awaited: the two switches here are settings of ours
+    // and work whether or not their style ever arrives. If it does, the list
+    // fills in underneath.
     loadRailStyle().then(drawGroups).catch(() => {});
-  };
-  const close = () => {
-    overlay.hidden = true;
-  };
+  }
 
   technicalBox.addEventListener('change', () => onTechnical?.(technicalBox.checked));
   interactiveBox.addEventListener('change', () => onInteractive?.(interactiveBox.checked));
 
-  $('rail-back').addEventListener('click', () => {
-    close();
-    onClose?.();
-  });
-  $('rail-done').addEventListener('click', close);
-  $('rail-close').addEventListener('click', close);
-  onBackdropClick(overlay, close);
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden) close();
-  });
-
-  return { open, close };
+  return { draw };
 }

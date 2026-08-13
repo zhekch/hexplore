@@ -1,9 +1,11 @@
-// The "3D basemap" dialog: somewhere to put a Mapbox token.
+// The 3D basemap section of the Map layers page: somewhere to put a Mapbox
+// token.
 //
 // It is the only credential this app asks anyone for that is not its own, so it
-// gets a dialog rather than a row: there is a paragraph's worth of *why am I
-// being asked this* to answer, and a row in a list is not the place to answer
-// it.
+// gets a paragraph rather than a row: there is a whole *why am I being asked
+// this* to answer, and a row in a list is not the place to answer it. It used to
+// get a dialog of its own as well; see src/map-layers-ui.js for why the page of
+// doors went away, and what stayed.
 //
 // **Only the token.** The light preset used to be here too, and it is not any
 // more: it moved to the layers menu, under the basemap picker, where it is
@@ -11,13 +13,14 @@
 // two places is a control you have to keep in step, and the one you reach for
 // is always the nearer one.
 //
-// **Done is the only button that commits.** There used to be a Save beside the
-// field and a Done underneath it, which is two buttons for one intention and
-// nothing to say which of them was the real one — and a Remove that did what an
-// empty field already means. Now there are two: Done checks the token and either
-// closes onto the 3D map or stays open saying what was wrong, and Cancel leaves
-// with nothing changed. Emptying the box and pressing Done is how a token is
-// taken off.
+// **Done is still the only thing that commits**, and it is now the page's Done
+// rather than one of this section's own. Same arrangement, one floor up: it
+// checks the token and either leaves onto the 3D map or keeps the page open
+// saying what was wrong. Emptying the box and pressing Done is how a token is
+// taken off. Everything else on that page applies itself as it is touched, so
+// Done is only ever asking Mapbox about a token that actually changed — which is
+// also why there is no Cancel any more: Back is the way out that commits
+// nothing.
 //
 // The check is not decoration. A Mapbox token can be wrong in four ways that all
 // look identical from the map — mistyped, expired, scoped without `styles:read`,
@@ -27,26 +30,17 @@
 // URLs" and half an hour of wondering why the button does nothing.
 
 import { checkMapboxToken, mapboxToken, setMapboxToken, tokenComplaint } from './mapbox.js';
-import { onBackdropClick } from './dismiss.js';
 
 /**
  * @param {object} opts
- * @param {() => void} [opts.onClose]  Cancel was pressed — nothing was changed
  * @param {(token: string) => void} [opts.onToken] a token was saved or cleared
  * @param {() => void} [opts.onUse] there is a working token and Done was pressed:
  *   put the map on the basemap it pays for
  */
-export function mountMapbox({ onClose, onToken, onUse } = {}) {
+export function mountMapbox({ onToken, onUse } = {}) {
   const $ = (id) => document.getElementById(id);
-  const overlay = $('mapbox-overlay');
   const input = $('mapbox-token');
-  const doneBtn = $('mapbox-done');
   const note = $('mapbox-note');
-
-  // Bumped on every dismissal, so an answer from Mapbox that arrives after the
-  // dialog was closed is dropped. Without it, pressing Done and then Escape puts
-  // the map on 3D a second later, under somebody who had just left.
-  let generation = 0;
 
   /** Say something under the field, in one of three registers. */
   const say = (text, kind) => {
@@ -56,16 +50,13 @@ export function mountMapbox({ onClose, onToken, onUse } = {}) {
     note.classList.toggle('bad', kind === 'bad');
   };
 
-  function draw() {
-    const held = mapboxToken();
-    input.value = held;
-    // Deliberately not re-checked on every opening: that is a network request
-    // for a question nobody asked, and the answer was already given when the
-    // token went in. It says what is *stored*, which is the thing the dialog is
-    // about.
-    say(held ? 'A token is saved to your account.' : '', held ? 'ok' : null);
-  }
-
+  /**
+   * Commit whatever is in the box, and say whether the page may leave.
+   *
+   * **Returns false to hold the page open**, which is the whole of what this
+   * used to do by simply not closing its own dialog. The box still holds what
+   * was typed, which is what makes the complaint under it worth printing.
+   */
   async function done() {
     const typed = input.value.trim();
     const held = mapboxToken();
@@ -78,72 +69,55 @@ export function mountMapbox({ onClose, onToken, onUse } = {}) {
         setMapboxToken('');
         onToken?.('');
       }
-      return close();
+      return true;
     }
 
     // Unchanged, and it was checked the moment it went in. Asking Mapbox again
     // would be a request for a question already answered and a slower Done.
     if (typed === held) {
-      close();
       onUse?.();
-      return;
+      return true;
     }
 
     const complaint = tokenComplaint(typed);
-    if (complaint) return say(complaint, 'bad');
+    if (complaint) {
+      say(complaint, 'bad');
+      return false;
+    }
 
-    const mine = generation;
-    doneBtn.disabled = true;
     say('Asking Mapbox…');
     const { ok, why } = await checkMapboxToken(typed);
-    if (mine !== generation) return; // dismissed while we were asking
-    doneBtn.disabled = false;
-    // Left open on purpose: the box is still there, still holding what was
-    // typed, which is what makes the complaint worth printing.
-    if (!ok) return say(why ?? 'That token did not work.', 'bad');
+    if (!ok) {
+      say(why ?? 'That token did not work.', 'bad');
+      return false;
+    }
 
     setMapboxToken(typed);
     onToken?.(typed);
-    close();
     onUse?.();
+    return true;
   }
 
-  const open = () => {
-    draw();
-    overlay.hidden = false;
-    // Not focused on a phone, where it would throw the keyboard up over the
-    // paragraph explaining what the field is for.
-    if (!matchMedia('(hover: none)').matches) input.focus();
-  };
-  const close = () => {
-    generation++;
-    doneBtn.disabled = false;
-    overlay.hidden = true;
-  };
+  /** Show what is stored. Called by the page when it opens. */
+  function draw() {
+    const held = mapboxToken();
+    input.value = held;
+    // Deliberately not re-checked on every opening: that is a network request
+    // for a question nobody asked, and the answer was already given when the
+    // token went in. It says what is *stored*, which is the thing this is about.
+    say(held ? 'A token is saved to your account.' : '', held ? 'ok' : null);
+  }
 
-  doneBtn.addEventListener('click', done);
-  // Cancel goes back where the dialog was opened from; the X, Escape and the
-  // backdrop dismiss it outright. Both leave the stored token exactly as it was.
-  $('mapbox-cancel').addEventListener('click', () => {
-    close();
-    onClose?.();
-  });
-  // A token is one long line pasted from somewhere else; Return is the natural
-  // way to finish it.
   input.addEventListener('keydown', (e) => {
+    // A token is one long line pasted from somewhere else; Return is the natural
+    // way to finish it, and finishing it is what the page's Done does.
     if (e.key === 'Enter') {
       e.preventDefault();
-      done();
+      document.getElementById('maplayers-done')?.click();
     }
   });
   // Anything typed invalidates whatever the last answer was talking about.
   input.addEventListener('input', () => say(''));
 
-  $('mapbox-close').addEventListener('click', close);
-  onBackdropClick(overlay, close);
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden) close();
-  });
-
-  return { open, close };
+  return { draw, commit: done };
 }

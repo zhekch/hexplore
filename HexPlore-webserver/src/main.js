@@ -7481,15 +7481,6 @@ function clearRailHover() {
 const dateShort = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
 const legendEndLabel = (sec) => (sec ? dateShort.format(new Date(sec * 1000)) : '');
 
-// The Settings row for the 3D basemap, which is the only door in that list
-// whose subtitle is a *state* rather than a description: whether there is a
-// token is the whole question behind it, and someone who has already answered it
-// should not have to open the dialog to be told so.
-function updateMapboxNote() {
-  const note = document.getElementById('settings-mapbox-note');
-  if (note) note.textContent = hasMapboxToken() ? 'Mapbox token saved to your account' : 'Needs a Mapbox token';
-}
-
 /**
  * Everything that follows from the token changing, from wherever it changed —
  * the dialog on this device, or another device pushing one into the account.
@@ -7503,7 +7494,7 @@ function updateMapboxNote() {
  */
 function mapboxTokenChanged() {
   if (engine === MAPBOX) gl.accessToken = mapboxToken();
-  updateLayersUi(); // which calls updateMapboxNote() itself
+  updateLayersUi();
   // …unless what just happened is that the token holding the basemap on screen
   // was taken away. Then there is nothing left to draw and the map has to be
   // moved off it — which, from 3D, is a rebuild onto the other library.
@@ -7656,7 +7647,6 @@ document.addEventListener('visibilitychange', () => {
 setInterval(refreshLightNow, SUN_CHECK_MS);
 
 function updateLayersUi() {
-  updateMapboxNote();
   if (lightSeg && lightHead) {
     // Hidden rather than disabled on the other four: a control for a thing that
     // is not on the map is not a control, it is a question nobody asked.
@@ -9086,8 +9076,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       updateLayersUi();
     },
   });
+  // The three sections of the Map layers page. Each draws into it and is told
+  // when it opens; none of them owns a dialog any more — see src/map-layers-ui.js.
   const railUi = mountRail({
-    onClose: () => mapLayersUi?.open(),
+    onGrew: () => mapLayersUi?.markOverflow(),
     groups: () => railGroupsOn,
     onGroup: (key, on) => setRailGroupOn(key, on),
     technical: () => railTechnicalOn,
@@ -9096,12 +9088,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onInteractive: (on) => setRailInteractive(on),
   });
   const airportsUi = mountAirports({
-    onClose: () => mapLayersUi?.open(),
+    onGrew: () => mapLayersUi?.markOverflow(),
     groups: () => airportGroupsChosen,
     onGroup: (key, on) => setAirportGroupOn(key, on),
   });
   mapboxUi = mountMapbox({
-    onClose: () => mapLayersUi?.open(),
     // The token is a preference now, so a change to it is pushed to the account
     // like any other — which is what puts it on the phone without being pasted
     // there. `pushPrefs` rather than waiting out the debounce: this one is worth
@@ -9113,14 +9104,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       pushPrefs();
     },
     // Done with a working token means *show me the map I just paid for*. This
-    // used to be deliberately not done — the dialog can be reached from Settings
-    // by somebody who only wanted to paste a token, and switching under them
-    // looked presumptuous — but that reading had it backwards: the only reason
-    // to be in this dialog at all is the basemap on the other side of it.
+    // used to be deliberately not done — the page can be reached by somebody who
+    // only wanted to paste a token, and switching under them looked presumptuous
+    // — but that reading had it backwards: the only reason to type a token at
+    // all is the basemap on the other side of it.
     onUse: () => setStyleKey('mapbox'),
   });
-  // Between the three above and Settings: they open from here and come back
-  // here, so Back walks the way it came instead of skipping a floor.
+  // Between the three sections above and Settings: this opens from there and
+  // goes back there, so Back walks the way it came instead of skipping a floor.
   const mapLayersUi = mountMapLayers({
     onClose: () => personalUi?.open(),
     rail: railUi,

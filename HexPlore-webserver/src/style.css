@@ -1044,6 +1044,32 @@ body {
   margin-top: 7px;
 }
 
+/* A section heading inside a dialog that holds several of them — Map layers,
+   which is Train tracks, Airports and 3D basemap on one page.
+
+   The rule is on the heading rather than between the sections as an element of
+   its own: a separator that exists only to be a separator is a thing to
+   remember to add, and the one time somebody forgets is the time two sections
+   run together. `:first-of-type` would be wrong here because these are plain
+   divs among other plain divs, so the first one is marked in the markup. */
+.dialog-heading {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+  font-weight: 650;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* The first section has no rule above it — the dialog's own subtitle is already
+   the line it would separate from — but it still needs the gap, or the heading
+   reads as a third line of that subtitle. */
+.dialog-heading.first {
+  margin-top: 10px;
+  padding-top: 0;
+  border-top: 0;
+}
+
 /* A label over a segmented row inside a fold. Not a .menu-heading, which draws
    the line between sections and would be far too loud for this: these only say
    which of two adjacent four-button rows is which. */

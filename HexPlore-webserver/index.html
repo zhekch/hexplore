@@ -985,13 +985,21 @@
       </div>
     </div>
 
-    <!-- What the train-tracks overlay draws. The group rows are built in
-         src/rail-ui.js from the built style, so the list cannot fall out of step
-         with what is actually on the map. -->
+    <!-- Map layers: everything the map is built out of, on one page.
 
-    <!-- Map layers: the three doors that are about what the map is built out
-         of. A signpost and nothing else — see src/map-layers-ui.js for why it
-         deliberately holds no controls of its own. -->
+         This was a signpost with three doors on it — Train tracks, Airports, 3D
+         basemap — each opening a dialog of its own. Three taps to reach a
+         checkbox, and a page whose entire content was a list of places the
+         content was not. The doors are gone and the dialogs they led to are
+         inlined here, in the order the overlays draw in, separated by a rule and
+         named by a heading.
+
+         What that costs is a longer scroll, which is the right trade: this is a
+         page you open to change one thing and close, and a scroll is cheaper to
+         skim than three round trips. Every control keeps its id, so the modules
+         that own them (src/rail-ui.js, src/airports-ui.js, src/mapbox-ui.js) go
+         on wiring exactly what they wired before — what they lost is a dialog
+         each, not a control each. -->
     <div class="modal-overlay" id="maplayers-overlay" hidden>
       <div class="modal-card">
         <div class="modal-head">
@@ -1006,92 +1014,17 @@
           </button>
         </div>
 
-        <div class="sync-options">
-          <button type="button" class="sync-option" data-maplayer="rail">
-          <!-- Two rails and four sleepers. Drawn straight up the icon rather
-          than in perspective: at 18px a vanishing point is four pixels of
-          mud, and what reads as railway is the ladder. The proportions are
-          the whole of it — rails a third of the sleepers' width apart, and
-          four of them rather than three, or the gaps come out square and
-          the icon is a hash sign. -->
-          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M10 2.5v19M14 2.5v19" />
-          <path d="M5.5 5h13M5.5 10h13M5.5 15h13M5.5 20h13" />
-          </svg>
-          <span class="sync-option-text">
-          <b data-i18n="personal.train-tracks">Train tracks</b>
-          <small data-i18n="personal.what-the-railway-overlay-draws">What the railway overlay draws</small>
-          </span>
-          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="m9 5 7 7-7 7" />
-          </svg>
-          </button>
-
-          <button type="button" class="sync-option" data-maplayer="airports">
-          <!-- A top-down aircraft, the same shape the map icon draws. Nose up
-          and symmetrical: at 18px anything three-quarter-view reads as a
-          blot, and the swept wing is the whole of what says aeroplane. -->
-          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 2c1 1.1 1.3 2.9 1.3 5.1l8 5.6v1.9l-8-2.8v4.5l3 2.4v1.3L12 19l-4.3 1v-1.3l3-2.4v-4.5l-8 2.8v-1.9l8-5.6C10.7 4.9 11 3.1 12 2Z" />
-          </svg>
-          <span class="sync-option-text">
-          <b data-i18n="personal.airports">Airports</b>
-          <small data-i18n="personal.which-airfields-the-overlay-draws">Which airfields the overlay draws</small>
-          </span>
-          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="m9 5 7 7-7 7" />
-          </svg>
-          </button>
-
-          <button type="button" class="sync-option" data-maplayer="mapbox">
-          <!-- A block seen in three-quarter view: the top face and two walls,
-          which is the least that reads as *extruded* at 18px. Flat-on it
-          would be a rectangle and the icon would say "buildings", not
-          "3D". -->
-          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 2.6 21 7v10l-9 4.4L3 17V7Z" />
-          <path d="m3 7 9 4.4L21 7" />
-          <path d="M12 11.4v10" />
-          </svg>
-          <span class="sync-option-text">
-          <b data-i18n="personal.3d-basemap">3D basemap</b>
-          <small data-i18n="settings-mapbox-note.needs-a-mapbox-token" id="settings-mapbox-note">Needs a Mapbox token</small>
-          </span>
-          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="m9 5 7 7-7 7" />
-          </svg>
-          </button>
-        </div>
-
-        <div class="modal-actions">
-          <button data-i18n="maplayers-back.back" type="button" class="modal-btn" id="maplayers-back">Back</button>
-          <button data-i18n="maplayers-done.done" type="button" class="modal-btn primary" id="maplayers-done">Done</button>
-        </div>
-      </div>
-    </div>
-    <div class="modal-overlay" id="rail-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="rail.train-tracks" class="modal-title">Train tracks</div>
-            <div data-i18n="rail.what-the-railway-overlay-draws" class="modal-sub">What the railway overlay draws, and whether it answers a tap. Switch the overlay itself on from the layers menu.</div>
-          </div>
-          <button data-i18n-aria-label="rail-close.close" class="cell-info-close" id="rail-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
         <div class="ha-scroll">
+          <!-- Train tracks. The overlay's own switch is not here: "is this layer
+               drawn" is a question about the view and lives in the layers menu
+               beside the other switches. What is here is what it draws. -->
+          <div data-i18n="rail.train-tracks" class="dialog-heading first">Train tracks</div>
           <label class="import-row">
             <span data-i18n-text="rail.interactable">Interactable<small data-i18n="rail.a-tap-on-a-railway">A tap on a railway opens a card about it, and the cursor says so</small></span>
             <input type="checkbox" id="rail-interactive" />
           </label>
-
           <div class="menu-subhead"><span data-i18n="rail.show">Show</span></div>
           <div id="rail-groups"></div>
-
           <!-- Last, and outside the list above, because it is not a group: a
                siding and the through line beside it are drawn by the same layer,
                so this one is a filter. -->
@@ -1099,67 +1032,16 @@
             <span data-i18n-text="rail.technical-infrastructure">Technical infrastructure<small data-i18n="rail.sidings-yard-roads-and-crossovers">Sidings, yard roads and crossovers; track that is disused, under construction, proposed or lifted; and the halts, junctions, yards and sites a timetable would not call a station</small></span>
             <input type="checkbox" id="rail-technical" />
           </label>
-        </div>
 
-        <div class="modal-actions">
-          <button data-i18n="rail-back.back" type="button" class="modal-btn" id="rail-back">Back</button>
-          <button data-i18n="rail-done.done" type="button" class="modal-btn primary" id="rail-done">Done</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Which airfields the airports overlay draws. The rows are built in
-         src/airports-ui.js from the same table that decides which file each
-         airport is packed into, so a group the dialog offers is always a group
-         there is data for. -->
-    <div class="modal-overlay" id="airports-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="airports.airports" class="modal-title">Airports</div>
-            <div data-i18n="airports.which-airfields-the-overlay-draws" class="modal-sub">Which airfields the overlay draws. Switch the overlay itself on from the layers menu.</div>
-          </div>
-          <button data-i18n-aria-label="airports-close.close" class="cell-info-close" id="airports-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="ha-scroll">
+          <div data-i18n="airports.airports" class="dialog-heading">Airports</div>
           <div class="menu-subhead"><span data-i18n="airports.show">Show</span></div>
           <div id="airports-groups"></div>
           <!-- Unlike the railway's groups, which filter tiles that arrive
                anyway, each of these is its own download — hence the counts in
                the rows, and this line saying why they are there. -->
           <div data-i18n="airports.each-group-is-fetched-the" class="import-note">Each group is fetched the first time you switch it on, and kept for next time. Nothing is downloaded for a group that stays off.</div>
-        </div>
 
-        <div class="modal-actions">
-          <button data-i18n="airports-back.back" type="button" class="modal-btn" id="airports-back">Back</button>
-          <button data-i18n="airports-done.done" type="button" class="modal-btn primary" id="airports-done">Done</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- The 3D basemap's token. The paragraph is most of the dialog on purpose:
-         this is the one place the app asks for a credential belonging to
-         somebody else's account, and "why" is a fair question. -->
-    <div class="modal-overlay" id="mapbox-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="mapbox.3d-basemap" class="modal-title">3D basemap</div>
-            <div data-i18n-text="mapbox.buildings-with-height-and-ground" class="modal-sub">Buildings with height and ground with shape, from Mapbox. Press <b data-i18n="mapbox.done">Done</b> with a working token and the map switches straight to it.</div>
-          </div>
-          <button data-i18n-aria-label="mapbox-close.close" class="cell-info-close" id="mapbox-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="ha-scroll">
+          <div data-i18n="mapbox.3d-basemap" class="dialog-heading">3D basemap</div>
           <p data-i18n-text="mapbox.mapbox-will-not-serve-these" class="ha-help">
             Mapbox will not serve these tiles without an account, and this app does not have one —
             so the basemap runs on <b data-i18n="mapbox.your">your</b> token, billed to you and free below Mapbox's monthly
@@ -1177,7 +1059,6 @@
               autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </label>
           <div class="token-note" id="mapbox-note" hidden></div>
-
           <div data-i18n="mapbox.the-token-is-saved-to" class="import-note">
             The token is saved to your HexPlore account, so every device you sign in on gets the 3D
             basemap without being asked again. Empty the box and press Done to take it off all of
@@ -1185,14 +1066,14 @@
           </div>
         </div>
 
-        <!-- Done is the only button that commits, and it is the one that asks
-             Mapbox whether the token works: it either closes onto the 3D map or
-             stays open saying what was wrong. There used to be a Save beside the
-             field as well, which was two buttons for one intention with nothing
-             to say which of them was the real one. -->
+        <!-- Done is the only button that commits the token, which is the same
+             arrangement the 3D basemap dialog had — it has simply moved up a
+             floor with everything else. Every other control on this page applies
+             itself as it is touched, so Done is only ever asking Mapbox about a
+             token that has changed, and Back is the way out that does not. -->
         <div class="modal-actions">
-          <button data-i18n="mapbox-cancel.cancel" type="button" class="modal-btn" id="mapbox-cancel">Cancel</button>
-          <button data-i18n="mapbox-done.done" type="button" class="modal-btn primary" id="mapbox-done">Done</button>
+          <button data-i18n="maplayers-back.back" type="button" class="modal-btn" id="maplayers-back">Back</button>
+          <button data-i18n="maplayers-done.done" type="button" class="modal-btn primary" id="maplayers-done">Done</button>
         </div>
       </div>
     </div>

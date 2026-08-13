@@ -1,4 +1,4 @@
-// The "Airports" dialog: which of them are drawn.
+// The Airports section of the Map layers page: which of them are drawn.
 //
 // The same shape as the Train tracks dialog and for the same reason — these are
 // settings, which is to say things you set once and then read the map, rather
@@ -16,32 +16,18 @@ import { AIRPORT_GROUPS, airportGroupOn } from './airports.js';
 // describe. Statically imported — unlike the group data itself, which is the
 // whole point of splitting it up.
 import GROUP_COUNTS from './airports-counts.json';
-import { onBackdropClick } from './dismiss.js';
 
 const NUM = new Intl.NumberFormat();
 
 /**
  * @param {object} opts
- * @param {() => void} [opts.onClose] called when the dialog is dismissed with Back
+ * @param {() => void} [opts.onGrew] the rows landed, so the page can re-measure
  * @param {() => Record<string, boolean>} opts.groups what has been chosen so far
  * @param {(key: string, on: boolean) => void} opts.onGroup
  */
-export function mountAirports({ onClose, groups, onGroup }) {
+export function mountAirports({ onGrew, groups, onGroup }) {
   const $ = (id) => document.getElementById(id);
-  const overlay = $('airports-overlay');
-  const scroller = overlay.querySelector('.ha-scroll');
   const list = $('airports-groups');
-
-  /**
-   * Fade the last few pixels once there is more below the fold, the same as the
-   * other dialogs that outgrow a phone. CSS cannot tell whether a box overflows,
-   * so the class is put on from here.
-   */
-  function markOverflow() {
-    const over = scroller.scrollHeight - scroller.clientHeight;
-    scroller.classList.toggle('more', over > 4);
-    scroller.classList.toggle('at-end', scroller.scrollTop >= over - 4);
-  }
 
   function draw() {
     const chosen = groups?.() ?? {};
@@ -64,30 +50,10 @@ export function mountAirports({ onClose, groups, onGroup }) {
       row.append(text, input);
       return row;
     }));
-    markOverflow();
+    // Until these rows land there is nothing to overflow with, so the page
+    // around this is told to re-measure rather than measuring once on open.
+    onGrew?.();
   }
 
-  scroller.addEventListener('scroll', markOverflow, { passive: true });
-
-  const open = () => {
-    draw();
-    overlay.hidden = false;
-    markOverflow();
-  };
-  const close = () => {
-    overlay.hidden = true;
-  };
-
-  $('airports-back').addEventListener('click', () => {
-    close();
-    onClose?.();
-  });
-  $('airports-done').addEventListener('click', close);
-  $('airports-close').addEventListener('click', close);
-  onBackdropClick(overlay, close);
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden) close();
-  });
-
-  return { open, close };
+  return { draw };
 }
