@@ -34,9 +34,9 @@ globalThis.localStorage = {
 await (await import('../../src/i18n.js')).loadLocale('en');
 
 const {
-  TRAIL_THEMES, bboxAround, describeTrail, installTrails, isTrailTheme, removeTrails,
-  setTrailTheme, tapCorners, trailLayerIds, trailLayerSpec, trailSourceSpec, trailTheme,
-  trailThemeLabel,
+  OPACITY_MAX, OPACITY_MIN, TRAIL_THEMES, bboxAround, describeTrail, installTrails, isTrailTheme,
+  removeTrails, setTrailOpacity, setTrailTheme, tapCorners, trailLayerIds, trailLayerSpec,
+  trailOpacity, trailSourceSpec, trailTheme, trailThemeLabel,
 } = await import('../../src/trails.js');
 
 const { TRAIL_THEMES: SERVER_THEMES, TRAIL_MAX_ZOOM, mercatorBbox, toMercator, validTileCoords } =
@@ -52,10 +52,17 @@ const eq = (got, want, label) => check(
   JSON.stringify(got) === JSON.stringify(want), label, `got ${JSON.stringify(got)}`,
 );
 
-console.log('\nThe menu and the allowlist are the same five themes');
+console.log('\nThe menu and the allowlist are the same themes');
 {
   eq(TRAIL_THEMES.map((t) => t.key), SERVER_THEMES,
     'the client offers exactly what the proxy will fetch');
+  // Their fifth. It is horse riding rather than a second word for cycling, and
+  // it is deliberately in neither list — checked from both sides, because an
+  // allowlist quietly permitting a theme nothing can ask for is a proxy onto a
+  // path this app does not use.
+  check(!SERVER_THEMES.includes('riding'), 'horse riding is not in the allowlist');
+  check(!TRAIL_THEMES.some((t) => t.key === 'riding'), 'and not in the menu');
+  check(!isTrailTheme('riding'), 'so nothing stored can select it');
   check(TRAIL_THEMES.every((t) => t.label && t.label !== `trails.${t.key}`),
     'and every one of them has a word rather than its key',
     TRAIL_THEMES.map((t) => t.label).join(', '));
@@ -107,6 +114,7 @@ console.log('\nThe source goes through our own proxy');
 
 console.log('\nAnd the layer knows which way round the map is');
 {
+  stored = {};
   const dark = trailLayerSpec('dark').paint['raster-opacity'];
   const light = trailLayerSpec('light').paint['raster-opacity'];
   check(light > dark, 'the ink is quieter over a dark basemap than a light one', `${light} vs ${dark}`);
@@ -121,6 +129,45 @@ console.log('\nAnd the layer knows which way round the map is');
   // basemaps today, and a sixth should not be able to break the overlay.
   check(trailLayerSpec(undefined).paint['raster-opacity'] === dark,
     'an unknown basemap is treated as dark rather than as an error');
+}
+
+console.log('\nHow loud, which is two answers rather than one');
+{
+  stored = {};
+  const lightDefault = trailOpacity('light');
+  const darkDefault = trailOpacity('dark');
+
+  check(setTrailOpacity('light', 0.5) === 0.5, 'a strength is taken');
+  check(trailOpacity('light') === 0.5, 'and read back');
+  // The whole reason this is stored per side: the split exists to correct for
+  // what is underneath, so one number chosen while looking at Light becomes
+  // glare the moment the basemap goes dark.
+  check(trailOpacity('dark') === darkDefault, 'without touching the other side',
+    String(trailOpacity('dark')));
+  setTrailOpacity('dark', 0.9);
+  check(trailOpacity('light') === 0.5 && trailOpacity('dark') === 0.9, 'both are kept at once');
+  check(trailLayerSpec('light').paint['raster-opacity'] === 0.5, 'and the layer reads them');
+
+  // Anything absent still gets the number that was measured, not a number
+  // somebody dragged once.
+  stored = {};
+  check(trailOpacity('light') === lightDefault && trailOpacity('dark') === darkDefault,
+    'nothing stored means the tuned defaults');
+
+  // It is a number in localStorage: a newer build, an older one, or somebody
+  // with the devtools open can all have written it. A `raster-opacity` of
+  // "loud" is a layer that does not render at all.
+  check(setTrailOpacity('dark', 5) === OPACITY_MAX, 'a strength past opaque is clamped');
+  check(setTrailOpacity('dark', -1) === OPACITY_MIN, 'and one past invisible too');
+  check(setTrailOpacity('dark', NaN) === OPACITY_MIN, 'a value that is not a number is refused',
+    String(trailOpacity('dark')));
+  stored['visited-map:trail-opacity:v1'] = '{"dark":"loud"}';
+  check(trailOpacity('dark') === darkDefault, 'a stored string falls back to the default');
+  stored['visited-map:trail-opacity:v1'] = 'not json at all';
+  check(trailOpacity('dark') === darkDefault, 'and so does a corrupt entry');
+  stored['visited-map:trail-opacity:v1'] = '{"dark":9}';
+  check(trailOpacity('dark') === OPACITY_MAX, 'a stored value past opaque is clamped on the way out');
+  stored = {};
 }
 
 console.log('\nInstalling and removing it');

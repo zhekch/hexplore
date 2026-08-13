@@ -84,8 +84,8 @@ import {
 // import: the whole module is a source spec, five names and a fetch, where the
 // railway's is a 315 KB style.
 import {
-  TRAIL_THEMES, bboxAround, describeTrail, installTrails, removeTrails,
-  setTrailTheme, tapCorners, trailTheme, trailThemeLabel, trailsNear,
+  TRAIL_THEMES, bboxAround, describeTrail, installTrails, removeTrails, setTrailOpacity,
+  setTrailTheme, tapCorners, trailOpacity, trailTheme, trailThemeLabel, trailsNear,
 } from './trails.js';
 // Your photographs as points, which only the iOS app can draw: a photo library
 // is on a phone, and the server has never held anything but the coordinates. In
@@ -879,7 +879,7 @@ let trailsOn = localStorage.getItem(TRAILS_KEY) === 'on';
 // a real trade rather than a free affordance, so it is asked for.
 const TRAIL_TAP_KEY = 'visited-map:trails-tap:v1';
 let trailsInteractive = localStorage.getItem(TRAIL_TAP_KEY) === 'on';
-// Which of their five renderings. Read once here so the seg and the layer agree
+// Which rendering. Read once here so the seg and the layer agree
 // from the first frame; `setTrailTheme` is what writes it back.
 let trailThemeOn = trailTheme();
 
@@ -6245,6 +6245,7 @@ const layersMenu = document.getElementById('layers-menu');
 const railToggle = document.getElementById('rail-toggle');
 const trailsToggle = document.getElementById('trails-toggle');
 const trailsTapToggle = document.getElementById('trails-tap-toggle');
+const trailsStrength = document.getElementById('trails-strength');
 const airportsToggle = document.getElementById('airports-toggle');
 const photosRow = document.getElementById('photos-row');
 const photosToggle = document.getElementById('photos-toggle');
@@ -6545,12 +6546,27 @@ function setTrails(on) {
   syncTrailLayer();
 }
 
-/** One of their five renderings. Switching it replaces the source — see installTrails. */
+/** One of the renderings. Switching it replaces the source — see installTrails. */
 function setTrailThemeNow(key) {
   trailThemeOn = setTrailTheme(key);
   // A card about hiking routes, still open over a map that is now showing ski
   // slopes, is a card about a different question.
   trailPopup?.remove();
+  updateLayersUi();
+  if (trailsOn) syncTrailLayer();
+}
+
+/**
+ * How loud the ink is over the basemap that is up.
+ *
+ * Per basemap, so this writes to whichever side is showing — see the note on
+ * OPACITY_KEY in src/trails.js for why one number was the wrong answer.
+ * `syncTrailLayer` does the applying: `installTrails` sets the paint property on
+ * a layer that already exists, so dragging is one `setPaintProperty` per step
+ * rather than a rebuild.
+ */
+function setTrailStrength(pct) {
+  setTrailOpacity(themeNow(), pct / 100);
   updateLayersUi();
   if (trailsOn) syncTrailLayer();
 }
@@ -6582,7 +6598,7 @@ function syncTrailLayer() {
     theme: trailThemeOn,
     // Which way round the map underneath is, which is the only thing about the
     // basemap this overlay reacts to — see OPACITY in src/trails.js.
-    basemap: STYLES[styleKey].theme,
+    basemap: themeNow(),
     before: TRAILS_BEFORE(),
   });
 }
@@ -7286,7 +7302,7 @@ function buildLightRow() {
 }
 buildLightRow();
 
-// Which of Waymarked Trails' five renderings is drawn, in the same shape as the
+// Which of Waymarked Trails' renderings is drawn, in the same shape as the
 // light row above and for the same reason: it exists only while the thing it
 // configures is on screen.
 //
@@ -7446,6 +7462,19 @@ function updateLayersUi() {
   const trailsTapRow = document.getElementById('trails-tap-row');
   if (trailsTapRow) trailsTapRow.hidden = !trailsOn;
   trailsTapToggle.checked = trailsInteractive;
+  const trailsStrengthRow = document.getElementById('trails-strength-row');
+  if (trailsStrengthRow) trailsStrengthRow.hidden = !trailsOn;
+  if (trailsOn) {
+    // Read back from the module rather than remembered here, because the value
+    // is per basemap: switching from Dark to Light has to move the slider, and
+    // the only thing that knows both numbers is the module that stores them.
+    trailsStrength.value = String(Math.round(trailOpacity(themeNow()) * 100));
+    // Which map it is talking about, in the same words the colour swatch uses
+    // three rows up — without it the slider appears to lose its place every time
+    // the basemap changes.
+    document.getElementById('trails-strength-label').textContent =
+      themeNow() === 'light' ? t('trails.strength-light') : t('trails.strength-dark');
+  }
   airportsToggle.checked = airportsOn;
   updateRoutesUi();
   // Absent rather than disabled anywhere the host cannot answer, which is every
@@ -7666,6 +7695,9 @@ function wireLayersControl() {
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
   trailsToggle.addEventListener('change', () => setTrails(trailsToggle.checked));
   trailsTapToggle.addEventListener('change', () => setTrailsInteractive(trailsTapToggle.checked));
+  // `input`, not `change`: the whole point of a slider over a number field is
+  // watching the map answer while you drag it.
+  trailsStrength.addEventListener('input', () => setTrailStrength(Number(trailsStrength.value)));
   airportsToggle.addEventListener('change', () => setAirports(airportsToggle.checked));
   photosToggle.addEventListener('change', () => setPhotos(photosToggle.checked));
   cellsTapToggle.addEventListener('change', () => setCellsInteractive(cellsTapToggle.checked));

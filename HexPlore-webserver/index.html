@@ -182,6 +182,18 @@
               <input type="checkbox" id="trails-toggle" />
             </label>
             <div class="seg seg-wrap" id="trails-seg" hidden></div>
+            <!-- How loud the ink is. Stored per basemap, so the label says which
+                 one it is talking about — the same arrangement, and the same
+                 wording, as Visited color a few rows up. -->
+            <label class="menu-row" id="trails-strength-row" hidden>
+              <span><span id="trails-strength-label">Strength</span><small data-i18n="trails-strength-row.how-strongly-the-routes-sit">How strongly the routes sit over the map</small></span>
+              <!-- step="1", where the export dialog's sliders all use 5. Not a
+                   taste for finer control: the defaults are measured numbers
+                   (0.72 over a dark map) and a step of 5 cannot represent 72,
+                   so the handle sat at 70 while the layer was at 0.72 and the
+                   control was lying about the map from the moment it opened. -->
+              <input class="menu-range" id="trails-strength" type="range" min="20" max="100" step="1" />
+            </label>
             <label class="menu-row" id="trails-tap-row" hidden>
               <span data-i18n-text="trails-tap-row.tap-for-trails">Tap for trails<small data-i18n="trails-tap-row.a-tap-lists-the-routes">A tap lists the routes running near it, instead of asking the ground</small></span>
               <input type="checkbox" id="trails-tap-toggle" />

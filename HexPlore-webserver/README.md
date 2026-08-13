@@ -60,12 +60,14 @@ number of approaches that were tried and abandoned.
 - **Trails.** The waymarked routes — the ones somebody has signed and painted
   onto a post — from Waymarked Trails, over whatever basemap you are on. Switch
   it on in the layers menu and pick which map of them you want: **Hiking**,
-  **Cycling**, **Mountain bike**, **Riding**, or **Slopes** for pistes, ski
-  tours, sledge runs and cleared winter footpaths. It is the quickest way to see
-  whether the walk you recorded followed a route that already had a name. Turn on
-  **Tap for trails** and a tap lists what runs past that spot — the route's name
-  and number, where it runs between, and what is painted on the waymark, which is
-  the thing to look for when you are actually standing at the junction.
+  **Cycling**, **Mountain bike**, or **Slopes** for pistes, ski tours, sledge
+  runs and cleared winter footpaths. It is the quickest way to see whether the
+  walk you recorded followed a route that already had a name. **Strength** sets
+  how loudly the routes sit over the map, and is remembered per basemap, because
+  what reads well over aerial photography is glare over CARTO Dark. Turn on **Tap
+  for trails** and a tap lists what runs past that spot — the route's name and
+  number, where it runs between, and what is painted on the waymark, which is the
+  thing to look for when you are actually standing at the junction.
 - **Airports.** Every airport, airfield and helipad on Earth, from the
   public-domain OurAirports dataset — built into the app, so there is no key to
   get, nothing to sign up for, and it works offline. Switch it on in the layers
