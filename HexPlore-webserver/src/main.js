@@ -8894,7 +8894,9 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   // here, so Back walks the way it came instead of skipping a floor.
   const mapLayersUi = mountMapLayers({
     onClose: () => personalUi?.open(),
-    mapLayers: mapLayersUi,
+    rail: railUi,
+    airports: airportsUi,
+    mapbox: mapboxUi,
   });
   personalUi = mountPersonal({
     onClose: () => settings?.open(),
@@ -8946,9 +8948,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       location.reload();
     },
     sources: sourcesUi,
-    rail: railUi,
-    airports: airportsUi,
-    mapbox: mapboxUi,
+    mapLayers: mapLayersUi,
     // On request, and it is a real replay rather than a recording: every step
     // reads the map first, so it says "home is already Zurich" instead of
     // asking again. See `drawPerms` and `drawHome` in src/intro-ui.js.
