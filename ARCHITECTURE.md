@@ -3629,6 +3629,21 @@ dawn, day, dusk or night. Everything downstream — `standardConfig()`, the them
 the chrome is painted in, the wash's alpha, a route's contrast lift — goes on
 seeing one of the four and never learns that `auto` exists.
 
+**The five are not offered in one place, and that is the point.** Auto was a
+fifth button in the time-of-day row under the basemap picker, beside the four
+suns, and the row was answering two different questions at once: four of the
+buttons named a sun and the fifth named a policy about the other four. Pressing
+Auto looked like choosing a fifth kind of light, and leaving it looked like
+nothing had happened. So the row keeps the four — which sun is up is a question
+you ask while looking at the map, and you check the answer by looking at the map
+— and *who chooses* is a switch in Settings, under Clock, which is the same
+subject: the app being told what time it is. The row still marks the sun Auto
+resolved to rather than marking nothing, since that is what is lighting the map,
+and the line under it says where the answer came from. Picking a sun by hand
+turns the switch off, which is what picking one means. Switching it off in
+Settings freezes the sun where it is rather than falling back to Day: whatever is
+on screen is what "stop changing it" refers to.
+
 **A table of hours would have been wrong for half the year, and wrongest where
 this map is used.** Dawn at six and night at nine is right in March and absurd in
 June: at 60°N the sun is still up at ten in the evening at midsummer and gone by
@@ -3834,50 +3849,71 @@ toward the haze whatever its emissive strength. That is all the `lift` on the
 STYLES entry now does, and it is much gentler for it: `[1.15, 0.02]` by day,
 `[1.2, 0.05]` after dark. Only the 3D entry has one.
 
-**A glow joins its corners differently from the line it is a glow of.** Every
-other line on the map takes `lineLayout`, which is `round`/`round`; the two glows
-— `route-glow` and `trip-glow` — take `glowLayout`, which is the same with
-`line-join: bevel`. A round join fills the outside of a corner with a fan of
-triangles that overlap each other and the two segments meeting there. On an
-opaque stroke that is invisible. On a translucent one every overlap composites
-twice, and the glow is the same line up to six times as wide, so the overlap is
-six times as large. A bevel is one triangle and overlaps nothing, so the corner
-is chamfered instead. Only the glows: the line itself is a tenth as wide and
-nearly opaque, and wants its corners round.
+### The spikes, and the two theories that were wrong about them
 
-### The spikes, which were never the corners
+For a long time there was a row of hard-edged wedges sticking out of every bend of
+a route, in a colour neither the glow nor the line has. Two separate fixes were
+made against it and neither touched it, so both are worth recording — the wrong
+answers are the useful part of this section.
 
-That change was made against a row of hard-edged arrowheads sticking out of every
-bend of a route, in a colour neither the glow nor the line has, and it did not fix
-them. The corner was the wrong suspect. What follows is what it actually was,
-worked out by drawing a synthetic track with a known amount of noise on it and
-looking, rather than by reading the line bucket again.
+**The first theory was the corner.** Every other line on the map takes
+`lineLayout`, `round`/`round`; the glows were given a `glowLayout` of
+`line-join: bevel`, on the reasoning that a round join fills the outside of a
+corner with a fan of triangles that overlap each other and the two segments
+meeting there, and that on a translucent stroke every overlap composites twice.
+**The second theory was the centreline.** A blur stated as a *count of pixels* — 4
+flat, 9 on Standard — against a width running from 5 px to 35 px leaves a glow 20
+px wide with a single pixel at full strength: a bright thread with a gradient hung
+off it rather than a band with a soft edge. That one is true as far as it goes,
+and it is why the blur became a fraction of the width; it is also why the halo had
+been quietly drawn at a third of its stated opacity at country zoom, where 9 px of
+falloff was wider than the 5.4 px glow it was falling off.
 
-**The centreline is noisy, and the glow was a thread rather than a band.** Both
-libraries fade a blurred line from full strength at its centre to nothing at its
-outer edge over exactly `line-blur` pixels. The blur was a *count of pixels* — 4
-on the flat basemaps, 9 on Standard — against a width that runs from 5 px to
-35 px depending on the zoom, the basemap, and whether the route is the one you
-have open. Nine pixels of falloff on a glow twenty pixels wide leaves **one
-pixel** of it at full strength: not a band with a soft edge, which is what a glow
-is, but a bright thread with a gradient hung off it. A recorded track wobbles by
-a couple of pixels at anything below street zoom, so the thread wobbled with it
-and crossed itself, and every crossing composited twice. That is the shape the
-spikes had, and it is why no `line-join` touched them — the overlap is between
-whole *segments*, not at the corner between two. `bevel` and `round` were both
-tried against it and both drew the same shredded ribbon.
+Neither made the wedges go away, because **`line-blur` is not a blur**. Both
+libraries fade a line by taking the interpolated normal at each fragment and
+reading its *length* as a distance from the centre — `dist = length(v_normal) *
+v_width2.s` in the line fragment shader, character for character the same in
+Mapbox GL JS and in MapLibre. Across the quad of a straight segment that is
+exactly right. Across the triangles a **join** is built from it is not: the normal
+is interpolated along the chord rather than around the arc, so its length dips,
+the fragment believes it is nearer the centre than it is, and the whole triangle
+paints at full strength with a straight, hard edge. The wedge is the join
+triangle, drawn at the glow's core colour and bounded by its own geometry.
 
-At the other end the same count was larger than the glow it was blurring: 9 px of
-falloff on a glow 5.4 px wide at country zoom, which is a halo drawn at a third of
-the opacity it was given, fading out before it ever reached full strength. Nobody
-had noticed, because the failure of a glow is that you cannot see it.
+That explains everything the two theories could not. A bevel does not help because
+a bevel is still a triangle — one big one instead of a fan of small ones.
+Simplifying does not help because the bends are real corners of real roads and
+survive any tolerance worth applying. And it is worst on the 3D basemap because
+the wedge scales with the width, and the glow there is six times the core and ten
+times it on the route you have open.
 
-So the blur is a **fraction of the glow's own width** (`ROUTE_GLOW_EDGE`, 0.3),
-carried on the same zoom ramp the width is — so it follows the zoom, the hover and
-the selection, and the glow always keeps a body: the middle 40% solid, 30% of
-gradient either side. The two basemaps still differ in how *wide* the glow is,
-which is where that difference belongs; its softness now scales with it instead of
-being stated twice.
+**So the glow is a stack of rings** (`ROUTE_GLOW_RINGS`, 8) with no blur at all:
+the same line at a fraction of the width, at a fraction of the alpha, the stack of
+them ramping up towards the middle the way the gradient used to. Nothing is asked
+to compute a falloff, so there is nothing to get wrong at a corner. Each ring
+carries `1 - (1 - target)^(1/N)` so that N of them compose to exactly the alpha the
+glow had, written as an expression rather than a number because the target is one
+— it asks whether the route is selected, hovered, or an activity you have turned
+down. Eight is where the steps stop reading as contours; four and six both draw the
+route as a contour map of itself. It costs eight line layers over one source's
+buffers, against the 288 the railway overlay puts up without trouble, and
+`ROUTE_TAP_LAYERS` keeps the hit test on the widest ring alone so that splitting
+the glow did not make every tap eight times the work.
+
+What it does **not** fix is the hairline where a track doubles back and the ink
+lies over its own, which composites twice and always did — visible with the blur
+switched off entirely, which is how it was told apart from the wedges. At a ring's
+share of the alpha it is a pixel wide and barely there.
+
+This was worked out by drawing the route it was reported on — straight out of the
+database, 178 points over 11.5 km, a median of 51 m between fixes against a glow
+28 px wide — into a bare MapLibre page at the phone's pixel density and shooting
+it under each candidate. MapLibre rather than Mapbox because the line shader is
+the same and Mapbox GL JS revokes the map ten seconds in without a token, which
+silently blanked half the early runs and nearly cost another wrong answer.
+
+**And the track is still simplified per zoom** (`ROUTE_SIMPLIFY_PX`, 2 px). That
+part of the second theory stands on its own merits even though it was not the bug.
 
 **And the track is simplified per zoom** (`ROUTE_SIMPLIFY_PX`, 2 px). A GeoJSON
 source takes a `tolerance` in **screen pixels** — `_pixelsToTileUnits` in
@@ -3917,7 +3953,7 @@ mode with the map still, so `setMode` and `mouseleave` have to clear it or a lit
 route stays lit with nothing under it.
 
 **Two things a route needs that only this basemap can give it.** Its glow is
-wider and softer here — `ROUTE_GLOW_SCALE_3D`, `ROUTE_GLOW_BLUR_3D` — because
+wider here — `ROUTE_GLOW_SCALE_3D` — because
 Standard puts the line in a lit scene with texture and shadow under it, and the
 halo that reads as *drawn on* a flat basemap disappears into that one. And a route behind a
 building is dimmed rather than gone — which took two goes and a line of the
@@ -4225,8 +4261,10 @@ somebody else's style and its ids are theirs to choose.
 `tile-fill`, which put it under the visited wash *and* under the basemap's own
 `rail` — so the overlay whose whole reason for existing is that it draws the
 sidings, yards and freight-only lines a basemap leaves out was rendering
-underneath the less detailed answer. `RAIL_BEFORE` now returns `route-glow` if
-the routes are there and `labelStart()` otherwise, which is the anchor a saved
+underneath the less detailed answer. `RAIL_BEFORE` now returns
+`routeStackBottom()` — the widest glow ring, which is the first one added and so
+the bottom of everything a route draws — if the routes are there and
+`labelStart()` otherwise, which is the anchor a saved
 route already uses: the overlay lands in the same place they do and directly
 beneath them, since a line you actually travelled beats reference geometry about
 where a line exists. Both draw over the basemap's own labels, which on CARTO all

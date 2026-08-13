@@ -749,6 +749,18 @@
           </select>
         </label>
 
+        <!-- Whether the 3D basemap works out its own sun. The four suns
+             themselves stay in the layers menu: which one is up is a question
+             you ask while looking at the map, and you answer it by looking at
+             what changed. Whether the map should decide for itself is the other
+             kind — set once, never revisited — which is what this list is for.
+             It sits under Clock because it is the same subject: both are the
+             app being told what time it is. -->
+        <label class="import-row">
+          <span data-i18n-text="personal.time-of-day">Time of day<small data-i18n="settings-light-note.the-3d-basemap-is-lit" id="settings-light-note">The 3D basemap is lit for the time where you are</small></span>
+          <input type="checkbox" id="settings-light-auto" />
+        </label>
+
         <!-- How often the map volunteers what has changed. Not a switch,
              because "never" and "always" are both wrong for most people and the
              useful answer is the middle one. -->
