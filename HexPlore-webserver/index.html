@@ -234,7 +234,7 @@
                  count either way — so the count is the label, and what to do
                  about an empty map is the label when there is no count. -->
             <label class="menu-row" id="routes-row">
-              <span data-i18n="routes-note.import-a-gpx-or-kml" id="routes-note">Import a GPX or KML track</span>
+              <span data-i18n="routes-note.import-a-track-in-settings" id="routes-note">Import a track in Settings</span>
               <input type="checkbox" id="routes-toggle" />
             </label>
             <!-- Folded away by default: these are per-activity controls and
@@ -290,24 +290,35 @@
               <span data-i18n="stats-open.routes-and-statistics">Routes and statistics</span>
             </button>
             <!-- Three doors, and each one is a destination rather than a
-                 signpost. The first is everything that brings where-you've-been
-                 *in* from something the server keeps asking — Home Assistant,
-                 Strava, a phone.
+                 signpost.
+
+                 The first is **Sync**, and it used to be "Import & sync" with a
+                 file picker as its first row. Importing a file is in Settings
+                 now, so the word came off the door: what is left behind it is
+                 the three things the server keeps *asking* — Home Assistant,
+                 Strava, a phone — where the only question you ever have is
+                 whether it is still working. A menu entry offering two ways to
+                 reach one importer is a menu entry you have to read.
 
                  The other two used to be one, called "Export & settings", and
                  that hub held three rows: a picture, the backups, and a door to
                  the real settings. It was a list you had to read to find the one
                  thing behind it, and two of the three were not exports at all.
-                 So Settings is its own dialog now (and holds the backups as a
-                 tab), and taking a picture of the map — the one thing here you
-                 *do* rather than configure — is a button of its own. -->
+                 So Settings is its own dialog now (and holds the backups and the
+                 importer as tabs), and taking a picture of the map — the one
+                 thing here you *do* rather than configure — is a button of its
+                 own. -->
             <button type="button" class="menu-action" id="sync-open">
+              <!-- Two arrows round a circle: the shape that reads as *kept in
+                   step*, where the tray-and-arrow it used to have read as
+                   *put a file in* — which is exactly the half that moved out. -->
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 15V3" />
-                <path d="m8 7 4-4 4 4" />
-                <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+                <path d="M20 11.5A8 8 0 0 0 6.3 6" />
+                <path d="M4 12.5A8 8 0 0 0 17.7 18" />
+                <path d="M4 4v4h4" />
+                <path d="M20 20v-4h-4" />
               </svg>
-              <span data-i18n-text="sync-open.import-sync">Import &amp; sync<small data-i18n="sync-menu-note.files-links-phone" id="sync-menu-note">Files, Links, Phone</small></span>
+              <span data-i18n-text="sync-open.sync">Sync<small data-i18n="sync-menu-note.home-assistant-strava-phone" id="sync-menu-note">Home Assistant, Strava, phone</small></span>
             </button>
             <button type="button" class="menu-action" id="settings-open">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -315,7 +326,11 @@
                 <circle cx="16" cy="7" r="2" />
                 <circle cx="10" cy="17" r="2" />
               </svg>
-              <span data-i18n-text="settings-open.settings">Settings<small data-i18n="settings-menu-note.personal-layers-sources-backups" id="settings-menu-note">Personal, layers, sources, backups</small></span>
+              <!-- Import is named here and the other three are the shape of the
+                   place. It is the one that *moved*, and the only way in now, so
+                   somebody looking for it has to be able to see where it went
+                   without opening anything. -->
+              <span data-i18n-text="settings-open.settings">Settings<small data-i18n="settings-menu-note.personal-layers-sources-import" id="settings-menu-note">Personal, layers, sources, import</small></span>
             </button>
             <button type="button" class="menu-action" id="export-open">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -539,8 +554,8 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div data-i18n="sync.import-sync" class="modal-title">Import &amp; sync</div>
-            <div data-i18n="sync.all-the-ways-to-import" class="modal-sub">All the ways to import and sync your data to the map.</div>
+            <div data-i18n="sync.sync" class="modal-title">Sync</div>
+            <div data-i18n="sync.the-things-that-keep-your" class="modal-sub">The things that keep your map current on their own. A file you have is Settings → Import.</div>
           </div>
           <button data-i18n-aria-label="sync-close.close" class="cell-info-close" id="sync-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -549,22 +564,13 @@
           </button>
         </div>
 
+        <!-- Three rows, and there used to be a fourth: "Files and links", which
+             opened the importer. It is Settings → Import now, and this row is
+             gone rather than turned into a shortcut to it — a hub with one entry
+             that leaves for a different dialog is a hub that lies about where
+             its content is. The subtitle above says where the importer went,
+             which is the one thing somebody arriving here out of habit needs. -->
         <div class="sync-options">
-          <button type="button" class="sync-option" data-sync="files">
-            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 15V3" />
-              <path d="m8 7 4-4 4 4" />
-              <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
-            </svg>
-            <span class="sync-option-text">
-              <b data-i18n="sync.files-and-links">Files and links</b>
-              <small data-i18n="sync-files-note.gpx-kml-fit-or-a" id="sync-files-note">GPX, KML, FIT, or a link</small>
-            </span>
-            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m9 5 7 7-7 7" />
-            </svg>
-          </button>
-
           <button type="button" class="sync-option" data-sync="ha">
             <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M3 10.5 12 3l9 7.5" />

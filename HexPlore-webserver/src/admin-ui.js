@@ -91,11 +91,18 @@ export function mountAdmin({ onLeave } = {}) {
   let users = [];
   let me = null;
   let busy = false;
-  // Which account is showing its reset field, and which is one press from having
-  // its map opened. One at a time, for the reason the Sources list does the
-  // same: two open forms in a list of accounts is a page, not a row.
-  let resetting = null;
-  let arming = null;
+  // Which row has unfolded something under it, and which of the three things it
+  // is: `open` (armed to be entered), `reset` (a password field), `delete` (a
+  // password field and a warning). One at a time and one variable, so there is
+  // no way to leave a second one standing — three flags that all have to be
+  // cleared together is three chances to forget one, and what is left standing
+  // here is a form that closes an account.
+  let unfolded = null;
+  const showing = (u, kind) => unfolded?.id === u.id && unfolded.kind === kind;
+  const unfold = (u, kind) => {
+    unfolded = showing(u, kind) ? null : { id: u.id, kind };
+    render();
+  };
 
   const showErr = (m) => {
     errEl.textContent = m ?? '';
@@ -248,29 +255,26 @@ export function mountAdmin({ onLeave } = {}) {
       return b;
     };
 
-    // Opening your own account is not a thing, and the button says so by not
-    // being there rather than by being refused.
-    if (u.username !== me) {
-      button(arming === u.id ? 'Really open?' : 'Open as', '', () => {
-        if (arming !== u.id) {
-          arming = u.id;
-          resetting = null;
-          render();
-          return;
-        }
+    // Two of these are missing on your own row rather than refused: opening
+    // your own account is not a thing, and closing it has a door of its own —
+    // Settings → Other — which is the one that says out loud what you lose. A
+    // list of accounts with your own name in it is a place to mis-click.
+    const mine = u.username === me;
+    if (!mine) {
+      button(showing(u, 'open') ? 'Really open?' : 'Open as', '', () => {
+        if (!showing(u, 'open')) return unfold(u, 'open');
         impersonate(u);
       });
     }
-    button(resetting === u.id ? 'Cancel' : 'Reset password', '', () => {
-      resetting = resetting === u.id ? null : u.id;
-      arming = null;
-      render();
-    });
+    button(showing(u, 'reset') ? 'Cancel' : 'Reset password', '', () => unfold(u, 'reset'));
     button(u.admin ? 'Remove admin' : 'Make admin', u.admin ? 'danger' : '', () => grant(u, !u.admin),
       // Both refusals the server would give, said by a button that cannot be
       // pressed instead of by an error after it: nobody may demote themselves,
       // and the last admin may not be demoted at all.
-      u.admin && (u.username === me || users.filter((x) => x.admin).length <= 1));
+      u.admin && (mine || users.filter((x) => x.admin).length <= 1));
+    if (!mine) {
+      button(showing(u, 'delete') ? 'Cancel' : 'Delete', 'danger', () => unfold(u, 'delete'));
+    }
 
     row.append(who, stats, acts);
     usersEl.append(row);
@@ -292,7 +296,7 @@ export function mountAdmin({ onLeave } = {}) {
       usersEl.append(bad);
     }
 
-    if (arming === u.id) {
+    if (showing(u, 'open')) {
       const warn = document.createElement('div');
       warn.className = 'ha-devices-note';
       warn.textContent = `Opens ${u.username}'s map as ${u.username}. This page reloads as them, `
@@ -301,9 +305,8 @@ export function mountAdmin({ onLeave } = {}) {
       usersEl.append(warn);
     }
 
-    if (resetting === u.id) {
-      usersEl.append(resetForm(u));
-    }
+    if (showing(u, 'reset')) usersEl.append(resetForm(u));
+    if (showing(u, 'delete')) usersEl.append(deleteForm(u));
   }
 
   /**
@@ -342,6 +345,50 @@ export function mountAdmin({ onLeave } = {}) {
     return form;
   }
 
+  /**
+   * Closing somebody else's account.
+   *
+   * The same shape as the reset above and deliberately not the same field: this
+   * one asks for **your** password, not a new one for them. That is the bar the
+   * self-delete in Settings → Other sets, one step stronger here — a 90-day
+   * cookie on an unlocked laptop is what would otherwise stand as consent, and
+   * this is not even the consent of the person whose map goes.
+   *
+   * Named, counted and spelled out, because the row above it is one of several
+   * and the account you are about to close is not always the one you think you
+   * clicked. There is no undo anywhere: the numbers are the last chance to
+   * notice it is the wrong row.
+   */
+  function deleteForm(u) {
+    const form = document.createElement('form');
+    form.className = 'admin-reset admin-delete';
+    const warn = document.createElement('p');
+    warn.className = 'settings-danger-warning';
+    warn.textContent = `Everything in ${u.username} goes: ${n(u.cells)} cells, ${n(u.routes)} routes, `
+      + 'their preferences, and any Home Assistant or Strava connection. '
+      + 'This cannot be undone by anybody.';
+    const label = document.createElement('label');
+    label.textContent = 'Your own password, to confirm';
+    const input = document.createElement('input');
+    input.type = 'password';
+    // The admin's own, so `current-password` is the truthful hint — the reset
+    // form above deliberately says the opposite, for the opposite reason.
+    input.autocomplete = 'current-password';
+    input.className = 'auth-input';
+    label.append(input);
+    const go = document.createElement('button');
+    go.type = 'submit';
+    go.className = 'modal-btn danger';
+    go.textContent = `Delete ${u.username}`;
+    form.append(warn, label, go);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      deleteAccount(u, input.value);
+    });
+    setTimeout(() => input.focus(), 60);
+    return form;
+  }
+
   function render() {
     drawOverview();
     usersEl.replaceChildren();
@@ -367,8 +414,7 @@ export function mountAdmin({ onLeave } = {}) {
       overview = o;
       users = u.users ?? [];
       me = u.me ?? null;
-      arming = null;
-      resetting = null;
+      unfolded = null;
     } catch (e) {
       showErr(e.message ?? String(e));
     } finally {
@@ -382,23 +428,37 @@ export function mountAdmin({ onLeave } = {}) {
     }
   }
 
-  /** Run one change, then re-read everything. Nothing here is worth patching. */
+  /**
+   * Run one change, then re-read everything. Nothing here is worth patching.
+   *
+   * **A failure does not re-read**, and that is not an optimisation. `load()`
+   * clears the error line as its first act — quite rightly, since it is about to
+   * replace everything the line could be describing — so reloading after a
+   * refusal wrote the reason to the screen and wiped it in the same tick. A
+   * wrong password looked exactly like a press that did nothing at all, which
+   * on the button that closes somebody's account is the worst thing it could
+   * look like. Nothing to re-read either way: the action did not happen, so the
+   * list is still right.
+   */
   async function act(fn, said) {
     if (busy) return;
     busy = true;
     showErr(null);
     say('Working…');
     render();
+    let out;
     try {
-      const out = await fn();
-      say(said(out));
+      out = await fn();
     } catch (e) {
+      busy = false;
       say('');
       showErr(e.message ?? String(e));
-    } finally {
-      busy = false;
-      await load();
+      render();
+      return;
     }
+    say(said(out));
+    busy = false;
+    await load();
   }
 
   const grant = (u, admin) => act(
@@ -409,6 +469,16 @@ export function mountAdmin({ onLeave } = {}) {
   const resetPassword = (u, password) => act(
     () => auth.adminSetPassword(u.id, password),
     (out) => `${out.username}'s password is set. ${out.sessionsEnded} session${out.sessionsEnded === 1 ? '' : 's'} ended.`,
+  );
+
+  // The snapshots are the one thing this cannot reach, so the answer says so
+  // here rather than leaving it to be discovered — the same sentence the
+  // self-delete gives, to the one person who can actually act on it.
+  const deleteAccount = (u, password) => act(
+    () => auth.adminDeleteAccount(u.id, password),
+    (out) => (out.backupsKept
+      ? `${out.username} deleted. Snapshots taken before now still hold a copy.`
+      : `${out.username} deleted.`),
   );
 
   /**
@@ -453,9 +523,14 @@ export function mountAdmin({ onLeave } = {}) {
       say('');
       load();
     },
+    /**
+     * Folded away on the way out, and this is the one pane where that is not
+     * tidiness. What can be left standing here is a password field armed to
+     * close somebody's account — and a tab, unlike the dialog this used to be,
+     * comes back in one press.
+     */
     leave() {
-      arming = null;
-      resetting = null;
+      unfolded = null;
       say('');
     },
   };

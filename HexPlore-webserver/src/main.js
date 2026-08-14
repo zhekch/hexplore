@@ -4832,7 +4832,7 @@ function updateRoutesUi() {
     ? (shown.length === listed.length
         ? `${t('routes-note.activities')} · ${listed.length}`
         : `${t('routes-note.activities')} · ${shown.length} of ${listed.length}`)
-    : t('routes-note.import-a-gpx-or-kml');
+    : t('routes-note.import-a-track-in-settings');
   renderRouteOptions();
 }
 
@@ -9010,11 +9010,13 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     },
   });
   // Komoot is a one-off import, not a connected account that polls on a timer,
-  // so it lives behind "Import locations" with the files rather than in Sync
-  // alongside Home Assistant and Strava. Back therefore returns to the importer.
+  // so it lives with the files rather than in Sync alongside Home Assistant and
+  // Strava. Back therefore returns to the Import tab it was reached from — which
+  // Settings had to get out of the way of, because this is a dialog of its own
+  // and would otherwise open behind it.
   const komootUi = mountKomoot({
     knownCells: () => visited,
-    onClose: () => importer?.open(),
+    onClose: () => settings?.open('import'),
     onImported: async ({ routes = false } = {}) => {
       await hydrateVisited();
       if (routes && !routesOn) {
@@ -9067,16 +9069,9 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       sync?.setDeviceStatus(text);
     },
   });
-  // "Files and links" is Settings → Import now. The row stays, because that is
-  // where the habit is and because "how do I get things in" is a fair question
-  // to ask of a dialog called Import & sync — it simply opens the one
-  // implementation instead of a second copy of it.
-  sync = mountSync({
-    homeAssistant,
-    strava: stravaUi,
-    device: deviceUi,
-    files: { open: () => settings?.open('import') },
-  });
+  // Three connections and nothing else: the file importer that used to be this
+  // dialog's first row is Settings → Import. See src/sync-ui.js.
+  sync = mountSync({ homeAssistant, strava: stravaUi, device: deviceUi });
   // Removing a source is the only action in here that changes the map, so it is
   // the only one that has to say so afterwards.
   const sourcesUi = mountSources({

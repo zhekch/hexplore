@@ -351,7 +351,7 @@ glass look. Click hexagons to mark places you've visited.
 
 ## Import location history
 
-Open the base-map menu → **Import locations**, then pick or drop
+Settings → **Import**, then pick or drop
 your export files. **Any number at once, and a few at a time** — select a
 folder's worth of GPX, drop a mixed pile of KML and FIT one by one as you find
 them, or hand it a whole Strava ZIP and it expands the archive itself. Files
@@ -448,13 +448,14 @@ routes belong to an account rather than to the repo.
 
 ## Sync
 
-Menu → **Sync** is the door in front of every app the map can pull from, as
-opposed to files you export by hand:
+Menu → **Sync** is the door in front of every app the map can pull from *on its
+own*, as opposed to files you export by hand — those are Settings → Import,
+which is also where Komoot's one-tour-at-a-time link goes, since pasting a link
+is a thing you do once rather than a connection that keeps running:
 
 | | |
 | --- | --- |
 | **Home Assistant** | Followed on a schedule by the server, so the map keeps filling in on its own |
-| **Komoot** | One tour at a time, from a share link, fetched by your browser |
 | **Strava** | Your activities, brought across on a schedule after a one-time sign-in |
 | **Your phone** | The iOS app recording where it has been, and the workouts in Apple Health that went somewhere |
 
@@ -529,6 +530,11 @@ keeps its position but loses its date instead of pinning a cell's "last seen"
 decades into the future.
 
 ### Komoot
+
+Settings → Import → **Paste Komoot links**, and it is under this heading rather
+than that one because it is the same job as the two above — reading somebody
+else's API on your behalf — done once instead of on a timer. That is also why it
+lives with the importer: a link you paste is a file you happen not to have.
 
 Paste **as many tour links as you like** — one per line, or separated by spaces
 or commas, or buried in a sentence you copied out of a chat; anything that looks
@@ -1106,9 +1112,15 @@ server](#who-administers-the-server) for the gate that actually holds.
 Assistant, Strava and the phone. It is not the same kind of thing as any of
 those three: they are connections the server keeps asking, where the only
 question you ever have is *is it still working*, and a file you drop is
-something you do once and then go and look at the result of. Sync's own "Files
-and links" row still exists and opens this tab, so the habit still works and
-there is one implementation instead of a dialog reachable two ways.
+something you do once and then go and look at the result of. Those are two
+errands, wanted at two different times.
+
+So that hub is **Sync** now — three connections and their status lines — and its
+"Files and links" row is gone rather than turned into a shortcut into Settings.
+A hub with one entry that leaves for a different dialog is a hub that lies about
+where its content is; its subtitle says where the importer went instead, which
+is what somebody arriving there out of habit actually needs. The menu entry lost
+the word too, and with it the tray-and-arrow icon that meant *put a file in*.
 
 **Export left**, in the other direction: it is a door off the menu of its own
 now. It was the one row in that hub you *do* rather than configure, and it was
@@ -7552,6 +7564,19 @@ of it. Three rules hold across the lot:
 A **password reset** ends every one of that account's sessions with it. A reset
 that leaves the old cookies working has not locked anybody out, which is half of
 why it is being reset.
+
+**Closing somebody else's account** is the one thing here that nobody can undo,
+and it is the only one that asks for a password — **the admin's own**. That is
+the bar `/api/account/delete` already sets for closing your own, and it applies
+one step more strongly here: a 90-day session cookie on an unlocked laptop is
+what would otherwise stand as consent, and this is not even the consent of the
+person whose map goes. Getting the two passwords the wrong way round would mean
+knowing somebody's password was enough to delete them, so the test asserts that
+theirs is refused. It runs the same `deleteAccount()` the self-delete does, so
+the same guarantee holds about every table carrying a `user_id` — see [Closing
+the account](#closing-the-account). An admin cannot delete *themselves* from
+here; Settings → Other is that door, and a list of accounts with your own name
+in it is a place to mis-click rather than a place to close your account from.
 
 #### Opening somebody else's account
 

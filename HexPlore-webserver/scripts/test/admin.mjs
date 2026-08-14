@@ -1,7 +1,7 @@
 // Who runs the server, and what that gets them — through the real HTTP API.
 //
-// Three things are being checked, and the second and third are the ones that
-// will still be earning their keep in a year.
+// Four things are being checked, and all but the first are the ones that will
+// still be earning their keep in a year.
 //
 // **That the first account to register is the admin, and no other is.** That is
 // the whole of the bootstrap rule, and it is the one an install depends on: a
@@ -19,6 +19,11 @@
 // refuse it exactly as they refuse the account's owner, and the only way back
 // must be the one route that reads the session rather than the account. A bug
 // here is an account silently holding admin rights it was never granted.
+//
+// **That closing somebody else's account asks for the right password.** It is
+// the admin's own, not the victim's, and getting those two the wrong way round
+// would mean knowing somebody's password was enough to delete them — a
+// requirement nobody has, and one that would look like it worked.
 //
 //   node scripts/test/admin.mjs
 
@@ -127,6 +132,7 @@ try {
     ['POST', '/api/admin/grant', { id: 2, admin: true }],
     ['POST', '/api/admin/impersonate', { id: 1 }],
     ['POST', '/api/admin/sessions/end', { id: 1 }],
+    ['POST', '/api/admin/users/delete', { id: 1, password: 'a-long-password' }],
     ['GET', '/api/backup'],
     ['POST', '/api/backup', { enabled: false, cron: '0 4 * * *', keep: 3 }],
     ['POST', '/api/backup/run'],
@@ -277,6 +283,60 @@ try {
 
     const nobody = await api('POST', '/api/admin/return', null, 'b');
     check(nobody.status === 400, 'and an ordinary account cannot use it to become anybody');
+  }
+
+  // --- Closing somebody else's account ---------------------------------------------
+  //
+  // The only thing an admin can do here that nobody can undo, so it is the one
+  // that asks for a password — and the password it asks for is the *admin's*,
+  // which is the part worth pinning down: getting that backwards would mean
+  // knowing the victim's password was enough to delete them, which is a
+  // requirement nobody has.
+  console.log("\nAn admin can close somebody else's account, and is asked to mean it");
+  {
+    // A password of its own, so "their password" and "the admin's password" are
+    // not the same string — otherwise the check below passes for the wrong reason.
+    await api('POST', '/api/register', { username: 'doomed', password: 'doomed-own-password' }, 'd');
+    // Something of theirs in another table, so "everything filed under them"
+    // has something to be true about.
+    const cells = await api('POST', '/api/cells/import', {
+      source: 'manual',
+      cells: [['8/1/1', 0, 0, 1, 0], ['8/1/2', 0, 0, 1, 0]],
+    }, 'd');
+    check(cells.status === 200, 'the account has something on its map', JSON.stringify(cells.data));
+
+    const before = (await api('GET', '/api/admin/users', null, 'a')).data.users;
+    const doomed = before.find((u) => u.username === 'doomed');
+    check(doomed?.cells === 2, 'and the panel can see it', JSON.stringify(doomed?.cells));
+
+    const noPw = await api('POST', '/api/admin/users/delete', { id: doomed.id, password: '' }, 'a');
+    check(noPw.status === 403, 'no password, no deletion');
+    const wrongPw = await api('POST', '/api/admin/users/delete', { id: doomed.id, password: 'not-my-password' }, 'a');
+    check(wrongPw.status === 403, 'and the wrong one is the same answer');
+    // Theirs is not the one being asked for. This is the check that catches the
+    // two arguments being swapped.
+    const theirPw = await api('POST', '/api/admin/users/delete', { id: doomed.id, password: 'doomed-own-password' }, 'a');
+    check(theirPw.status === 403, "and neither is the password of the account being deleted");
+
+    const self = await api('POST', '/api/admin/users/delete', { id: 1, password: 'a-long-password' }, 'a');
+    check(self.status === 400, 'an admin cannot close their own account from here — Settings → Other does that');
+
+    const gone = await api('POST', '/api/admin/users/delete', { id: doomed.id, password: 'a-long-password' }, 'a');
+    check(gone.status === 200 && gone.data?.username === 'doomed',
+      "the admin's own password does it", JSON.stringify(gone.data));
+    check(gone.data?.removed?.cell_sources === 2 && gone.data?.removed?.users === 1,
+      'and it answers with what it took', JSON.stringify(gone.data?.removed));
+
+    const after = (await api('GET', '/api/admin/users', null, 'a')).data.users;
+    check(!after.some((u) => u.username === 'doomed'), 'the account is off the list');
+    check((await api('GET', '/api/me', null, 'd')).status === 401, 'and their session no longer works');
+    const again = await api('POST', '/api/admin/users/delete', { id: doomed.id, password: 'a-long-password' }, 'a');
+    check(again.status === 404, 'deleting it twice is a 404, not a 500');
+    // Nothing must be left behind under an id that can be handed out again.
+    const db = new DatabaseSync(DB, { readOnly: true });
+    const orphans = db.prepare('SELECT COUNT(*) AS n FROM cell_sources WHERE user_id = ?').get(doomed.id)?.n;
+    db.close();
+    check(orphans === 0, 'and not one of their rows is left attached to a free id', String(orphans));
   }
 
   // --- ADMIN_USERS, and carrying an old database over ------------------------------

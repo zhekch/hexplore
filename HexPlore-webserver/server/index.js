@@ -102,7 +102,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.64.0';
+export const SERVER_VERSION = '0.65.0';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -3916,6 +3916,45 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
         console.log(`[visited-map] ${user.username} opened ${row.username}'s account`);
         return send(res, 200, { username: row.username, asAdmin: user.username }, {
           'Set-Cookie': sessionCookie(req, fresh, SESSION_MAX_AGE),
+        });
+      }
+
+      // Closing somebody else's account, and taking their map with it.
+      //
+      // **The admin's own password is asked for**, which is the same bar
+      // `/api/account/delete` sets for closing your own and for the same
+      // reason, one step stronger: a 90-day session cookie on an unlocked
+      // laptop is what would otherwise stand as consent, and here it is not
+      // even the consent of the person whose map goes. Every other thing an
+      // admin can do to an account is recoverable — a password can be reset
+      // again, an admin flag put back, a session simply made again. This one
+      // is not, by anybody, ever.
+      //
+      // **You cannot delete yourself from here.** Not because it would break
+      // anything, but because there is already a door for that — Settings →
+      // Other — and it is the one that says out loud what you are about to
+      // lose. A list of accounts with your own name in it is a place to
+      // mis-click, not a place to close your account from.
+      if (req.method === 'POST' && pathname === '/api/admin/users/delete') {
+        const { id, password } = await readBody(req);
+        const row = q.userById.get(Number(id));
+        if (!row) return send(res, 404, { error: 'No such account.' });
+        if (row.id === user.id) {
+          return send(res, 400, { error: 'Close your own account from Settings → Other.' });
+        }
+        const me = q.userById.get(user.id);
+        const ok = me ? await verifyPassword(String(password ?? ''), me.pass) : false;
+        if (!ok) return send(res, 403, { error: 'That password is not right.' });
+        const removed = deleteAccount({ id: row.id, username: row.username });
+        console.log(`[visited-map] ${user.username} deleted ${row.username}'s account`);
+        return send(res, 200, {
+          ok: true,
+          username: row.username,
+          removed,
+          // Said rather than left to be found out, the same as the self-delete:
+          // a snapshot taken before now still holds the whole account, and the
+          // person reading this is the only one who can reach those.
+          backupsKept: existsSync(BACKUP_DIR),
         });
       }
 

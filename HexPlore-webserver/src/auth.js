@@ -277,6 +277,11 @@ export const auth = {
   adminSetPassword: (id, password) => api('POST', '/api/admin/password', { id, password }),
   adminGrant: (id, admin) => api('POST', '/api/admin/grant', { id, admin }),
   adminEndSessions: (id) => api('POST', '/api/admin/sessions/end', { id }),
+  // The one thing here nobody can undo, so the server asks for the admin's own
+  // password again — a live session is not consent to closing somebody else's
+  // map. Answers with what it removed, and with whether a backup still holds a
+  // copy.
+  adminDeleteAccount: (id, password) => api('POST', '/api/admin/users/delete', { id, password }),
   // Both of these swap the session cookie under the page, which is why the
   // caller reloads rather than carrying on: every cache in the app belongs to
   // whoever was signed in a moment ago.

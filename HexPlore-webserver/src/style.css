@@ -7693,6 +7693,24 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   flex-basis: 100%;
 }
 
+/* The same form, one register louder. Tinted rather than merely holding a red
+   button, because it is unfolded from a list of otherwise identical rows and
+   the whole risk here is acting on the wrong one. */
+.admin-delete {
+  background: rgba(255, 122, 105, 0.08);
+  border: 1px solid rgba(255, 122, 105, 0.22);
+}
+
+[data-theme='light'] .admin-delete {
+  background: rgba(178, 42, 28, 0.06);
+  border-color: rgba(178, 42, 28, 0.2);
+}
+
+.admin-delete .settings-danger-warning {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 /* --- Settings on a narrow screen -------------------------------------------------
    The rail becomes a strip of chips across the top and every pane is the single
    column it always was. 860px rather than the usual 561px: this dialog is two

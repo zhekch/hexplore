@@ -96,8 +96,9 @@ number of approaches that were tried and abandoned.
 - **An admin panel.** Settings → Admin: how long the server has been up and what
   is using the disk, and a row per account saying when it last signed in, when it
   last received anything, and how much is on its map. Reset a password for
-  somebody locked out, or open their map as them to see what they are seeing —
-  which puts a bar across the top of the page saying so until you leave.
+  somebody locked out, close an account and everything filed under it, or open
+  their map as them to see what they are seeing — which puts a bar across the top
+  of the page saying so until you leave.
 
 ## Requirements
 
@@ -113,8 +114,11 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:5173> and register an account. **The first account on an
-empty database is always allowed**, and registration closes itself afterwards.
+Open <http://localhost:5173> and register an account. **The first one
+administers the server** — the backups, the Admin panel, and resetting a
+password for anyone who locks themselves out. Registration stays open after it;
+`ALLOW_REGISTRATION=0` shuts the door behind that first account and
+`REGISTRATION_CODE=…` keeps it open only to people holding an invite.
 
 To reach it from your phone on the same network:
 
@@ -172,14 +176,15 @@ All optional — every one has a working default.
 
 ## Getting your data in
 
-Menu → **Import & sync**. Five ways in, and you can mix them:
+Five ways in, and you can mix them. A file you have is **Settings → Import**;
+the three that keep going on their own are Menu → **Sync**.
 
 | | |
 | --- | --- |
-| **Files** | Drop in GPX, KML, TCX, FIT, GeoJSON, CSV, a `.gz`, or a whole Strava ZIP — as many at a time as you like. Parsed **in your browser**: the file never leaves your machine, only the cells it resolves to. Google Timeline, Snapchat and Apple Photos exports are recognised too |
+| **Files** | *Settings → Import.* Drop in GPX, KML, TCX, FIT, GeoJSON, CSV, a `.gz`, or a whole Strava ZIP — as many at a time as you like. Parsed **in your browser**: the file never leaves your machine, only the cells it resolves to. Google Timeline, Snapchat and Apple Photos exports are recognised too |
 | **Home Assistant** | Paste your address and a long-lived token, tick the devices to follow, and the server keeps the map current on its own. It reads history your recorder already wrote — it never wakes your phone |
 | **Strava** | One-time sign-in, then your activities come across on a schedule |
-| **Komoot** | Paste a tour link; your browser fetches it |
+| **Komoot** | *Settings → Import → Paste Komoot links.* Paste a tour link; your browser fetches it |
 | **Your phone** | [Hexplore for iOS](../HexPlore-IOS/README.md) records where you have been in the background and sends it here, with no other app in the middle. It also brings across the Apple Health workouts that went somewhere — a ride, a walk, a run outdoors — as cells and as saved lines, and reads the locations your **photo library** already knows. Set up on the phone; this page shows you whether it is working |
 
 Before anything is saved you get a preview: what each file was recognised as,
