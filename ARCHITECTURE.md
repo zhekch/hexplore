@@ -6728,6 +6728,18 @@ scrim, which is why it was never the one that failed. Selectors shared with
 dialogs (`.seg`, `.seg-btn`) are scoped under `.layers-menu` / `.hud-panel` so a
 bright mountain cannot reach into the statistics dialog.
 
+**Which means every chrome rule has to be written twice, and forgetting the
+second one is invisible until somebody pans.** `data-theme` is what the basemap
+declares itself to be; `data-chrome` is what the ground under the menu turned out
+to look like once it had painted. They agree almost always and part company
+exactly where it matters — a nominally dark basemap over snow, or Standard at
+midday. The per-activity section was added with only the first of the two, so it
+was correct on the Light basemap and stayed white-on-white when a dark one
+wandered over bright ground: the activity names, their counts and the three
+buttons under them, invisible, in a menu whose every other row had gone dark
+around them. Those rules now name both attributes in one `:is()`, which is the
+cheap way to make the pair hard to half-write.
+
 **Everything about it is best-effort.** A WebGL context that will not give up its
 pixels leaves the chrome exactly as the basemap's own theme set it, which is the
 answer that was right before any of this existed.
@@ -7945,7 +7957,25 @@ prefix check also matched a sibling directory whose name merely started with it.
 
 ### Basemaps
 
-Five, picked in the menu: **Dark** (CARTO Dark Matter), **Terrain**, **Light**
+Five, and the menu asks for them in two questions rather than one. The first row
+is **what kind of map** — 2D, Satellite, 3D — because that is how many kinds
+there are: a drawn map, a photograph, and a drawn map with the buildings
+standing up. The row under it is **how it is lit**: on 2D that is *Theme* (Dark,
+Terrain, Light) and on 3D it is *Time of day* (Standard's own light presets),
+one heading renamed over two rows of which at most one is ever on screen.
+Satellite has neither — a photograph is lit by the sun that was up when it was
+taken.
+
+It used to be one row of five, which put a question about rendering beside a
+question about lighting and answered the second one three times: Dark, Terrain
+and Light are not three kinds of map, they are three ways of lighting the same
+one, and 3D has had a light of its own since it arrived. The 2D button carries no
+style key of its own — `flat` is what it sends, and `setStyleKey` reads that as
+"whichever of the three you were last on", remembered in `visited-map:flat-style`
+so that leaving for Satellite and coming back does not land you somewhere you did
+not choose.
+
+The five themselves: **Dark** (CARTO Dark Matter), **Terrain**, **Light**
 (CARTO Voyager), **Satellite**, and **3D** (Mapbox Standard — see "The 3D
 basemap, and the two libraries", which is where everything about it lives). Two
 of them are built at load time rather than fetched as a URL: `src/basemap.js`

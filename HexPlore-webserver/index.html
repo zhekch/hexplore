@@ -82,35 +82,46 @@
             <div class="menu-heading">
               <span data-i18n="layers-menu.appearance">Appearance</span>
             </div>
-            <!-- Five, laid out 3-2 rather than left to wrap. Wrapping put four
-                 on the first row and stranded 3D alone on the second, which
-                 reads as an afterthought rather than as a choice; the grid in
-                 style.css splits them evenly instead.
+            <!-- **What kind of map**, and nothing about how it is lit. Three,
+                 because that is how many kinds there are: a drawn map, a
+                 photograph, and a drawn map with the buildings standing up.
+
+                 It used to be five, with Dark, Terrain and Light beside
+                 Satellite and 3D — which put a question about *rendering* in a
+                 row with a question about *lighting*, and answered the second
+                 one three times. 3D has had a light of its own since it
+                 arrived (Standard's presets, two of which turn the map dark),
+                 so the row below now asks that question for both kinds: which
+                 sun on 3D, which theme on 2D. Choosing 2D returns to whichever
+                 of the three you last used.
 
                  3D is last and is the only one that can fail to be available:
                  it is Mapbox's, it needs the viewer's own token, and without
                  one it opens the dialog that asks for it instead of switching
                  basemap. main.js marks it `needs-token` while that is true. -->
-            <div class="seg seg-split" id="style-seg">
-              <button data-i18n="style-seg.dark" type="button" class="seg-btn" data-style="dark">Dark</button>
-              <button data-i18n="style-seg.terrain" type="button" class="seg-btn" data-style="terrain">Terrain</button>
-              <button data-i18n="style-seg.light" type="button" class="seg-btn" data-style="voyager">Light</button>
+            <div class="seg" id="style-seg">
+              <button type="button" class="seg-btn" data-style="flat">2D</button>
               <button data-i18n="style-seg.satellite" type="button" class="seg-btn" data-style="satellite">Satellite</button>
               <button type="button" class="seg-btn" data-style="mapbox">3D</button>
             </div>
 
-            <!-- Only while 3D is the basemap, because it is the only one that
-                 has a time of day: it is Standard's own light preset, and two
-                 of the four turn the whole map dark. Unhidden by main.js.
+            <!-- How the map is lit, which is one question with two answers
+                 depending on what is drawing it. On 3D it is Standard's own
+                 light preset — Auto and four suns, built from LIGHT_CHOICES,
+                 `seg-split` so five equal choices split three and two rather
+                 than one wrapping alone — and the line under it says what Auto
+                 resolved to. On the flat basemaps it is which of the three is
+                 drawn. Satellite has neither: a photograph is lit by the sun
+                 that was up when it was taken.
 
-                 Five buttons, built from LIGHT_CHOICES: Auto and then the four
-                 suns. `seg-split` for the same reason the basemap picker above
-                 has it — five equal choices, split three and two, rather than
-                 one of them wrapping onto a line of its own.
-
-                 The line under it says what Auto resolved to, and is there only
-                 while Auto is the choice. -->
+                 One heading, renamed by main.js, and two rows of which at most
+                 one is ever on screen. -->
             <div class="menu-subhead" id="light-head" hidden><span data-i18n="light-head.time-of-day">Time of day</span></div>
+            <div class="seg" id="theme-seg" hidden>
+              <button data-i18n="theme-seg.dark" type="button" class="seg-btn" data-style="dark">Dark</button>
+              <button data-i18n="theme-seg.terrain" type="button" class="seg-btn" data-style="terrain">Terrain</button>
+              <button data-i18n="theme-seg.light" type="button" class="seg-btn" data-style="voyager">Light</button>
+            </div>
             <div class="seg seg-split" id="light-seg" hidden></div>
             <div class="seg-note" id="light-now" hidden></div>
 

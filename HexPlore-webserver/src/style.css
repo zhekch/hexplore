@@ -5470,56 +5470,66 @@ body {
 /* --- Light mode for everything added since ------------------------------- */
 /* All of these were written against the dark panel and hard-coded white, which
    on the light basemap is white-on-white — the per-activity section was simply
-   invisible. Same palette the rest of the light theme uses (#0f172a). */
-[data-theme='light'] .menu-expand {
+   invisible. Same palette the rest of the light theme uses (#0f172a).
+
+   **Both attributes, which is the convention every other piece of this menu
+   already follows.** `data-theme` is what the basemap declares itself to be;
+   `data-chrome` is what the ground under the menu actually turned out to look
+   like once it had painted, and they part company exactly where it matters —
+   a nominally dark basemap over snow, or over Standard at midday, leaves the
+   menu light while the theme still says dark. This block had only the first of
+   the two, so panning onto bright ground turned the activity rows and the three
+   buttons white-on-white again: the very fault the comment above describes,
+   through the other door. */
+:is([data-theme='light'], [data-chrome='light']) .menu-expand {
   color: rgba(15, 23, 42, 0.62);
 }
 
-[data-theme='light'] .menu-expand:hover {
+:is([data-theme='light'], [data-chrome='light']) .menu-expand:hover {
   color: #0f172a;
 }
 
-[data-theme='light'] .route-option:hover {
+:is([data-theme='light'], [data-chrome='light']) .route-option:hover {
   background: rgba(15, 23, 42, 0.06);
 }
 
-[data-theme='light'] .route-option-name {
+:is([data-theme='light'], [data-chrome='light']) .route-option-name {
   color: rgba(15, 23, 42, 0.9);
 }
 
-[data-theme='light'] .route-option i {
+:is([data-theme='light'], [data-chrome='light']) .route-option i {
   color: rgba(15, 23, 42, 0.45);
 }
 
-[data-theme='light'] .route-option-eye {
+:is([data-theme='light'], [data-chrome='light']) .route-option-eye {
   color: rgba(15, 23, 42, 0.68);
 }
 
-[data-theme='light'] .route-option-eye:hover {
+:is([data-theme='light'], [data-chrome='light']) .route-option-eye:hover {
   background: rgba(15, 23, 42, 0.1);
   color: #0f172a;
 }
 
-[data-theme='light'] .route-option-eye.off {
+:is([data-theme='light'], [data-chrome='light']) .route-option-eye.off {
   color: rgba(15, 23, 42, 0.3);
 }
 
-[data-theme='light'] .route-option-color {
+:is([data-theme='light'], [data-chrome='light']) .route-option-color {
   border-color: rgba(15, 23, 42, 0.25);
 }
 
-[data-theme='light'] .route-option-action {
+:is([data-theme='light'], [data-chrome='light']) .route-option-action {
   border-color: rgba(15, 23, 42, 0.14);
   background: rgba(15, 23, 42, 0.05);
   color: rgba(15, 23, 42, 0.66);
 }
 
-[data-theme='light'] .route-option-action:hover {
+:is([data-theme='light'], [data-chrome='light']) .route-option-action:hover {
   background: rgba(15, 23, 42, 0.11);
   color: #0f172a;
 }
 
-[data-theme='light'] .route-option-each.on {
+:is([data-theme='light'], [data-chrome='light']) .route-option-each.on {
   border-color: rgba(15, 23, 42, 0.2);
   background: rgba(15, 23, 42, 0.16);
   color: #0f172a;

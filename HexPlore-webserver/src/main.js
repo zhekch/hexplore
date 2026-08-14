@@ -6873,8 +6873,42 @@ function swapStyle(style) {
 // basemap that has no token is how you are asked for one.
 let mapboxUi = null;
 
+// --- Which kind of map, and how it is lit -------------------------------------
+//
+// The picker asks two questions now — *what is drawing this* and *what light is
+// it in* — where it used to ask one and answer the second one three times. Dark,
+// Terrain and Light are the flat map's answer to the second, exactly as the four
+// suns are 3D's; `flat` is what the first row's 2D button sends, and it means
+// "whichever of the three you were last on".
+const FLAT_STYLES = ['dark', 'terrain', 'voyager'];
+const FLAT_KEY = 'visited-map:flat-style:v1';
+const isFlat = (key) => FLAT_STYLES.includes(key);
+
+/** The flat basemap 2D goes back to. Remembered across visits, like the rest. */
+function lastFlatStyle() {
+  if (isFlat(styleKey)) return styleKey;
+  try {
+    const held = localStorage.getItem(FLAT_KEY);
+    if (isFlat(held)) return held;
+  } catch {
+    /* the default is a fine answer */
+  }
+  return 'dark';
+}
+
 function setStyleKey(key) {
+  // The 2D button names a *kind* rather than a basemap: it is the only entry in
+  // the row that does not answer to a style of its own, because the three it
+  // stands for are now in the row below it.
+  if (key === 'flat') return setStyleKey(lastFlatStyle());
   if (!STYLES[key] || key === styleKey) return;
+  if (isFlat(key)) {
+    try {
+      localStorage.setItem(FLAT_KEY, key);
+    } catch {
+      /* it will simply open on Dark next time */
+    }
+  }
   // A basemap nobody has given a token to. Pressing it opens the dialog that
   // asks for one rather than doing nothing: the button is the only place the
   // 3D map is mentioned, so it has to be the way to find out what it wants.
@@ -8054,6 +8088,11 @@ const lightSeg = document.getElementById('light-seg');
 // choice that answers for itself has to say what it answered, or the button is
 // a promise with no way to check it.
 const lightNow = document.getElementById('light-now');
+// The flat map's answer to the same question the suns answer for 3D. Static
+// markup rather than built here — there are three of them and they never change
+// — and it shares the heading above with the light row, because at most one of
+// the two is ever on screen.
+const themeSeg = document.getElementById('theme-seg');
 
 function buildLightRow() {
   if (!lightSeg) return;
@@ -8179,11 +8218,21 @@ setInterval(refreshLightNow, SUN_CHECK_MS);
 
 function updateLayersUi() {
   if (lightSeg && lightHead) {
-    // Hidden rather than disabled on the other four: a control for a thing that
-    // is not on the map is not a control, it is a question nobody asked.
+    // Hidden rather than disabled where it does not apply: a control for a thing
+    // that is not on the map is not a control, it is a question nobody asked.
+    // Satellite is where both are hidden — a photograph is lit by the sun that
+    // was up when it was taken.
     const on = styleKey === 'mapbox';
-    lightHead.hidden = !on;
+    const flat = isFlat(styleKey);
+    lightHead.hidden = !on && !flat;
     lightSeg.hidden = !on;
+    if (themeSeg) themeSeg.hidden = !flat;
+    // One heading over both rows, saying which question is being asked. The
+    // span rather than the element: `applyTranslations` writes the same node,
+    // so leaving it to that would put "Time of day" back over the themes the
+    // next time the markup was filled in.
+    const headText = lightHead.querySelector('span') ?? lightHead;
+    headText.textContent = flat ? t('light-head.theme') : t('light-head.time-of-day');
     if (on) {
       // The preset rather than the choice: under Auto there is no `auto` button
       // to light up, and the honest thing to mark is the sun actually in force.
@@ -8200,11 +8249,14 @@ function updateLayersUi() {
       if (auto) lightNow.textContent = `${labelOfLight(lightPreset())} where you are, right now`;
     }
   }
+  // Both rows at once — the three kinds above and the three flat themes below
+  // are the same kind of button, and 2D is lit for whichever of the three is on.
   for (const btn of layersMenu.querySelectorAll('[data-style]')) {
-    btn.classList.toggle('active', btn.dataset.style === styleKey);
+    const key = btn.dataset.style;
+    btn.classList.toggle('active', key === 'flat' ? isFlat(styleKey) : key === styleKey);
     // Dimmed while it has no token, so the one basemap that can be unavailable
     // looks it before it is pressed.
-    const gate = STYLES[btn.dataset.style]?.needsToken;
+    const gate = STYLES[key]?.needsToken;
     btn.classList.toggle('needs-token', !!gate && !gate());
   }
   for (const btn of layersMenu.querySelectorAll('[data-heat]')) {
