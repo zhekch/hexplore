@@ -15,9 +15,30 @@
 // same property forty times a second. Both libraries already have the concept
 // this needs: `Popup#setOffset` is a screen-space nudge that *they* compose
 // into the transform they were going to write anyway. A drag is then a number
-// they own, changed by us, and the card goes on being anchored to its own
-// point — pan the map and it travels with the place, which is the whole reason
-// a popup is a popup.
+// they own, changed by us.
+//
+// **And a dragged card stops travelling with the ground.** That is the second
+// half, and it is the half that took being used to notice. An undragged card
+// belongs to its place and should ride with it: that is what makes it a popup
+// rather than a dialog, and panning the map to see where the eleven activities
+// actually go is exactly when you want the card pointing at them. But a card
+// you have *moved* has been moved for a reason — it was covering something —
+// and having it slide straight back over that something on the next pan is the
+// drag being undone by the gesture it was making room for.
+//
+// So the first drag pins it. Not by taking it out of the popup, which would
+// cost the close button, the close event that gives the route colours back, and
+// the map's own habit of taking a popup away on the next click. The screen
+// point is held instead, and the anchor is moved to wherever that point is now:
+// `setLngLat(map.unproject(pinned))` on every `move`. The library goes on doing
+// all of its own work, and the answer it computes happens not to change.
+//
+// The correction lands in the same event as the move that needed it — `move`
+// fires, the popup's own handler positions it at the old anchor, ours runs
+// after and `setLngLat` re-runs the same update synchronously — so the browser
+// only ever paints the corrected position. Nothing flickers, and the anchor
+// flip both libraries do when a point nears the edge of the window stops
+// happening at all, because the point no longer moves.
 
 /** Below this a press is a click on the heading, not the start of a drag. */
 const DRAG_SLOP_PX = 3;
@@ -29,16 +50,18 @@ const DRAG_SLOP_PX = 3;
 const KEEP_ON_SCREEN_PX = 56;
 
 /**
- * Let a popup card be dragged by its heading.
+ * Let a popup card be dragged by its heading, and let go of the ground once it
+ * has been.
  *
  * Safe to call on anything: a card with no `h4`, or a library whose popups have
  * no `setOffset`, is simply left alone rather than half-wired.
  *
+ * @param {object} map the map the popup is on
  * @param {object} popup the `Popup` the card was given to
  * @param {HTMLElement} card the card's root element
  * @param {string} [label] a title for the handle, if the caller has one
  */
-export function draggableCard(popup, card, label) {
+export function draggableCard(map, popup, card, label) {
   const handle = card?.querySelector?.('h4');
   if (!handle || typeof popup?.setOffset !== 'function') return;
 
@@ -52,6 +75,37 @@ export function draggableCard(popup, card, label) {
   let offset = [0, 0];
   let from = null;
   let dragging = false;
+
+  // The screen point the anchor is held at once the card has been moved, and
+  // null while it still belongs to the ground.
+  let pinned = null;
+
+  const hold = () => {
+    if (!pinned) return;
+    try {
+      popup.setLngLat(map.unproject(pinned));
+    } catch {
+      // A map mid-teardown can refuse to unproject. There is nothing useful to
+      // do about it and nothing broken if it happens: the card is on its way
+      // out with the map.
+    }
+  };
+
+  /** Stop travelling with the ground, and stay where the window has it. */
+  const pin = () => {
+    if (pinned) return;
+    const at = popup.getLngLat?.();
+    if (!at || typeof map?.project !== 'function') return;
+    pinned = map.project(at);
+    map.on('move', hold);
+    // Both libraries keep a popup's handlers in their own list, so this is the
+    // one place that hears about the commonest way this card goes — the next
+    // click on the map, which neither library asks anybody about.
+    popup.on('close', () => {
+      pinned = null;
+      map.off('move', hold);
+    });
+  };
 
   const grip = (ev) => {
     // Left button only; anything else is a context menu or a stylus barrel.
@@ -89,6 +143,9 @@ export function draggableCard(popup, card, label) {
     if (!dragging) {
       dragging = true;
       handle.classList.add('dragging');
+      // At the start rather than at the end, so that a camera still settling
+      // from an earlier flight cannot slide the card out from under the drag.
+      pin();
     }
     const x = from.at[0] + dx;
     const y = from.at[1] + dy;

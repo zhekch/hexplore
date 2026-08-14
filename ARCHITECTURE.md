@@ -2101,11 +2101,34 @@ libraries position a popup by writing `transform` onto its container on every
 frame of every pan, so a translate of ours lives until the next frame and then
 loses; holding it would mean fighting the renderer for one property forty times
 a second. `setOffset` is a screen-space nudge they compose into the transform
-they were going to write anyway — so the card stays anchored to its own point
-and travels with the place when you pan, which is the whole reason it is a popup
-and not a dialog. Measured: dragged 180 px right and 140 px up, the card moves
-exactly that and the map's centre does not move at all; panned 120 px
-afterwards, the card goes with the ground.
+they were going to write anyway. Measured: dragged 180 px right and 140 px up,
+the card moves exactly that and the map's centre does not move at all.
+
+**And a dragged card stops travelling with the ground**, which is the half that
+took being used to notice. An untouched card belongs to its place and rides
+with it — that is what makes it a popup rather than a dialog, and panning to
+see where the eleven activities actually go is exactly when you want it
+pointing at them. But a card you have *moved* was moved for a reason: it was
+covering something. Having it slide straight back over that something on the
+next pan is the drag being undone by the gesture it was making room for.
+
+So the first drag pins it — not by taking it out of the popup, which would cost
+the close button, the `close` event that gives the route colours back, and the
+map's own habit of removing a popup on the next click. The screen point is held
+instead and the anchor moved to wherever that point now is:
+`setLngLat(map.unproject(pinned))` on every `move`. The library goes on doing
+all of its own work and the answer it computes happens not to change. The
+correction lands inside the same event as the move that needed it — the popup's
+own handler positions it at the old anchor, ours runs after, and `setLngLat`
+re-runs the same update synchronously — so the browser only ever paints the
+corrected position. Nothing flickers, and the anchor flip both libraries do when
+a point nears the edge of the window stops happening at all, because the point
+no longer moves.
+
+Measured, one card, one run: untouched and panned 140 px it moves −140 px with
+the ground; dragged and panned 140 px it moves 0; panned back 260 px, still 0;
+zoomed in 1.4 levels — which moves every ground point by a different amount —
+still 0, and still open.
 
 Three things it must not break, and all three are checked the same way — a real
 click on the canvas through Chrome's input pipeline, not a synthesised event.

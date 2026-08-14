@@ -4728,7 +4728,7 @@ function showRouteStack(e, found) {
   popup.addTo(map);
   // Eleven activities is most of the window, and every one of the eleven runs
   // under it — so this is the card the handle was added for. See src/popup-drag.js.
-  draggableCard(popup, card, t('popup-grip.drag-to-move'));
+  draggableCard(map, popup, card, t('popup-grip.drag-to-move'));
   return true;
 }
 
@@ -7471,7 +7471,7 @@ function showAirportInfo(e) {
     .setLngLat(hit.geometry.coordinates.slice(0, 2))
     .setDOMContent(card)
     .addTo(map);
-  draggableCard(airportPopup, card, t('popup-grip.drag-to-move'));
+  draggableCard(map, airportPopup, card, t('popup-grip.drag-to-move'));
   return true;
 }
 
@@ -7818,7 +7818,7 @@ function showRailInfo(e) {
     .setLngLat(hit.geometry?.type === 'Point' ? hit.geometry.coordinates.slice() : e.lngLat)
     .setDOMContent(card)
     .addTo(map);
-  draggableCard(railPopup, card, t('popup-grip.drag-to-move'));
+  draggableCard(map, railPopup, card, t('popup-grip.drag-to-move'));
   return true;
 }
 
@@ -7897,7 +7897,7 @@ function showTrailInfo(e) {
     .setLngLat(e.lngLat)
     .setDOMContent(card)
     .addTo(map);
-  draggableCard(trailPopup, card, t('popup-grip.drag-to-move'));
+  draggableCard(map, trailPopup, card, t('popup-grip.drag-to-move'));
 
   // The box the finger covers, on the ground. Unprojected here rather than
   // computed from a radius in metres, because the map can be turned and leaned:
