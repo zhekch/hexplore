@@ -139,8 +139,11 @@ console.log('\nThe two anchors, on a map whose layers cannot be read');
   const map = { addLayer: (spec, before) => added.push({ spec, before }) };
   installAddLayerSlots(map);
 
+  // `bottom`, not `middle`: the wash is tinted ground with the streets drawn on
+  // top of it, and `middle` is above the roads. Pinned by name because the fault
+  // it caused was invisible — the map simply went flat. See SLOT_OF.
   map.addLayer({ id: 'hex-fill', type: 'fill' }, WASH_SLOT_ID);
-  eq(added.at(-1).spec.slot, 'middle', 'the visited wash asks for the middle slot');
+  eq(added.at(-1).spec.slot, 'bottom', 'the visited wash asks for the bottom slot — under the streets');
   eq(added.at(-1).before, undefined, 'and no beforeId, which Standard has none of');
   eq(added.at(-1).spec.id, 'hex-fill', 'the rest of the layer is untouched');
 

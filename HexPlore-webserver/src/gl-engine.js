@@ -254,12 +254,24 @@ export function geolocateStateOf(el) {
 export const WASH_SLOT_ID = '@hexplore-wash';
 export const LABEL_SLOT_ID = '@hexplore-labels';
 
-// `middle` is above the ground, the water and the roads, and below the 3D
-// buildings and every label — which is exactly the description the visited wash
-// has always been given. `top` is above the buildings and the POI icons, which
-// is where a photograph pin belongs.
+// `bottom` is above the ground and the water and **below the roads**, which is
+// the description the visited wash has always been given: tinted ground with the
+// streets drawn on top of it — the same place `washAnchorIn()` finds on the four
+// MapLibre basemaps. `top` is above the buildings and the POI icons, which is
+// where a photograph pin belongs.
+//
+// This was `middle` and that was wrong, in the way that is hard to see because
+// nothing about it looks broken. `middle` is above the roads, so on the 3D
+// basemap alone the wash was painted *over* the street network rather than under
+// it: measured against Standard with no wash at all, `middle` left 11,852 of the
+// frame's 21,695 strong edges — 45% of the map's detail gone — where `bottom`
+// keeps every one of them. What it looked like was a flat field of colour with
+// the roads as ghosts in it, and the routes on top reading as isolated bands
+// rather than as lines over a map. That is the same fault CARTO Dark had for the
+// opposite reason, and washAnchorIn()'s comment in src/basemap.js is written
+// about it.
 const SLOT_OF = {
-  [WASH_SLOT_ID]: 'middle',
+  [WASH_SLOT_ID]: 'bottom',
   [LABEL_SLOT_ID]: 'top',
 };
 

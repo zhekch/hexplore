@@ -3876,10 +3876,23 @@ basemaps the anchors are layer ids worked out by reading `map.getStyle().layers`
 — `washAnchorIn()` for the wash, `labelStart()` for the railways, airports and
 photographs. On Standard `getStyle().layers` comes back **empty**, because the
 layers are inside the import; there is no id to insert before. Standard answers
-this with slots, and it is the better mechanism: `middle` is a promise that a
-layer sits above the ground and the roads and below the 3D buildings and every
-label, and it survives Mapbox reordering the style underneath it, where a
-`beforeId` is a guess that a layer id still means what it meant.
+this with slots, and it is the better mechanism: `bottom` is a promise that a
+layer sits above the ground and the water and below the roads, and it survives
+Mapbox reordering the style underneath it, where a `beforeId` is a guess that a
+layer id still means what it meant.
+
+**And it has to be `bottom`, not `middle`.** `middle` sits *above* the roads, so
+for as long as the wash went there the 3D basemap alone painted the visited
+colour over the street network instead of under it — the one thing
+`washAnchorIn()` exists to get right on the other four. Nothing about it looked
+broken, which is why it lasted: the map was simply flat, the roads ghosts in a
+field of colour, and the routes on top read as isolated bands rather than as
+lines drawn over a map. Measured against Standard carrying no wash at all,
+`middle` left 11,852 of the frame's 21,695 strong edges — 45% of the detail gone
+— where `bottom` keeps every one of them. It is the same fault CARTO Dark had
+from the other direction, and the reason `washAnchorIn()` answers with whichever
+comes first of the style's first label and the first thing it draws over the
+ground.
 
 So the two anchors become sentinels and one wrapper on `map.addLayer` translates
 them — `installAddLayerSlots`, ten lines, installed only on Mapbox. That is
