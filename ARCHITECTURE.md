@@ -1906,6 +1906,35 @@ look like two — with the one difference that earns itself: a trail row's name 
 a link out to OpenStreetMap and so is text, while here the whole row opens the
 activity and is a `<button>`, with the tab stop and the Enter key that follow.
 
+While the card is open **every route under the tap is drawn in a colour of its
+own**. Hovering answers "which line is this row" one at a time; a colour each
+answers "where does each of these go" all at once, which is the question you are
+actually holding when you tap a braid of eleven tracks. They come from
+`src/route-colors.js` (below), they are put in front of the activity's colour as
+a match on the feature's own id, and they are given back the moment the card
+closes — colour only, so an activity you have turned down to a third stays turned
+down while it is being pointed at.
+
+The rows are **grouped by activity, newest first inside each**, because a tap on
+a valley floor finds the ski runs, the walk up and the ride home, and those are
+three different questions wearing one stack. Groups are ordered by their newest
+member, so the outing you were most likely looking for leads. **On a desktop each
+group is a column**: three activities read as three lists side by side rather
+than as one list you scroll through to discover there was a bike ride in it. On a
+phone — and in any window under 720 px — it stays the single column, because
+"columns" there means a card wider than the screen. The card's width is counted
+from the columns rather than guessed, capped at 700 px, and past that the columns
+scroll sideways.
+
+One detail of that is worth writing down, because it looked like a rendering
+fault and was not: the list states `overflow-x` instead of leaving it at `auto`.
+`overflow-y: auto` computes the other axis to `auto` as well, and an `auto`
+horizontal axis on a box measured *while it is being positioned* — which is what
+a popup is — can be handed a scrollbar in one layout pass and never have it taken
+away. The card came up with sixteen pixels of empty scrollbar under it while
+`scrollWidth === clientWidth`, and re-applying the identical styles by hand made
+it vanish.
+
 Every route in the list carries a **small drawing of its own shape**, which is
 how you actually recognise one — you know the Frutigen loop by its outline long
 before you read its name. The list can't afford the real geometry (82 routes of
@@ -1925,6 +1954,28 @@ through `canonicalSport()` on the way in, so a colour set under an old name
 one.
 It stays folded away by default: it is one row per activity and a map can easily
 have a dozen.
+
+**Double-click an activity to see only that one**, and double-click it again to
+put them all back. It is the same idea as *Only this* on a route's card, one
+level up, and it earns the gesture the same way: picking one activity out of six
+otherwise means five presses of five different eyes, and undoing it means five
+more. A double-*tap* does it too, and is detected here rather than left to
+`dblclick` — that event does fire on a page which has given up double-tap zoom,
+which this one has, but not in every browser that matters and never loudly when
+it doesn't. The two clicks each toggle the activity on their way past and that is
+deliberately not prevented: delaying the eye by a quarter-second so it could find
+out whether a second click was coming would make every single click feel broken
+to save a flicker on a rarer one, and two toggles land back where they started.
+
+**Give each a color** is under the list, beside the reset. Six activities on one
+map are six shades of the same orange until somebody sets five of them by hand,
+and setting them by hand is six trips through a colour panel to answer a question
+— *which of these lines is the cycling* — that has no right answer, only a
+distinct one. It is random rather than fixed because it is pressed *again* when
+the answer was not liked; what is random is only where in the palette it starts
+and how far it steps, so a random set is still a spread one rather than three
+greens and a mustard. The colours are ordinary activity colours once handed out:
+stored on the account, editable in the picker, undone by the reset beside it.
 
 A route imported from Komoot keeps **a link back to the tour**, shown in its
 details as *Open on Komoot*. The link is rebuilt from the tour id and the share
@@ -1969,6 +2020,30 @@ Ascent is summed from the elevation track with a 3 m noise gate (Strava's own
 total is used where the API gives it), so a flat ride doesn't accumulate into a
 mountain from GPS jitter. A route whose file carried no elevation shows no climb
 rather than 0 m. Removing a route leaves its cells alone — you were still there.
+
+### Fifty colours, and how they are handed out
+
+`src/route-colors.js` is the palette behind both *Give each a color* and the
+colours a stack menu borrows while it is open. It is a module rather than a
+constant because handing out *N* distinct colours is a thing worth a test: the
+property that matters — no repeats until the palette runs out, neighbours far
+apart — is invisible by inspection and easy to break while tidying.
+
+Entry *i* sits at `137.508° × i`, the golden angle, which is the arrangement that
+keeps every *prefix* of the sequence as evenly spread around the wheel as a
+sequence can be — and these are always handed out from the front. Under that,
+four characters of saturation and lightness cycle, so two entries that do land
+near each other in hue still differ in something else. Then two corrections,
+because HSL is not perceptual: lightness comes down by up to 12 for yellows and
+greens and up by 9 for blues and violets, and saturation comes down by 12–16
+across 45°–165°, where the first cut of this had four highlighter greens in it.
+
+A run of them steps by a number coprime with fifty, so it walks the whole palette
+before repeating. Which start and which step is the only difference between the
+two callers: the stack menu derives both from the route ids, so the same stack
+comes up in the same colours every time you tap it while a different stack does
+not, and *Give each a color* picks them at random, because that one is pressed
+again when the answer was not liked.
 
 ### Working out the activity
 

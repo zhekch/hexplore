@@ -5033,6 +5033,66 @@ body {
   margin-left: -6px;
   padding-right: 10px;
   margin-right: -10px;
+  /* Stated rather than left at `auto`, and it is not the tidying it looks like.
+     `overflow-y: auto` computes the other axis to auto too, and an `auto`
+     horizontal axis on a box that is measured while it is being positioned —
+     which is exactly what a popup is — can be given a scrollbar in one layout
+     pass and never have it taken away: the card came up with sixteen pixels of
+     empty scrollbar under it, `offsetHeight - clientHeight === 16` while
+     `scrollWidth === clientWidth`, and re-applying the very same styles by hand
+     made it vanish. Nothing here ever needs to scroll sideways anyway — the rows
+     wrap and the columns are counted into the card's width. Except when there
+     are more columns than the cap allows, which is what `.wide-scroll` is. */
+  overflow-x: hidden;
+}
+
+.route-stack.wide-scroll .popup-list-items {
+  overflow-x: auto;
+}
+
+/* One activity, and on a desktop one column. The width is set from JS (see
+   ROUTE_STACK_COLUMN_PX) rather than here, because the same number decides how
+   wide the popup is allowed to be and two copies of it would drift. */
+.route-stack-group + .route-stack-group {
+  margin-top: 11px;
+}
+
+/* Sideways where there is room. `align-items: flex-start` so a column of two
+   does not stretch to the height of a column of nine and leave its heading
+   floating over empty space. */
+.route-stack.wide .popup-list-items {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  max-height: 22em;
+}
+
+/* The column carries the pill's overhang itself, in its own padding, so that
+   nothing inside the row of columns sticks out past it. In the single-column
+   layout that overhang lands in the list's padding (above) — here it cannot,
+   because the *last* column's would then be the widest thing in a box that
+   scrolls sideways, and six pixels of it is enough to put a scrollbar under a
+   card that fits perfectly well. Measured, not reasoned about: the symptom was
+   `offsetHeight - clientHeight === 16` with `scrollWidth === clientWidth`.
+
+   `border-box` because the width is set from JS in whole columns — see
+   ROUTE_STACK_COLUMN_PX, which is also what the popup's own width is worked out
+   from, and the two have to be the same number. */
+.route-stack.wide .route-stack-group {
+  flex: none;
+  box-sizing: border-box;
+  padding: 0 6px;
+}
+
+.route-stack.wide .route-stack-group + .route-stack-group {
+  margin-top: 0;
+}
+
+/* The heading over each column. `.popup-list h5` already draws it; what it
+   needs here is to keep its distance from the rows under it in a layout where
+   it is a column head rather than a first line. */
+.route-stack .route-stack-group h5 {
+  margin-bottom: 6px;
 }
 
 .route-stack-row {
@@ -5288,7 +5348,11 @@ body {
   border-radius: 7px;
 }
 
-.route-option-reset {
+/* The two under the list — *Give each a color*, and the reset that undoes it
+   along with everything else. Stacked rather than side by side: at 272px the
+   menu has no room for two labels this long, and one of them is hidden most of
+   the time, which would leave a half-width button on its own. */
+.route-option-action {
   appearance: none;
   width: 100%;
   margin-top: 6px;
@@ -5302,7 +5366,7 @@ body {
   cursor: pointer;
 }
 
-.route-option-reset:hover {
+.route-option-action:hover {
   background: rgba(255, 255, 255, 0.11);
   color: #fff;
 }
@@ -5386,13 +5450,13 @@ body {
   border-color: rgba(15, 23, 42, 0.25);
 }
 
-[data-theme='light'] .route-option-reset {
+[data-theme='light'] .route-option-action {
   border-color: rgba(15, 23, 42, 0.14);
   background: rgba(15, 23, 42, 0.05);
   color: rgba(15, 23, 42, 0.66);
 }
 
-[data-theme='light'] .route-option-reset:hover {
+[data-theme='light'] .route-option-action:hover {
   background: rgba(15, 23, 42, 0.11);
   color: #0f172a;
 }

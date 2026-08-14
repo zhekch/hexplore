@@ -139,6 +139,7 @@ import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
 import { busy } from './busy.js';
 import { routesToFC, totalLength, formatDistance, canonicalSport, duplicateRoutes } from './routes.js';
+import { paletteFor, randomPalette } from './route-colors.js';
 import { reconcilePrefs, remoteToken } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
@@ -3636,6 +3637,11 @@ let introUi = null; // set by mountIntro()
 let introShowing = false;
 let selectedRoute = null;
 let hoveredRoute = null;
+// route id → the colour it is drawn in for as long as the stack menu is open,
+// and empty at every other moment. Up here with the rest of the route state
+// rather than beside the card that fills it, because the paint expressions read
+// it and they are built long before that card exists — see routeColorExpr.
+let stackColors = new Map();
 
 function saveRoutesPref() {
   try {
@@ -4191,7 +4197,21 @@ function routeMatchExpr(of) {
 // one, and a translucent *colour* would be composited under the glow and the
 // selected-route bump as well, which is two more multiplications than anyone
 // asked for. It comes back as a factor on the line's opacity instead.
-const routeColorExpr = (mix) => routeMatchExpr((hex) => mix(hexOpaque(hex)));
+//
+// The stack menu's colours go *in front of* the activity's, as a match on the
+// feature's own id — eleven routes of one activity are one colour by definition,
+// and telling them apart for as long as the menu is open is the whole of what
+// that card is for. Colour only, deliberately: `routeAlphaExpr` below is left
+// asking the activity, so a walk you have turned down to a third stays turned
+// down while it is being pointed at.
+const routeColorExpr = (mix) => {
+  const base = routeMatchExpr((hex) => mix(hexOpaque(hex)));
+  if (!stackColors.size) return base;
+  const expr = ['match', ['id']];
+  for (const [id, hex] of stackColors) expr.push(id, mix(hexOpaque(hex)));
+  expr.push(base);
+  return expr;
+};
 const routeAlphaExpr = () => routeMatchExpr(hexAlpha);
 
 // Pull the route list. Metadata only by default — the lines are a much bigger
@@ -4376,13 +4396,69 @@ function showRouteInfo(route) {
 // offering is one idea and should not look like two — and left open after a
 // pick, because a stack is something you go through rather than choose from
 // once.
+//
+// ## Three things beyond the list itself
+//
+// **The lines get a colour each while it is open.** Hovering answers "which one
+// is this row", one at a time; a colour each answers "where does each of these
+// go" all at once, which is the question you are actually holding when you tap a
+// braid of eleven tracks. They come from a fifty-colour palette
+// (src/route-colors.js), the same one the per-activity button hands out, and
+// they last exactly as long as the card does.
+//
+// **Grouped by activity, newest first inside each.** A tap on a valley floor
+// finds the ski runs, the walk up and the ride home, and those are three
+// different questions wearing one stack. The groups are ordered by their newest
+// member, so the outing you were most likely looking for leads.
+//
+// **Sideways where there is room.** On a desktop each activity is a column, so
+// three activities are three lists side by side rather than one list you scroll
+// through to find out there was a bike ride in it. On a phone, where the card is
+// most of the screen's width, it stays a single column.
 let routeStackPopup = null;
 
 const routeStackDay = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
+// How wide the columns version may get, and how much room it needs before it is
+// offered at all. The card is a popup on a map rather than a panel, so it should
+// never be most of the window: four columns is a wide answer to a small
+// question, and past that the list scrolls sideways like any other.
+const ROUTE_STACK_MAX_PX = 700;
+const ROUTE_STACK_COLUMN_PX = 190;
+// Wide enough for two columns and the map still visible either side, and not a
+// touch device — where "columns" means a card wider than the phone.
+const stackGoesWide = () => !coarsePointer.matches && window.innerWidth >= 720;
+
 function closeRouteStack() {
   routeStackPopup?.remove();
   routeStackPopup = null;
+}
+
+/**
+ * Give up the borrowed colours.
+ *
+ * Called from the popup's own `close` event rather than from `closeRouteStack`,
+ * because the commonest way this card goes is the next click on the map, which
+ * both libraries handle themselves without asking anybody here.
+ */
+function clearStackColors() {
+  if (!stackColors.size) return;
+  stackColors = new Map();
+  repaintRouteColors();
+}
+
+/** The stack as activities: newest group first, newest route first inside it. */
+function routeStackGroups(routes) {
+  const groups = new Map();
+  for (const route of routes) {
+    const key = sportKey(route);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(route);
+  }
+  // `routes` arrives newest first, so every group is already in that order and
+  // the groups themselves come out ordered by their newest member — which is
+  // what puts the run you just finished at the top of the first column.
+  return [...groups].map(([key, list]) => ({ key, label: sportLabel(key), list }));
 }
 
 /** One route as a row: its colour on the map, its name, its day and its length. */
@@ -4394,12 +4470,12 @@ function routeStackRow(route) {
   row.type = 'button';
   row.className = 'popup-list-row route-stack-row';
 
-  // The colour its line is drawn in, so a row and a track can be matched by eye
-  // before either is read. Opaque, because an activity turned down to a third on
-  // the map is still one row in a list.
+  // The colour its line is drawn in *right now*, which while this card is open
+  // is its own rather than its activity's. Opaque either way, because an
+  // activity turned down to a third on the map is still one row in a list.
   const dot = document.createElement('span');
   dot.className = 'popup-list-dot';
-  dot.style.background = hexOpaque(sportColor(sportKey(route)));
+  dot.style.background = stackColors.get(route.id) ?? hexOpaque(sportColor(sportKey(route)));
   row.append(dot);
 
   const text = document.createElement('span');
@@ -4427,8 +4503,22 @@ function routeStackRow(route) {
 
 /** Open the menu of everything under a tap. Only ever called with two or more. */
 function showRouteStack(e, found) {
+  const groups = routeStackGroups(found);
+  // The colours are handed out down the card as it will be read — group by
+  // group, newest first — because the palette's own order is what keeps
+  // neighbours far apart, and neighbours here are rows in a column.
+  stackColors = paletteFor(groups.flatMap((g) => g.list).map((r) => r.id));
+  repaintRouteColors();
+
+  const wide = stackGoesWide() && groups.length > 1;
+  // What the columns want, and what there is room for. They are usually the
+  // same number — three activities is 648 pixels of card — and where they are
+  // not, the extra columns are reached by scrolling sideways rather than by a
+  // card as wide as the window.
+  const want = groups.length * (ROUTE_STACK_COLUMN_PX + 16) + 30;
+  const room = Math.min(ROUTE_STACK_MAX_PX, window.innerWidth - 40);
   const card = document.createElement('div');
-  card.className = 'feature-popup route-stack';
+  card.className = `feature-popup route-stack${wide ? ' wide' : ''}${wide && want > room ? ' wide-scroll' : ''}`;
   const h = document.createElement('h4');
   // The count is the heading, not a line under it: it is the reason the menu
   // exists — that what looked like one line is eleven — and it is the first
@@ -4443,17 +4533,33 @@ function showRouteStack(e, found) {
   list.append(items);
   card.append(list);
 
-  for (const route of found) {
-    const row = routeStackRow(route);
-    row.addEventListener('mouseenter', () => setHoveredRoute(route.id));
-    row.addEventListener('focus', () => setHoveredRoute(route.id));
-    row.addEventListener('click', () => {
-      // Which one you are looking at, kept on the row as well as on the map: the
-      // line is highlighted under a menu that may be covering it.
-      for (const other of items.children) other.classList.toggle('picked', other === row);
-      showRouteInfo(route);
-    });
-    items.append(row);
+  for (const group of groups) {
+    const box = document.createElement('div');
+    box.className = 'route-stack-group';
+    if (wide) box.style.width = `${ROUTE_STACK_COLUMN_PX}px`;
+    // The activity, in the small capitals the railway card's "3 routes" uses.
+    // One group means the heading would be saying what the only column is, and
+    // a heading over everything is not a grouping.
+    if (groups.length > 1) {
+      const name = document.createElement('h5');
+      name.textContent = group.label;
+      box.append(name);
+    }
+    for (const route of group.list) {
+      const row = routeStackRow(route);
+      row.addEventListener('mouseenter', () => setHoveredRoute(route.id));
+      row.addEventListener('focus', () => setHoveredRoute(route.id));
+      row.addEventListener('click', () => {
+        // Which one you are looking at, kept on the row as well as on the map:
+        // the line is highlighted under a menu that may be covering it.
+        for (const other of items.querySelectorAll('.route-stack-row')) {
+          other.classList.toggle('picked', other === row);
+        }
+        showRouteInfo(route);
+      });
+      box.append(row);
+    }
+    items.append(box);
   }
   // One listener for leaving the list rather than one per row. Moving from a row
   // to the row below it *leaves* the first one, and clearing the highlight there
@@ -4464,15 +4570,25 @@ function showRouteStack(e, found) {
   });
 
   closeRouteStack();
-  routeStackPopup = new gl.Popup({ closeButton: true, maxWidth: '280px' })
+  routeStackPopup = new gl.Popup({
+    closeButton: true,
+    // Stated in pixels because the library writes it onto the popup as an inline
+    // style, so a class cannot win against it. The columns are counted rather
+    // than guessed: enough for what is actually there, capped so the card never
+    // takes the window.
+    maxWidth: wide ? `${Math.min(want, room)}px` : '280px',
+  })
     .setLngLat(e.lngLat)
     .setDOMContent(card)
     .addTo(map);
-  // However it goes, the line it was lighting up stops being lit. On the event
-  // rather than in `closeRouteStack`, because the commonest way this card
-  // closes never goes through that function: both libraries take a popup away
-  // on the next click of the map themselves, without asking anybody.
-  routeStackPopup.on('close', () => setHoveredRoute(null));
+  // However it goes, the map goes back to what it was drawing before. On the
+  // event rather than in `closeRouteStack`, because the commonest way this card
+  // closes never goes through that function: both libraries take a popup away on
+  // the next click of the map themselves, without asking anybody.
+  routeStackPopup.on('close', () => {
+    setHoveredRoute(null);
+    clearStackColors();
+  });
   return true;
 }
 
@@ -5006,8 +5122,86 @@ let dismissedMenuOnTap = false;
 // of them; always-open it would push everything below it off the menu.
 let routeOptionsOpen = false;
 // One picker (and one panel) per activity row. Both are torn down before a
-// re-render — see destroy() in src/color-picker.js.
+// re-render — see destroy() in src/color-picker.js. The activity and its swatch
+// ride along so that anything changing a colour from outside the picker — Reset,
+// and *Give each a colour* — can say so to the picker as well as to the map. A
+// swatch repainted without telling the picker is a panel that opens on the
+// colour before last.
 let routePickers = [];
+
+/** Every swatch, and every picker behind one, back in step with `sportColors`. */
+function syncRouteSwatches() {
+  for (const { key, picker, swatch } of routePickers) {
+    const hex = sportColor(key);
+    swatch.style.setProperty('--swatch', hex);
+    picker.set(hex);
+  }
+}
+
+// Long enough to be a deliberate second tap, short enough that two separate
+// decisions a moment apart are two decisions. The browser's own `dblclick`
+// threshold is around this, and matching it is what keeps a mouse and a finger
+// feeling like the same gesture.
+const DOUBLE_TAP_MS = 350;
+
+/**
+ * The one gesture, however it arrives.
+ *
+ * `dblclick` covers every mouse and — because this page gives up double-tap zoom
+ * (`touch-action: manipulation` on html and body) — most touch browsers too. Not
+ * all of them, and the ones that skip it do so silently, so a second tap is
+ * counted here as well. Mouse pointers are left to the event above rather than
+ * counted twice.
+ */
+function onDoubleTap(el, run) {
+  let ran = 0;
+  // Once per gesture, whichever of the two below sees it first. A touch browser
+  // that fires `dblclick` *as well* as the taps it is built from would otherwise
+  // run this twice — and twice, for the thing this is wired to, is "show only
+  // this" followed by "show them all", which is indistinguishable from the
+  // double-tap having done nothing at all. `dblclick` arrives after the second
+  // `pointerup`, so the tap counter below is the one that wins.
+  const fire = (e) => {
+    if (e.timeStamp - ran < DOUBLE_TAP_MS) return;
+    ran = e.timeStamp;
+    run(e);
+  };
+  el.addEventListener('dblclick', fire);
+  let last = 0;
+  el.addEventListener('pointerup', (e) => {
+    if (e.pointerType === 'mouse') return;
+    if (e.timeStamp - last < DOUBLE_TAP_MS) {
+      last = 0;
+      fire(e);
+    } else last = e.timeStamp;
+  });
+}
+
+/**
+ * Double-click an activity: show only that one, or — if it is already the only
+ * one showing — show them all again.
+ *
+ * The same idea as **Only this** on a route's card, one level up, and it earns
+ * the gesture for the same reason: picking one activity out of six otherwise
+ * means five presses of five different eyes, and putting them back means five
+ * more. Single-click still toggles one activity, which is what the eye is for.
+ *
+ * The two clicks of the double-click have each already toggled this activity on
+ * their way past, and that is deliberately not prevented: delaying the eye by a
+ * quarter of a second so it could find out whether a second click was coming
+ * would make every single click feel broken to save a flicker on a rarer one.
+ * Two toggles land back where they started, and this then overwrites the lot.
+ */
+function isolateSport(key) {
+  const all = sportsPresent().map((s) => s.key);
+  const shown = all.filter((k) => !hiddenSports.has(k));
+  const already = shown.length === 1 && shown[0] === key;
+  hiddenSports.clear();
+  if (!already) for (const k of all) if (k !== key) hiddenSports.add(k);
+  saveRouteView();
+  syncRoutes();
+}
+
 // Which activities the rows currently show, so a state change can be told from
 // a list change.
 let renderedSports = '';
@@ -5083,6 +5277,16 @@ function renderRouteOptions() {
     const row = document.createElement('div');
     row.className = 'route-option';
     row.dataset.sport = key;
+    row.title = 'Double-click to show only this one';
+    // Anywhere on the row, because the eye is a 20-pixel target and this
+    // gesture is aimed at the activity rather than at the switch. Not the
+    // swatch, which opens a panel: a double-click there is two goes at the
+    // picker, and answering it by hiding five activities behind the open panel
+    // would be a colour you asked for and a map you did not.
+    onDoubleTap(row, (ev) => {
+      if (ev.target.closest('.route-option-color')) return;
+      isolateSport(key);
+    });
 
     const shown = !hiddenSports.has(key);
     const eye = document.createElement('button');
@@ -5130,24 +5334,49 @@ function renderRouteOptions() {
         repaintRouteColors();
       },
     });
-    routePickers.push({ picker, panel });
+    routePickers.push({ key, picker, panel, swatch });
 
     row.append(eye, name, count, swatch);
     box.append(row);
   }
 
+  // One press, a colour each. Six activities on one map are six shades of the
+  // same orange until somebody sets five of them by hand, and setting them by
+  // hand is six trips through a colour panel to answer a question — *which of
+  // these lines is the cycling* — that has no right answer, only a distinct one.
+  //
+  // Random rather than a fixed assignment because the button is pressed *again*
+  // when the answer was not liked; the colours themselves come out of the
+  // palette in its own order, so a random set is still a spread one. See
+  // randomPalette in src/route-colors.js.
+  const random = document.createElement('button');
+  random.type = 'button';
+  random.className = 'route-option-action';
+  random.textContent = 'Give each a color';
+  random.addEventListener('click', () => {
+    const keys = sportsPresent().map((s) => s.key);
+    const colors = randomPalette(keys.length);
+    keys.forEach((key, i) => sportColors.set(key, colors[i]));
+    saveRouteView();
+    syncRouteSwatches();
+    repaintRouteColors();
+    // Nothing about *which* routes are drawn has changed, so this is the state
+    // refresh rather than syncRoutes: the only row that has to catch up is the
+    // reset, which has just become worth offering.
+    refreshRouteOptionStates();
+  });
+  box.append(random);
+
   const reset = document.createElement('button');
   reset.type = 'button';
-  reset.className = 'route-option-reset';
+  reset.className = 'route-option-action route-option-reset';
   reset.textContent = 'Reset colors and show all';
   reset.hidden = !sportColors.size && !hiddenSports.size;
   reset.addEventListener('click', () => {
     sportColors.clear();
     hiddenSports.clear();
     saveRouteView();
-    for (const row of box.querySelectorAll('.route-option')) {
-      row.querySelector('.route-option-color')?.style.setProperty('--swatch', ROUTE_COLOR);
-    }
+    syncRouteSwatches();
     repaintRouteColors();
     syncRoutes();
   });
