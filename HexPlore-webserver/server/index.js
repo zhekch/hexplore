@@ -76,9 +76,10 @@ import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, scrypt as scryptCb, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, readdir, stat, statfs } from 'node:fs/promises';
 import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import { totalmem, freemem, loadavg, cpus } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeLimiter, clientIp } from './rate-limit.js';
@@ -101,7 +102,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.63.3';
+export const SERVER_VERSION = '0.64.0';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -293,6 +294,12 @@ const registerLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, max: 5 });
 // five times in an hour, and the one person who is trying already knows the
 // password.
 const deleteAccountLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, max: 5 });
+// Everything an admin can do *to somebody else* — reset a password, open their
+// account, end their sessions — shares one window, keyed by the admin. Not a
+// guessing defence: the caller has already proved who they are. It is a ceiling
+// on a loop that has got loose, in the one part of this file where a loop
+// rewrites other people's passwords.
+const adminActionLimiter = makeLimiter({ windowMs: 5 * 60 * 1000, max: 40 });
 
 const nowISO = () => new Date().toISOString();
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -304,12 +311,25 @@ db.exec(`
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     username   TEXT UNIQUE NOT NULL,
     pass       TEXT NOT NULL,           -- "salt:scryptHash", both hex
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    -- Whoever runs the server. Granted to the first account to register and
+    -- never inferred from anything else — see bootstrapAdmin().
+    is_admin   INTEGER NOT NULL DEFAULT 0,
+    -- The two halves of "is this account still in use". A login is somebody
+    -- typing a password; a sighting is any request a live session made, which
+    -- is the one that keeps moving on a phone nobody has signed out of.
+    last_login TEXT NOT NULL DEFAULT '',
+    last_seen  TEXT NOT NULL DEFAULT ''
   );
   CREATE TABLE IF NOT EXISTS sessions (
     token      TEXT PRIMARY KEY,
     user_id    INTEGER NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    -- Set only on a session an admin opened *as* somebody else, and holding the
+    -- admin's own id. It is what "return to your own account" reads, and it is
+    -- deliberately not consulted for anything else: while it is set, the session
+    -- is the other account in every respect, permissions included.
+    admin_id   INTEGER NOT NULL DEFAULT 0
   );
   -- Legacy single-blob storage. Kept as a backup of the pre-provenance data;
   -- nothing writes to it any more (see migrateCellSets).
@@ -468,6 +488,10 @@ for (const [table, column, decl] of [
   ['routes', 'link', "TEXT NOT NULL DEFAULT ''"],
   ['device_links', 'last_photo_scan', 'INTEGER NOT NULL DEFAULT 0'],
   ['device_links', 'total_photos', 'INTEGER NOT NULL DEFAULT 0'],
+  ['users', 'is_admin', 'INTEGER NOT NULL DEFAULT 0'],
+  ['users', 'last_login', "TEXT NOT NULL DEFAULT ''"],
+  ['users', 'last_seen', "TEXT NOT NULL DEFAULT ''"],
+  ['sessions', 'admin_id', 'INTEGER NOT NULL DEFAULT 0'],
 ]) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
   if (!cols.some((c) => c.name === column)) {
@@ -553,9 +577,23 @@ const q = {
   userByName: db.prepare('SELECT * FROM users WHERE username = ?'),
   userById: db.prepare('SELECT * FROM users WHERE id = ?'),
   delUser: db.prepare('DELETE FROM users WHERE id = ?'),
-  insSession: db.prepare('INSERT INTO sessions(token, user_id, created_at) VALUES(?, ?, ?)'),
+  insSession: db.prepare('INSERT INTO sessions(token, user_id, created_at, admin_id) VALUES(?, ?, ?, ?)'),
   session: db.prepare('SELECT * FROM sessions WHERE token = ?'),
   delSession: db.prepare('DELETE FROM sessions WHERE token = ?'),
+  delUserSessions: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
+
+  // --- Who runs this server ---------------------------------------------------
+  users: db.prepare('SELECT id, username, created_at, is_admin, last_login, last_seen FROM users ORDER BY id'),
+  countUsers: db.prepare('SELECT COUNT(*) AS n FROM users'),
+  countAdmins: db.prepare('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1'),
+  setAdmin: db.prepare('UPDATE users SET is_admin = ? WHERE id = ?'),
+  adminByName: db.prepare('UPDATE users SET is_admin = 1 WHERE username = ?'),
+  setPassword: db.prepare('UPDATE users SET pass = ? WHERE id = ?'),
+  // Two clocks, written from two places: one when a password is checked, one on
+  // any request a live session makes. See the columns' own note.
+  sawLogin: db.prepare('UPDATE users SET last_login = ?, last_seen = ? WHERE id = ?'),
+  sawUser: db.prepare('UPDATE users SET last_seen = ? WHERE id = ?'),
+  countSessions: db.prepare('SELECT user_id, COUNT(*) AS n FROM sessions GROUP BY user_id'),
 
   prefs: db.prepare('SELECT prefs FROM user_prefs WHERE user_id = ?'),
   setPrefs: db.prepare(`
@@ -899,6 +937,29 @@ const q = {
   clearWorkoutCount: db.prepare(
     'UPDATE device_links SET last_workout = 0, total_workouts = 0 WHERE user_id = ?',
   ),
+
+  // --- What the admin panel counts --------------------------------------------
+  // One query per column rather than one per account: a GROUP BY over the whole
+  // table costs the same for one account as for twenty, and the panel wants
+  // every account at once. Read into maps keyed by user id — see `adminUsers`.
+  cellsPerUser: db.prepare(
+    'SELECT user_id, COUNT(DISTINCT cell_id) AS n, MAX(added_at) AS newest FROM cell_sources GROUP BY user_id',
+  ),
+  routesPerUser: db.prepare('SELECT user_id, COUNT(*) AS n FROM routes GROUP BY user_id'),
+  sourcesPerUser: db.prepare(
+    'SELECT user_id, COUNT(DISTINCT source) AS n FROM cell_sources GROUP BY user_id',
+  ),
+  workoutsPerUser: db.prepare('SELECT user_id, COUNT(*) AS n FROM device_workouts GROUP BY user_id'),
+  // `total_photos` is a running tally the phone reports, so a sum over a user's
+  // phones is how many pictures it has offered — not how many rows are stored,
+  // which the map does not keep separately.
+  devicesPerUser: db.prepare(`
+    SELECT user_id, COUNT(*) AS n, COALESCE(SUM(total_photos), 0) AS photos,
+           COALESCE(SUM(total_fixes), 0) AS fixes, COALESCE(MAX(last_seen), 0) AS seen
+    FROM device_links GROUP BY user_id
+  `),
+  haPerUser: db.prepare('SELECT user_id, enabled, last_ok, last_error FROM ha_links'),
+  stravaPerUser: db.prepare('SELECT user_id, enabled, last_ok, last_error, refresh_token FROM strava_links'),
 };
 
 // The two sources that are not really sources: 'unknown', the placeholder the
@@ -1133,6 +1194,11 @@ function sessionCookie(req, token, maxAge) {
   return bits.join('; ');
 }
 
+// How coarsely `users.last_seen` is kept. The admin panel reads it as "an hour
+// ago", so a minute is already finer than anything asks for, and it is what
+// makes writing it on every request affordable.
+const SEEN_GRANULARITY_SEC = 60;
+
 // Sessions had no server-side lifetime at all: the row lived forever and the
 // cookie asked for a year. Now the row's age is checked on use and expired ones
 // are dropped as they're found, with a sweep for the ones nobody comes back to.
@@ -1147,18 +1213,71 @@ function currentUser(req) {
     return null;
   }
   const u = q.userById.get(s.user_id);
-  return u ? { id: u.id, username: u.username } : null;
+  if (!u) return null;
+  // When this account was last *used*, which is a different question from when
+  // somebody last typed its password — a phone signed in six months ago and
+  // syncing every hour has a stale login and a fresh sighting, and the admin
+  // panel wants both. Written at most once a minute: this runs on every
+  // authenticated request, and a write per request would turn every read of the
+  // map into a write of the database.
+  const seen = Math.floor(Date.parse(u.last_seen || '') / 1000) || 0;
+  if (nowSec() - seen >= SEEN_GRANULARITY_SEC) q.sawUser.run(nowISO(), u.id);
+  // Whoever opened this session, when it is not the account it belongs to. The
+  // permissions are read off `u` and not off this: an admin looking at somebody
+  // else's map *is* that person for the length of the visit, which is the only
+  // version of "log in as" worth having — one that cannot quietly do admin
+  // things while wearing their name.
+  const asAdmin = s.admin_id ? q.userById.get(s.admin_id) : null;
+  return {
+    id: u.id,
+    username: u.username,
+    admin: !!u.is_admin,
+    asAdmin: asAdmin ? { id: asAdmin.id, username: asAdmin.username } : null,
+  };
 }
 
-// Backups are instance-wide: one database file, one schedule, and a copy of it
-// holds *everyone's* cells, both password hashes and the Home Assistant token.
-// So they belong to whoever made the map — the first account — rather than to
-// any account that happens to be signed in. On the usual one-person install
-// these are the same person and nothing is in the way.
-const ownerId = db.prepare('SELECT MIN(id) AS id FROM users');
-function isOwner(user) {
-  return !!user && user.id === (ownerId.get()?.id ?? null);
+// --- Who runs this server -----------------------------------------------------
+//
+// One flag on the account, granted to the first person to register and to
+// anybody named in ADMIN_USERS. It is deliberately *not* "the lowest user id",
+// which is what backups used to test for: an id is an accident of insertion
+// order, it cannot be handed to a second person, and it cannot be taken back
+// from the first — all three of which the person running a map for a household
+// eventually wants.
+//
+// What it is for: the instance-wide things, which are the things no per-account
+// permission can express. A backup file is the whole database — every account's
+// cells, every password hash, the Home Assistant token — so it belongs to
+// whoever runs the machine rather than to whoever is signed in. Same for how
+// much disk is left, and for resetting the password of somebody who has locked
+// themselves out.
+const ADMIN_USERS = String(process.env.ADMIN_USERS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+/**
+ * Make sure somebody can administer this server.
+ *
+ * Run once at boot, and it is what carries an existing install over: a database
+ * made before this flag existed has nobody marked, and the first account in it
+ * is the person who set the server up. Beyond that first grant it stays out of
+ * the way — an admin taken off in the panel is not put back on the next restart
+ * unless ADMIN_USERS names them.
+ */
+function bootstrapAdmin() {
+  for (const name of ADMIN_USERS) {
+    if (q.adminByName.run(name).changes) console.log(`[visited-map] ${name} is an admin (ADMIN_USERS)`);
+  }
+  if ((q.countAdmins.get()?.n ?? 0) > 0) return;
+  const first = db.prepare('SELECT id, username FROM users ORDER BY id LIMIT 1').get();
+  if (!first) return; // an empty server: the first registration takes it
+  q.setAdmin.run(1, first.id);
+  console.log(`[visited-map] ${first.username} is the admin of this server`);
 }
+bootstrapAdmin();
+
+const isAdmin = (user) => !!user?.admin;
 
 // --- Cells (with one-time import merge, owner account only) -----------------
 // New accounts start empty. The imported-cells.json history (from `npm run
@@ -1989,6 +2108,161 @@ function deviceOut(row) {
   };
 }
 
+// --- What an admin is shown ---------------------------------------------------
+//
+// Two answers, and the line between them is the one this whole panel is built
+// around: **the shape of an account, never its contents.** How many cells, when
+// its phone last spoke, whether its Strava is failing — those are what somebody
+// answering "is it working for them?" needs, and none of them says where anybody
+// went. Nothing in here reads a cell id, a route geometry or a coordinate; the
+// way to see somebody's map is to open it as them, which leaves a line in the
+// log and a bar across the top of the page saying so.
+
+/** Every account, with the tallies that answer "is this one working". */
+function adminUsers() {
+  const by = (rows) => new Map(rows.map((r) => [r.user_id, r]));
+  const cells = by(q.cellsPerUser.all());
+  const routes = by(q.routesPerUser.all());
+  const sources = by(q.sourcesPerUser.all());
+  const workouts = by(q.workoutsPerUser.all());
+  const devices = by(q.devicesPerUser.all());
+  const ha = by(q.haPerUser.all());
+  const strava = by(q.stravaPerUser.all());
+  const sessions = by(q.countSessions.all());
+  const sec = (iso) => Math.floor(Date.parse(iso || '') / 1000) || 0;
+
+  return q.users.all().map((u) => {
+    const d = devices.get(u.id);
+    const h = ha.get(u.id);
+    const s = strava.get(u.id);
+    return {
+      id: u.id,
+      username: u.username,
+      admin: !!u.is_admin,
+      createdAt: sec(u.created_at),
+      lastLogin: sec(u.last_login),
+      lastSeen: sec(u.last_seen),
+      sessions: sessions.get(u.id)?.n ?? 0,
+      cells: cells.get(u.id)?.n ?? 0,
+      routes: routes.get(u.id)?.n ?? 0,
+      sources: sources.get(u.id)?.n ?? 0,
+      photos: d?.photos ?? 0,
+      workouts: workouts.get(u.id)?.n ?? 0,
+      devices: d?.n ?? 0,
+      fixes: d?.fixes ?? 0,
+      // When location data last *arrived*, whichever way in it took. The three
+      // are genuinely different failures — a phone that has stopped pushing, a
+      // Home Assistant that has stopped answering, a Strava token that has
+      // expired — so the newest of them is what says "this account is still
+      // being fed", and the connectors below say which one has stopped.
+      lastData: Math.max(d?.seen ?? 0, h?.last_ok ?? 0, s?.last_ok ?? 0, cells.get(u.id)?.newest ?? 0),
+      ha: h ? { enabled: !!h.enabled, lastOk: h.last_ok, error: h.last_error || '' } : null,
+      strava: s
+        ? { enabled: !!s.enabled, connected: !!s.refresh_token, lastOk: s.last_ok, error: s.last_error || '' }
+        : null,
+    };
+  });
+}
+
+/** How big something on disk is, and how many files it took. */
+async function dirSize(dir) {
+  let bytes = 0;
+  let files = 0;
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return { dir, bytes: 0, files: 0, missing: true };
+  }
+  for (const e of entries) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      const inner = await dirSize(full);
+      bytes += inner.bytes;
+      files += inner.files;
+    } else {
+      try {
+        bytes += (await stat(full)).size;
+        files += 1;
+      } catch {
+        /* a file removed between the listing and the stat is simply not there */
+      }
+    }
+  }
+  return { dir, bytes, files };
+}
+
+/**
+ * The machine, rather than anybody's map.
+ *
+ * The database's own size is three files, not one: SQLite in WAL mode keeps the
+ * journal and the shared-memory index beside it, and a `-wal` that has grown to
+ * a gigabyte is exactly the kind of thing somebody opens this panel to find.
+ */
+async function adminOverview() {
+  const dbFiles = await Promise.all(
+    ['', '-wal', '-shm'].map(async (suffix) => {
+      try {
+        return { name: path.basename(DB_PATH) + suffix, bytes: (await stat(DB_PATH + suffix)).size };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const caches = await Promise.all([
+    dirSize(BACKUP_DIR).then((d) => ({ ...d, name: 'Backups' })),
+    dirSize(REGION_CACHE_DIR).then((d) => ({ ...d, name: 'Region boundaries' })),
+    dirSize(RAIL_CACHE_DIR).then((d) => ({ ...d, name: 'Railway tiles' })),
+    dirSize(TRAILS_CACHE_DIR).then((d) => ({ ...d, name: 'Trail tiles' })),
+  ]);
+  // Free space on the filesystem the database is on, which is the one that runs
+  // out. `statfs` is not in every Node this might run under, and a panel that
+  // throws is worse than one that leaves a line out.
+  let free = null;
+  try {
+    const fs = await statfs(path.dirname(DB_PATH));
+    free = { free: fs.bsize * fs.bavail, total: fs.bsize * fs.blocks };
+  } catch {
+    /* not every platform and not every Node */
+  }
+  const mem = process.memoryUsage();
+  return {
+    server: {
+      version: SERVER_VERSION,
+      startedAt: Math.floor((Date.now() - process.uptime() * 1000) / 1000),
+      uptime: Math.floor(process.uptime()),
+      node: process.version,
+      platform: `${process.platform} ${process.arch}`,
+      pid: process.pid,
+      registration: ALLOW_REGISTRATION ? 'open' : REGISTRATION_CODE ? 'invite' : 'closed',
+    },
+    memory: {
+      rss: mem.rss,
+      heapUsed: mem.heapUsed,
+      heapTotal: mem.heapTotal,
+      systemTotal: totalmem(),
+      systemFree: freemem(),
+      load: loadavg().map((n) => Math.round(n * 100) / 100),
+      cpus: cpus().length,
+    },
+    disk: {
+      db: dbFiles.filter(Boolean),
+      dbBytes: dbFiles.filter(Boolean).reduce((a, f) => a + f.bytes, 0),
+      caches,
+      free,
+    },
+    totals: {
+      users: q.countUsers.get()?.n ?? 0,
+      admins: q.countAdmins.get()?.n ?? 0,
+      cells: q.cellsPerUser.all().reduce((a, r) => a + r.n, 0),
+      routes: q.routesPerUser.all().reduce((a, r) => a + r.n, 0),
+      devices: q.devicesPerUser.all().reduce((a, r) => a + r.n, 0),
+      photos: q.devicesPerUser.all().reduce((a, r) => a + r.photos, 0),
+      workouts: q.workoutsPerUser.all().reduce((a, r) => a + r.n, 0),
+    },
+  };
+}
+
 // Where Strava sends the browser back to. Built from the request rather than
 // configured, so it matches whatever host this is actually being used on — and
 // it's always our own origin, so it can't be turned into an open redirect.
@@ -2235,10 +2509,23 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       }
       if (pw.length > 512) return send(res, 400, { error: 'That password is too long.' });
       if (q.userByName.get(u)) return send(res, 409, { error: 'That username is taken.' });
+      // The first account to register runs the server. Read *before* the insert,
+      // because after it the count is one either way.
+      const first = (q.countUsers.get()?.n ?? 0) === 0;
       const info = q.insUser.run(u, await hashPassword(pw), nowISO());
+      const id = Number(info.lastInsertRowid);
+      if (first || ADMIN_USERS.includes(u)) {
+        q.setAdmin.run(1, id);
+        console.log(`[visited-map] ${u} is the admin of this server`);
+      }
+      q.sawLogin.run(nowISO(), nowISO(), id);
       const token = newToken();
-      q.insSession.run(token, Number(info.lastInsertRowid), nowISO());
-      return send(res, 200, { username: u, version: SERVER_VERSION }, { 'Set-Cookie': sessionCookie(req, token, SESSION_MAX_AGE) });
+      q.insSession.run(token, id, nowISO(), 0);
+      return send(res, 200, {
+        username: u,
+        version: SERVER_VERSION,
+        admin: first || ADMIN_USERS.includes(u),
+      }, { 'Set-Cookie': sessionCookie(req, token, SESSION_MAX_AGE) });
     }
 
     if (req.method === 'POST' && pathname === '/api/login') {
@@ -2272,8 +2559,13 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       loginIpLimiter.reset(ip);
       loginUserLimiter.reset(u.toLowerCase());
       const token = newToken();
-      q.insSession.run(token, row.id, nowISO());
-      return send(res, 200, { username: row.username, version: SERVER_VERSION }, { 'Set-Cookie': sessionCookie(req, token, SESSION_MAX_AGE) });
+      q.insSession.run(token, row.id, nowISO(), 0);
+      q.sawLogin.run(nowISO(), nowISO(), row.id);
+      return send(res, 200, {
+        username: row.username,
+        version: SERVER_VERSION,
+        admin: !!row.is_admin,
+      }, { 'Set-Cookie': sessionCookie(req, token, SESSION_MAX_AGE) });
     }
 
     if (req.method === 'POST' && pathname === '/api/logout') {
@@ -2325,7 +2617,18 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       // The build comes back with the session rather than from an endpoint of
       // its own: it is only ever read by a signed-in page, and a version number
       // an unauthenticated caller can ask for is a fingerprint for free.
-      return send(res, 200, { username: user.username, version: SERVER_VERSION });
+      //
+      // `admin` decides whether the page draws two extra tabs, and nothing else
+      // — every route behind them checks for itself. `asAdmin` is the one the
+      // page cannot do without: an admin who has opened somebody else's map has
+      // a session that is theirs in every way, and the only thing standing
+      // between that and an editing accident is a bar across the top saying so.
+      return send(res, 200, {
+        username: user.username,
+        version: SERVER_VERSION,
+        admin: user.admin,
+        asAdmin: user.asAdmin?.username ?? null,
+      });
     }
 
     // Which airport a point is standing in. Asked by the phone, and only by the
@@ -3467,15 +3770,174 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
       return sendTileBytes(req, res, out);
     }
 
+    // --- Administering the server -----------------------------------------------
+    //
+    // Everything behind one prefix and one gate, so there is exactly one place
+    // to read to know who can reach any of it. Three rules hold across the lot:
+    //
+    //   - **The gate is the effective account.** `currentUser` resolves an
+    //     impersonated session to the account being visited, so an admin who has
+    //     opened somebody else's map cannot reach these at all until they come
+    //     back — which is the point of `/api/admin/return` being the exception.
+    //   - **Nothing here reads anybody's map.** Counts, dates and error strings;
+    //     no cell, no coordinate, no route. Seeing somebody's map means opening
+    //     it as them, which is loud in three places at once.
+    //   - **It is all logged.** Resetting a password and opening an account are
+    //     the two things here that a person could later dispute, so both leave a
+    //     line in the server log naming who did what to whom.
+    if (pathname === '/api/admin' || pathname.startsWith('/api/admin/')) {
+      const user = currentUser(req);
+      if (!user) return send(res, 401, { error: 'not authenticated' });
+
+      // The way back out of somebody else's account, and the one route here an
+      // impersonated session may use — it is checked against the session rather
+      // than against the account's permissions, because the account being worn
+      // has none of the admin's.
+      if (req.method === 'POST' && pathname === '/api/admin/return') {
+        const back = user.asAdmin;
+        if (!back) return send(res, 400, { error: 'This session is your own account.' });
+        const token = parseCookies(req).sid;
+        if (token) q.delSession.run(token);
+        const fresh = newToken();
+        q.insSession.run(fresh, back.id, nowISO(), 0);
+        console.log(`[visited-map] ${back.username} left ${user.username}'s account`);
+        return send(res, 200, { username: back.username, admin: true }, {
+          'Set-Cookie': sessionCookie(req, fresh, SESSION_MAX_AGE),
+        });
+      }
+
+      // **An impersonated session never gets past here, whoever it is wearing.**
+      //
+      // `isAdmin` alone would be enough for the ordinary case — the account
+      // being worn is not an admin, so it is refused. It is not enough when an
+      // admin opens *another admin's* account: the effective user is then an
+      // admin, everything below would open, and every line this file logs would
+      // name the wrong person. The `asAdmin` half closes that outright, and
+      // costs nothing anybody wants: coming back to your own account is one
+      // press, and it is the press that makes the log true.
+      if (!isAdmin(user) || user.asAdmin) {
+        return send(res, 403, { error: 'This is only for whoever runs this server.' });
+      }
+
+      // The machine: how long it has been up, what it is running on, and what is
+      // using the disk. Answered fresh every time — it is a page somebody opens
+      // *because* they suspect something has changed.
+      if (req.method === 'GET' && pathname === '/api/admin/overview') {
+        return send(res, 200, {
+          ...(await adminOverview()),
+          backup: await backups.status().then((s) => ({ ...s, description: describeCron(s.cron) })).catch(() => null),
+        });
+      }
+
+      if (req.method === 'GET' && pathname === '/api/admin/users') {
+        return send(res, 200, { users: adminUsers(), me: user.username });
+      }
+
+      // Everything below changes somebody else's account, so it is rate limited
+      // as a set. Not because any of it is guessable — the caller is already an
+      // admin — but because a loop that has got loose here rewrites passwords.
+      if (req.method === 'POST') {
+        const hit = adminActionLimiter.take(String(user.id));
+        if (!hit.ok) {
+          return send(res, 429, { error: 'Too many changes at once. Try again shortly.' }, { 'Retry-After': String(hit.retryAfter) });
+        }
+      }
+
+      // A new password for somebody who cannot sign in. Their sessions go with
+      // it: a password reset that leaves the old cookies working has not
+      // actually locked anybody out, which is half of why it gets reset.
+      if (req.method === 'POST' && pathname === '/api/admin/password') {
+        const { id, password } = await readBody(req);
+        const row = q.userById.get(Number(id));
+        if (!row) return send(res, 404, { error: 'No such account.' });
+        const pw = String(password ?? '');
+        if (pw.length < MIN_PASSWORD_LEN) {
+          return send(res, 400, { error: `Password must be at least ${MIN_PASSWORD_LEN} characters.` });
+        }
+        if (pw.length > 512) return send(res, 400, { error: 'That password is too long.' });
+        q.setPassword.run(await hashPassword(pw), row.id);
+        const dropped = q.delUserSessions.run(row.id).changes;
+        console.log(`[visited-map] ${user.username} reset ${row.username}'s password (${dropped} sessions ended)`);
+        return send(res, 200, { ok: true, username: row.username, sessionsEnded: dropped });
+      }
+
+      // Handing the server over, or taking it back. The last admin cannot be
+      // demoted and nobody can demote themselves: both are one press from a
+      // server with nobody able to administer it, and the only way back from
+      // that is a text editor and the database file.
+      if (req.method === 'POST' && pathname === '/api/admin/grant') {
+        const { id, admin } = await readBody(req);
+        const row = q.userById.get(Number(id));
+        if (!row) return send(res, 404, { error: 'No such account.' });
+        const want = !!admin;
+        if (!want && row.id === user.id) {
+          return send(res, 400, { error: 'You cannot take your own admin away.' });
+        }
+        if (!want && (q.countAdmins.get()?.n ?? 0) <= 1) {
+          return send(res, 400, { error: 'Somebody has to be able to administer this server.' });
+        }
+        q.setAdmin.run(want ? 1 : 0, row.id);
+        console.log(`[visited-map] ${user.username} ${want ? 'made' : 'unmade'} ${row.username} an admin`);
+        return send(res, 200, { ok: true, username: row.username, admin: want });
+      }
+
+      // Opening somebody else's account, to see what they are seeing.
+      //
+      // A whole new session rather than a flag on this one, for two reasons:
+      // every route in this file reads the account off the session and would
+      // otherwise each have to remember to ask a second question, and the way
+      // back is then simply *another* session rather than an unwinding. The
+      // admin's own session is dropped in the same breath — leaving it alive
+      // would mean two valid cookies for one browser, only one of which it is
+      // holding.
+      if (req.method === 'POST' && pathname === '/api/admin/impersonate') {
+        const { id } = await readBody(req);
+        const row = q.userById.get(Number(id));
+        if (!row) return send(res, 404, { error: 'No such account.' });
+        if (row.id === user.id) return send(res, 400, { error: 'That is your own account.' });
+        const token = parseCookies(req).sid;
+        if (token) q.delSession.run(token);
+        const fresh = newToken();
+        q.insSession.run(fresh, row.id, nowISO(), user.id);
+        console.log(`[visited-map] ${user.username} opened ${row.username}'s account`);
+        return send(res, 200, { username: row.username, asAdmin: user.username }, {
+          'Set-Cookie': sessionCookie(req, fresh, SESSION_MAX_AGE),
+        });
+      }
+
+      // Signing every one of somebody's devices out, without changing anything
+      // they know. The gentler half of the reset above: a phone that was lost
+      // is a session to end, not a password to change.
+      if (req.method === 'POST' && pathname === '/api/admin/sessions/end') {
+        const { id } = await readBody(req);
+        const row = q.userById.get(Number(id));
+        if (!row) return send(res, 404, { error: 'No such account.' });
+        const dropped = q.delUserSessions.run(row.id).changes;
+        console.log(`[visited-map] ${user.username} ended ${dropped} of ${row.username}'s sessions`);
+        // Their own session may have been one of them.
+        const gone = row.id === user.id;
+        return send(res, 200, { ok: true, username: row.username, sessionsEnded: dropped, signedOut: gone });
+      }
+    }
+
     // --- Backups --------------------------------------------------------------
-    // Instance-wide, so owner-only (see isOwner). A backup file is the whole
-    // database — every account's cells, the password hashes, the Home Assistant
-    // token — which is also why the download below is the most sensitive route
-    // in here.
+    // Instance-wide, so admin-only. A backup file is the whole database — every
+    // account's cells, the password hashes, the Home Assistant token — which is
+    // also why the download below is the most sensitive route in here.
+    //
+    // This used to test for the *first* account by id, which was the right idea
+    // with the wrong handle on it: an id cannot be granted to a second person or
+    // taken back from the first, and both are things a household map needs. See
+    // `bootstrapAdmin` — the first account still has it, it is simply a flag now.
     if (pathname === '/api/backup' || pathname.startsWith('/api/backup/')) {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
-      if (!isOwner(user)) return send(res, 403, { error: 'Backups belong to the account that made this map.' });
+      // The same two-part gate as /api/admin, and for the same reason: a
+      // snapshot pulled off the machine while wearing somebody else's name is
+      // the worst version of that hole, because the file is every account.
+      if (!isAdmin(user) || user.asAdmin) {
+        return send(res, 403, { error: 'Backups belong to whoever runs this server.' });
+      }
 
       const withDescription = async () => {
         const s = await backups.status();

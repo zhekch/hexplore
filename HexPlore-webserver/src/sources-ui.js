@@ -1,5 +1,5 @@
-// The "Sources" dialog: everything that has put something on the map, and how
-// to take one back off.
+// The Sources pane of Settings: everything that has put something on the map,
+// and how to take one back off.
 //
 // Every other way of removing something works a cell or a route at a time,
 // which is exactly right when you disagree with a *place* and no use at all when
@@ -17,7 +17,6 @@
 import { auth } from './auth.js';
 import { sourceLabel, IMPORT_SOURCES } from './locations.js';
 import { whenAgo } from './device-ui.js';
-import { onBackdropClick } from './dismiss.js';
 
 const n = (v) => v.toLocaleString();
 const plural = (count, word, suffix = 's') => `${n(count)} ${word}${count === 1 ? '' : suffix}`;
@@ -29,12 +28,10 @@ const REPLACEABLE = new Set(['apple-photos', 'apple-health', 'home-assistant', '
 
 /**
  * @param {object} opts
- * @param {() => void} [opts.onClose]   called when the dialog is dismissed with Back
  * @param {() => Promise<void>} opts.onChanged  the map has to be re-read after a removal
  */
-export function mountSources({ onClose, onChanged } = {}) {
+export function mountSources({ onChanged } = {}) {
   const $ = (id) => document.getElementById(id);
-  const overlay = $('sources-overlay');
   const listEl = $('sources-list');
   const errEl = $('sources-error');
 
@@ -205,27 +202,25 @@ export function mountSources({ onClose, onChanged } = {}) {
     }
   }
 
-  const close = () => {
-    overlay.hidden = true;
-    arming = null;
-    naming = null;
+  return {
+    /**
+     * Re-read the list every time the pane is opened.
+     *
+     * Not cached: an import in the tab next door, a phone that pushed while this
+     * was up, a source removed and re-added — all of them change this list, and
+     * none of them tells it so. Two round trips is the price of a list that is
+     * never quietly a week old.
+     */
+    draw: load,
+    /**
+     * Both half-finished states are folded away on the way out. A row left
+     * saying "Really remove?" from the last visit is one press from taking a
+     * source off the map, and unlike the dialog this used to be — closed and
+     * reopened around it — a tab comes back in one press.
+     */
+    leave() {
+      arming = null;
+      naming = null;
+    },
   };
-
-  const open = () => {
-    overlay.hidden = false;
-    load();
-  };
-
-  $('sources-back').addEventListener('click', () => {
-    close();
-    onClose?.();
-  });
-  $('sources-done').addEventListener('click', close);
-  $('sources-close').addEventListener('click', close);
-  onBackdropClick(overlay, close);
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden) close();
-  });
-
-  return { open, close, refresh: load };
 }

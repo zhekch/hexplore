@@ -22,7 +22,9 @@ import {
   mergeCountries,
   countryGeometry,
 } from './countries.js';
-import { auth, connection, mountAuth, serverBuild, serverUpdate } from './auth.js';
+import {
+  auth, connection, mountAuth, serverBuild, serverUpdate, isAdmin, asAdmin, forgetSession,
+} from './auth.js';
 import { derived } from './derived.js';
 import { installOffline, forgetAccountOffline, clearOfflineCaches } from './offline.js';
 import { mountCellInfo } from './cell-info.js';
@@ -129,6 +131,7 @@ import {
 import { cellAreaKm2, areaOfCell, WHOLE_COUNTRY } from './stats.js';
 import { asMulti, unionGeometries } from './polygon.js';
 import { mountBackup } from './backup-ui.js';
+import { mountAdmin, mountAsUser } from './admin-ui.js';
 import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
 import { busy } from './busy.js';
@@ -3609,6 +3612,12 @@ let deviceUi = null; // set by mountDevices()
 let statsUi = null; // set by mountStats()
 let whatsNewUi = null; // set by mountWhatsNew()
 let backupUi = null; // set by mountBackup()
+// These two are up here with the other late-bound handles rather than inside the
+// wiring block, because the *auth gate* reaches for both: which tabs Settings
+// draws and whether the "you are somebody else" chip is up are both facts about
+// the session, and the session resolves outside that block.
+let settings = null; // set by mountSettings()
+let asUserChip = null; // set by mountAsUser()
 let homeUi = null; // set by mountHome()
 let introUi = null; // set by mountIntro()
 // Whether this load is somebody's first. Read by the "what's new" banner, which
@@ -8959,11 +8968,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   // conditional would mean every call site asking first.
   photoInfo = mountPhotoInfo({ onClose: () => closePhotoInfo() });
 
-  // The file importer, first entry behind "Import & sync": parses the file in
-  // the browser, previews what it found, then merges the cells server-side.
+  // The file importer, now the Import tab of Settings: parses the file in the
+  // browser, previews what it found, then merges the cells server-side.
   const importer = mountImport({
     onKomoot: () => komootUi.open(),
-    onClose: () => sync?.open(),
+    onDone: () => settings?.close(),
     knownCells: () => visited,
     knownSources: () => [...new Set([...cellMeta.values()].flat().map((m) => m.source))],
     onImported: async ({ routes = false } = {}) => {
@@ -8978,12 +8987,13 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       updateLayersUi();
     },
   });
-  // Two doors, split by which way the data is going: everything that brings it
-  // in behind one, everything that takes it back out behind the other. Each
-  // entry hands off to its own dialog and comes back to its hub on Back.
+  // Three doors off the menu now. Sync is the connections the server keeps
+  // asking; Settings is one tabbed dialog holding everything that used to be
+  // four levels of hub (see src/settings-ui.js); Export is the one thing here
+  // you *do* rather than configure, so it is a button of its own.
+  //
+  // `settings` is declared at module scope, not here — the auth gate reads it.
   let sync = null;
-  let settings = null;
-  let personalUi = null;
   homeAssistant = mountHomeAssistant({
     onSynced: () => hydrateVisited(),
     onClose: () => sync?.open(),
@@ -9040,12 +9050,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       sync?.setStravaStatus(text);
     },
   });
-  // Backups are the one entry in Sync that goes the other way: everything else
-  // pulls data in, this writes the whole database out on a schedule.
-  backupUi = mountBackup({
-    onClose: () => settings?.open(),
-    onStatus: () => settings?.setBackupStatus(backupUi.summary()),
-  });
+  // The one thing in this app that goes the other way: everything else pulls
+  // data in, this writes the whole database out on a schedule. Admin only —
+  // a snapshot is every account at once, so it is a fact about the machine.
+  backupUi = mountBackup();
   // Nothing to configure and nothing to poll — the phone decides both. This is
   // only here so "is it working?" has an answer on a laptop.
   deviceUi = mountDevices({
@@ -9059,25 +9067,28 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       sync?.setDeviceStatus(text);
     },
   });
-  sync = mountSync({ homeAssistant, strava: stravaUi, device: deviceUi, files: importer });
-  // Before the dialog that opens it. Back goes to Settings rather than to the
-  // hub, because Settings is where Sources is now reached from — a Back that
-  // lands somewhere you did not come from is how you lose your place.
-  //
+  // "Files and links" is Settings → Import now. The row stays, because that is
+  // where the habit is and because "how do I get things in" is a fair question
+  // to ask of a dialog called Import & sync — it simply opens the one
+  // implementation instead of a second copy of it.
+  sync = mountSync({
+    homeAssistant,
+    strava: stravaUi,
+    device: deviceUi,
+    files: { open: () => settings?.open('import') },
+  });
   // Removing a source is the only action in here that changes the map, so it is
   // the only one that has to say so afterwards.
   const sourcesUi = mountSources({
-    onClose: () => personalUi?.open(),
     onChanged: async () => {
       await hydrateVisited();
       await loadRoutes(routesOn);
       updateLayersUi();
     },
   });
-  // The three sections of the Map layers page. Each draws into it and is told
-  // when it opens; none of them owns a dialog any more — see src/map-layers-ui.js.
+  // The three columns of the Map layers tab. Each draws into it and is told when
+  // it opens; none of them owns a dialog any more — see src/map-layers-ui.js.
   const railUi = mountRail({
-    onGrew: () => mapLayersUi?.markOverflow(),
     groups: () => railGroupsOn,
     onGroup: (key, on) => setRailGroupOn(key, on),
     technical: () => railTechnicalOn,
@@ -9086,7 +9097,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     onInteractive: (on) => setRailInteractive(on),
   });
   const airportsUi = mountAirports({
-    onGrew: () => mapLayersUi?.markOverflow(),
     groups: () => airportGroupsChosen,
     onGroup: (key, on) => setAirportGroupOn(key, on),
   });
@@ -9108,16 +9118,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // all is the basemap on the other side of it.
     onUse: () => setStyleKey('mapbox'),
   });
-  // Between the three sections above and Settings: this opens from there and
-  // goes back there, so Back walks the way it came instead of skipping a floor.
   const mapLayersUi = mountMapLayers({
-    onClose: () => personalUi?.open(),
     rail: railUi,
     airports: airportsUi,
     mapbox: mapboxUi,
   });
-  personalUi = mountPersonal({
-    onClose: () => settings?.open(),
+  // Two panes from one module, because they are one column split in half: what
+  // this map is for you, and what the app itself is.
+  const personalUi = mountPersonal({
     home: () => homePlace,
     onSetHome: () => homeUi.open(homePlace),
     homeShown,
@@ -9165,12 +9173,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       await pushPrefs();
       location.reload();
     },
-    sources: sourcesUi,
-    mapLayers: mapLayersUi,
     // On request, and it is a real replay rather than a recording: every step
     // reads the map first, so it says "home is already Zurich" instead of
     // asking again. See `drawPerms` and `drawHome` in src/intro-ui.js.
     onReplayIntro: () => introUi?.open(),
+    onLeave: () => settings?.close(),
     onClearCache: () => clearOfflineCaches(),
     version: () => serverBuild(),
     update: () => serverUpdate(),
@@ -9197,7 +9204,9 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   // PNG the browser saves. Which is why it takes accessors and not a copy —
   // there is only one set of cells and it belongs up here.
   const exportUi = mountExport({
-    onClose: () => settings?.open(),
+    // Nothing to go back to: it is a door off the menu now rather than a row
+    // inside a hub, so its own button says Done and simply shuts.
+    onClose: () => {},
     data: {
       // What the map is drawing, so a picture of it is a picture of it: the
       // frame it fits to and the numbers in the caption agree with the cells
@@ -9212,7 +9221,27 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       areaOf: areaOfCellMemo,
     },
   });
-  settings = mountSettings({ personal: personalUi, backup: backupUi, exportImage: exportUi });
+  // The Admin pane, and the chip that says an admin is wearing somebody else's
+  // account. The chip is mounted whether or not this is one: it reads its own
+  // state and hides itself, and making it conditional would mean the one place
+  // that has to be right about this asking a second question first.
+  const adminUi = mountAdmin({ onLeave: () => settings?.close() });
+  asUserChip = mountAsUser({ username: () => username, asAdmin: () => asAdmin() });
+
+  settings = mountSettings({
+    sections: {
+      personal: personalUi.personal,
+      maplayers: mapLayersUi,
+      sources: sourcesUi,
+      import: importer,
+      backups: backupUi,
+      admin: adminUi,
+      other: personalUi.other,
+    },
+    isAdmin: () => isAdmin(),
+    username: () => username,
+    asAdmin: () => asAdmin(),
+  });
   document.getElementById('sync-open').addEventListener('click', () => {
     setMenuOpen(false);
     sync.open();
@@ -9220,6 +9249,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   document.getElementById('settings-open').addEventListener('click', () => {
     setMenuOpen(false);
     settings.open();
+  });
+  document.getElementById('export-open').addEventListener('click', () => {
+    setMenuOpen(false);
+    exportUi.open();
   });
 
   // Search: one field over the map for the three things it holds — a place to
@@ -9687,6 +9720,14 @@ const authState = mountAuth({
   onAuthed: async (name) => {
     authed = true;
     username = name ?? null;
+    // Before anything else on screen. If this session is an admin wearing
+    // somebody else's account, the chip saying so has to be up before their map
+    // is — a page that draws the wrong person's cells first and admits it a
+    // second later is the exact confusion the chip exists to prevent.
+    asUserChip?.draw();
+    // And the rail, which grows two tabs for an admin and loses them again on
+    // the way into somebody else's account.
+    settings?.refresh();
     // Nothing is drawn until the account's colours are in — see
     // `paintHeldForPrefs`. The cells still load, the routes still load; it is
     // only the paint that waits, so this costs a fetch rather than a render.
@@ -9716,9 +9757,6 @@ const authState = mountAuth({
     deviceUi?.refresh();
     // Coming back from Strava's OAuth redirect reopens the dialog on the result.
     if (!(await stravaUi?.handleReturn())) stravaUi?.refresh();
-    // …and the backup schedule, for the row in Sync. Only the account that made
-    // the map may read it; anyone else's row says so.
-    backupUi?.refresh();
 
     // What changed since this last said anything.
     //
@@ -9751,6 +9789,15 @@ const authState = mountAuth({
   onLoggedOut: () => {
     authed = false;
     username = null;
+    // The rights and the borrowed name belong to whoever just left. Cleared
+    // here rather than left to the next sign-in to overwrite: the sign-in
+    // overlay does not cover the chip, and an amber bar naming an account
+    // nobody is signed into is the one thing on this screen that must never be
+    // wrong. Settings is shut behind it, and comes back with the right rail.
+    forgetSession();
+    asUserChip?.draw();
+    settings?.close();
+    settings?.refresh();
     // Undo history belongs to the account that just left too, and every entry
     // in it is an instruction to change *their* map.
     history.clear();

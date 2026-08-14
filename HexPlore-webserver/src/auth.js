@@ -65,14 +65,47 @@ async function api(method, url, body) {
 // show it without a request of its own. Null until that check has answered, and
 // null forever if it never does — a version we do not know is not one to invent.
 let serverVersion = null;
+// And the two facts about *this* session that arrive with it: whether the
+// account administers the server, and — if an admin has opened somebody else's
+// map — whose it is. Both are drawing decisions and nothing else: every admin
+// route checks the session for itself, so a page that got these wrong would draw
+// two tabs that answer 403 rather than let anybody through anything.
+let serverAdmin = false;
+let wearingFor = null;
 
 /** What the server said it was, or null if it has not said yet. */
 export const serverBuild = () => serverVersion;
 
-/** Stash the build off any response that carries one, and pass the name on. */
+/** Whether this account can administer the server. */
+export const isAdmin = () => serverAdmin;
+
+/**
+ * The admin who opened this account, or null when this is simply your account.
+ *
+ * Deliberately the *admin's* name and not a boolean: the one thing somebody
+ * needs from it is who to tell, and the chip across the top of the map says so.
+ */
+export const asAdmin = () => wearingFor;
+
+/** Stash what the session says about itself, and pass the name on. */
 function keepVersion(d) {
   if (typeof d?.version === 'string') serverVersion = d.version;
+  serverAdmin = !!d?.admin;
+  wearingFor = typeof d?.asAdmin === 'string' ? d.asAdmin : null;
   return d?.username;
+}
+
+/**
+ * Forget what the session said about itself, on the way out.
+ *
+ * The build is deliberately kept — it is a fact about the *server*, and it is
+ * still true of the sign-in page. These two are facts about a person who has
+ * left, and the amber chip that reads them is not covered by the sign-in
+ * overlay.
+ */
+export function forgetSession() {
+  serverAdmin = false;
+  wearingFor = null;
 }
 
 /**
@@ -225,12 +258,33 @@ export const auth = {
   forgetDevice: (id) => api('POST', '/api/device/forget', { id }).then((d) => d.devices ?? []),
 
   // Timed copies of the whole database, taken by the server. These belong to
-  // the account that made the map — every other account gets 403 — because a
+  // whoever administers the instance — every other account gets 403 — because a
   // backup file holds everyone's cells and the Home Assistant token with them.
   getBackup: () => api('GET', '/api/backup').then((d) => d.backup ?? null),
   saveBackup: (patch) => api('POST', '/api/backup', patch).then((d) => d.backup ?? null),
   runBackup: () => api('POST', '/api/backup/run'),
   backupUrl: (name) => `/api/backup/download?name=${encodeURIComponent(name)}`,
+
+  // --- Administering the server -------------------------------------------------
+  //
+  // Everything here answers 403 for an account that does not administer this
+  // one, and the two that change somebody else's account leave a line in the
+  // server log. See src/admin-ui.js for what is drawn from them, and the note
+  // above `/api/admin` in server/index.js for what they will and will not say —
+  // in short, counts and dates, never anybody's map.
+  adminOverview: () => api('GET', '/api/admin/overview'),
+  adminUsers: () => api('GET', '/api/admin/users'),
+  adminSetPassword: (id, password) => api('POST', '/api/admin/password', { id, password }),
+  adminGrant: (id, admin) => api('POST', '/api/admin/grant', { id, admin }),
+  adminEndSessions: (id) => api('POST', '/api/admin/sessions/end', { id }),
+  // Both of these swap the session cookie under the page, which is why the
+  // caller reloads rather than carrying on: every cache in the app belongs to
+  // whoever was signed in a moment ago.
+  adminImpersonate: (id) => api('POST', '/api/admin/impersonate', { id }),
+  // The one route an impersonated session may reach — the account being worn has
+  // no admin rights, which is the point, so this is checked against the session
+  // rather than against the account.
+  adminReturn: () => api('POST', '/api/admin/return'),
 };
 
 // Wires the auth overlay (markup in index.html) and the account row in the

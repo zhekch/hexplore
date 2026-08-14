@@ -38,7 +38,6 @@ const GROUP_NOTES = {
 
 /**
  * @param {object} opts
- * @param {() => void} [opts.onGrew] the rows landed, so the page can re-measure
  * @param {() => Record<string, boolean>} opts.groups what has been chosen so far
  * @param {(key: string, on: boolean) => void} opts.onGroup
  * @param {() => boolean} opts.technical
@@ -47,7 +46,7 @@ const GROUP_NOTES = {
  * @param {(on: boolean) => void} opts.onInteractive
  */
 export function mountRail({
-  onGrew, groups, onGroup, technical, onTechnical, interactive, onInteractive,
+  groups, onGroup, technical, onTechnical, interactive, onInteractive,
 }) {
   const $ = (id) => document.getElementById(id);
   const list = $('rail-groups');
@@ -59,7 +58,7 @@ export function mountRail({
    *
    * The style is a 315 KB lazily-imported chunk and the overlay may never have
    * been switched on, in which case there is nothing yet to build a list from.
-   * Opening this dialog is a clear enough statement of intent to fetch it —
+   * Opening this tab is a clear enough statement of intent to fetch it —
    * offering an empty box until somebody switches the overlay on first would be
    * a dialog that appears broken for the one reason nobody could guess.
    */
@@ -85,10 +84,6 @@ export function mountRail({
       row.append(text, input);
       return row;
     }));
-    // The page around this measures its own scroll, and until these rows
-    // land there is nothing to overflow with — the style behind them is a
-    // lazily imported chunk that may arrive well after the page is open.
-    onGrew?.();
   }
 
   /**

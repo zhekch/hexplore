@@ -1,5 +1,5 @@
-// The "Import locations" dialog: pick one or more export files, see what the
-// app made of them, then push the cells to the server.
+// The Import pane of Settings: pick one or more export files, see what the app
+// made of them, then push the cells to the server.
 //
 // Everything is parsed in the browser (src/locations.js) — the file never
 // leaves the machine except as the list of hex cells it resolves to. Files are
@@ -9,6 +9,15 @@
 // Files that drew a line (an activity, a trip) can also keep the line itself:
 // those become saved routes (src/routes.js), drawn over the map rather than
 // folded into it. The cells they light up are the same either way.
+//
+// **Why this is in Settings and not in Sync.** It was the first row behind
+// "Import & sync", beside Home Assistant, Strava and the phone — and it is not
+// the same kind of thing as any of them. Those three are connections the server
+// keeps asking, where the only question you ever have is "is it still working".
+// A file you drop is something you do once, deliberately, and then go and look
+// at the result of. Sync's row still exists and opens this tab, so the habit
+// still works; there is simply one implementation now instead of a dialog that
+// could be reached two ways.
 
 import { auth } from './auth.js';
 import { parseLocationFile, pointsToCells, sourceLabel, IMPORT_SOURCES } from './locations.js';
@@ -16,7 +25,6 @@ import { buildRoutes, totalLength, formatDistance } from './routes.js';
 import { loadPlaces, describeRoute, isGenericName } from './places.js';
 import { isZip, isGzip, unzip, gunzip, stripCompressedExt } from './archive.js';
 import { parseFit, looksLikeFit } from './fit.js';
-import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const day = (sec) => (sec ? dayFmt.format(new Date(sec * 1000)) : null);
@@ -91,12 +99,11 @@ function parseExpanded(name, bytes) {
  * @param {() => string[]}    opts.knownSources sources already present in the account
  * @param {(what:{routes:boolean}) => Promise<void>} opts.onImported called after a successful import
  * @param {() => void} [opts.onKomoot] hand off to the Komoot link dialog
- * @param {() => void} [opts.onClose] called when it is dismissed with Back, so
- *   the dialog that opened it can come back
+ * @param {() => void} [opts.onDone] shut the dialog this lives in. Pressed after
+ *   an import has landed, when the only useful next thing is to look at the map
  */
-export function mountImport({ knownCells, knownSources, onImported, onKomoot, onClose }) {
+export function mountImport({ knownCells, knownSources, onImported, onKomoot, onDone }) {
   const $ = (id) => document.getElementById(id);
-  const overlay = $('import-overlay');
   const fileInput = $('import-file');
   const drop = $('import-drop');
   const dropText = $('import-drop-text');
@@ -112,8 +119,6 @@ export function mountImport({ knownCells, knownSources, onImported, onKomoot, on
   const routesNote = $('import-routes-note');
   const errEl = $('import-error');
   const goBtn = $('import-go');
-  const cancelBtn = $('import-cancel');
-  const closeBtn = $('import-close');
   const komootBtn = $('import-komoot');
 
   // [{ source, files:[{name, format, fixes, routes, error}], cells, routes, fixes, firstAt, lastAt }]
@@ -152,22 +157,8 @@ export function mountImport({ knownCells, knownSources, onImported, onKomoot, on
     showErr('');
   }
 
-  // Opening and closing *do* start fresh — it's only a second drop within one
-  // sitting that adds to what's already there.
-  function open() {
-    picked = [];
-    duplicates = 0;
-    reset();
-    overlay.hidden = false;
-  }
-
-  function close() {
-    overlay.hidden = true;
-    picked = [];
-    duplicates = 0;
-    reset();
-  }
-
+  // Arriving at the pane and leaving it *do* start fresh — it's only a second
+  // drop within one sitting that adds to what's already there.
   function clearFiles() {
     picked = [];
     duplicates = 0;
@@ -501,10 +492,12 @@ export function mountImport({ knownCells, knownSources, onImported, onKomoot, on
 
   // --- Wiring ---------------------------------------------------------------------
   // Komoot has no file to drop — it's a link — but it is still an import, so
-  // it hands off from here rather than from the Sync picker.
+  // it hands off from here rather than from the Sync picker. It is a dialog of
+  // its own and would otherwise open behind this one, so Settings gets out of
+  // the way first.
   komootBtn?.addEventListener('click', () => {
     if (busy) return;
-    close();
+    onDone?.();
     onKomoot?.();
   });
 
@@ -534,29 +527,33 @@ export function mountImport({ knownCells, knownSources, onImported, onKomoot, on
     if (e.dataTransfer?.files?.length && addFiles(e.dataTransfer.files)) handleFiles();
   });
 
+  // Finishing an import shuts the whole dialog: the button turns into Done, and
+  // sitting on the file picker after a file has gone in is asking "what next?"
+  // when the answer is "look at the map".
   goBtn.addEventListener('click', () => {
     if (goBtn.dataset.done) {
-      delete goBtn.dataset.done;
-      close();
+      clearFiles();
+      onDone?.();
     } else {
       runImport();
     }
   });
-  // Back returns to the dialog that opened this one; the X and Escape close the
-  // whole stack, the way they do everywhere else. Finishing an import closes it
-  // too (the button turns into Done) — landing back on the picker after a file
-  // has gone in would be asking "what next?" when the answer is "look at it".
-  cancelBtn.addEventListener('click', () => {
-    close();
-    onClose?.();
-  });
-  closeBtn.addEventListener('click', close);
-  onBackdropClick(overlay, () => {
-    if (!busy) close();
-  });
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden && !busy) close();
-  });
 
-  return { open };
+  return {
+    /**
+     * A fresh sheet on every visit to the tab, and on the way out again.
+     *
+     * The set of files accumulates across drops *within* one sitting, which is
+     * what lets you drag them in a few at a time — but a tab left showing last
+     * week's preview, with an Import button armed over cells that were imported
+     * days ago, is a press away from doing it all twice.
+     */
+    draw: clearFiles,
+    leave() {
+      // Not while a parse or an upload is running: `busy` means there is a
+      // promise still holding these elements, and clearing under it would have
+      // it write its answer into a pane that has moved on.
+      if (!busy) clearFiles();
+    },
+  };
 }

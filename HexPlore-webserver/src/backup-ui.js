@@ -1,9 +1,15 @@
-// The "Backups" dialog: when the server copies data.db, how many copies it
-// keeps, and what it has done so far.
+// The Backups pane of Settings: when the server copies data.db, how many copies
+// it keeps, and what it has done so far.
 //
 // Everything the map knows is in one file, and until now the only way that file
 // existed twice was if you thought to copy it. This is the other end of the
 // importer — the one door that goes outwards.
+//
+// **Admin only**, and the tab is not drawn for anybody else. A snapshot is the
+// whole database — every account's cells, every password hash, the Home
+// Assistant token — so it is a fact about the machine rather than about whoever
+// is signed in. The server refuses these routes for a non-admin either way; the
+// hidden tab is so nobody has to be refused.
 //
 // The schedule is a cron expression either way. The picker ("every day at
 // 04:00") writes one and the text field takes one typed, but there is only ever
@@ -14,7 +20,6 @@
 import { auth } from './auth.js';
 import { describeCron, isValidCron, nextRun } from './cron.js';
 import { formatTime, formatDayTime } from './clock.js';
-import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 
@@ -101,14 +106,8 @@ function decomposeCron(expr) {
   return fallback;
 }
 
-/**
- * @param {object} opts
- * @param {() => void} [opts.onClose]  called when the dialog is dismissed with Back
- * @param {(status:object|null) => void} [opts.onStatus] called whenever the settings change
- */
-export function mountBackup({ onClose, onStatus } = {}) {
+export function mountBackup() {
   const $ = (id) => document.getElementById(id);
-  const overlay = $('backup-overlay');
   const enabledBox = $('backup-enabled');
   const presetSel = $('backup-preset');
   const timeRow = $('backup-time-row');
@@ -127,14 +126,8 @@ export function mountBackup({ onClose, onStatus } = {}) {
   const noteEl = $('backup-note');
   const saveBtn = $('backup-save');
   const nowBtn = $('backup-now');
-  const backBtn = $('backup-back');
-  const closeBtn = $('backup-close');
 
   let status = null;
-  // Why there is no status, when there isn't one. A second account on the same
-  // instance is refused in words, and those words are worth showing rather than
-  // replacing with "not set up".
-  let refusal = '';
   let busy = false;
 
   const showErr = (m) => {
@@ -249,7 +242,6 @@ export function mountBackup({ onClose, onStatus } = {}) {
   function fill(next) {
     status = next;
     if (status) {
-      refusal = '';
       enabledBox.checked = status.enabled;
       keepSel.value = String(status.keep);
       const parts = decomposeCron(status.cron);
@@ -261,7 +253,6 @@ export function mountBackup({ onClose, onStatus } = {}) {
     }
     renderSchedule();
     renderStatus();
-    onStatus?.(status);
   }
 
   async function load() {
@@ -269,13 +260,14 @@ export function mountBackup({ onClose, onStatus } = {}) {
     try {
       fill(await auth.getBackup());
     } catch (e) {
-      // A second account on the same instance gets 403 here, which is not an
-      // error so much as an answer: backups belong to whoever made the map.
+      // An account that does not administer this server gets 403 here, which is
+      // not an error so much as an answer. It should not be reachable — the tab
+      // is only drawn for an admin — but the tab is drawn from what the session
+      // said at sign-in, and an admin taken off in the panel next door is a
+      // page one refresh behind the truth.
       status = null;
-      refusal = String(e.message ?? e);
       renderStatus();
-      showErr(refusal);
-      onStatus?.(null);
+      showErr(String(e.message ?? e));
     }
   }
 
@@ -297,7 +289,12 @@ export function mountBackup({ onClose, onStatus } = {}) {
     setBusy(true);
     try {
       fill(await auth.saveBackup({ enabled: enabledBox.checked, cron: expr, keep: Number(keepSel.value) }));
-      close();
+      // Said rather than shown by the dialog disappearing, which is what this
+      // used to do. A pane cannot close itself, and it should not want to: the
+      // proof that a schedule was taken is the sentence under the field
+      // agreeing with what was typed, and that is already on screen.
+      noteEl.textContent = 'Schedule saved.';
+      noteEl.hidden = false;
     } catch (e) {
       showErr(String(e.message ?? e));
     } finally {
@@ -333,42 +330,23 @@ export function mountBackup({ onClose, onStatus } = {}) {
     }
   }
 
-  const open = async () => {
-    overlay.hidden = false;
-    noteEl.hidden = true;
-    await load();
-  };
-  const close = () => {
-    overlay.hidden = true;
-  };
-
   for (const el of [presetSel, timeEl, weekdaySel, domSel, enabledBox]) {
     el.addEventListener('change', renderSchedule);
   }
   cronEl.addEventListener('input', renderSchedule);
   saveBtn.addEventListener('click', save);
   nowBtn.addEventListener('click', runNow);
-  backBtn.addEventListener('click', () => {
-    close();
-    onClose?.();
-  });
-  closeBtn.addEventListener('click', close);
-  onBackdropClick(overlay, close);
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden) close();
-  });
 
   return {
-    open,
-    close,
-    /** Read the settings without opening anything — for the row in Sync. */
-    refresh: load,
-    /** One line for that row: what's scheduled, or that nothing is. */
-    summary() {
-      if (!status) return refusal || 'Not set up';
-      if (!status.enabled) return 'Switched off';
-      const kept = status.files?.length ?? 0;
-      return `${describeCron(status.cron)} · ${kept} kept`;
+    /**
+     * Re-read on every visit. The schedule is the server's, not this page's:
+     * the timer fires while nobody is looking, and a "last backup" from
+     * whenever the tab was first opened is the one number here that must never
+     * be stale.
+     */
+    async draw() {
+      noteEl.hidden = true;
+      await load();
     },
   };
 }

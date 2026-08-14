@@ -21,11 +21,10 @@ const NUM = new Intl.NumberFormat();
 
 /**
  * @param {object} opts
- * @param {() => void} [opts.onGrew] the rows landed, so the page can re-measure
  * @param {() => Record<string, boolean>} opts.groups what has been chosen so far
  * @param {(key: string, on: boolean) => void} opts.onGroup
  */
-export function mountAirports({ onGrew, groups, onGroup }) {
+export function mountAirports({ groups, onGroup }) {
   const $ = (id) => document.getElementById(id);
   const list = $('airports-groups');
 
@@ -50,9 +49,6 @@ export function mountAirports({ onGrew, groups, onGroup }) {
       row.append(text, input);
       return row;
     }));
-    // Until these rows land there is nothing to overflow with, so the page
-    // around this is told to re-measure rather than measuring once on open.
-    onGrew?.();
   }
 
   return { draw };

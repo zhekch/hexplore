@@ -51,7 +51,7 @@ number of approaches that were tried and abandoned.
   reference overlays still answer; they are things you aimed at.
 - **Train tracks.** Every line, siding and yard OpenRailwayMap knows about, laid
   over the map in the basemap's own light or dark. Switch it on in the layers
-  menu; choose what it draws in Settings → Train tracks — tracks, stations,
+  menu; choose what it draws in Settings → Map layers — tracks, stations,
   platforms, line numbers, signals and crossings, kilometre posts, and the
   sidings, yards and disused track that are off until you ask for them. Turn on
   **Interactable** and the railway answers the pointer: whatever is under it
@@ -76,7 +76,7 @@ number of approaches that were tried and abandoned.
   public-domain OurAirports dataset — built into the app, so there is no key to
   get, nothing to sign up for, and it works offline. Switch it on in the layers
   menu. Out of the box it shows the five thousand airports airlines actually fly
-  to; Settings → Airports adds the small airfields and glider strips, the
+  to; Settings → Map layers adds the small airfields and glider strips, the
   helipads, and the ones that have closed. Codes when you are zoomed out, names
   when you are in, and a tap says the IATA and ICAO codes, the town, the
   elevation, how many runways there are and how long the longest one is, what it
@@ -91,8 +91,13 @@ number of approaches that were tried and abandoned.
   when the thing that changed is off-screen.
 - **Backups.** The server copies the database on a schedule — nightly at 04:00
   by default, keeping the last 14 copies.
-- **Private by default.** Accounts, sessions, and registration that closes
-  itself after the first user.
+- **Private by default.** Accounts, sessions, and registration you can close.
+  The first person to sign up administers the server.
+- **An admin panel.** Settings → Admin: how long the server has been up and what
+  is using the disk, and a row per account saying when it last signed in, when it
+  last received anything, and how much is on its map. Reset a password for
+  somebody locked out, or open their map as them to see what they are seeing —
+  which puts a bar across the top of the page saying so until you leave.
 
 ## Requirements
 
@@ -160,6 +165,7 @@ All optional — every one has a working default.
 | `ALLOW_REGISTRATION` | on | `0` closes registration once the first account exists |
 | `REGISTRATION_CODE` | — | Keeps registration open, behind an invite code |
 | `MIN_PASSWORD_LEN` | `10` | Minimum password length |
+| `ADMIN_USERS` | — | Comma-separated accounts to make admins at every boot |
 | `IMPORT_OWNER` | — | Account the offline importer's cells belong to |
 | `HA_BLOCK_PRIVATE` | off | Restricts Home Assistant to public addresses only |
 | `HA_ALLOWED_HOSTS` | — | Comma-separated allowlist of Home Assistant hosts |
@@ -193,13 +199,13 @@ once, and a week living there counts once. Going back next month counts again.
 **No files at all?** Turn on editing in the menu and paint cells by hand.
 Ctrl-drag sweeps.
 
-**Changed your mind about a whole source?** Menu → Export & settings →
+**Changed your mind about a whole source?** Menu → Settings →
 **Sources** lists everything that has put something on your map and takes one
 back off wholesale. That is a different question from clearing a cell: clearing
 says *I was never here*, whoever said otherwise, while this says *stop trusting
 this way of finding out* — so a cell another source also vouches for stays.
 
-**Done with the whole thing?** Menu → Export & settings → **Settings** → **Delete
+**Done with the whole thing?** Menu → Settings → **Other** → **Delete
 this account**, at the bottom. It takes the map, the saved routes, your
 preferences and any Home Assistant or Strava connection with it, and asks for
 your password first because none of it comes back. One thing it cannot reach:
@@ -239,7 +245,7 @@ One thing it does not do: there is **no "Open in Photos"**. iOS gives no app a
 way to open one particular photo, so such a button would open the Photos app at
 something else entirely — and the card is showing you the picture anyway.
 
-**An image of a place.** *Export & settings → Export an image* makes a picture
+**An image of a place.** *Menu → Export an image* makes a picture
 rather than a screenshot: pick any number of regions, countries or continents and
 everything outside them is cut away along their real boundaries — fetched at
 national-survey detail for the countries in the picture, so a canton has the
@@ -333,13 +339,13 @@ were there, when it landed on the map, how many visits, and which app each
 claim came from. Zoomed out, it aggregates everything inside the hexagon you
 tapped.
 
-**Backups.** Menu → **Export & settings → Backups**. The server copies the whole
+**Backups.** Menu → **Settings → Backups**. The server copies the whole
 database on a schedule — nightly at 04:00 by default, keeping the last 14 — and
 **only when something has changed**, so an untouched map leaves one copy rather
 than one a day. Pick a schedule from the list or type a cron expression; the
 line underneath always says what it means in English. Every copy can be
 downloaded, because a backup that never leaves the machine isn't one. They
-belong to the account that made the map.
+belong to whoever administers the server.
 
 **Works with the server off.** A production build installs a small service
 worker, so after you have opened the map once it keeps the app itself, the town
@@ -400,8 +406,8 @@ the one basemap that needs something from you: Mapbox serves no tiles without an
 account and this app does not have one, so it runs on your own free access
 token. Make one at
 [account.mapbox.com](https://account.mapbox.com/access-tokens/) — the default
-public token is the right one — and paste it into **Export & settings →
-Settings → 3D basemap**, then press **Done**: it is checked with Mapbox on the
+public token is the right one — and paste it into **Settings → Map layers →
+3D basemap**, then press **Use this token**: it is checked with Mapbox on the
 spot and the map switches straight to 3D. The token is saved to your account, so
 every device you sign in on gets the basemap without being asked again. Empty the
 box and press Done to take it off all of them.
@@ -452,6 +458,12 @@ agreement that nothing at run time would notice had drifted.
   per address.
 - **Sign-in is rate limited**, passwords are at least 10 characters, and
   sessions expire after 90 days.
+- **The first account to register administers the server** — the backups, the
+  Admin panel, and resetting a password for somebody who has locked themselves
+  out. It can be handed to somebody else, and taken back, from Settings → Admin;
+  `ADMIN_USERS=alice,bob` grants it by name at every boot instead. An admin can
+  open another account's map to see what they are seeing, which is logged at
+  both ends and shows a bar across the top of the page for as long as it lasts.
 - **Put it behind HTTPS.** `tailscale serve` in front of `npm start` gives you
   an HTTPS URL reachable only from your own devices — and "my location" needs
   HTTPS to work at all.

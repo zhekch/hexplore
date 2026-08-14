@@ -289,11 +289,18 @@
               </svg>
               <span data-i18n="stats-open.routes-and-statistics">Routes and statistics</span>
             </button>
-            <!-- Two doors, split by which way the data is going. Everything
-                 that brings where-you've-been *in* is behind the first, whether
-                 it arrives as a file you picked or as an app the server keeps
-                 asking; everything that takes it back out, and the settings for
-                 doing that, is behind the second. -->
+            <!-- Three doors, and each one is a destination rather than a
+                 signpost. The first is everything that brings where-you've-been
+                 *in* from something the server keeps asking — Home Assistant,
+                 Strava, a phone.
+
+                 The other two used to be one, called "Export & settings", and
+                 that hub held three rows: a picture, the backups, and a door to
+                 the real settings. It was a list you had to read to find the one
+                 thing behind it, and two of the three were not exports at all.
+                 So Settings is its own dialog now (and holds the backups as a
+                 tab), and taking a picture of the map — the one thing here you
+                 *do* rather than configure — is a button of its own. -->
             <button type="button" class="menu-action" id="sync-open">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 15V3" />
@@ -308,7 +315,16 @@
                 <circle cx="16" cy="7" r="2" />
                 <circle cx="10" cy="17" r="2" />
               </svg>
-              <span data-i18n-text="settings-open.export-settings">Export &amp; settings<small data-i18n="settings-menu-note.backups" id="settings-menu-note">Backups</small></span>
+              <span data-i18n-text="settings-open.settings">Settings<small data-i18n="settings-menu-note.personal-layers-sources-backups" id="settings-menu-note">Personal, layers, sources, backups</small></span>
+            </button>
+            <button type="button" class="menu-action" id="export-open">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+                <circle cx="8.5" cy="9.5" r="1.6" />
+                <path d="m3.5 16.5 4.6-4.2a1.7 1.7 0 0 1 2.3 0l3.4 3.2" />
+                <path d="m13.2 13.6 2-1.8a1.7 1.7 0 0 1 2.3 0l2.9 2.7" />
+              </svg>
+              <span data-i18n-text="export-open.export-an-image">Export an image<small data-i18n="export-menu-note.a-picture-of-where-you">A picture of where you have been</small></span>
             </button>
           </section>
 
@@ -490,6 +506,17 @@
          chips can be up at once — an isolated route inside a shown trip — so
          they stack rather than share a corner. -->
     <div class="map-chips" id="map-chips">
+      <!-- Somebody else's map, opened by an admin from Settings → Admin.
+           It is the same glass chip as the two below because it is the same kind
+           of fact — what the map is currently narrowed to, and the way back out
+           — and it is tinted, because it is the one of the three where being
+           wrong about it means editing another person's data. It cannot be
+           dismissed: the only way to make it go away is to leave, which is what
+           the button does. See src/admin-ui.js. -->
+      <div class="route-solo as-user" id="as-user-chip" hidden>
+        <span id="as-user-text"></span>
+        <button data-i18n="as-user-leave.leave" type="button" id="as-user-leave">Leave</button>
+      </div>
       <div class="route-solo" id="trip-chip" hidden>
         <span data-i18n="trip-chip-text.showing-a-trip" id="trip-chip-text">Showing a trip</span>
         <button data-i18n="trip-chip-clear.stop" type="button" id="trip-chip-clear">Stop</button>
@@ -505,68 +532,6 @@
         <span data-i18n="home-pick-text.tap-the-map-to-put" id="home-pick-text">Tap the map to put your home there</span>
         <button data-i18n="home-pick-ok.use-this" type="button" id="home-pick-ok" hidden>Use this</button>
         <button data-i18n="home-pick-cancel.cancel" type="button" id="home-pick-cancel">Cancel</button>
-      </div>
-    </div>
-
-    <div class="modal-overlay" id="import-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="import.import-locations" class="modal-title">Import locations</div>
-            <div data-i18n="import.kml-gpx-tcx-fit-geojson" class="modal-sub">KML, GPX, TCX, FIT, GeoJSON, CSV, a whole ZIP, Strava account export, or a JSON export from Google Timeline or Snapchat.</div>
-          </div>
-          <button data-i18n-aria-label="import-close.close" class="cell-info-close" id="import-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <label class="import-drop" id="import-drop">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 15V3" />
-            <path d="m8 7 4-4 4 4" />
-            <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
-          </svg>
-          <span data-i18n="import-drop-text.choose-files-or-drop-them" id="import-drop-text">Choose files or drop them here</span>
-          <input type="file" id="import-file" multiple
-            accept=".json,.geojson,.kml,.gpx,.tcx,.fit,.xml,.csv,.tsv,.txt,.gz,.zip" hidden />
-        </label>
-
-        <button type="button" class="import-alt" id="import-komoot">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z" />
-            <circle cx="12" cy="10" r="2.6" />
-          </svg>
-          <span data-i18n="import-komoot.paste-komoot-links">Paste Komoot links</span>
-        </button>
-
-        <!-- What used to be behind the ⓘ beside "Import locations" in the menu.
-             It belongs here: it answers the questions you have while looking at
-             this dialog, and it costs nothing once the file has been read.
-             It says what you can't guess from the file picker — that the big
-             archives go in whole — rather than repeating the format list above
-             it. -->
-        <p data-i18n-text="import-note.you-can-download" class="import-note" id="import-note">
-          You can download <b data-i18n="import-note.strava-s-archive">Strava's archive</b> from Settings → My Account → Download your account. You can also download <b data-i18n="import-note.google-timeline">Google Timeline</b> from Google Maps on mobile, or <b data-i18n="import-note.snapchat">Snapchat</b> from accounts.snapchat.com → My Data → <b data-i18n="import-note.export-json-files">Export JSON Files</b> + <b data-i18n="import-note.ranking-and-location">Ranking And Location</b>. Note not all footsteps data is sent by Snapchat.
-        </p>
-
-        <div class="import-report" id="import-report" hidden></div>
-        <div class="import-error" id="import-error" hidden></div>
-
-        <label class="import-row" id="import-source-row" hidden>
-          <span data-i18n="import-source-row.record-as">Record as</span>
-          <select id="import-source"></select>
-        </label>
-        <label class="import-row" id="import-routes-row" hidden>
-          <span data-i18n-text="import-routes-row.save-routes">Save routes<small data-i18n="import-routes-note.keeps-the-tracks-themselves-drawn" id="import-routes-note">Keeps the tracks themselves, drawn over the map</small></span>
-          <input type="checkbox" id="import-routes" checked />
-        </label>
-
-        <div class="modal-actions">
-          <button data-i18n="import-cancel.back" type="button" class="modal-btn" id="import-cancel">Back</button>
-          <button data-i18n="import-go.import" type="button" class="modal-btn primary" id="import-go" disabled>Import</button>
-        </div>
       </div>
     </div>
 
@@ -653,15 +618,39 @@
       </div>
     </div>
 
-    <!-- The other direction. Export has nothing in it yet and says so rather
-         than being hidden: it is half the reason this dialog exists, and a door
-         you can see is not the same as one that isn't there. -->
+    <!-- Settings: one dialog, a rail of sections down the left, the section you
+         picked filling everything to the right of it.
+
+         This replaces six dialogs that were four taps deep. "Export & settings"
+         was a hub of three rows, one of which opened "Settings", which was a
+         column of rows two of which opened "Map layers" and "Sources", and Map
+         layers had in turn just stopped being a signpost of its own. Every one
+         of those pages was a phone-shaped column of full-width rows, and on a
+         desktop that is a 400px ribbon down the middle of a 2560px screen with a
+         scroll in it — a shape chosen for a device nobody was using at the time.
+
+         So the doors are gone and what was behind them is a tab. Nothing here is
+         more than one press from any other part of it, the rail says what exists
+         without being read, and a section with three independent halves (Map
+         layers) lays them out as three columns instead of a scroll. On a phone
+         the rail becomes a strip of chips across the top and every pane is the
+         single column it always was.
+
+         **Every control keeps its id.** The modules that own them — personal-ui,
+         map-layers-ui, sources-ui, import, backup-ui, admin-ui — wire exactly
+         what they wired before; what each lost is a dialog, not a control. The
+         shell (src/settings-ui.js) owns only the rail, the panes and which one
+         is showing, and tells a section when it is opened and when it is left. -->
     <div class="modal-overlay" id="settings-overlay" hidden>
-      <div class="modal-card">
+      <div class="modal-card settings-card">
         <div class="modal-head">
           <div>
-            <div data-i18n="settings.export-settings" class="modal-title">Export &amp; settings</div>
-            <div data-i18n="settings.getting-your-map-back-out" class="modal-sub">Getting your map back out again, and how this instance looks after it.</div>
+            <div data-i18n="settings.settings" class="modal-title">Settings</div>
+            <!-- Whose account this is. Written by main.js rather than fixed here:
+                 it is the one line in this dialog that is a fact rather than a
+                 label, and it is what an admin who has opened somebody else's
+                 map reads to be sure of where they are. -->
+            <div class="modal-sub" id="settings-who"></div>
           </div>
           <button data-i18n-aria-label="settings-close.close" class="cell-info-close" id="settings-close" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -670,441 +659,601 @@
           </button>
         </div>
 
-        <div class="sync-options">
-          <!-- First in the list on purpose: everything about this instance and
-               how it behaves, where the two below are about getting a copy of
-               your map out. Home used to live in the trips palette and Editing
-               in the layers menu, which meant "things about me" was in three
-               places; Sources and the cache escape hatch were rows of their own
-               here, which made a hub of five doors where two of them were
-               settings. -->
-          <button type="button" class="sync-option" data-settings="personal">
-            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="3.2" />
-              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
-            </svg>
-            <span class="sync-option-text">
-              <b data-i18n="settings.settings">Settings</b>
-              <small data-i18n="settings.home-the-map-and-what">Home, the map, and what it is built from</small>
-            </span>
-            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m9 5 7 7-7 7" />
-            </svg>
-          </button>
+        <div class="settings-body">
+          <nav data-i18n-aria-label="settings-tabs.sections" class="settings-tabs" id="settings-tabs" role="tablist" aria-label="Sections">
+            <button type="button" class="settings-tab" id="settings-tab-personal" data-tab="personal" role="tab" aria-controls="pane-personal" aria-selected="true">
+              <svg class="settings-tab-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="8.2" r="3.6" />
+                <path d="M4.8 20a7.2 7.2 0 0 1 14.4 0" />
+              </svg>
+              <span data-i18n="settings.personal">Personal</span>
+            </button>
+            <button type="button" class="settings-tab" id="settings-tab-maplayers" data-tab="maplayers" role="tab" aria-controls="pane-maplayers" aria-selected="false">
+              <!-- Three sheets stacked in three-quarter view: the one shape that
+                   reads as *layers* at this size. -->
+              <svg class="settings-tab-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2.6 21.5 7 12 11.4 2.5 7Z" />
+                <path d="m2.5 12 9.5 4.4 9.5-4.4" />
+                <path d="m2.5 17 9.5 4.4 9.5-4.4" />
+              </svg>
+              <span data-i18n="settings.map-layers">Map layers</span>
+            </button>
+            <button type="button" class="settings-tab" id="settings-tab-sources" data-tab="sources" role="tab" aria-controls="pane-sources" aria-selected="false">
+              <svg class="settings-tab-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 7h16" />
+                <path d="M4 12h16" />
+                <path d="M4 17h10" />
+              </svg>
+              <span data-i18n="settings.sources">Sources</span>
+            </button>
+            <button type="button" class="settings-tab" id="settings-tab-import" data-tab="import" role="tab" aria-controls="pane-import" aria-selected="false">
+              <svg class="settings-tab-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 15V3" />
+                <path d="m8 7 4-4 4 4" />
+                <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+              </svg>
+              <span data-i18n="settings.import">Import</span>
+            </button>
+            <!-- The last two are hidden until the server says this account can
+                 administer it. Hidden rather than disabled: a greyed-out Admin
+                 tab on a map somebody shares with a housemate is an invitation
+                 to ask about it, and there is nothing to say. -->
+            <button type="button" class="settings-tab" id="settings-tab-backups" data-tab="backups" role="tab" aria-controls="pane-backups" aria-selected="false" hidden>
+              <svg class="settings-tab-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <ellipse cx="12" cy="6" rx="7.5" ry="3" />
+                <path d="M4.5 6v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6" />
+                <path d="M4.5 12v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6" />
+              </svg>
+              <span data-i18n="settings.backups">Backups</span>
+            </button>
+            <button type="button" class="settings-tab" id="settings-tab-admin" data-tab="admin" role="tab" aria-controls="pane-admin" aria-selected="false" hidden>
+              <svg class="settings-tab-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2.8 19.5 6v5.4c0 4.4-3 8.2-7.5 9.8-4.5-1.6-7.5-5.4-7.5-9.8V6Z" />
+                <path d="m9 12 2.2 2.2L15.4 10" />
+              </svg>
+              <span data-i18n="settings.admin">Admin</span>
+            </button>
+            <button type="button" class="settings-tab" id="settings-tab-other" data-tab="other" role="tab" aria-controls="pane-other" aria-selected="false">
+              <svg class="settings-tab-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+                <circle cx="16" cy="7" r="2" />
+                <circle cx="10" cy="17" r="2" />
+              </svg>
+              <span data-i18n="settings.other">Other</span>
+            </button>
+          </nav>
 
-          <button type="button" class="sync-option" data-settings="export">
-            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
-              <circle cx="8.5" cy="9.5" r="1.6" />
-              <path d="m3.5 16.5 4.6-4.2a1.7 1.7 0 0 1 2.3 0l3.4 3.2" />
-              <path d="m13.2 13.6 2-1.8a1.7 1.7 0 0 1 2.3 0l2.9 2.7" />
-            </svg>
-            <span class="sync-option-text">
-              <b data-i18n="settings.export-an-image">Export an image</b>
-              <small data-i18n="settings.a-picture-of-where-you">A picture of where you have been, cut to a place</small>
-            </span>
-            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m9 5 7 7-7 7" />
-            </svg>
-          </button>
+          <div class="settings-panes" id="settings-panes">
 
-          <button type="button" class="sync-option" data-settings="backup">
-            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <ellipse cx="12" cy="6" rx="7.5" ry="3" />
-              <path d="M4.5 6v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6" />
-              <path d="M4.5 12v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6" />
-            </svg>
-            <span class="sync-option-text">
-              <b data-i18n="settings.backups">Backups</b>
-              <small data-i18n="settings-backup-note.not-set-up" id="settings-backup-note">Not set up</small>
-            </span>
-            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m9 5 7 7-7 7" />
-            </svg>
-          </button>
-        </div>
+            <!-- --- Personal ---------------------------------------------------
+                 Two headings, and the order is who each group is about: you,
+                 then the map. Where is home and what language is this are the
+                 same question ("is this set up for me"); the sun, editing and
+                 snow are the other one ("what is the map doing"). -->
+            <section class="settings-pane" id="pane-personal" role="tabpanel" aria-labelledby="settings-tab-personal" hidden>
+              <div class="pane-head">
+                <div data-i18n="personal.personal" class="pane-title">Personal</div>
+                <div data-i18n="personal.how-this-map-is-set" class="pane-sub">How this map is set up for you, and what it does while you look at it.</div>
+              </div>
+              <!-- Two columns, split at the heading that was already there: you,
+                   and what the map does. Each of these rows is a label and a
+                   control with the whole width between them, and across a
+                   desktop card that is a word on the left and a select a foot
+                   away on the right with nothing in between. -->
+              <div class="pane-body settings-cols two">
+                <div class="settings-col">
+                <div class="home-row">
+                  <div class="home-line">
+                    <span class="home-text">
+                      <b id="settings-home-name"></b>
+                      <small data-i18n="personal.distances-are-measured-from-here">Distances are measured from here</small>
+                    </span>
+                    <button data-i18n="settings-home-set.change" type="button" class="home-set" id="settings-home-set">Change</button>
+                  </div>
+                  <label class="home-show">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M4 11 12 4l8 7" />
+                      <path d="M6 10v9h12v-9" />
+                    </svg>
+                    <span data-i18n="personal.show-on-the-map">Show on the map</span>
+                    <input type="checkbox" id="settings-home-shown" />
+                  </label>
+                </div>
 
-        <div class="modal-actions">
-          <button data-i18n="settings-done.done" type="button" class="modal-btn primary" id="settings-done">Done</button>
-        </div>
-      </div>
-    </div>
+                <!-- The options are filled in from the locale registry rather
+                     than written here, because the list of languages *is* the
+                     registry — a second copy in the markup is a second thing to
+                     keep in step, and the one it would disagree with is the one
+                     that decides what can actually be loaded. Each is named in
+                     its own language: a list of languages is the one list nobody
+                     wants translated, since whoever is reading it is looking for
+                     the one they can read. -->
+                <label class="import-row">
+                  <span data-i18n="personal.language">Language</span>
+                  <select id="settings-locale"></select>
+                </label>
 
-    <div class="modal-overlay" id="personal-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="personal.settings" class="modal-title">Settings</div>
+                <label class="import-row">
+                  <span data-i18n-text="personal.clock">Clock<small data-i18n="settings-clock-note.follows-this-device" id="settings-clock-note">Follows this device</small></span>
+                  <select id="settings-clock">
+                    <option data-i18n="settings-clock.follow-this-device" value="auto">Follow this device</option>
+                    <option data-i18n="settings-clock.24-hour" value="24">24-hour</option>
+                    <option data-i18n="settings-clock.12-hour" value="12">12-hour</option>
+                  </select>
+                </label>
+
+                <!-- How often the map volunteers what has changed. Not a switch,
+                     because "never" and "always" are both wrong for most people
+                     and the useful answer is the middle one. With the clock and
+                     the language because it is the third thing that is about
+                     being spoken to rather than about the map. -->
+                <label class="import-row">
+                  <span data-i18n-text="personal.what-s-new">What's new<small data-i18n="settings-whats-new-note.a-line-on-opening-when" id="settings-whats-new-note">A line on opening, when the map has grown</small></span>
+                  <select id="settings-whats-new">
+                    <option data-i18n="settings-whats-new.never" value="never">Never</option>
+                    <option data-i18n="settings-whats-new.after-substantial-changes" value="substantial">After substantial changes</option>
+                    <option data-i18n="settings-whats-new.always" value="always">Always</option>
+                  </select>
+                </label>
+                </div>
+
+                <div class="settings-col">
+                <div data-i18n="personal.the-map" class="settings-heading first">The map</div>
+                <!-- Whether the 3D basemap works out its own sun. The four suns
+                     themselves stay in the layers menu: which one is up is a
+                     question you ask while looking at the map, and you answer it
+                     by looking at what changed. Whether the map should decide
+                     for itself is the other kind — set once, never revisited —
+                     which is what this list is for. -->
+                <label class="import-row">
+                  <span data-i18n-text="personal.time-of-day">Time of day<small data-i18n="settings-light-note.the-3d-map-follows-the">The 3D map follows the sun where you are</small></span>
+                  <input type="checkbox" id="settings-light-auto" />
+                </label>
+
+                <!-- The one switch that changes what a tap on the map *does*
+                     rather than what it shows, which is why it is here rather
+                     than in the menu you open to change the view. -->
+                <label class="import-row">
+                  <span data-i18n-text="personal.editing">Editing<small data-i18n="personal.add-and-remove-cells-by">Add and remove cells by hand</small></span>
+                  <input type="checkbox" id="edit-toggle" />
+                </label>
+
+                <!-- Snow is weather, and weather is something the map does. It
+                     had a heading of its own reading "Easter eggs", which is a
+                     label for the person who wrote it rather than for the person
+                     reading it. -->
+                <label class="import-row">
+                  <span data-i18n-text="personal.snow">Snow<small data-i18n="settings-snow-note.only-on-the-3d-basemap" id="settings-snow-note">Only on the 3D basemap</small></span>
+                  <select id="settings-snow">
+                    <option data-i18n="settings-snow.never" value="off">Never</option>
+                    <option data-i18n="settings-snow.in-winter" value="winter">In winter</option>
+                    <option data-i18n="settings-snow.always" value="always">Always</option>
+                  </select>
+                </label>
+                </div>
+              </div>
+            </section>
+
+            <!-- --- Map layers -------------------------------------------------
+                 Three columns, because the three things on this page have
+                 nothing to do with each other: the railway overlay, the airports
+                 overlay and the 3D basemap's token are three independent
+                 ingredients, and the only reason they were ever stacked was that
+                 the dialog they lived in was 400px wide. Side by side, the whole
+                 page is one screen with no scroll — which is what a page you
+                 open to change one thing and close should be. Below 1040px they
+                 stack again, in the same order. -->
+            <section class="settings-pane" id="pane-maplayers" role="tabpanel" aria-labelledby="settings-tab-maplayers" hidden>
+              <div class="pane-head">
+                <div data-i18n="maplayers.map-layers" class="pane-title">Map layers</div>
+                <div data-i18n="maplayers.what-the-map-is-built" class="pane-sub">What the map is built out of, and what it draws over the ground</div>
+              </div>
+              <div class="pane-body">
+                <div class="settings-cols">
+                  <!-- Train tracks. The overlay's own switch is not here: "is
+                       this layer drawn" is a question about the view and lives
+                       in the layers menu beside the other switches. What is here
+                       is what it draws. -->
+                  <div class="settings-col">
+                    <div data-i18n="rail.train-tracks" class="dialog-heading first">Train tracks</div>
+                    <label class="import-row">
+                      <span data-i18n-text="rail.interactable">Interactable<small data-i18n="rail.a-tap-on-a-railway">A tap on a railway opens a card about it, and the cursor says so</small></span>
+                      <input type="checkbox" id="rail-interactive" />
+                    </label>
+                    <div class="menu-subhead"><span data-i18n="rail.show">Show</span></div>
+                    <div id="rail-groups"></div>
+                    <!-- Last, and outside the list above, because it is not a
+                         group: a siding and the through line beside it are drawn
+                         by the same layer, so this one is a filter. -->
+                    <label class="import-row rail-technical-row">
+                      <span data-i18n-text="rail.technical-infrastructure">Technical infrastructure<small data-i18n="rail.sidings-yard-roads-and-crossovers">Sidings, yard roads and crossovers; track that is disused, under construction, proposed or lifted; and the halts, junctions, yards and sites a timetable would not call a station</small></span>
+                      <input type="checkbox" id="rail-technical" />
+                    </label>
+                  </div>
+
+                  <div class="settings-col">
+                    <div data-i18n="airports.airports" class="dialog-heading first">Airports</div>
+                    <div class="menu-subhead"><span data-i18n="airports.show">Show</span></div>
+                    <div id="airports-groups"></div>
+                    <!-- Unlike the railway's groups, which filter tiles that
+                         arrive anyway, each of these is its own download — hence
+                         the counts in the rows, and this line saying why they
+                         are there. -->
+                    <div data-i18n="airports.each-group-is-fetched-the" class="import-note">Each group is fetched the first time you switch it on, and kept for next time. Nothing is downloaded for a group that stays off.</div>
+                  </div>
+
+                  <div class="settings-col">
+                    <div data-i18n="mapbox.3d-basemap" class="dialog-heading first">3D basemap</div>
+                    <p data-i18n-text="mapbox.mapbox-will-not-serve-these" class="ha-help">
+                      Mapbox will not serve these tiles without an account, and this app does not have one —
+                      so the basemap runs on <b data-i18n="mapbox.your">your</b> token, billed to you and free below Mapbox's monthly
+                      allowance. Make one at
+                      <a data-i18n="mapbox.account-mapbox-com" href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer noopener">account.mapbox.com</a>;
+                      the default public token is the right one.
+                    </p>
+                    <label class="token-field">
+                      <span data-i18n="mapbox.public-token">Public token</span>
+                      <!-- Not type=password: a public token is not a secret, and
+                           hiding it would only make a paste impossible to check.
+                           `off` on both autocomplete and autocapitalize because a
+                           phone keyboard will otherwise capitalise the p in pk. -->
+                      <input data-i18n-placeholder="mapbox-token.pk-eyj1ijoi" type="text" id="mapbox-token" placeholder="pk.eyJ1Ijoi…"
+                        autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+                    </label>
+                    <div class="token-note" id="mapbox-note" hidden></div>
+                    <div data-i18n="mapbox.the-token-is-saved-to" class="import-note">
+                      The token is saved to your HexPlore account, so every device you sign in on gets the 3D
+                      basemap without being asked again. Empty the box and press Done to take it off all of
+                      them; revoking it is done at Mapbox.
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <!-- Every other control on this page applies itself the moment it
+                   is touched. The token is the one that cannot: it has to be
+                   asked about, and a request per keystroke is not a thing to do
+                   to somebody's Mapbox account. So it is committed on leaving —
+                   this button, another tab, or Done — and the note under the
+                   field says so when the answer is no. -->
+              <div class="pane-actions">
+                <div class="pane-actions-note" id="maplayers-note"></div>
+                <button data-i18n="maplayers-apply.use-this-token" type="button" class="modal-btn primary" id="maplayers-apply">Use this token</button>
+              </div>
+            </section>
+
+            <!-- --- Sources ----------------------------------------------------- -->
+            <section class="settings-pane" id="pane-sources" role="tabpanel" aria-labelledby="settings-tab-sources" hidden>
+              <div class="pane-head">
+                <div data-i18n="sources.sources" class="pane-title">Sources</div>
+                <div data-i18n="sources.everything-that-has-put-something" class="pane-sub">Everything that has put something on your map, and how to take one back off.</div>
+              </div>
+              <div class="pane-body">
+                <p data-i18n-text="sources.clearing-a-cell-says" class="ha-help">
+                  Clearing a cell says <b data-i18n="sources.i-was-never-here">I was never here</b>, whoever put it on the map. This says
+                  something different: <b data-i18n="sources.stop-trusting-this-way-of">stop trusting this way of finding out</b>. A cell another
+                  source also vouches for keeps that claim and stays.
+                </p>
+                <div class="ha-devices-list" id="sources-list"></div>
+                <div class="import-error" id="sources-error" hidden></div>
+              </div>
+            </section>
+
+            <!-- --- Import -------------------------------------------------------
+                 The file importer, which used to be the first entry behind
+                 "Import & sync". It is here because it is the one *doing* half of
+                 the four ways data reaches this map, and the other three are
+                 connections the server keeps asking — those stay in Sync, where
+                 the question is "is it still working". A file you drop is a
+                 setting-shaped act: you do it once, deliberately, and then look
+                 at the result. Sync's own "Files and links" row still exists and
+                 opens this tab, so neither route is a dead end. -->
+            <section class="settings-pane" id="pane-import" role="tabpanel" aria-labelledby="settings-tab-import" hidden>
+              <div class="pane-head">
+                <div data-i18n="import.import-locations" class="pane-title">Import locations</div>
+                <div data-i18n="import.kml-gpx-tcx-fit-geojson" class="pane-sub">KML, GPX, TCX, FIT, GeoJSON, CSV, a whole ZIP, Strava account export, or a JSON export from Google Timeline or Snapchat.</div>
+              </div>
+              <div class="pane-body">
+                <label class="import-drop" id="import-drop">
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 15V3" />
+                    <path d="m8 7 4-4 4 4" />
+                    <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+                  </svg>
+                  <span data-i18n="import-drop-text.choose-files-or-drop-them" id="import-drop-text">Choose files or drop them here</span>
+                  <input type="file" id="import-file" multiple
+                    accept=".json,.geojson,.kml,.gpx,.tcx,.fit,.xml,.csv,.tsv,.txt,.gz,.zip" hidden />
+                </label>
+
+                <button type="button" class="import-alt" id="import-komoot">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z" />
+                    <circle cx="12" cy="10" r="2.6" />
+                  </svg>
+                  <span data-i18n="import-komoot.paste-komoot-links">Paste Komoot links</span>
+                </button>
+
+                <!-- What used to be behind the ⓘ beside "Import locations" in the
+                     menu. It belongs here: it answers the questions you have
+                     while looking at this page, and it costs nothing once the
+                     file has been read. It says what you can't guess from the
+                     file picker — that the big archives go in whole — rather than
+                     repeating the format list above it. -->
+                <p data-i18n-text="import-note.you-can-download" class="import-note" id="import-note">
+                  You can download <b data-i18n="import-note.strava-s-archive">Strava's archive</b> from Settings → My Account → Download your account. You can also download <b data-i18n="import-note.google-timeline">Google Timeline</b> from Google Maps on mobile, or <b data-i18n="import-note.snapchat">Snapchat</b> from accounts.snapchat.com → My Data → <b data-i18n="import-note.export-json-files">Export JSON Files</b> + <b data-i18n="import-note.ranking-and-location">Ranking And Location</b>. Note not all footsteps data is sent by Snapchat.
+                </p>
+
+                <div class="import-report" id="import-report" hidden></div>
+                <div class="import-error" id="import-error" hidden></div>
+
+                <label class="import-row" id="import-source-row" hidden>
+                  <span data-i18n="import-source-row.record-as">Record as</span>
+                  <select id="import-source"></select>
+                </label>
+                <label class="import-row" id="import-routes-row" hidden>
+                  <span data-i18n-text="import-routes-row.save-routes">Save routes<small data-i18n="import-routes-note.keeps-the-tracks-themselves-drawn" id="import-routes-note">Keeps the tracks themselves, drawn over the map</small></span>
+                  <input type="checkbox" id="import-routes" checked />
+                </label>
+              </div>
+              <!-- One button, and no Back: the way out of a tab is another tab.
+                   Clearing the files you picked is a link inside the preview
+                   (see renderReport in src/import.js), where the list of them
+                   is — a Clear down here would be a second control for the same
+                   thing, far from what it clears. -->
+              <div class="pane-actions">
+                <button data-i18n="import-go.import" type="button" class="modal-btn primary" id="import-go" disabled>Import</button>
+              </div>
+            </section>
+
+            <!-- --- Backups ------------------------------------------------------
+                 Admin only, and the tab is hidden for everybody else. A snapshot
+                 is the whole database — every account's cells, every password
+                 hash, the Home Assistant token — so it is a fact about the
+                 machine and not about whoever happens to be signed in. -->
+            <section class="settings-pane" id="pane-backups" role="tabpanel" aria-labelledby="settings-tab-backups" hidden>
+              <div class="pane-head">
+                <div data-i18n="backup.backups" class="pane-title">Backups</div>
+                <div data-i18n="backup.a-copy-of-the-whole" class="pane-sub">A copy of the whole map, taken by the server on a schedule.</div>
+              </div>
+              <div class="pane-body">
+                <div class="settings-cols two">
+                  <div class="settings-col">
+                    <label class="import-row">
+                      <span data-i18n="backup.back-up-automatically">Back up automatically</span>
+                      <input type="checkbox" id="backup-enabled" checked />
+                    </label>
+
+                    <label class="import-row">
+                      <span data-i18n="backup.how-often">How often</span>
+                      <select id="backup-preset">
+                        <option data-i18n="backup-preset.every-hour" value="hourly">Every hour</option>
+                        <option data-i18n="backup-preset.every-6-hours" value="six">Every 6 hours</option>
+                        <option data-i18n="backup-preset.every-day" value="daily" selected>Every day</option>
+                        <option data-i18n="backup-preset.every-week" value="weekly">Every week</option>
+                        <option data-i18n="backup-preset.every-month" value="monthly">Every month</option>
+                        <option data-i18n="backup-preset.custom" value="custom">Custom…</option>
+                      </select>
+                    </label>
+
+                    <label class="import-row" id="backup-time-row">
+                      <span data-i18n="backup-time-row.at">At</span>
+                      <input type="time" id="backup-time" value="04:00" />
+                    </label>
+
+                    <label class="import-row" id="backup-weekday-row" hidden>
+                      <span data-i18n="backup-weekday-row.on">On</span>
+                      <select id="backup-weekday">
+                        <option data-i18n="backup-weekday.monday" value="1">Monday</option>
+                        <option data-i18n="backup-weekday.tuesday" value="2">Tuesday</option>
+                        <option data-i18n="backup-weekday.wednesday" value="3">Wednesday</option>
+                        <option data-i18n="backup-weekday.thursday" value="4">Thursday</option>
+                        <option data-i18n="backup-weekday.friday" value="5">Friday</option>
+                        <option data-i18n="backup-weekday.saturday" value="6">Saturday</option>
+                        <option data-i18n="backup-weekday.sunday" value="0">Sunday</option>
+                      </select>
+                    </label>
+
+                    <label class="import-row" id="backup-dom-row" hidden>
+                      <span data-i18n="backup-dom-row.on-the">On the</span>
+                      <select id="backup-dom">
+                        <option data-i18n="backup-dom.1st" value="1">1st</option>
+                        <option data-i18n="backup-dom.5th" value="5">5th</option>
+                        <option data-i18n="backup-dom.10th" value="10">10th</option>
+                        <option data-i18n="backup-dom.15th" value="15">15th</option>
+                        <option data-i18n="backup-dom.20th" value="20">20th</option>
+                        <option data-i18n="backup-dom.25th" value="25">25th</option>
+                        <option data-i18n="backup-dom.28th" value="28">28th</option>
+                      </select>
+                    </label>
+
+                    <div class="ha-field" id="backup-cron-row" hidden>
+                      <label data-i18n-text="backup-cron-row.schedule" class="ha-label" for="backup-cron">Schedule<small data-i18n-text="backup-cron-row.five-fields-minute-hour-day">Five fields: minute hour day month weekday. <code>0 4 * * *</code> is every day at 04:00; <code>*/15 * * * *</code> is every quarter of an hour.</small></label>
+                      <input class="auth-input" id="backup-cron" type="text" placeholder="0 4 * * *"
+                        autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
+                    </div>
+
+                    <div class="backup-when" id="backup-when"></div>
+
+                    <label class="import-row">
+                      <span data-i18n-text="backup.keep">Keep<small data-i18n="backup.older-copies-are-removed-once">Older copies are removed once there are more than this</small></span>
+                      <select id="backup-keep">
+                        <option data-i18n="backup-keep.3-backups" value="3">3 backups</option>
+                        <option data-i18n="backup-keep.7-backups" value="7">7 backups</option>
+                        <option data-i18n="backup-keep.14-backups" value="14" selected>14 backups</option>
+                        <option data-i18n="backup-keep.30-backups" value="30">30 backups</option>
+                        <option data-i18n="backup-keep.90-backups" value="90">90 backups</option>
+                      </select>
+                    </label>
+
+                    <div class="ha-status" id="backup-status" hidden></div>
+                    <div class="backup-note" id="backup-note" hidden></div>
+                    <div class="import-error" id="backup-error" hidden></div>
+                  </div>
+                  <!-- The copies themselves, in the column beside the schedule
+                       rather than under it: what is already saved and what will
+                       be saved next are the two halves of one question, and a
+                       list of fourteen files pushed the settings off the top. -->
+                  <div class="settings-col">
+                    <div class="backup-files" id="backup-files" hidden></div>
+                  </div>
+                </div>
+              </div>
+              <div class="pane-actions">
+                <button data-i18n="backup-now.back-up-now" type="button" class="modal-btn" id="backup-now">Back up now</button>
+                <button data-i18n="backup-save.save" type="button" class="modal-btn primary" id="backup-save">Save</button>
+              </div>
+            </section>
+
+            <!-- --- Admin --------------------------------------------------------
+                 The server, rather than the map. Everything in here is built from
+                 src/admin-ui.js — it is all counts and dates that arrive as one
+                 answer, and markup for a table whose rows are one per account is
+                 markup that would have to be kept in step with the query. -->
+            <section class="settings-pane" id="pane-admin" role="tabpanel" aria-labelledby="settings-tab-admin" hidden>
+              <div class="pane-head">
+                <div data-i18n="admin.admin" class="pane-title">Admin</div>
+                <div data-i18n="admin.this-server-and-the-accounts" class="pane-sub">This server, and the accounts on it. Nothing here reads anybody's map.</div>
+              </div>
+              <div class="pane-body">
+                <div class="admin-tiles" id="admin-tiles"></div>
+                <div data-i18n="admin.storage" class="dialog-heading">Storage</div>
+                <div class="admin-storage" id="admin-storage"></div>
+                <div data-i18n="admin.accounts" class="dialog-heading">Accounts</div>
+                <div class="admin-users" id="admin-users"></div>
+                <div class="import-error" id="admin-error" hidden></div>
+              </div>
+              <div class="pane-actions">
+                <div class="pane-actions-note" id="admin-note"></div>
+                <button data-i18n="admin-refresh.refresh" type="button" class="modal-btn" id="admin-refresh">Refresh</button>
+              </div>
+            </section>
+
+            <!-- --- Other ---------------------------------------------------------
+                 The three things that are neither a preference nor a source: get
+                 a fresh copy of the app, see the introduction again, and close
+                 the account. They are together because none of them belongs
+                 anywhere else, and apart from everything else because two of the
+                 three take the page away from you. -->
+            <section class="settings-pane" id="pane-other" role="tabpanel" aria-labelledby="settings-tab-other" hidden>
+              <div class="pane-head">
+                <div data-i18n="personal.other" class="pane-title">Other</div>
+                <div data-i18n="personal.the-app-itself-rather-than" class="pane-sub">The app itself, rather than the map it draws.</div>
+              </div>
+              <div class="pane-body">
+                <div class="sync-options">
+                  <!-- The escape hatch. Everything this app caches is derived —
+                       the shell, the boundary datasets, the last answer the API
+                       gave — so throwing it away costs a slower next load and
+                       nothing else. It exists because a stale cache is invisible
+                       from the inside: it looks like the app is simply wrong, and
+                       nothing on the map tells you that you are being shown last
+                       week's copy of it. -->
+                  <button type="button" class="sync-option" id="settings-clear-cache">
+                    <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M20 11a8 8 0 1 0-2.3 6.3" />
+                      <path d="M20 5v6h-6" />
+                    </svg>
+                    <span class="sync-option-text">
+                      <b data-i18n="settings-clear-cache.reload-cached-data">Reload cached data</b>
+                      <!-- The handler writes progress here, and without it the
+                           button threw on the first line and so never cleared
+                           anything at all. -->
+                      <small data-i18n="settings-cache-note.boundaries-tiles-and-the-offline" id="settings-cache-note">Boundaries, tiles and the offline copy</small>
+                    </span>
+                  </button>
+
+                  <!-- The introduction, again. It is shown once and then never
+                       volunteers itself, which is right for a thing nobody wants
+                       twice and wrong for the one person who does — somebody who
+                       skipped it on the first morning, or who has just been
+                       handed an account by whoever set the server up. It is not a
+                       recording: every step reads the state of the map first, so
+                       a replay says "home is already Zurich" rather than asking
+                       again. See src/intro-ui.js. -->
+                  <button type="button" class="sync-option" id="settings-intro">
+                    <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 16.6v-5.2" />
+                      <path d="M12 8.1h.01" />
+                    </svg>
+                    <span class="sync-option-text">
+                      <b data-i18n="settings-intro.replay-the-introduction">Replay the introduction</b>
+                      <small data-i18n="settings-intro-note.what-this-is-and-what" id="settings-intro-note">What this is, and what to feed it</small>
+                    </span>
+                  </button>
+                </div>
+
+                <!-- Deliberately plain: it is here so that "which build am I
+                     actually running" has an answer you can read out over a
+                     message, which is the question every stale-cache report turns
+                     out to have been.
+
+                     The button beside it is the second half of the same question.
+                     A page keeps the build it signed in with for as long as it is
+                     open, so a server updated underneath one leaves it running
+                     last fortnight's app with nothing anywhere saying so — and
+                     being told without being given the one press that fixes it is
+                     a chore, not an answer. Hidden until there is actually
+                     something newer. -->
+                <div class="settings-version" id="settings-version" hidden>
+                  <span id="settings-version-text"></span>
+                  <button data-i18n="settings-version-reload.reload" type="button" class="settings-version-reload" id="settings-version-reload" hidden>Reload</button>
+                </div>
+
+                <!-- Closing the account. Last, and visually apart, because it is
+                     the one control here that cannot be undone and the one that
+                     should never be hit on the way to something else.
+
+                     The password field is not shown until the first press: a
+                     password box sitting open in a settings dialog invites a
+                     browser to fill it in, and an autofilled field one click from
+                     deleting everything is the arrangement this whole section
+                     exists to avoid. -->
+                <div class="settings-danger">
+                  <button type="button" class="settings-danger-open" id="account-delete-open">
+                    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M4 7h16" />
+                      <path d="M9 7V5h6v2" />
+                      <path d="M6 7l1 13h10l1-13" />
+                    </svg>
+                    <span class="sync-option-text">
+                      <b data-i18n="account-delete-open.delete-account">Delete account</b>
+                      <small data-i18n="account-delete-open.everything-in-your-account-permanently">Everything in your account, permanently</small>
+                    </span>
+                  </button>
+
+                  <form class="settings-danger-confirm" id="account-delete-form" hidden>
+                    <p class="settings-danger-warning" id="account-delete-warning"></p>
+                    <label class="settings-danger-field">
+                      <span data-i18n="account-delete-form.enter-your-password-to-confirm">Enter your password to confirm</span>
+                      <input type="password" id="account-delete-password" autocomplete="current-password" />
+                    </label>
+                    <p class="settings-danger-error" id="account-delete-error" hidden></p>
+                    <div class="settings-danger-actions">
+                      <button data-i18n="account-delete-cancel.cancel" type="button" class="modal-btn" id="account-delete-cancel">Cancel</button>
+                      <button data-i18n="account-delete-confirm.delete-everything" type="submit" class="modal-btn danger" id="account-delete-confirm">Delete everything</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </section>
+
           </div>
-          <button data-i18n-aria-label="personal-close.close" class="cell-info-close" id="personal-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
         </div>
 
-        <!-- Three headings, and the order is who each group is about: you, then
-             the map, then what the map is made of. It used to be four — "This
-             app", "The map", "Easter eggs" and an unheaded row of doors — which
-             split the two questions somebody actually arrives with. Where is
-             home and what language is this are the same question ("is this set
-             up for me"); the sun, editing and snow are the same question ("what
-             is the map doing"); and snow under a heading of its own said only
-             that whoever wrote it found it funny. -->
-        <div data-i18n="personal.personal" class="settings-heading">Personal</div>
-
-        <div class="home-row">
-          <div class="home-line">
-            <span class="home-text">
-              <b id="settings-home-name"></b>
-              <small data-i18n="personal.distances-are-measured-from-here">Distances are measured from here</small>
-            </span>
-            <button data-i18n="settings-home-set.change" type="button" class="home-set" id="settings-home-set">Change</button>
-          </div>
-          <label class="home-show">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 11 12 4l8 7" />
-              <path d="M6 10v9h12v-9" />
-            </svg>
-            <span data-i18n="personal.show-on-the-map">Show on the map</span>
-            <input type="checkbox" id="settings-home-shown" />
-          </label>
-        </div>
-
-        <!-- The options are filled in from the locale registry rather than
-             written here, because the list of languages *is* the registry —
-             a second copy in the markup is a second thing to keep in step, and
-             the one it would disagree with is the one that decides what can
-             actually be loaded. Each is named in its own language: a list of
-             languages is the one list nobody wants translated, since whoever is
-             reading it is looking for the one they can read.
-
-             No second line: a select reading "English" beside the word Language
-             has already answered every question a second line could. -->
-        <label class="import-row">
-          <span data-i18n="personal.language">Language</span>
-          <select id="settings-locale"></select>
-        </label>
-
-        <label class="import-row">
-          <span data-i18n-text="personal.clock">Clock<small data-i18n="settings-clock-note.follows-this-device" id="settings-clock-note">Follows this device</small></span>
-          <select id="settings-clock">
-            <option data-i18n="settings-clock.follow-this-device" value="auto">Follow this device</option>
-            <option data-i18n="settings-clock.24-hour" value="24">24-hour</option>
-            <option data-i18n="settings-clock.12-hour" value="12">12-hour</option>
-          </select>
-        </label>
-
-        <!-- How often the map volunteers what has changed. Not a switch,
-             because "never" and "always" are both wrong for most people and the
-             useful answer is the middle one. With the clock and the language
-             because it is the third thing that is about being spoken to rather
-             than about the map. -->
-        <label class="import-row">
-          <span data-i18n-text="personal.what-s-new">What's new<small data-i18n="settings-whats-new-note.a-line-on-opening-when" id="settings-whats-new-note">A line on opening, when the map has grown</small></span>
-          <select id="settings-whats-new">
-            <option data-i18n="settings-whats-new.never" value="never">Never</option>
-            <option data-i18n="settings-whats-new.after-substantial-changes" value="substantial">After substantial changes</option>
-            <option data-i18n="settings-whats-new.always" value="always">Always</option>
-          </select>
-        </label>
-
-
-        <!-- And from here, what the map itself does: how it is lit, whether you
-             can draw on it, and whether it snows. -->
-        <div data-i18n="personal.the-map" class="settings-heading">The map</div>
-        <!-- Whether the 3D basemap works out its own sun. The four suns
-             themselves stay in the layers menu: which one is up is a question
-             you ask while looking at the map, and you answer it by looking at
-             what changed. Whether the map should decide for itself is the other
-             kind — set once, never revisited — which is what this list is for. -->
-        <label class="import-row">
-          <span data-i18n-text="personal.time-of-day">Time of day<small data-i18n="settings-light-note.the-3d-map-follows-the">The 3D map follows the sun where you are</small></span>
-          <input type="checkbox" id="settings-light-auto" />
-        </label>
-
-        <!-- The one switch that changes what a tap on the map *does* rather
-             than what it shows, which is why it is here rather than in the menu
-             you open to change the view. -->
-        <label class="import-row">
-          <span data-i18n-text="personal.editing">Editing<small data-i18n="personal.add-and-remove-cells-by">Add and remove cells by hand</small></span>
-          <input type="checkbox" id="edit-toggle" />
-        </label>
-
-        <!-- Snow is weather, and weather is something the map does. It had a
-             heading of its own reading "Easter eggs", which is a label for the
-             person who wrote it rather than for the person reading it. -->
-        <label class="import-row">
-          <span data-i18n-text="personal.snow">Snow<small data-i18n="settings-snow-note.only-on-the-3d-basemap" id="settings-snow-note">Only on the 3D basemap</small></span>
-          <select id="settings-snow">
-            <option data-i18n="settings-snow.never" value="off">Never</option>
-            <option data-i18n="settings-snow.in-winter" value="winter">In winter</option>
-            <option data-i18n="settings-snow.always" value="always">Always</option>
-          </select>
-        </label>
-
-        <!-- What the map is made of, and what to do when it is stale. Doors
-             rather than rows, because each is a page of its own.
-             In the same container the hub uses, which is where a row of this
-             shape gets its spacing from — on their own they sit flush against
-             each other. -->
-        <div data-i18n="personal.other" class="settings-heading">Other</div>
-        <div class="sync-options">
-        <!-- What the map is built out of, behind one door. Three of these stood
-             in this column — the railway overlay, the airports overlay and the
-             3D basemap's token — and they are the same kind of thing said three
-             times: ingredients, set once, none of them about you or about this
-             device. The switches that *draw* those layers stay in the layers
-             menu; everything about what they draw is behind here. -->
-        <button type="button" class="sync-option" data-personal="maplayers">
-          <!-- Three sheets stacked in three-quarter view: the one shape that
-               reads as *layers* at 18px. -->
-          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 2.6 21.5 7 12 11.4 2.5 7Z" />
-            <path d="m2.5 12 9.5 4.4 9.5-4.4" />
-            <path d="m2.5 17 9.5 4.4 9.5-4.4" />
-          </svg>
-          <span class="sync-option-text">
-            <b data-i18n="personal.map-layers">Map layers</b>
-            <small data-i18n="settings-maplayers-note.train-tracks-airports-and-the">Train tracks, airports and the 3D basemap</small>
-          </span>
-          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m9 5 7 7-7 7" />
-          </svg>
-        </button>
-
-        <button type="button" class="sync-option" data-personal="sources">
-          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 7h16" />
-            <path d="M4 12h16" />
-            <path d="M4 17h10" />
-          </svg>
-          <span class="sync-option-text">
-            <b data-i18n="personal.sources">Sources</b>
-            <small data-i18n="settings-sources-note.where-your-data-comes-from" id="settings-sources-note">Where your data comes from</small>
-          </span>
-          <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m9 5 7 7-7 7" />
-          </svg>
-        </button>
-
-        <!-- The escape hatch. Everything this app caches is derived — the
-             shell, the boundary datasets, the last answer the API gave — so
-             throwing it away costs a slower next load and nothing else. It
-             exists because a stale cache is invisible from the inside: it looks
-             like the app is simply wrong, and nothing on the map tells you that
-             you are being shown last week's copy of it. -->
-        <button type="button" class="sync-option" id="settings-clear-cache">
-          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M20 11a8 8 0 1 0-2.3 6.3" />
-            <path d="M20 5v6h-6" />
-          </svg>
-          <span class="sync-option-text">
-            <b data-i18n="settings-clear-cache.reload-cached-data">Reload cached data</b>
-            <!-- The handler writes progress here, and without it the button
-                 threw on the first line and so never cleared anything at all. -->
-            <small data-i18n="settings-cache-note.boundaries-tiles-and-the-offline" id="settings-cache-note">Boundaries, tiles and the offline copy</small>
-          </span>
-        </button>
-
-        <!-- The introduction, again. It is shown once and then never volunteers
-             itself, which is right for a thing nobody wants twice and wrong for
-             the one person who does — somebody who skipped it on the first
-             morning, or who has just been handed an account by whoever set the
-             server up. It is not a recording: every step reads the state of the
-             map first, so a replay says "home is already Zurich" rather than
-             asking again. See src/intro-ui.js. -->
-        <button type="button" class="sync-option" id="settings-intro">
-          <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 16.6v-5.2" />
-            <path d="M12 8.1h.01" />
-          </svg>
-          <span class="sync-option-text">
-            <b data-i18n="settings-intro.replay-the-introduction">Replay the introduction</b>
-            <small data-i18n="settings-intro-note.what-this-is-and-what" id="settings-intro-note">What this is, and what to feed it</small>
-          </span>
-        </button>
-        </div>
-
-        <!-- Closing the account. Last in the dialog and visually apart from it,
-             because it is the one control here that cannot be undone and the
-             one that should never be hit on the way to something else.
-
-             The password field is not shown until the first press: a password
-             box sitting open in a settings dialog invites a browser to fill it
-             in, and an autofilled field one click from deleting everything is
-             the arrangement this whole section exists to avoid. -->
-        <div class="settings-danger">
-          <button type="button" class="settings-danger-open" id="account-delete-open">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 7h16" />
-              <path d="M9 7V5h6v2" />
-              <path d="M6 7l1 13h10l1-13" />
-            </svg>
-            <span class="sync-option-text">
-              <b data-i18n="account-delete-open.delete-account">Delete account</b>
-              <small data-i18n="account-delete-open.everything-in-your-account-permanently">Everything in your account, permanently</small>
-            </span>
-          </button>
-
-          <form class="settings-danger-confirm" id="account-delete-form" hidden>
-            <p class="settings-danger-warning" id="account-delete-warning"></p>
-            <label class="settings-danger-field">
-              <span data-i18n="account-delete-form.enter-your-password-to-confirm">Enter your password to confirm</span>
-              <input type="password" id="account-delete-password" autocomplete="current-password" />
-            </label>
-            <p class="settings-danger-error" id="account-delete-error" hidden></p>
-            <div class="settings-danger-actions">
-              <button data-i18n="account-delete-cancel.cancel" type="button" class="modal-btn" id="account-delete-cancel">Cancel</button>
-              <button data-i18n="account-delete-confirm.delete-everything" type="submit" class="modal-btn danger" id="account-delete-confirm">Delete everything</button>
-            </div>
-          </form>
-        </div>
-
-        <!-- Last, and deliberately plain: it is here so that "which build am I
-             actually running" has an answer you can read out over a message,
-             which is the question every stale-cache report turns out to have
-             been.
-
-             The button beside it is the second half of the same question. A
-             page keeps the build it signed in with for as long as it is open,
-             so a server updated underneath one leaves it running last
-             fortnight's app with nothing anywhere saying so — and being told
-             without being given the one press that fixes it is a chore, not an
-             answer. Hidden until there is actually something newer. -->
-        <div class="settings-version" id="settings-version" hidden>
-          <span id="settings-version-text"></span>
-          <button data-i18n="settings-version-reload.reload" type="button" class="settings-version-reload" id="settings-version-reload" hidden>Reload</button>
-        </div>
-
-        <div class="modal-actions">
-          <button data-i18n="personal-back.back" type="button" class="modal-btn" id="personal-back">Back</button>
-          <button data-i18n="personal-done.done" type="button" class="modal-btn primary" id="personal-done">Done</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Map layers: everything the map is built out of, on one page.
-
-         This was a signpost with three doors on it — Train tracks, Airports, 3D
-         basemap — each opening a dialog of its own. Three taps to reach a
-         checkbox, and a page whose entire content was a list of places the
-         content was not. The doors are gone and the dialogs they led to are
-         inlined here, in the order the overlays draw in, separated by a rule and
-         named by a heading.
-
-         What that costs is a longer scroll, which is the right trade: this is a
-         page you open to change one thing and close, and a scroll is cheaper to
-         skim than three round trips. Every control keeps its id, so the modules
-         that own them (src/rail-ui.js, src/airports-ui.js, src/mapbox-ui.js) go
-         on wiring exactly what they wired before — what they lost is a dialog
-         each, not a control each. -->
-    <div class="modal-overlay" id="maplayers-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="maplayers.map-layers" class="modal-title">Map layers</div>
-            <div data-i18n="maplayers.what-the-map-is-built" class="modal-sub">What the map is built out of, and what it draws over the ground</div>
-          </div>
-          <button data-i18n-aria-label="maplayers-close.close" class="cell-info-close" id="maplayers-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="ha-scroll">
-          <!-- Train tracks. The overlay's own switch is not here: "is this layer
-               drawn" is a question about the view and lives in the layers menu
-               beside the other switches. What is here is what it draws. -->
-          <div data-i18n="rail.train-tracks" class="dialog-heading first">Train tracks</div>
-          <label class="import-row">
-            <span data-i18n-text="rail.interactable">Interactable<small data-i18n="rail.a-tap-on-a-railway">A tap on a railway opens a card about it, and the cursor says so</small></span>
-            <input type="checkbox" id="rail-interactive" />
-          </label>
-          <div class="menu-subhead"><span data-i18n="rail.show">Show</span></div>
-          <div id="rail-groups"></div>
-          <!-- Last, and outside the list above, because it is not a group: a
-               siding and the through line beside it are drawn by the same layer,
-               so this one is a filter. -->
-          <label class="import-row rail-technical-row">
-            <span data-i18n-text="rail.technical-infrastructure">Technical infrastructure<small data-i18n="rail.sidings-yard-roads-and-crossovers">Sidings, yard roads and crossovers; track that is disused, under construction, proposed or lifted; and the halts, junctions, yards and sites a timetable would not call a station</small></span>
-            <input type="checkbox" id="rail-technical" />
-          </label>
-
-          <div data-i18n="airports.airports" class="dialog-heading">Airports</div>
-          <div class="menu-subhead"><span data-i18n="airports.show">Show</span></div>
-          <div id="airports-groups"></div>
-          <!-- Unlike the railway's groups, which filter tiles that arrive
-               anyway, each of these is its own download — hence the counts in
-               the rows, and this line saying why they are there. -->
-          <div data-i18n="airports.each-group-is-fetched-the" class="import-note">Each group is fetched the first time you switch it on, and kept for next time. Nothing is downloaded for a group that stays off.</div>
-
-          <div data-i18n="mapbox.3d-basemap" class="dialog-heading">3D basemap</div>
-          <p data-i18n-text="mapbox.mapbox-will-not-serve-these" class="ha-help">
-            Mapbox will not serve these tiles without an account, and this app does not have one —
-            so the basemap runs on <b data-i18n="mapbox.your">your</b> token, billed to you and free below Mapbox's monthly
-            allowance. Make one at
-            <a data-i18n="mapbox.account-mapbox-com" href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer noopener">account.mapbox.com</a>;
-            the default public token is the right one.
-          </p>
-          <label class="token-field">
-            <span data-i18n="mapbox.public-token">Public token</span>
-            <!-- Not type=password: a public token is not a secret, and hiding it
-                 would only make a paste impossible to check. `off` on both
-                 autocomplete and autocapitalize because a phone keyboard will
-                 otherwise capitalise the p in pk. -->
-            <input data-i18n-placeholder="mapbox-token.pk-eyj1ijoi" type="text" id="mapbox-token" placeholder="pk.eyJ1Ijoi…"
-              autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-          </label>
-          <div class="token-note" id="mapbox-note" hidden></div>
-          <div data-i18n="mapbox.the-token-is-saved-to" class="import-note">
-            The token is saved to your HexPlore account, so every device you sign in on gets the 3D
-            basemap without being asked again. Empty the box and press Done to take it off all of
-            them; revoking it is done at Mapbox.
-          </div>
-        </div>
-
-        <!-- Done is the only button that commits the token, which is the same
-             arrangement the 3D basemap dialog had — it has simply moved up a
-             floor with everything else. Every other control on this page applies
-             itself as it is touched, so Done is only ever asking Mapbox about a
-             token that has changed, and Back is the way out that does not. -->
-        <div class="modal-actions">
-          <button data-i18n="maplayers-back.back" type="button" class="modal-btn" id="maplayers-back">Back</button>
-          <button data-i18n="maplayers-done.done" type="button" class="modal-btn primary" id="maplayers-done">Done</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-overlay" id="sources-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="sources.sources" class="modal-title">Sources</div>
-            <div data-i18n="sources.everything-that-has-put-something" class="modal-sub">Everything that has put something on your map, and how to take one back off.</div>
-          </div>
-          <button data-i18n-aria-label="sources-close.close" class="cell-info-close" id="sources-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="ha-scroll">
-          <p data-i18n-text="sources.clearing-a-cell-says" class="ha-help">
-            Clearing a cell says <b data-i18n="sources.i-was-never-here">I was never here</b>, whoever put it on the map. This says
-            something different: <b data-i18n="sources.stop-trusting-this-way-of">stop trusting this way of finding out</b>. A cell another
-            source also vouches for keeps that claim and stays.
-          </p>
-          <div class="ha-devices-list" id="sources-list"></div>
-          <div class="import-error" id="sources-error" hidden></div>
-        </div>
-
-        <div class="modal-actions">
-          <button data-i18n="sources-back.back" type="button" class="modal-btn" id="sources-back">Back</button>
-          <button data-i18n="sources-done.done" type="button" class="modal-btn primary" id="sources-done">Done</button>
+        <!-- One footer, not two. Each pane declares its own buttons in its own
+             markup — that is where they belong, next to what they act on — and
+             the shell moves the showing pane's row in here beside Done, so the
+             card has a single bar across the bottom instead of a contextual one
+             stacked on top of a global one. See `show` in src/settings-ui.js. -->
+        <div class="modal-actions settings-actions">
+          <div class="settings-actions-slot" id="settings-actions"></div>
+          <!-- Not the primary button, unlike every other dialog's Done. The
+               emphasis belongs to whatever the pane came here to have you press
+               — Import, Save, Use this token — and two blue buttons side by
+               side is two answers to "what now". Panes with nothing to commit
+               (Personal, Sources) simply have no primary at all, which is the
+               honest thing to say about a page that saves as you touch it. -->
+          <button data-i18n="settings-done.done" type="button" class="modal-btn" id="settings-done">Done</button>
         </div>
       </div>
     </div>
@@ -1294,104 +1443,11 @@
 
         <div class="modal-actions">
           <button data-i18n="export-reset.reset" type="button" class="modal-btn" id="export-reset">Reset</button>
-          <button data-i18n="export-back.back" type="button" class="modal-btn" id="export-back">Back</button>
+          <!-- Done, not Back. This used to be one row inside "Export & settings"
+               and Back went up to that hub; it is a door off the menu now, and
+               there is nothing above it to go back to. -->
+          <button data-i18n="export-back.done" type="button" class="modal-btn" id="export-back">Done</button>
           <button data-i18n="export-save.save-png" type="button" class="modal-btn primary" id="export-save">Save PNG</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-overlay" id="backup-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="backup.backups" class="modal-title">Backups</div>
-            <div data-i18n="backup.a-copy-of-the-whole" class="modal-sub">A copy of the whole map, taken by the server on a schedule.</div>
-          </div>
-          <button data-i18n-aria-label="backup-close.close" class="cell-info-close" id="backup-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="ha-scroll">
-          <label class="import-row">
-            <span data-i18n="backup.back-up-automatically">Back up automatically</span>
-            <input type="checkbox" id="backup-enabled" checked />
-          </label>
-
-          <label class="import-row">
-            <span data-i18n="backup.how-often">How often</span>
-            <select id="backup-preset">
-              <option data-i18n="backup-preset.every-hour" value="hourly">Every hour</option>
-              <option data-i18n="backup-preset.every-6-hours" value="six">Every 6 hours</option>
-              <option data-i18n="backup-preset.every-day" value="daily" selected>Every day</option>
-              <option data-i18n="backup-preset.every-week" value="weekly">Every week</option>
-              <option data-i18n="backup-preset.every-month" value="monthly">Every month</option>
-              <option data-i18n="backup-preset.custom" value="custom">Custom…</option>
-            </select>
-          </label>
-
-          <label class="import-row" id="backup-time-row">
-            <span data-i18n="backup-time-row.at">At</span>
-            <input type="time" id="backup-time" value="04:00" />
-          </label>
-
-          <label class="import-row" id="backup-weekday-row" hidden>
-            <span data-i18n="backup-weekday-row.on">On</span>
-            <select id="backup-weekday">
-              <option data-i18n="backup-weekday.monday" value="1">Monday</option>
-              <option data-i18n="backup-weekday.tuesday" value="2">Tuesday</option>
-              <option data-i18n="backup-weekday.wednesday" value="3">Wednesday</option>
-              <option data-i18n="backup-weekday.thursday" value="4">Thursday</option>
-              <option data-i18n="backup-weekday.friday" value="5">Friday</option>
-              <option data-i18n="backup-weekday.saturday" value="6">Saturday</option>
-              <option data-i18n="backup-weekday.sunday" value="0">Sunday</option>
-            </select>
-          </label>
-
-          <label class="import-row" id="backup-dom-row" hidden>
-            <span data-i18n="backup-dom-row.on-the">On the</span>
-            <select id="backup-dom">
-              <option data-i18n="backup-dom.1st" value="1">1st</option>
-              <option data-i18n="backup-dom.5th" value="5">5th</option>
-              <option data-i18n="backup-dom.10th" value="10">10th</option>
-              <option data-i18n="backup-dom.15th" value="15">15th</option>
-              <option data-i18n="backup-dom.20th" value="20">20th</option>
-              <option data-i18n="backup-dom.25th" value="25">25th</option>
-              <option data-i18n="backup-dom.28th" value="28">28th</option>
-            </select>
-          </label>
-
-          <div class="ha-field" id="backup-cron-row" hidden>
-            <label data-i18n-text="backup-cron-row.schedule" class="ha-label" for="backup-cron">Schedule<small data-i18n-text="backup-cron-row.five-fields-minute-hour-day">Five fields: minute hour day month weekday. <code>0 4 * * *</code> is every day at 04:00; <code>*/15 * * * *</code> is every quarter of an hour.</small></label>
-            <input class="auth-input" id="backup-cron" type="text" placeholder="0 4 * * *"
-              autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
-          </div>
-
-          <div class="backup-when" id="backup-when"></div>
-
-          <label class="import-row">
-            <span data-i18n-text="backup.keep">Keep<small data-i18n="backup.older-copies-are-removed-once">Older copies are removed once there are more than this</small></span>
-            <select id="backup-keep">
-              <option data-i18n="backup-keep.3-backups" value="3">3 backups</option>
-              <option data-i18n="backup-keep.7-backups" value="7">7 backups</option>
-              <option data-i18n="backup-keep.14-backups" value="14" selected>14 backups</option>
-              <option data-i18n="backup-keep.30-backups" value="30">30 backups</option>
-              <option data-i18n="backup-keep.90-backups" value="90">90 backups</option>
-            </select>
-          </label>
-
-          <div class="ha-status" id="backup-status" hidden></div>
-          <div class="backup-files" id="backup-files" hidden></div>
-          <div class="backup-note" id="backup-note" hidden></div>
-          <div class="import-error" id="backup-error" hidden></div>
-        </div>
-
-        <div class="modal-actions">
-          <button data-i18n="backup-back.back" type="button" class="modal-btn" id="backup-back">Back</button>
-          <button data-i18n="backup-now.back-up-now" type="button" class="modal-btn" id="backup-now">Back up now</button>
-          <button data-i18n="backup-save.save" type="button" class="modal-btn primary" id="backup-save">Save</button>
         </div>
       </div>
     </div>

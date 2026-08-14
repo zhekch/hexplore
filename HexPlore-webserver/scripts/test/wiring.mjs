@@ -82,5 +82,80 @@ for (const id of ['trails-toggle', 'rail-toggle']) {
   check(listened(id), `#${id} — the overlay switch, which has been silently unwired before`);
 }
 
+// --- The Settings rail, and what is behind each of its tabs -----------------------
+//
+// The same class of bug as the one above, one floor up. Settings is a rail in
+// the markup, a list of keys in src/settings-ui.js and a bag of sections passed
+// from src/main.js, and nothing checks that the three agree — so a tab renamed
+// in one of them is a rail entry that opens nothing, with no error anywhere and
+// a pane that simply never appears.
+//
+// Three lists, and all three have to match.
+
+console.log('\nThe Settings rail, the panes and the sections agree');
+
+const shell = read('src/settings-ui.js');
+const main = read('src/main.js');
+
+// The rail, in markup order.
+const railAt = html.indexOf('id="settings-tabs"');
+const rail = html.slice(railAt, html.indexOf('id="settings-panes"'));
+const tabs = [...rail.matchAll(/data-tab="([^"]+)"/g)].map((m) => m[1]);
+check(tabs.length >= 6, `the rail has ${tabs.length} tabs`);
+
+// Every tab needs a pane, and every pane needs a tab. Panes are matched by id
+// rather than by attribute, because `aria-controls` is the thing most likely to
+// be the one left behind by a rename.
+const panes = [...html.matchAll(/<section class="settings-pane" id="pane-([^"]+)"/g)].map((m) => m[1]);
+{
+  const orphanTabs = tabs.filter((t) => !panes.includes(t));
+  check(orphanTabs.length === 0, 'every tab has a pane', orphanTabs.join(', '));
+  const orphanPanes = panes.filter((p) => !tabs.includes(p));
+  check(orphanPanes.length === 0, 'and every pane has a tab', orphanPanes.join(', '));
+}
+
+// The shell's own list, which is what decides the order and which two are for
+// an admin only.
+{
+  const listAt = shell.indexOf('const TABS = [');
+  const list = shell.slice(listAt, shell.indexOf('];', listAt));
+  const keys = [...list.matchAll(/key: '([^']+)'/g)].map((m) => m[1]);
+  check(keys.join(',') === tabs.join(','), 'the shell knows the same tabs, in the same order',
+    `${keys.join(',')} vs ${tabs.join(',')}`);
+  // The shell looks these up by id, so a tab whose button id does not follow the
+  // convention is a tab that can never be selected.
+  const missing = keys.filter((k) => !html.includes(`id="settings-tab-${k}"`));
+  check(missing.length === 0, 'and every one of them has a button it can find by id', missing.join(', '));
+}
+
+// And main.js has to hand a section in for each. A missing one is not an error —
+// the shell tolerates it — which is exactly why it needs checking here: the pane
+// would open, be empty, and never draw.
+{
+  const at = main.indexOf('sections: {');
+  const block = main.slice(at, main.indexOf('},', at));
+  const given = [...block.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]).filter((k) => k !== 'sections');
+  const missing = tabs.filter((t) => !given.includes(t));
+  check(missing.length === 0, 'and main.js hands a section in for each', missing.join(', '));
+}
+
+// Buttons a pane declares for the footer. They are *moved* out of the pane at
+// runtime, so a listener attached by id at mount is the only thing that keeps
+// working — one attached by walking the pane would break the first time the tab
+// is left. Checking they are listened to at all is the weakest rule that catches
+// a button left behind by a rename.
+{
+  // To the end of the section rather than to the next `</div>`: the row can hold
+  // a note element of its own, and matching the first closing tag would stop
+  // inside it and quietly find no buttons at all. It is the last thing in every
+  // pane, so the section's own end is the honest boundary.
+  const paneButtons = html.split('<div class="pane-actions">').slice(1)
+    .flatMap((rest) => [...rest.slice(0, rest.indexOf('</section>'))
+      .matchAll(/<button[^>]*\sid="([^"]+)"/g)].map((b) => b[1]));
+  check(paneButtons.length >= 3, `${paneButtons.length} buttons sit in a pane's footer row`);
+  const deafButtons = paneButtons.filter((id) => !listened(id));
+  check(deafButtons.length === 0, 'and every one of them is listened to by id', deafButtons.join(', '));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

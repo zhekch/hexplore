@@ -967,7 +967,7 @@ rows and never removes the ones a source has quietly stopped claiming, so until
 now anything that had once put something on the map could not be taken back off
 it.
 
-Export & settings → Settings → **Sources** lists everything that has, with its
+Settings → **Sources** lists everything that has, with its
 cells and its routes,
 and removes one wholesale: `POST /api/sources/delete` → `forgetSource()`. A cell
 another source also vouches for keeps that row and stays on the map, because
@@ -990,7 +990,7 @@ cannot says that instead.
 
 ### Closing the account
 
-Export & settings → Settings, last row and set apart by a rule: **Delete this
+Settings → Other, last and set apart by a rule: **Delete this
 account**, `POST /api/account/delete` → `deleteAccount()`. Every cell, every
 saved route, the preferences, the Home Assistant and Strava links, the remembered
 workouts, the device rows and the sessions — then the account itself.
@@ -1037,9 +1037,86 @@ session is gone before the response arrives, so `mountAuth` exposes `signedOut()
 offline caches matter most of the four, because the service worker files an
 account's cells and routes under URLs that say nothing about whose they are.
 
+## Settings, as one dialog
+
+Menu → **Settings**. A rail of sections down the left, the one you picked
+filling everything to the right of it: Personal, Map layers, Sources, Import,
+Backups, Admin, Other.
+
+**What it replaces was six dialogs stacked four deep.** "Export & settings" was
+a hub of three rows, one of which opened "Settings", which was a column of rows
+two of which opened "Map layers" and "Sources" — and Map layers had itself only
+just stopped being a signpost onto three more. Reaching a checkbox took four
+taps, and half the pages you passed through held nothing but a list of places
+the content was not.
+
+Both of that arrangement's problems have the same cause. A hub is a page whose
+entire content is a list of doors, and a stack of hubs is depth bought with
+nothing. And every one of those pages was a 400px `.modal-card` — the right
+shape for a phone, and a ribbon down the middle of a desktop screen with a
+scrollbar in it. Take the hubs away and what is left is six unrelated sections,
+which is a tabbed dialog; give it the width it was always refusing, and a
+section with three independent halves can lay them out as three columns instead
+of as a queue.
+
+So **Map layers is three columns** — train tracks, airports, the 3D basemap's
+token — and the whole page is one screenful with nothing below the fold.
+**Personal is two**, split at the heading that was already in it: you, and what
+the map does. **Backups is two**, the schedule beside the copies it has taken.
+They collapse in that order as the room runs out (`grid-template-columns:
+repeat(auto-fit, minmax(…))`, so no section needs a breakpoint of its own), and
+below 860px the rail becomes a strip of chips across the top and every pane is
+the single column it always was.
+
+**Every control kept its id.** `src/settings-ui.js` owns the rail, the panes and
+which one is showing, and nothing else; the modules that own the controls —
+`personal-ui`, `map-layers-ui`, `sources-ui`, `import`, `backup-ui`, `admin-ui`
+— wire exactly what they wired before. What each of them lost is a dialog, not a
+control. The contract between them is two optional methods:
+
+- **`draw()`**, when the section becomes visible, on every visit and not just
+  the first. The state behind these panes is changed from elsewhere — an import
+  in the tab next door, a phone that pushed while the dialog was open, a backup
+  the server took at 04:00 — and a pane showing what was true when the dialog
+  opened is a pane that lies.
+- **`leave()`**, when it stops being visible: another tab, Done, Escape or the
+  backdrop. Returning `false` **holds the tab**, and that exists for exactly one
+  case — the Mapbox token, which is the only control in the dialog that cannot
+  apply itself as it is touched, because a request to Mapbox per keystroke is
+  not a thing to do to somebody's account. Done does *not* honour a hold: a
+  dialog you cannot close is a worse failure than a token you have to paste
+  again.
+
+**One footer, not two.** Each pane declares its own buttons in its own markup,
+next to what they act on, and the shell *moves* that element into the card's
+footer beside Done when the pane is shown. Moved rather than duplicated or
+toggled, so every listener the pane's module attached comes along and no module
+has to know its buttons are not where it left them. Done is deliberately not the
+primary button here — the emphasis belongs to whatever the pane came to have you
+press, and a pane with nothing to commit (Personal, Sources) correctly has no
+primary at all.
+
+Backups and Admin are **hidden**, not disabled, for an account that does not
+administer the server — a greyed-out Admin tab on a map shared with a housemate
+is an invitation to ask about it and there is nothing to say. That is a drawing
+decision and only that; see [Who administers the
+server](#who-administers-the-server) for the gate that actually holds.
+
+**Import moved here** from behind *Import & sync*, where it sat beside Home
+Assistant, Strava and the phone. It is not the same kind of thing as any of
+those three: they are connections the server keeps asking, where the only
+question you ever have is *is it still working*, and a file you drop is
+something you do once and then go and look at the result of. Sync's own "Files
+and links" row still exists and opens this tab, so the habit still works and
+there is one implementation instead of a dialog reachable two ways.
+
+**Export left**, in the other direction: it is a door off the menu of its own
+now. It was the one row in that hub you *do* rather than configure, and it was
+the only one that was actually an export.
+
 ## Export an image
 
-Export & settings → **Export an image**. A picture of where you have been, cut
+Menu → **Export an image**. A picture of where you have been, cut
 to the shape of a place: Switzerland with your blobs inside it and two lines
 saying how much of it you have covered.
 
@@ -1696,7 +1773,7 @@ stand between a tick and a new file:
   logical contents, so two vacuums of the same data produce byte-identical
   files — even after a write that added a row and deleted it again. A copy that
   hashes the same as the newest kept one is thrown away and counted as
-  *skipped*, not kept. The dialog shows both counts, which is the feature
+  *skipped*, not kept. The pane shows both counts, which is the feature
   explaining itself: "12 kept · 39 skipped as unchanged".
 
 The bookkeeping — when it last ran, what the last copy hashed to — lives in a
@@ -1733,8 +1810,14 @@ server itself wrote — the names are matched against a pattern, so pointing
 
 Each copy can be **downloaded**, because a backup that never leaves the machine
 it's a copy of is not a backup. That link is the most sensitive route in the
-app — the file is the whole database — so backups belong to the account that
-made the map (the first one), and every other account is refused in words.
+app — the file is the whole database — so backups belong to whoever administers
+the server, and every other account is refused in words.
+
+That used to be "the first account, by id", which was the right idea with the
+wrong handle on it: an id cannot be granted to a second person and cannot be
+taken back from the first, and a household map eventually wants both. It is a
+flag on the account now — see [Who administers the server](#who-administers-the-server)
+— and the first account still has it, because that is who the flag is given to.
 
 `npm test` covers the parser (leap days, the `13th or Friday` rule, the clock
 change), and the engine: that the copy opens as a database with all the cells in
@@ -2012,7 +2095,7 @@ it isn't a row, it's a reading of the rows — see
   called `rail`, and for as long as ours had that name too, switching to Light
   or Dark left `getLayer('rail')` answering yes about somebody else's layer
   while the train-track overlay quietly stopped existing. Setting home, and the switch that draws it, live in
-  **Export & settings** under *Settings*, beside the Editing switch — three
+  **Settings** under *Personal*, beside the Editing switch — three
   surfaces each opened for another reason used to hold one setting about you
   apiece. The tick for it sits on the home card itself, because "is this the
   right home" is a question you answer by looking at where it is — it started
@@ -4883,7 +4966,8 @@ owns it and reads both, or the later answer would clear the earlier one's.
 
 ### Where the switches live
 
-All of it except the on/off is in **Settings → Train tracks**. They were a
+All of it except the on/off is in **Settings → Map layers**, in the first of
+its three columns. They were a
 disclosure inside the layers menu, folded under the switch that turns the overlay
 on, which was right for two checkboxes and wrong for eight: the layers menu is
 something you flick through while looking at the map, and a column of railway
@@ -4893,10 +4977,10 @@ They are settings — set once, then read the map.
 The overlay's own switch deliberately stays in the layers menu: "is this layer
 drawn" is the same question as "is the heatmap drawn" and belongs beside it.
 
-Opening the dialog **fetches the style**, because the group list is named from it
+Opening the tab **fetches the style**, because the group list is named from it
 and the overlay may never have been switched on. It is a 315 KB lazy chunk and
-opening this dialog is a clear enough statement of intent; the alternative was an
-empty box until you had switched the overlay on first, which is a dialog that
+opening this tab is a clear enough statement of intent; the alternative was an
+empty box until you had switched the overlay on first, which is a page that
 looks broken for the one reason nobody could guess.
 
 ## The airports, from a file rather than an API
@@ -6716,8 +6800,8 @@ way of looking at the map for a minute — the same kind of thing as which
 colouring mode is on, which is also per browser. Move it into `prefsPayload` if
 that turns out to be wrong; nothing else would have to change.
 
-**It is not a deletion, and there is already one of those.** Export & settings →
-Settings → Sources removes a source's rows for good — see [Taking a source back
+**It is not a deletion, and there is already one of those.** Settings →
+Sources removes a source's rows for good — see [Taking a source back
 off the map](#taking-a-source-back-off-the-map). This changes nothing that is
 stored: the rows stay, the roll-up simply skips them.
 
@@ -7424,6 +7508,94 @@ Sessions expire after 90 days server-side, not just in the cookie, and expired
 rows are swept daily. The cookie is `HttpOnly; SameSite=Lax` and gains `Secure`
 automatically whenever the request arrived over HTTPS (`X-Forwarded-Proto`), so
 `COOKIE_SECURE=1` is now only needed to force it on.
+
+### Who administers the server
+
+Everything above is per account, and there is a small set of things that cannot
+be: how much disk is left, whether a backup ran, and letting somebody back in
+who has forgotten their password. `users.is_admin` is who those belong to.
+
+**The first account to register gets it**, and nothing else infers it. An
+existing database has nobody marked, so `bootstrapAdmin()` at boot grants it to
+the lowest-id account — which is the person who set the server up — and then
+stays out of the way: an admin taken off in the panel is not put back on the
+next restart. `ADMIN_USERS=alice,bob` grants it by name at every boot, for the
+case where the answer is a fact about the deployment rather than about who
+happened to sign up first.
+
+This replaced a comparison against `MIN(id)` that the backup routes did inline.
+An id is an accident of insertion order: it cannot be granted to a second person
+and it cannot be taken back from the first, and a map a household shares wants
+both. Admin can now be handed over and taken back, with two guards — **nobody
+can demote themselves**, and **the last admin cannot be demoted** — because the
+only way back from a server with no admin is a text editor and the database
+file.
+
+Everything it unlocks lives under one prefix, `/api/admin/…`, with one gate at
+the top of it, so there is exactly one place to read to know who can reach any
+of it. Three rules hold across the lot:
+
+- **Counts and dates, never contents.** The panel says how many cells an account
+  has, when its phone last pushed, and which of its connectors is failing. It
+  never reads a cell id, a route geometry or a coordinate. That is the whole
+  difference between "Bob's phone stopped three weeks ago" and where Bob was
+  three weeks ago, and `scripts/test/admin.mjs` asserts the shape of the answer
+  to keep it.
+- **Both destructive actions are logged.** Resetting a password and opening
+  somebody's account are the two things here a person could later dispute, so
+  both leave a line in the server log naming who did what to whom.
+- **They are rate limited as a set**, keyed by the admin. Not a guessing defence
+  — the caller has already proved who they are — but a ceiling on a loop that
+  has got loose in the one part of the server where a loop rewrites other
+  people's passwords.
+
+A **password reset** ends every one of that account's sessions with it. A reset
+that leaves the old cookies working has not locked anybody out, which is half of
+why it is being reset.
+
+#### Opening somebody else's account
+
+The one that needs care. A description of a bug is not the bug, and the fastest
+way to see what somebody is seeing is to see it.
+
+The server issues **a whole new session belonging to the other account**, with
+the admin's own id remembered on `sessions.admin_id`, and drops the admin's
+session in the same breath. So the page really is that person in every respect —
+**including not being an admin**, because `currentUser()` resolves the session to
+the account being worn and every permission is read off that.
+
+The gate is therefore two-part: `!isAdmin(user) || user.asAdmin`. The first half
+covers the ordinary case. The second exists for one that the first quietly does
+not — **an admin opening another admin's account**, where the effective user
+passes `isAdmin` and every line the server logs from in there would name the
+wrong person. Refusing on the *session* closes that outright, and costs nothing
+anybody wants: coming back to your own account is one press, and it is the press
+that makes the log true. The single exception is `/api/admin/return`, checked
+before the gate and against the session, because the account being worn has no
+rights to check.
+
+That is the property worth testing, and the test asserts it route by route, in
+both shapes: an admin inside somebody else's account must not be able to act on
+the server while wearing their name, whether or not that name is an admin's.
+
+It is loud in three places at once. A line in the server log at both ends; an
+amber chip across the top of the map that cannot be dismissed — the only thing
+that makes it go away is leaving; and the account name in the Settings header,
+reading *"tenant — opened by boss"*.
+
+Both legs reload the page. Every cache in the app — the cells, the derived
+trips, the routes, the preferences, the offline copy — belongs to whoever was
+signed in, and there is no honest way to swap the account under a running map.
+A reload starts the page again with the cookie the server just handed back,
+which is exactly the path an ordinary sign-in takes.
+
+Two clocks are kept per account so the panel can tell three failures apart.
+`last_login` moves when a password is checked; `last_seen` moves on any request
+a live session makes, written at most once a minute so a read of the map does
+not become a write of the database. A phone signed in six months ago and syncing
+hourly has a stale login and a fresh sighting, and a third date — when data last
+actually *arrived*, from a phone, Home Assistant or Strava — is the one that
+stops moving when something has broken.
 
 ### Where the server is allowed to connect
 

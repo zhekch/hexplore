@@ -1,24 +1,23 @@
-// The "Settings" dialog: everything about this instance and how it behaves —
-// where the map is measured from, what a clock says, whether a tap edits, what
-// the map is built out of, and what is cached.
+// Two of the Settings dialog's panes: **Personal** — where the map is measured
+// from, what a clock says, whether a tap edits, whether it snows — and
+// **Other**, which is the app rather than the map: get a fresh copy, see the
+// introduction again, close the account.
 //
-// It used to be a block sitting on top of the export list in src/settings-ui.js,
-// which put two unrelated kinds of thing in one dialog and made the list below
-// read as a continuation of it. It is an entry of its own now, alongside Export
-// and Backups, so the hub is a list of doors and nothing else.
+// One module for two panes because they are one column split in half. This was
+// a dialog of its own until Settings became tabbed (see src/settings-ui.js);
+// what it lost in the move is the overlay, the Back button and the Done button,
+// and every control in it kept its id. The Sources and Map layers rows went with
+// them: they were doors from here to two more dialogs, and they are tabs now.
 //
-// Sources and the cache escape hatch came here from that hub, where they were
-// doors of their own. A hub of five entries, two of which were settings, is a
-// list you have to read rather than scan — and neither of them is a way of
-// getting your map *out*, which is what the hub is for.
+// Nothing here is saved on a button. Every control applies the moment it is
+// touched, which is why there is no Save and why `draw()` can be called on every
+// visit without losing anything.
 
 import { clockSource, localIs24Hour } from './clock.js';
-import { onBackdropClick } from './dismiss.js';
 import { t } from './i18n.js';
 
 /**
  * @param {object} opts
- * @param {() => void} [opts.onClose]   called when the dialog is dismissed with Back
  * @param {() => ({name?:string}|null)} opts.home where the map is measured from
  * @param {() => void} opts.onSetHome   hand the map over to the home picker
  * @param {() => boolean} opts.homeShown whether the marker is drawn
@@ -37,10 +36,6 @@ import { t } from './i18n.js';
  * @param {() => Array<{key:string,label:string}>} [opts.locales] the languages that exist
  * @param {() => string} [opts.locale] the one in force
  * @param {(key:string) => void} [opts.onLocale] picking one reloads the page
- * @param {{open:Function}} [opts.sources] the Sources dialog, opened from here
- * @param {{open:Function}} [opts.mapLayers] the Map layers page, which holds the
- *   railway, the airports and the 3D basemap's token behind one door — they were
- *   three buttons in this column until the column had six of them
  * @param {() => void} [opts.onReplayIntro] show the introduction again
  * @param {() => Promise<boolean>} [opts.onClearCache] throw the offline copy away
  * @param {() => string|null} [opts.version] the build the server reports
@@ -50,16 +45,17 @@ import { t } from './i18n.js';
  * @param {() => void} [opts.onReload] fetch the app again from the server
  * @param {() => string|null} [opts.username] whose account this is
  * @param {(password:string) => Promise<object>} [opts.onDeleteAccount] close it
+ * @param {() => void} [opts.onLeave] shut the dialog this lives in — deleting an
+ *   account has nothing left to show
  */
 export function mountPersonal({
-  onClose, home, onSetHome, homeShown, onShowHome, clock, onClock, snow, onSnow, snowPossible,
+  home, onSetHome, homeShown, onShowHome, clock, onClock, snow, onSnow, snowPossible,
   sunAuto, onSunAuto,
   whatsNew, onWhatsNew, locales, locale, onLocale,
-  sources, mapLayers, onReplayIntro, onClearCache, version, update, onReload,
-  username, onDeleteAccount,
+  onReplayIntro, onClearCache, version, update, onReload,
+  username, onDeleteAccount, onLeave,
 }) {
   const $ = (id) => document.getElementById(id);
-  const overlay = $('personal-overlay');
   const homeName = $('settings-home-name');
   const homeSet = $('settings-home-set');
   const homeBox = $('settings-home-shown');
@@ -88,8 +84,8 @@ export function mountPersonal({
   const versionText = $('settings-version-text');
   const reloadBtn = $('settings-version-reload');
 
-  // Read on every opening rather than wired once: home can be changed from the
-  // picker this dialog opens, and the answer has to be current when you come
+  // Read on every visit to the pane rather than wired once: home can be changed
+  // from the picker this opens, and the answer has to be current when you come
   // back to it.
   function draw() {
     const set = home?.();
@@ -134,10 +130,6 @@ export function mountPersonal({
       substantial: t('personal.whatsNew.substantial'),
       always: t('personal.whatsNew.always'),
     }[whatsNewSel.value] ?? '';
-    drawVersion();
-    // Folded away again on every opening. A password field left standing from
-    // the last visit is one Return key from doing the thing it asks about.
-    closeDelete();
   }
 
   /**
@@ -172,9 +164,9 @@ export function mountPersonal({
     if (!build) return;
     versionText.textContent = `Server ${build}`;
     update?.().then((now) => {
-      // Guarded on the build still being the one this ran for: the dialog can be
-      // closed and reopened inside one slow request, and an answer about the
-      // previous opening must not land on this one.
+      // Guarded on the build still being the one this ran for: the pane can be
+      // left and returned to inside one slow request, and an answer about the
+      // previous visit must not land on this one.
       if (version?.() !== build) return;
       const stale = now?.version && now.version !== build;
       const parts = [`Server ${stale ? now.version : build}`];
@@ -187,18 +179,10 @@ export function mountPersonal({
     });
   }
 
-  const open = () => {
-    draw();
-    overlay.hidden = false;
-  };
-  const close = () => {
-    overlay.hidden = true;
-  };
-
-  // Picking a home needs the map, so this dialog gets out of the way entirely
-  // rather than returning to the hub behind it.
+  // Picking a home needs the map, so the whole dialog gets out of the way rather
+  // than sitting over the thing you are being asked to point at.
   homeSet.addEventListener('click', () => {
-    close();
+    onLeave?.();
     onSetHome?.();
   });
   homeBox.addEventListener('change', () => onShowHome?.(homeBox.checked));
@@ -223,27 +207,12 @@ export function mountPersonal({
   // be rebuilt from scratch in the language just chosen.
   localeSel.addEventListener('change', () => onLocale?.(localeSel.value));
 
-  // Each of these needs the whole dialog, so this one gets out of the way rather
-  // than stacking a second overlay on top of itself — the same hand-off the home
-  // picker above does, and the same one the hub used to do to reach Sources.
-  const doors = { sources, maplayers: mapLayers };
-  for (const btn of overlay.querySelectorAll('[data-personal]')) {
-    const door = doors[btn.dataset.personal];
-    if (!door) continue;
-    btn.addEventListener('click', () => {
-      close();
-      door.open();
-    });
-  }
-
-  // Throw away everything cached and come back fresh. Nothing to confirm:
-  // everything it drops is derived, so the cost is one slower load.
-  // The introduction, on request. This dialog gets out of the way completely
+  // The introduction, on request. The dialog gets out of the way completely
   // rather than leaving itself open behind a full-screen takeover — the same
   // hand-off the home picker above does, and for a stronger version of the same
   // reason: the deck's home step needs the map, and the map is behind this.
   $('settings-intro')?.addEventListener('click', () => {
-    close();
+    onLeave?.();
     onReplayIntro?.();
   });
 
@@ -300,7 +269,7 @@ export function mountPersonal({
     const who = username?.();
     // Named, because the account you are about to delete is not always the one
     // you think you are signed in as — this is a map several people share a
-    // browser for.
+    // browser for, and an admin can be wearing somebody else's.
     deleteWarning.textContent = who
       ? `Everything in ${who} goes: every cell on the map, every saved route, `
         + 'your preferences, and any Home Assistant or Strava connection. '
@@ -330,9 +299,9 @@ export function mountPersonal({
     try {
       await onDeleteAccount?.(pw);
       // Nothing to put back: the caller has taken the page to the signed-out
-      // state, and this dialog is closed behind it.
+      // state, and this dialog is shut behind it.
       closeDelete();
-      close();
+      onLeave?.();
     } catch (err) {
       deleteError.textContent = err?.message || 'Could not delete the account.';
       deleteError.hidden = false;
@@ -345,20 +314,22 @@ export function mountPersonal({
     }
   });
 
-  $('personal-back').addEventListener('click', () => {
-    close();
-    onClose?.();
-  });
-  $('personal-done').addEventListener('click', close);
-  $('personal-close').addEventListener('click', close);
-  onBackdropClick(overlay, close);
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden) close();
-  });
-
-  // No `summary()` any more. The hub's row used to carry "Home is Zurich" as
-  // its subtitle, which was true when the row was called Personal and is
-  // misleading now that it is called Settings and holds four other things —
-  // a subtitle should say what is behind the door, not report one item of it.
-  return { open, close };
+  return {
+    /** The Personal pane. */
+    personal: { draw },
+    /**
+     * The Other pane.
+     *
+     * The delete form is folded away on every visit. A password field left
+     * standing from the last one is a Return key from doing the thing it asks
+     * about — and unlike the old dialog, which was closed and reopened around
+     * it, a tab can be left and come back in one press.
+     */
+    other: {
+      draw() {
+        drawVersion();
+        closeDelete();
+      },
+    },
+  };
 }

@@ -13,14 +13,13 @@
 // two places is a control you have to keep in step, and the one you reach for
 // is always the nearer one.
 //
-// **Done is still the only thing that commits**, and it is now the page's Done
-// rather than one of this section's own. Same arrangement, one floor up: it
-// checks the token and either leaves onto the 3D map or keeps the page open
-// saying what was wrong. Emptying the box and pressing Done is how a token is
-// taken off. Everything else on that page applies itself as it is touched, so
-// Done is only ever asking Mapbox about a token that actually changed — which is
-// also why there is no Cancel any more: Back is the way out that commits
-// nothing.
+// **Leaving is what commits**, and it is the pane's business rather than this
+// section's: "Use this token", switching to another tab, or pressing Done all
+// run the same check, which either puts the map on the basemap it pays for or
+// holds the tab open saying what was wrong. Emptying the box and leaving is how
+// a token is taken off. Everything else on that page applies itself as it is
+// touched, so this is only ever asking Mapbox about a token that actually
+// changed.
 //
 // The check is not decoration. A Mapbox token can be wrong in four ways that all
 // look identical from the map — mistyped, expired, scoped without `styles:read`,
@@ -110,10 +109,10 @@ export function mountMapbox({ onToken, onUse } = {}) {
 
   input.addEventListener('keydown', (e) => {
     // A token is one long line pasted from somewhere else; Return is the natural
-    // way to finish it, and finishing it is what the page's Done does.
+    // way to finish it, and finishing it is what the pane's own button does.
     if (e.key === 'Enter') {
       e.preventDefault();
-      document.getElementById('maplayers-done')?.click();
+      document.getElementById('maplayers-apply')?.click();
     }
   });
   // Anything typed invalidates whatever the last answer was talking about.

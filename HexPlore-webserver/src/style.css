@@ -1068,6 +1068,16 @@ body {
   color: rgba(255, 255, 255, 0.92);
 }
 
+/* It hard-coded a white and nothing else, which made it invisible on a light
+   card — the same trap `.settings-heading` above was written to avoid, fallen
+   into one rule later. Nobody saw it while these headings only existed in the
+   Map layers dialog, which is not somewhere you go while looking at a light
+   basemap; Settings → Admin puts two of them on a page people will. */
+[data-theme='light'] .dialog-heading {
+  border-top-color: rgba(15, 23, 42, 0.1);
+  color: rgba(15, 23, 42, 0.92);
+}
+
 /* The first section has no rule above it — the dialog's own subtitle is already
    the line it would separate from — but it still needs the gap, or the heading
    reads as a third line of that subtitle. */
@@ -2061,6 +2071,11 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: rgba(255, 255, 255, 0.4);
+}
+
+/* First in a column, so there is nothing above it to be pushed away from. */
+.settings-heading.first {
+  margin-top: 0;
 }
 
 [data-theme='light'] .settings-heading {
@@ -5343,6 +5358,45 @@ body {
   background: rgba(15, 23, 42, 0.15);
 }
 
+/* Somebody else's account, opened by an admin. The same chip as the two above
+   it — it is the same kind of fact, what the map is currently narrowed to and
+   the way back out — and amber, because it is the only one of the three where
+   being wrong about it means editing another person's data. Amber rather than
+   red: nothing is broken and nothing is about to be destroyed; it is a state to
+   be aware of, which is exactly what a warning colour is for.
+
+   Not `danger` red, and not dismissible: see src/admin-ui.js. */
+.route-solo.as-user {
+  background: rgba(72, 51, 12, 0.94);
+  border-color: rgba(240, 178, 74, 0.55);
+  color: rgba(255, 240, 214, 0.95);
+}
+
+.route-solo.as-user > button {
+  border-color: rgba(240, 178, 74, 0.6);
+  background: rgba(240, 178, 74, 0.24);
+}
+
+.route-solo.as-user > button:hover {
+  background: rgba(240, 178, 74, 0.38);
+}
+
+[data-theme='light'] .route-solo.as-user {
+  background: rgba(255, 244, 219, 0.96);
+  border-color: rgba(180, 118, 12, 0.4);
+  color: rgba(76, 46, 3, 0.95);
+}
+
+[data-theme='light'] .route-solo.as-user > button {
+  border-color: rgba(180, 118, 12, 0.35);
+  background: rgba(180, 118, 12, 0.16);
+  color: rgba(60, 36, 2, 0.95);
+}
+
+[data-theme='light'] .route-solo.as-user > button:hover {
+  background: rgba(180, 118, 12, 0.28);
+}
+
 
 
 /* --- The toast ---------------------------------------------------------------
@@ -7157,6 +7211,539 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 @media (min-width: 561px) {
   html[data-client='ios'] .hud {
     bottom: calc(22px + var(--safe-b) + var(--lift, 0px));
+  }
+}
+
+/* --- Settings ------------------------------------------------------------------
+   A rail of sections down the left, the one you picked filling everything to the
+   right of it.
+
+   The shape this replaces was a 400px column — the same `.modal-card` every
+   other dialog uses — which is right for a phone and is a ribbon down the middle
+   of a desktop screen with a scrollbar in it. Six of those, stacked four deep
+   behind each other. The rail is what takes the depth out; the width is what
+   lets a section with three independent halves put them side by side instead of
+   in a queue.
+
+   Sized like the export dialog, and for the same reason: an explicit track each
+   way on the overlay, so the card's percentages have something definite to
+   resolve against. `height: min(760px, 100%)` against an auto row makes the row
+   size to the card and the card size to the row, and the browser settles that
+   circle somewhere absurd. See the note over `#export-overlay`. */
+#settings-overlay {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-card {
+  width: min(1180px, 100%);
+  height: min(780px, 100%);
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-card .modal-head,
+.settings-card > .modal-actions {
+  flex: none;
+}
+
+/* Who this is. Amber when it is not you — the same colour as the chip over the
+   map, so the two read as one fact said twice rather than as two warnings. */
+.settings-who-as {
+  color: rgba(240, 178, 74, 0.95);
+  font-weight: 600;
+}
+
+[data-theme='light'] .settings-who-as {
+  color: rgba(150, 96, 6, 0.95);
+}
+
+.settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 178px minmax(0, 1fr);
+  gap: 20px;
+  margin-top: 16px;
+}
+
+/* The rail. It scrolls on its own rather than with the pane beside it: seven
+   entries fit on any laptop, and on a short window the one thing that must stay
+   reachable is the way to another section. */
+.settings-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding-right: 4px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-tabs::-webkit-scrollbar {
+  width: 0;
+  display: none;
+}
+
+[data-theme='light'] .settings-tabs {
+  border-right-color: rgba(15, 23, 42, 0.1);
+}
+
+.settings-tab {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.68);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-tab[hidden] {
+  display: none;
+}
+
+.settings-tab:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.settings-tab.on {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-weight: 600;
+}
+
+.settings-tab-icon {
+  flex: none;
+  opacity: 0.8;
+}
+
+.settings-tab.on .settings-tab-icon {
+  opacity: 1;
+}
+
+[data-theme='light'] .settings-tab {
+  color: rgba(15, 23, 42, 0.7);
+}
+
+[data-theme='light'] .settings-tab:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: rgba(15, 23, 42, 0.95);
+}
+
+[data-theme='light'] .settings-tab.on {
+  background: rgba(15, 23, 42, 0.1);
+  color: #0f172a;
+}
+
+/* The pane column. `min-height: 0` on both, or a grid item refuses to shrink
+   below its content and the scroll never engages — the same trap the export
+   dialog's two columns fell into. */
+.settings-panes {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-pane {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+
+.settings-pane[hidden] {
+  display: none;
+}
+
+.pane-head {
+  flex: none;
+  margin-bottom: 12px;
+}
+
+.pane-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+}
+
+.pane-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+[data-theme='light'] .pane-sub {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+/* Where the scroll actually lives. Only here — the card does not scroll, the
+   rail does not scroll with it, and the head and the buttons stay put. */
+.pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  /* Room for a focus ring and for the last row's shadow, which a flush
+     `overflow` clips. */
+  padding: 2px 2px 4px;
+  margin: -2px -2px -4px;
+}
+
+.pane-body::-webkit-scrollbar {
+  width: 0;
+  display: none;
+}
+
+/* A pane's own buttons. They live in the pane's markup, next to what they act
+   on, and the shell moves the showing one into the card's footer — so this is
+   only ever laid out inside `.settings-actions`, never where it is written. */
+.pane-actions {
+  display: contents;
+}
+
+/* The footer: the showing pane's buttons on the left, Done on the right. */
+.settings-actions {
+  align-items: center;
+}
+
+.settings-actions-slot {
+  display: contents;
+}
+
+/* Whatever the pane's buttons want to say about what they just did. First in
+   the row and pushed left, so the buttons stay where the eye expects them
+   however long the sentence is. */
+.pane-actions-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+[data-theme='light'] .pane-actions-note {
+  color: rgba(15, 23, 42, 0.6);
+}
+
+/* Columns inside a pane. Map layers has three genuinely independent halves and
+   Backups has two; both were a scroll purely because the dialog they lived in
+   was too narrow to be anything else. `auto-fit` with a floor rather than a
+   fixed count, so the same rule serves both and neither needs a breakpoint of
+   its own — three columns become two and then one as the room runs out. */
+.settings-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px 26px;
+  align-items: start;
+}
+
+.settings-cols.two {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.settings-col {
+  min-width: 0;
+}
+
+/* --- The admin pane ------------------------------------------------------------
+   Tiles for the machine, a list for the disk, a row per account. All of it built
+   from src/admin-ui.js. */
+.admin-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.admin-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.admin-tile b {
+  font-size: 16px;
+  font-weight: 700;
+  /* Tabular figures, so a column of counts lines up and a number that is
+     ticking over does not shuffle the ones beside it. */
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-tile span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.admin-tile small {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+[data-theme='light'] .admin-tile {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='light'] .admin-tile span {
+  color: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme='light'] .admin-tile small {
+  color: rgba(15, 23, 42, 0.6);
+}
+
+/* Two columns where there is room. Seven one-line facts stacked full-width
+   pushed the accounts — the half of this pane somebody came here to act on —
+   below the fold on a laptop. */
+.admin-storage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 0 26px;
+}
+
+.admin-store-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 12.5px;
+}
+
+.admin-store-row b {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.admin-store-row small {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+[data-theme='light'] .admin-store-row {
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='light'] .admin-store-row small {
+  color: rgba(15, 23, 42, 0.5);
+}
+
+/* One account. Three parts — who, the counts, the buttons — and the counts wrap
+   away first: a name and the way to reset its password are what this row is
+   for, and the numbers are what you read once you have found it. */
+.admin-user {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+[data-theme='light'] .admin-user {
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+.admin-user-who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 150px;
+  flex: 1 1 180px;
+}
+
+.admin-user-who b {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.admin-user-who small {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+[data-theme='light'] .admin-user-who small {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+.admin-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(96, 172, 255, 0.22);
+  border: 1px solid rgba(96, 172, 255, 0.4);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.admin-user.is-me .admin-user-who b::after {
+  content: ' (you)';
+  font-weight: 400;
+  opacity: 0.55;
+}
+
+.admin-user-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.admin-user-stats > span {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 34px;
+}
+
+.admin-user-stats b {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-user-stats small {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+[data-theme='light'] .admin-user-stats small {
+  color: rgba(15, 23, 42, 0.45);
+}
+
+.admin-user-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.admin-user-acts .modal-btn {
+  padding: 5px 11px;
+  font-size: 12px;
+}
+
+/* What has stopped, when something has. Only drawn for a connector that is
+   unhappy, so it is meant to catch the eye among rows that have none. */
+.admin-user-bad {
+  margin: -4px 0 8px;
+  font-size: 11.5px;
+  color: rgba(255, 138, 122, 0.95);
+}
+
+[data-theme='light'] .admin-user-bad {
+  color: rgba(178, 42, 28, 0.95);
+}
+
+.admin-reset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 10px;
+  margin: 2px 0 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme='light'] .admin-reset {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.admin-reset label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1 1 220px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-theme='light'] .admin-reset label {
+  color: rgba(15, 23, 42, 0.7);
+}
+
+.admin-reset .ha-devices-note {
+  flex-basis: 100%;
+}
+
+/* --- Settings on a narrow screen -------------------------------------------------
+   The rail becomes a strip of chips across the top and every pane is the single
+   column it always was. 860px rather than the usual 561px: this dialog is two
+   columns of content, and the point at which the narrower of them stops being
+   usable is well above the point at which a phone starts. */
+@media (max-width: 860px) {
+  .settings-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .settings-tabs {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 0 8px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    /* A chip that has scrolled half out of the strip is one that reads as cut
+       off rather than as "there is more that way", so they snap. */
+    scroll-snap-type: x proximity;
+  }
+
+  [data-theme='light'] .settings-tabs {
+    border-bottom-color: rgba(15, 23, 42, 0.1);
+  }
+
+  .settings-tab {
+    width: auto;
+    flex: none;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    scroll-snap-align: start;
+  }
+
+  [data-theme='light'] .settings-tab {
+    background: rgba(15, 23, 42, 0.05);
+  }
+
+  /* The icon goes: seven chips of text already run off the edge of a phone, and
+     an icon beside a word that says the same thing is the half that can be
+     spared. */
+  .settings-tab-icon {
+    display: none;
+  }
+
+  .admin-user-acts {
+    margin-left: 0;
+    flex-basis: 100%;
   }
 }
 
