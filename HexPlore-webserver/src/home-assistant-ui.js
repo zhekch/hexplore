@@ -1,5 +1,12 @@
-// The "Home Assistant" dialog: point the server at your own instance, pick
-// which devices to follow, and let it keep the map current on a schedule.
+// The Home Assistant fold of Settings → Sync: point the server at your own
+// instance, pick which devices to follow, and let it keep the map current on a
+// schedule.
+//
+// It was a dialog until the three connectors became headings that open
+// downwards; see src/sync-ui.js for why. Every control kept its id. What went
+// with the dialog is a Back button, a ✕, an Escape handler, a backdrop, and the
+// fade at the bottom of a box that scrolled on its own — the pane scrolls now,
+// as one thing.
 //
 // Unlike the file importer, nothing is parsed here — the server does the
 // fetching, because it's the thing that's still running when this tab isn't.
@@ -13,7 +20,6 @@
 
 import { auth } from './auth.js';
 import { formatTime } from './clock.js';
-import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 const n = (v) => v.toLocaleString();
@@ -33,12 +39,9 @@ function when(sec) {
  * @param {object} opts
  * @param {() => Promise<void>} opts.onSynced called after a sync that may have added cells
  * @param {(link:object|null) => void} [opts.onLink] called whenever the link changes
- * @param {() => void} [opts.onClose] called when the dialog is dismissed with Back
  */
-export function mountHomeAssistant({ onSynced, onLink, onClose }) {
+export function mountHomeAssistant({ onSynced, onLink }) {
   const $ = (id) => document.getElementById(id);
-  const overlay = $('ha-overlay');
-  const scroller = document.querySelector('.ha-scroll');
   const urlEl = $('ha-url');
   const tokenEl = $('ha-token');
   const devicesBox = $('ha-devices');
@@ -54,9 +57,7 @@ export function mountHomeAssistant({ onSynced, onLink, onClose }) {
   const errEl = $('ha-error');
   const saveBtn = $('ha-save');
   const syncBtn = $('ha-sync');
-  const backBtn = $('ha-back');
   const forgetBtn = $('ha-forget');
-  const closeBtn = $('ha-close');
 
   let link = null; // the saved connection, or null
   let entities = null; // what the last probe found, or null if we haven't asked
@@ -164,19 +165,10 @@ export function mountHomeAssistant({ onSynced, onLink, onClose }) {
     enabledRow.hidden = intervalRow.hidden || !connected;
   }
 
-  // Fade the bottom edge only while something is still hidden below it.
-  function renderScrollHint() {
-    const over = scroller.scrollHeight - scroller.clientHeight;
-    scroller.classList.toggle('more', over > 4);
-    scroller.classList.toggle('at-end', scroller.scrollTop >= over - 4);
-  }
-
   function render() {
     renderDevices();
     renderStatus();
     renderButtons();
-    // The rows above have just changed height; measure after layout settles.
-    requestAnimationFrame(renderScrollHint);
   }
 
   function adoptLink(next) {
@@ -301,10 +293,11 @@ export function mountHomeAssistant({ onSynced, onLink, onClose }) {
   }
 
   // --- Opening ------------------------------------------------------------------
-  async function open() {
+  // Called by the fold when it unfolds. Awaited, so a caller with something to
+  // say afterwards says it over the loaded form rather than under it.
+  async function draw() {
     showErr('');
     entities = null;
-    overlay.hidden = false;
     render();
     try {
       adoptLink(await auth.getHaLink());
@@ -316,14 +309,13 @@ export function mountHomeAssistant({ onSynced, onLink, onClose }) {
     }
   }
 
-  // `silent` closes the flow outright (the ✕, Escape, a click outside);
-  // otherwise this is Back, and the Sync picker takes the screen again.
-  function close(silent = true) {
-    overlay.hidden = true;
+  // Folding away. The token field and the armed Disconnect are the two things
+  // that must not survive it: one is a secret sitting in the DOM and the other
+  // is one press from taking a connection off.
+  function reset() {
     confirmForget = false;
     tokenEl.value = '';
     showErr('');
-    if (!silent) onClose?.();
   }
 
   // Refresh the menu's status line without opening anything.
@@ -339,7 +331,7 @@ export function mountHomeAssistant({ onSynced, onLink, onClose }) {
   // Logging out: forget what this account's connection looked like, without
   // touching the connection itself.
   function clear() {
-    close();
+    reset();
     link = null;
     entities = null;
     picked = new Set();
@@ -348,18 +340,9 @@ export function mountHomeAssistant({ onSynced, onLink, onClose }) {
   }
 
   // --- Wiring -------------------------------------------------------------------
-  scroller.addEventListener('scroll', renderScrollHint, { passive: true });
   saveBtn.addEventListener('click', save);
   syncBtn.addEventListener('click', syncNow);
   forgetBtn.addEventListener('click', forget);
-  backBtn.addEventListener('click', () => close(false));
-  closeBtn.addEventListener('click', () => close());
-  onBackdropClick(overlay, () => {
-    if (!busy) close();
-  });
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden && !busy) close();
-  });
   // Editing the address or token means the device list may be stale: fall back
   // to "check this first".
   for (const el of [urlEl, tokenEl]) {
@@ -379,5 +362,5 @@ export function mountHomeAssistant({ onSynced, onLink, onClose }) {
     });
   }
 
-  return { open, close, refresh, clear };
+  return { draw, reset, refresh, clear };
 }

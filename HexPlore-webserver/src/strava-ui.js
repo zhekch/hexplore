@@ -1,5 +1,8 @@
-// The "Strava" dialog: set up your own Strava app, sign in once, then let the
-// server bring rides across on a schedule.
+// The Strava fold of Settings → Sync: set up your own Strava app, sign in once,
+// then let the server bring rides across on a schedule.
+//
+// It was a dialog until the three connectors became headings that open
+// downwards; see src/sync-ui.js for why. Every control kept its id.
 //
 // The client secret and the tokens live on the server and are never sent back
 // here — this dialog only ever posts them outward and reads status. Signing in
@@ -8,7 +11,6 @@
 
 import { auth } from './auth.js';
 import { formatTime } from './clock.js';
-import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 const n = (v) => v.toLocaleString();
@@ -36,12 +38,11 @@ const RESULTS = {
  * @param {object} opts
  * @param {() => Promise<void>} opts.onSynced called after a sync that added anything
  * @param {(link:object|null) => void} [opts.onLink]
- * @param {() => void} [opts.onClose] called when dismissed with Back
+ * @param {() => Promise<void>} [opts.onReveal] show this fold — the OAuth round
+ *   trip comes back to a page that has no idea it was in the middle of one
  */
-export function mountStrava({ onSynced, onLink, onClose }) {
+export function mountStrava({ onSynced, onLink, onReveal }) {
   const $ = (id) => document.getElementById(id);
-  const overlay = $('strava-overlay');
-  const scroller = overlay.querySelector('.ha-scroll');
   const setup = $('strava-setup');
   const domainEl = $('strava-domain');
   const idEl = $('strava-id');
@@ -57,8 +58,6 @@ export function mountStrava({ onSynced, onLink, onClose }) {
   const saveBtn = $('strava-save');
   const syncBtn = $('strava-sync');
   const forgetBtn = $('strava-forget');
-  const backBtn = $('strava-back');
-  const closeBtn = $('strava-close');
 
   let link = null;
   let busy = false;
@@ -139,11 +138,6 @@ export function mountStrava({ onSynced, onLink, onClose }) {
   function render() {
     renderStatus();
     renderButtons();
-    requestAnimationFrame(() => {
-      const over = scroller.scrollHeight - scroller.clientHeight;
-      scroller.classList.toggle('more', over > 4);
-      scroller.classList.toggle('at-end', scroller.scrollTop >= over - 4);
-    });
   }
 
   function adopt(next) {
@@ -252,9 +246,10 @@ export function mountStrava({ onSynced, onLink, onClose }) {
   }
 
   // --- Opening ------------------------------------------------------------------
-  async function open() {
+  // Called by the fold when it unfolds. Awaited, so `handleReturn` below can put
+  // its message on top of a form that has finished loading.
+  async function draw() {
     showErr('');
-    overlay.hidden = false;
     render();
     try {
       const out = await auth.getStravaLink();
@@ -265,12 +260,12 @@ export function mountStrava({ onSynced, onLink, onClose }) {
     }
   }
 
-  function close(silent = true) {
-    overlay.hidden = true;
+  // Folding away. The secret and the armed Disconnect are the two things that
+  // must not survive it.
+  function reset() {
     confirmForget = false;
     secretEl.value = '';
     showErr('');
-    if (!silent) onClose?.();
   }
 
   async function refresh() {
@@ -283,14 +278,14 @@ export function mountStrava({ onSynced, onLink, onClose }) {
   }
 
   function clear() {
-    close();
+    reset();
     link = null;
     idEl.value = '';
     onLink?.(null);
   }
 
-  // Coming back from Strava: the URL carries the outcome. Open the dialog on it
-  // so the result is seen where it was started, and tidy the address bar.
+  // Coming back from Strava: the URL carries the outcome. Unfold this section on
+  // it so the result is seen where it was started, and tidy the address bar.
   async function handleReturn() {
     const params = new URLSearchParams(window.location.search);
     const result = params.get('strava');
@@ -298,25 +293,18 @@ export function mountStrava({ onSynced, onLink, onClose }) {
     params.delete('strava');
     const rest = params.toString();
     window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
-    await open();
+    // Awaited: it opens Settings on the Sync tab and unfolds this one, which
+    // loads the connection. A message written before that lands underneath it.
+    await onReveal?.();
     if (RESULTS[result]) showErr(RESULTS[result]);
     else if (result === 'ok') await syncNow(); // bring the first batch in right away
     return true;
   }
 
   // --- Wiring -------------------------------------------------------------------
-  scroller.addEventListener('scroll', render, { passive: true });
   saveBtn.addEventListener('click', save);
   syncBtn.addEventListener('click', syncNow);
   forgetBtn.addEventListener('click', forget);
-  backBtn.addEventListener('click', () => close(false));
-  closeBtn.addEventListener('click', () => close());
-  onBackdropClick(overlay, () => {
-    if (!busy) close();
-  });
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden && !busy) close();
-  });
   for (const el of [idEl, secretEl]) {
     el.addEventListener('input', renderButtons);
     el.addEventListener('keydown', (e) => {
@@ -327,5 +315,5 @@ export function mountStrava({ onSynced, onLink, onClose }) {
     });
   }
 
-  return { open, close: () => close(true), refresh, clear, handleReturn };
+  return { draw, reset, refresh, clear, handleReturn };
 }

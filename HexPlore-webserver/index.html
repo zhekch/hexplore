@@ -958,51 +958,202 @@
                 <div data-i18n="sync.sync" class="pane-title">Sync</div>
                 <div data-i18n="sync.the-things-that-keep-your" class="pane-sub">The things that keep your map current on their own, without a file to hand them.</div>
               </div>
+              <!-- Three folds, not three doors. Each opens downwards into the
+                   form it used to have a dialog for; the heading keeps its
+                   status line either way, so the pane closed is the same
+                   overview it always was. One at a time — see src/sync-ui.js. -->
               <div class="pane-body">
-                <div class="sync-options">
-                  <button type="button" class="sync-option" data-sync="ha">
-                    <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M3 10.5 12 3l9 7.5" />
-                      <path d="M5.5 9v11h13V9" />
-                      <path d="M12 20v-6" />
-                    </svg>
-                    <span class="sync-option-text">
-                      <b data-i18n="sync.home-assistant">Home Assistant</b>
-                      <small data-i18n="sync-ha-note.not-connected" id="sync-ha-note">Not connected</small>
-                    </span>
-                    <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="m9 5 7 7-7 7" />
-                    </svg>
-                  </button>
+                <div class="sync-folds" id="sync-folds">
 
-                  <button type="button" class="sync-option" data-sync="strava">
-                    <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M9 13 14 3l5 10h-3l-2-4-2 4Z" />
-                      <path d="M13.5 13 16 18l2.5-5" />
-                      <path d="M5 21h6" />
-                    </svg>
-                    <span class="sync-option-text">
-                      <b data-i18n="sync.strava">Strava</b>
-                      <small data-i18n="sync-strava-note.not-connected" id="sync-strava-note">Not connected</small>
-                    </span>
-                    <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="m9 5 7 7-7 7" />
-                    </svg>
-                  </button>
+                  <section class="sync-fold" id="fold-device">
+                    <button type="button" class="sync-fold-head" data-fold="device" aria-expanded="false" aria-controls="fold-device-body">
+                      <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+                        <path d="M11 18.5h2" />
+                      </svg>
+                      <span class="sync-option-text">
+                        <b data-i18n="sync.your-phone">Your phone</b>
+                        <small data-i18n="sync-device-note.no-phone-syncing" id="sync-device-note">No phone syncing</small>
+                      </span>
+                      <svg class="sync-fold-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="m9 5 7 7-7 7" />
+                      </svg>
+                    </button>
+                    <div class="sync-fold-body" id="fold-device-body" hidden>
+                      <p data-i18n-text="device-help.everything-else-here-is-a" class="ha-help" id="device-help">
+                        Everything else here is a file you export or an address this server can go and read.
+                        A phone is neither: it moves, it sleeps, and it decides for itself when to speak. So it
+                        is set up <b data-i18n="device-help.on-the-phone">on the phone</b> — Hexplore for iOS, Settings tab — and this page is where
+                        you see whether it is working.
+                      </p>
+                      <div class="ha-devices-list" id="device-list"></div>
+                      <div class="ha-status" id="device-status" hidden></div>
+                      <div class="import-error" id="device-error" hidden></div>
 
-                  <button type="button" class="sync-option" data-sync="device">
-                    <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
-                      <path d="M11 18.5h2" />
-                    </svg>
-                    <span class="sync-option-text">
-                      <b data-i18n="sync.your-phone">Your phone</b>
-                      <small data-i18n="sync-device-note.no-phone-syncing" id="sync-device-note">No phone syncing</small>
-                    </span>
-                    <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="m9 5 7 7-7 7" />
-                    </svg>
-                  </button>
+                      <div class="sync-fold-actions">
+                        <button data-i18n="device-refresh.refresh" type="button" class="modal-btn" id="device-refresh">Refresh</button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="sync-fold" id="fold-ha">
+                    <button type="button" class="sync-fold-head" data-fold="ha" aria-expanded="false" aria-controls="fold-ha-body">
+                      <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 10.5 12 3l9 7.5" />
+                        <path d="M5.5 9v11h13V9" />
+                        <path d="M12 20v-6" />
+                      </svg>
+                      <span class="sync-option-text">
+                        <b data-i18n="sync.home-assistant">Home Assistant</b>
+                        <small data-i18n="sync-ha-note.not-connected" id="sync-ha-note">Not connected</small>
+                      </span>
+                      <svg class="sync-fold-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="m9 5 7 7-7 7" />
+                      </svg>
+                    </button>
+                    <div class="sync-fold-body" id="fold-ha-body" hidden>
+                      <div class="settings-cols two">
+                        <div class="settings-col">
+                          <div class="ha-field">
+                            <label data-i18n-text="ha.address" class="ha-label" for="ha-url">Address<small data-i18n="ha.where-you-open-home-assistant">Where you open Home Assistant — this server has to be able to reach it</small></label>
+                            <input data-i18n-placeholder="ha-url.http-homeassistant-local-8123" class="auth-input" id="ha-url" type="text" placeholder="http://homeassistant.local:8123"
+                              autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
+                          </div>
+                          <div class="ha-field">
+                            <label data-i18n-text="ha.long-lived-access-token" class="ha-label" for="ha-token">Long-lived access token<small data-i18n="ha.in-home-assistant-your-profile">In Home Assistant: your profile → Security → bottom of the page</small></label>
+                            <input data-i18n-placeholder="ha-token.paste-the-token" class="auth-input" id="ha-token" type="password" placeholder="Paste the token"
+                              autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
+                          </div>
+
+                          <label class="import-row" id="ha-interval-row" hidden>
+                            <span data-i18n="ha-interval-row.check-every">Check every</span>
+                            <select id="ha-interval">
+                              <option data-i18n="ha-interval.5-minutes" value="5">5 minutes</option>
+                              <option data-i18n="ha-interval.15-minutes" value="15" selected>15 minutes</option>
+                              <option data-i18n="ha-interval.30-minutes" value="30">30 minutes</option>
+                              <option data-i18n="ha-interval.an-hour" value="60">an hour</option>
+                              <option data-i18n="ha-interval.3-hours" value="180">3 hours</option>
+                            </select>
+                          </label>
+                          <label class="import-row" id="ha-accuracy-row" hidden>
+                            <span data-i18n-text="ha-accuracy-row.skip-vague-fixes">Skip vague fixes<small data-i18n="ha-accuracy-row.a-cell-is-about-900">A cell is about 900 m across, so a loose fix can land in the wrong one</small></span>
+                            <select id="ha-accuracy">
+                              <option data-i18n="ha-accuracy.take-them-all" value="0">Take them all</option>
+                              <option data-i18n="ha-accuracy.over-100-m" value="100">Over 100 m</option>
+                              <option data-i18n="ha-accuracy.over-250-m" value="250" selected>Over 250 m</option>
+                              <option data-i18n="ha-accuracy.over-500-m" value="500">Over 500 m</option>
+                              <option data-i18n="ha-accuracy.over-1-km" value="1000">Over 1 km</option>
+                            </select>
+                          </label>
+                          <label class="import-row" id="ha-enabled-row" hidden>
+                            <span data-i18n-text="ha-enabled-row.keep-syncing">Keep syncing<small data-i18n="ha-enabled-row.off-leaves-the-connection-saved">Off leaves the connection saved but idle</small></span>
+                            <input type="checkbox" id="ha-enabled" checked />
+                          </label>
+                        </div>
+
+                        <!-- The device list beside the credentials rather than
+                             under them: it is what the credentials are *for*, it
+                             appears the moment they work, and an instance with
+                             fifteen trackers on it used to push everything else
+                             off the top of the dialog. -->
+                        <div class="settings-col">
+                          <div class="ha-devices" id="ha-devices" hidden>
+                            <div data-i18n="ha-devices.devices-to-follow" class="ha-devices-head">Devices to follow</div>
+                            <div class="ha-devices-list" id="ha-devices-list"></div>
+                            <div class="ha-devices-note" id="ha-devices-note"></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="ha-status" id="ha-status" hidden></div>
+                      <div class="import-error" id="ha-error" hidden></div>
+
+                      <div class="sync-fold-actions">
+                        <button data-i18n="ha-forget.disconnect" type="button" class="modal-btn danger" id="ha-forget" hidden>Disconnect</button>
+                        <button data-i18n="ha-sync.sync-now" type="button" class="modal-btn" id="ha-sync" hidden>Sync now</button>
+                        <button data-i18n="ha-save.connect" type="button" class="modal-btn primary" id="ha-save">Connect</button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="sync-fold" id="fold-strava">
+                    <button type="button" class="sync-fold-head" data-fold="strava" aria-expanded="false" aria-controls="fold-strava-body">
+                      <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M9 13 14 3l5 10h-3l-2-4-2 4Z" />
+                        <path d="M13.5 13 16 18l2.5-5" />
+                        <path d="M5 21h6" />
+                      </svg>
+                      <span class="sync-option-text">
+                        <b data-i18n="sync.strava">Strava</b>
+                        <small data-i18n="sync-strava-note.not-connected" id="sync-strava-note">Not connected</small>
+                      </span>
+                      <svg class="sync-fold-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="m9 5 7 7-7 7" />
+                      </svg>
+                    </button>
+                    <div class="sync-fold-body" id="fold-strava-body" hidden>
+                      <div class="settings-cols two">
+                        <div class="settings-col">
+                          <div class="ha-field">
+                            <label data-i18n="strava.client-id" class="ha-label" for="strava-id">Client ID</label>
+                            <input class="auth-input" id="strava-id" type="text" inputmode="numeric" placeholder="123456"
+                              autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
+                          </div>
+                          <div class="ha-field">
+                            <label data-i18n="strava.client-secret" class="ha-label" for="strava-secret">Client secret</label>
+                            <input data-i18n-placeholder="strava-secret.paste-the-secret" class="auth-input" id="strava-secret" type="password" placeholder="Paste the secret"
+                              autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
+                          </div>
+
+                          <label class="import-row" id="strava-interval-row" hidden>
+                            <span data-i18n="strava-interval-row.check-every">Check every</span>
+                            <select id="strava-interval">
+                              <option data-i18n="strava-interval.15-minutes" value="15">15 minutes</option>
+                              <option data-i18n="strava-interval.30-minutes" value="30">30 minutes</option>
+                              <option data-i18n="strava-interval.an-hour" value="60" selected>an hour</option>
+                              <option data-i18n="strava-interval.3-hours" value="180">3 hours</option>
+                              <option data-i18n="strava-interval.12-hours" value="720">12 hours</option>
+                            </select>
+                          </label>
+                          <label class="import-row" id="strava-routes-row" hidden>
+                            <span data-i18n-text="strava-routes-row.save-routes">Save routes<small data-i18n="strava-routes-row.keeps-each-activity-s-line">Keeps each activity's line, drawn over the map</small></span>
+                            <input type="checkbox" id="strava-routes" checked />
+                          </label>
+                          <label class="import-row" id="strava-enabled-row" hidden>
+                            <span data-i18n-text="strava-enabled-row.keep-syncing">Keep syncing<small data-i18n="strava-enabled-row.off-leaves-the-connection-saved">Off leaves the connection saved but idle</small></span>
+                            <input type="checkbox" id="strava-enabled" checked />
+                          </label>
+                        </div>
+
+                        <!-- Beside the two fields rather than above them, and it
+                             is the one preamble here that has to be read *while*
+                             filling them in: the Client ID and secret do not
+                             exist until you have followed it. -->
+                        <div class="settings-col">
+                          <div class="ha-setup" id="strava-setup">
+                            <p data-i18n="strava-setup.requires-a-subscription-and-needs" class="ha-help">
+                              Requires a subscription and needs generating credentials.
+                            </p>
+                            <ol class="ha-steps">
+                              <li data-i18n-text="strava-setup.open">Open <a data-i18n="strava-setup.strava-com-settings-api" href="https://www.strava.com/settings/api" target="_blank" rel="noopener noreferrer">strava.com/settings/api</a> and create an app.</li>
+                              <li data-i18n-text="strava-setup.set">Set <b data-i18n="strava-setup.authorization-callback-domain">Authorization Callback Domain</b> to <code data-i18n="strava-domain.localhost" id="strava-domain">localhost</code>.</li>
+                              <li data-i18n="strava-setup.copy-its-client-id-and">Copy its Client ID and Client Secret in below.</li>
+                            </ol>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="ha-status" id="strava-status" hidden></div>
+                      <div class="import-error" id="strava-error" hidden></div>
+
+                      <div class="sync-fold-actions">
+                        <button data-i18n="strava-forget.disconnect" type="button" class="modal-btn danger" id="strava-forget" hidden>Disconnect</button>
+                        <button data-i18n="strava-sync.sync-now" type="button" class="modal-btn" id="strava-sync" hidden>Sync now</button>
+                        <button data-i18n="strava-save.save" type="button" class="modal-btn primary" id="strava-save">Save</button>
+                      </div>
+                    </div>
+                  </section>
+
                 </div>
               </div>
             </section>
@@ -1455,108 +1606,6 @@
       </div>
     </div>
 
-    <div class="modal-overlay" id="strava-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="strava.strava" class="modal-title">Strava</div>
-            <div data-i18n="strava.syncing-all-your-activities-from" class="modal-sub">Syncing all your activities from Strava.</div>
-          </div>
-          <button data-i18n-aria-label="strava-close.close" class="cell-info-close" id="strava-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="ha-scroll">
-          <div class="ha-setup" id="strava-setup">
-            <p data-i18n="strava-setup.requires-a-subscription-and-needs" class="ha-help">
-              Requires a subscription and needs generating credentials.
-            </p>
-            <ol class="ha-steps">
-              <li data-i18n-text="strava-setup.open">Open <a data-i18n="strava-setup.strava-com-settings-api" href="https://www.strava.com/settings/api" target="_blank" rel="noopener noreferrer">strava.com/settings/api</a> and create an app.</li>
-              <li data-i18n-text="strava-setup.set">Set <b data-i18n="strava-setup.authorization-callback-domain">Authorization Callback Domain</b> to <code data-i18n="strava-domain.localhost" id="strava-domain">localhost</code>.</li>
-              <li data-i18n="strava-setup.copy-its-client-id-and">Copy its Client ID and Client Secret in below.</li>
-            </ol>
-          </div>
-
-          <div class="ha-field">
-            <label data-i18n="strava.client-id" class="ha-label" for="strava-id">Client ID</label>
-            <input class="auth-input" id="strava-id" type="text" inputmode="numeric" placeholder="123456"
-              autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
-          </div>
-          <div class="ha-field">
-            <label data-i18n="strava.client-secret" class="ha-label" for="strava-secret">Client secret</label>
-            <input data-i18n-placeholder="strava-secret.paste-the-secret" class="auth-input" id="strava-secret" type="password" placeholder="Paste the secret"
-              autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
-          </div>
-
-          <label class="import-row" id="strava-interval-row" hidden>
-            <span data-i18n="strava-interval-row.check-every">Check every</span>
-            <select id="strava-interval">
-              <option data-i18n="strava-interval.15-minutes" value="15">15 minutes</option>
-              <option data-i18n="strava-interval.30-minutes" value="30">30 minutes</option>
-              <option data-i18n="strava-interval.an-hour" value="60" selected>an hour</option>
-              <option data-i18n="strava-interval.3-hours" value="180">3 hours</option>
-              <option data-i18n="strava-interval.12-hours" value="720">12 hours</option>
-            </select>
-          </label>
-          <label class="import-row" id="strava-routes-row" hidden>
-            <span data-i18n-text="strava-routes-row.save-routes">Save routes<small data-i18n="strava-routes-row.keeps-each-activity-s-line">Keeps each activity's line, drawn over the map</small></span>
-            <input type="checkbox" id="strava-routes" checked />
-          </label>
-          <label class="import-row" id="strava-enabled-row" hidden>
-            <span data-i18n-text="strava-enabled-row.keep-syncing">Keep syncing<small data-i18n="strava-enabled-row.off-leaves-the-connection-saved">Off leaves the connection saved but idle</small></span>
-            <input type="checkbox" id="strava-enabled" checked />
-          </label>
-
-          <div class="ha-status" id="strava-status" hidden></div>
-          <div class="import-error" id="strava-error" hidden></div>
-        </div>
-
-        <div class="modal-actions">
-          <button data-i18n="strava-forget.disconnect" type="button" class="modal-btn danger" id="strava-forget" hidden>Disconnect</button>
-          <button data-i18n="strava-back.back" type="button" class="modal-btn" id="strava-back">Back</button>
-          <button data-i18n="strava-sync.sync-now" type="button" class="modal-btn" id="strava-sync" hidden>Sync now</button>
-          <button data-i18n="strava-save.save" type="button" class="modal-btn primary" id="strava-save">Save</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-overlay" id="device-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="device.your-phone" class="modal-title">Your phone</div>
-            <div data-i18n="device.used-to-sync-photo-geolocations" class="modal-sub">Used to sync photo geolocations, workouts and your location in the background.</div>
-          </div>
-          <button data-i18n-aria-label="device-close.close" class="cell-info-close" id="device-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="ha-scroll">
-          <p data-i18n-text="device-help.everything-else-here-is-a" class="ha-help" id="device-help">
-            Everything else here is a file you export or an address this server can go and read.
-            A phone is neither: it moves, it sleeps, and it decides for itself when to speak. So it
-            is set up <b data-i18n="device-help.on-the-phone">on the phone</b> — Hexplore for iOS, Settings tab — and this page is where
-            you see whether it is working.
-          </p>
-          <div class="ha-devices-list" id="device-list"></div>
-          <div class="ha-status" id="device-status" hidden></div>
-          <div class="import-error" id="device-error" hidden></div>
-        </div>
-
-        <div class="modal-actions">
-          <button data-i18n="device-back.back" type="button" class="modal-btn" id="device-back">Back</button>
-          <button data-i18n="device-refresh.refresh" type="button" class="modal-btn primary" id="device-refresh">Refresh</button>
-        </div>
-      </div>
-    </div>
-
     <div class="modal-overlay" id="komoot-overlay" hidden>
       <div class="modal-card">
         <div class="modal-head">
@@ -1588,76 +1637,6 @@
         <div class="modal-actions">
           <button data-i18n="komoot-back.back" type="button" class="modal-btn" id="komoot-back">Back</button>
           <button data-i18n="komoot-go.look-up" type="button" class="modal-btn primary" id="komoot-go" disabled>Look up</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-overlay" id="ha-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="ha.home-assistant" class="modal-title">Home Assistant</div>
-            <div data-i18n="ha.sync-the-data-automatically-from" class="modal-sub">Sync the data automatically from your Home Assistant instance.</div>
-          </div>
-          <button data-i18n-aria-label="ha-close.close" class="cell-info-close" id="ha-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <div class="ha-scroll">
-          <div class="ha-field">
-            <label data-i18n-text="ha.address" class="ha-label" for="ha-url">Address<small data-i18n="ha.where-you-open-home-assistant">Where you open Home Assistant — this server has to be able to reach it</small></label>
-            <input data-i18n-placeholder="ha-url.http-homeassistant-local-8123" class="auth-input" id="ha-url" type="text" placeholder="http://homeassistant.local:8123"
-              autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
-          </div>
-          <div class="ha-field">
-            <label data-i18n-text="ha.long-lived-access-token" class="ha-label" for="ha-token">Long-lived access token<small data-i18n="ha.in-home-assistant-your-profile">In Home Assistant: your profile → Security → bottom of the page</small></label>
-            <input data-i18n-placeholder="ha-token.paste-the-token" class="auth-input" id="ha-token" type="password" placeholder="Paste the token"
-              autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
-          </div>
-
-          <div class="ha-devices" id="ha-devices" hidden>
-            <div data-i18n="ha-devices.devices-to-follow" class="ha-devices-head">Devices to follow</div>
-            <div class="ha-devices-list" id="ha-devices-list"></div>
-            <div class="ha-devices-note" id="ha-devices-note"></div>
-          </div>
-
-          <label class="import-row" id="ha-interval-row" hidden>
-            <span data-i18n="ha-interval-row.check-every">Check every</span>
-            <select id="ha-interval">
-              <option data-i18n="ha-interval.5-minutes" value="5">5 minutes</option>
-              <option data-i18n="ha-interval.15-minutes" value="15" selected>15 minutes</option>
-              <option data-i18n="ha-interval.30-minutes" value="30">30 minutes</option>
-              <option data-i18n="ha-interval.an-hour" value="60">an hour</option>
-              <option data-i18n="ha-interval.3-hours" value="180">3 hours</option>
-            </select>
-          </label>
-          <label class="import-row" id="ha-accuracy-row" hidden>
-            <span data-i18n-text="ha-accuracy-row.skip-vague-fixes">Skip vague fixes<small data-i18n="ha-accuracy-row.a-cell-is-about-900">A cell is about 900 m across, so a loose fix can land in the wrong one</small></span>
-            <select id="ha-accuracy">
-              <option data-i18n="ha-accuracy.take-them-all" value="0">Take them all</option>
-              <option data-i18n="ha-accuracy.over-100-m" value="100">Over 100 m</option>
-              <option data-i18n="ha-accuracy.over-250-m" value="250" selected>Over 250 m</option>
-              <option data-i18n="ha-accuracy.over-500-m" value="500">Over 500 m</option>
-              <option data-i18n="ha-accuracy.over-1-km" value="1000">Over 1 km</option>
-            </select>
-          </label>
-          <label class="import-row" id="ha-enabled-row" hidden>
-            <span data-i18n-text="ha-enabled-row.keep-syncing">Keep syncing<small data-i18n="ha-enabled-row.off-leaves-the-connection-saved">Off leaves the connection saved but idle</small></span>
-            <input type="checkbox" id="ha-enabled" checked />
-          </label>
-
-          <div class="ha-status" id="ha-status" hidden></div>
-          <div class="import-error" id="ha-error" hidden></div>
-        </div>
-
-        <div class="modal-actions">
-          <button data-i18n="ha-forget.disconnect" type="button" class="modal-btn danger" id="ha-forget" hidden>Disconnect</button>
-          <button data-i18n="ha-back.back" type="button" class="modal-btn" id="ha-back">Back</button>
-          <button data-i18n="ha-sync.sync-now" type="button" class="modal-btn" id="ha-sync" hidden>Sync now</button>
-          <button data-i18n="ha-save.connect" type="button" class="modal-btn primary" id="ha-save">Connect</button>
         </div>
       </div>
     </div>

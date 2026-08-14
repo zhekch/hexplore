@@ -9006,7 +9006,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   let sync = null;
   homeAssistant = mountHomeAssistant({
     onSynced: () => hydrateVisited(),
-    onClose: () => settings?.open('sync'),
     onLink: (link) => {
       let text;
       if (!link) text = 'Not connected';
@@ -9048,7 +9047,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   };
   stravaUi = mountStrava({
     onSynced: afterActivities,
-    onClose: () => settings?.open('sync'),
+    // Coming back from Strava's OAuth redirect. The page has just loaded and has
+    // no idea it was in the middle of anything, so the result is shown where it
+    // was started: Settings, on Sync, with this fold open. Awaited, because the
+    // message it is about to write has to land on a loaded form.
+    onReveal: async () => {
+      settings?.open('sync');
+      await sync?.expand('strava');
+    },
     onLink: (l) => {
       let text;
       if (!l) text = 'Not connected';
@@ -9069,7 +9075,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   // Nothing to configure and nothing to poll — the phone decides both. This is
   // only here so "is it working?" has an answer on a laptop.
   deviceUi = mountDevices({
-    onClose: () => settings?.open('sync'),
     onDevices: (devices) => {
       let text;
       if (!devices.length) text = 'No phone syncing';
@@ -9085,9 +9090,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     homeAssistant,
     strava: stravaUi,
     device: deviceUi,
-    // Each row opens a dialog of its own, so Settings gets out of the way
-    // rather than being stacked under one.
-    onLeave: () => settings?.close(),
     // All three run on the server, on timers, while nobody is watching — see
     // `draw` in src/sync-ui.js. Not awaited: each writes its own status line
     // when its answer lands, and the pane is already showing the last one.

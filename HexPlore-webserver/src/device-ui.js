@@ -1,19 +1,19 @@
-// The "Your phone" dialog: which phones are reporting their own position, and
-// whether they are actually doing it.
+// The "Your phone" fold of Settings → Sync: which phones are reporting their own
+// position, and whether they are actually doing it.
 //
-// It is the only connector dialog with nothing to configure, and that is not an
+// It is the only connector with nothing to configure, and that is not an
 // oversight. Home Assistant and Strava are set up here because here is where the
 // server can be told an address and handed a token. A phone cannot be set up
 // from here at all — a schedule stored on this server could not wake it — so the
 // settings live in the iOS app and what is left for this page is the question
 // they raise: *is it working?*
 //
-// Which is worth a screen of its own. A logger you cannot see the output of is
-// indistinguishable from one that stopped a fortnight ago.
+// Which is worth saying somewhere. A logger you cannot see the output of is
+// indistinguishable from one that stopped a fortnight ago — and the heading's
+// own status line answers it without the fold being opened at all.
 
 import { auth } from './auth.js';
 import { formatTime } from './clock.js';
-import { onBackdropClick } from './dismiss.js';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 const n = (v) => v.toLocaleString();
@@ -21,10 +21,11 @@ const n = (v) => v.toLocaleString();
 // small thing that reads as nobody having looked at it.
 const plural = (count, word, suffix = 's') => `${n(count)} ${word}${count === 1 ? '' : suffix}`;
 
-// The same three answers the Home Assistant dialog gives, for the same reason:
+// The same three answers the Home Assistant fold gives, for the same reason:
 // they are what tells you at a glance whether a schedule is running. Exported
-// because the row in the Sync hub says it too, and two spellings of "just now"
-// on one screen is one too many.
+// because the heading above this says it too, and because the admin panel dates
+// every account by it — three spellings of "just now" on one server is two too
+// many.
 export function whenAgo(sec) {
   if (!sec) return 'never';
   const ms = sec * 1000;
@@ -36,19 +37,15 @@ export function whenAgo(sec) {
 
 /**
  * @param {object} opts
- * @param {() => void} [opts.onClose]  called when the dialog is dismissed with Back
  * @param {(devices:Array) => void} [opts.onDevices] called whenever the list changes
  */
-export function mountDevices({ onClose, onDevices } = {}) {
+export function mountDevices({ onDevices } = {}) {
   const $ = (id) => document.getElementById(id);
-  const overlay = $('device-overlay');
   const listEl = $('device-list');
   const helpEl = $('device-help');
   const statusEl = $('device-status');
   const errEl = $('device-error');
   const refreshBtn = $('device-refresh');
-  const backBtn = $('device-back');
-  const closeBtn = $('device-close');
 
   let devices = [];
   let busy = false;
@@ -127,34 +124,19 @@ export function mountDevices({ onClose, onDevices } = {}) {
     }
   }
 
-  const close = () => {
-    overlay.hidden = true;
-  };
-
-  const open = () => {
-    overlay.hidden = false;
-    load();
-  };
-
   refreshBtn.addEventListener('click', load);
-  backBtn.addEventListener('click', () => {
-    close();
-    onClose?.();
-  });
-  closeBtn.addEventListener('click', close);
-  onBackdropClick(overlay, close);
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden) close();
-  });
 
   // Logging out: forget what this account's phones looked like, without
   // touching the phones themselves — they belong to whoever signs in next only
   // if that is the same person, and the server decides that, not this page.
   function clear() {
-    close();
     devices = [];
     render();
   }
 
-  return { open, close, refresh: load, clear, devices: () => devices };
+  // No `reset`: there is nothing here to fold away. Unlike the other two this
+  // holds no secret and arms no button — the only destructive thing in it,
+  // Forget, is per row and asks nothing, because it drops a status row and
+  // leaves every cell the phone ever sent.
+  return { draw: load, refresh: load, clear, devices: () => devices };
 }

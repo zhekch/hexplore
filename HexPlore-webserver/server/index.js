@@ -102,7 +102,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.66.0';
+export const SERVER_VERSION = '0.67.0';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -2458,6 +2458,30 @@ function readBody(req, limit = 8 * 1024 * 1024) {
 }
 
 // --- API ---------------------------------------------------------------------
+// --- What a borrowed session may not do ----------------------------------------
+//
+// **The phone in your pocket must never write into the account you are looking
+// at.** The apps have no login of their own: `SyncClient` copies the web view's
+// cookies into the shared jar after every page load and pushes with whatever is
+// in it (see HexPlore-IOS/HexPlore/SyncClient.swift). So an admin who opens
+// somebody else's map *from inside the app* has just pointed their own
+// background location logging, their Apple Health workouts and their entire
+// photo library at that person's map — silently, minutes later, from a
+// background wake, with nothing on screen at the time.
+//
+// Everywhere else, being the other account is exactly the point of the feature.
+// Here it is the one thing it must not mean, because these three routes are the
+// only ones in this server whose caller is not the person reading the page.
+//
+// Nothing is lost by refusing: the fix queue only drops a batch the server has
+// taken, unsent workouts are simply not marked as taken, and the photo library
+// is re-read from scratch on every scan. It all arrives on the next push, once
+// the admin is back in their own account. The message is written to be read on
+// a phone's Settings tab, which is where it will surface.
+const WEARING_SOMEBODY_ELSE = 'You are viewing another account on this device. '
+  + 'Leave it on the Map tab before this phone syncs again.';
+const borrowed = (user) => !!user?.asAdmin;
+
 async function handleApi(req, res, pathname, query = new URLSearchParams()) {
   try {
     // Is this a Hexplore server, and is it up? Unauthenticated, because the one
@@ -3231,6 +3255,7 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
     if (req.method === 'POST' && pathname === '/api/device/fixes') {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
+      if (borrowed(user)) return send(res, 409, { error: WEARING_SOMEBODY_ELSE });
       // The default 8 MB rather than BIG_BODY_LIMIT, and so no place in the
       // heavyweight queue: MAX_FIXES_PER_PUSH of `[lat, lng, t]` is about 2 MB,
       // and a fix is three numbers however many of them there are. The workout
@@ -3285,6 +3310,7 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
     if (req.method === 'POST' && pathname === '/api/device/workouts') {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
+      if (borrowed(user)) return send(res, 409, { error: WEARING_SOMEBODY_ELSE });
       if (bigRequestsInFlight >= MAX_BIG_REQUESTS) {
         return send(res, 503, { error: 'Busy importing something else — try again in a moment.' });
       }
@@ -3512,6 +3538,7 @@ async function handleApi(req, res, pathname, query = new URLSearchParams()) {
     if (req.method === 'POST' && pathname === '/api/device/photos') {
       const user = currentUser(req);
       if (!user) return send(res, 401, { error: 'not authenticated' });
+      if (borrowed(user)) return send(res, 409, { error: WEARING_SOMEBODY_ELSE });
       if (bigRequestsInFlight >= MAX_BIG_REQUESTS) {
         return send(res, 503, { error: 'Busy importing something else — try again in a moment.' });
       }

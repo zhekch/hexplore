@@ -160,5 +160,30 @@ const panes = [...html.matchAll(/<section class="settings-pane" id="pane-([^"]+)
   check(deafButtons.length === 0, 'and every one of them is listened to by id', deafButtons.join(', '));
 }
 
+// The Sync folds, which are the same rule one floor down. Each fold's form
+// keeps its own buttons at the foot of the fold rather than in the pane's
+// footer — Connect, Sync now, Disconnect, Save, Refresh — and each of them
+// belonged to a dialog until recently. A button left behind by that move is a
+// button that draws, sits there, and does nothing.
+{
+  const folds = [...html.matchAll(/<button[^>]*\sdata-fold="([^"]+)"/g)].map((m) => m[1]);
+  check(folds.length === 3, `${folds.length} connectors fold open in the Sync tab`, folds.join(','));
+  // The shell's own list has to name the same three, or a heading opens nothing.
+  const syncSrc = read('src/sync-ui.js');
+  const at = syncSrc.indexOf('const forms = {');
+  // Keys only: an entry begins after the `{` or a comma, so `ha: homeAssistant`
+  // contributes `ha` and not the handle it is bound to.
+  const names = [...syncSrc.slice(at, syncSrc.indexOf('};', at)).matchAll(/[{,]\s*(\w+)/g)].map((m) => m[1]);
+  const unknown = folds.filter((f) => !names.includes(f));
+  check(unknown.length === 0, 'and src/sync-ui.js has a form for each', unknown.join(', '));
+
+  const foldButtons = html.split('<div class="sync-fold-actions">').slice(1)
+    .flatMap((rest) => [...rest.slice(0, rest.indexOf('</div>'))
+      .matchAll(/<button[^>]*\sid="([^"]+)"/g)].map((b) => b[1]));
+  check(foldButtons.length >= 5, `${foldButtons.length} buttons sit at the foot of a fold`);
+  const deafFolds = foldButtons.filter((id) => !listened(id));
+  check(deafFolds.length === 0, 'and every one of them is listened to by id', deafFolds.join(', '));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

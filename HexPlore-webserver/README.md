@@ -98,7 +98,8 @@ number of approaches that were tried and abandoned.
   last received anything, and how much is on its map. Reset a password for
   somebody locked out, close an account and everything filed under it, or open
   their map as them to see what they are seeing — which puts a bar across the top
-  of the page saying so until you leave.
+  of the page saying so until you leave, and stops your own phone syncing into
+  their map while it lasts.
 
 ## Requirements
 

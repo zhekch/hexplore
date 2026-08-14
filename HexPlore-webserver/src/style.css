@@ -1046,8 +1046,16 @@ body {
    is not: now that none of them carries a second line, 10px reads as a list that
    has been deliberately spread out, which on a phone is a run of toggles you
    have to travel down. Only row-against-row, so nothing else in the panel
-   moves. */
-.menu-row + .menu-row {
+   moves.
+
+   `~` and not `+`, which is the fix for a gap that was visibly wrong under
+   "Your map". Two elements sit between the routes switch and the Photos one —
+   the per-activity expander and the panel it opens — and they are `hidden`
+   almost always. `display: none` hides an element from the *rendering*, not
+   from the sibling combinator, so `+` did not match across them and Photos fell
+   back to the general 10px while every other switch in the list sat at 7px.
+   Measured: with `~`, that one gap changes and no other in the panel does. */
+.menu-row ~ .menu-row {
   margin-top: 7px;
 }
 
@@ -1856,7 +1864,7 @@ body {
   /* A flick that reaches the end of the card stops there rather than scrolling
      the map behind the scrim. */
   overscroll-behavior: contain;
-  /* No rail, the same call as .menu-scroll and .ha-scroll: a track down the
+  /* No rail, the same call as .menu-scroll: a track down the
      inside edge of a glass card reads as a seam in it. */
   scrollbar-width: none;
   box-sizing: border-box;
@@ -2754,6 +2762,116 @@ body {
   color: rgba(255, 255, 255, 0.6);
 }
 
+/* --- The Sync folds ---------------------------------------------------------
+   Three headings that open downwards into the form each used to have a dialog
+   for. The heading is the same object it was as a door — icon, name, status
+   line, chevron — because that is what it still is when it is shut, and the
+   pane closed has to stay the overview it always was. What changed is where the
+   chevron points and what happens when you press it. */
+.sync-folds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.sync-fold {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: rgba(255, 255, 255, 0.06);
+  /* The open one is what the eye should land on when it comes back to a pane
+     it left mid-edit. */
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.sync-fold.on {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.sync-fold-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sync-fold-head:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* Right when shut, down when open — the one rotation everybody already reads as
+   "this is where the content went". Rotated rather than swapped for a second
+   glyph so the movement is the answer. */
+.sync-fold-go {
+  flex: none;
+  opacity: 0.4;
+  transition: transform 0.18s ease, opacity 0.15s ease;
+}
+
+.sync-fold.on .sync-fold-go {
+  transform: rotate(90deg);
+  opacity: 0.75;
+}
+
+.sync-fold-body {
+  padding: 0 14px 14px;
+}
+
+.sync-fold-body[hidden] {
+  display: none;
+}
+
+/* The form's own buttons, at the foot of the fold rather than in the card's
+   footer. They belong to one of three sections on this page — the dialog's
+   footer could hold them because a dialog *was* the section — so putting them
+   in the pane's would be a Save that does not say what it saves. */
+.sync-fold-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sync-fold-actions .modal-btn[hidden] {
+  display: none;
+}
+
+[data-theme='light'] .sync-fold {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.04);
+}
+
+[data-theme='light'] .sync-fold.on {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.18);
+}
+
+[data-theme='light'] .sync-fold-head {
+  color: rgba(15, 23, 42, 0.92);
+}
+
+[data-theme='light'] .sync-fold-head:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+[data-theme='light'] .sync-fold-actions {
+  border-top-color: rgba(15, 23, 42, 0.1);
+}
+
 /* Home Assistant dialog */
 /* A menu button that carries a status line under its label */
 .menu-action span {
@@ -2774,44 +2892,16 @@ body {
   white-space: nowrap;
 }
 
-/* The dialog can outgrow a phone once a long device list is in it, so the
-   fields scroll and the title and buttons stay put. */
-.ha-scroll {
-  max-height: min(52vh, 420px);
-  overflow-y: auto;
-  margin: 4px -6px 0;
-  padding: 0 6px;
-  /* No rail, on any device — the same call as .menu-scroll. A track down the
-     inside edge of a glass card reads as a seam in it, and these panels
-     already say they continue: the last few pixels fade out (.more, below).
-     Scrolling is untouched; only the furniture is gone. */
-  scrollbar-width: none;
-}
-
-.ha-scroll::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
-}
-
-/* Once there's more below the fold, fade the last few pixels out so the panel
-   reads as scrollable instead of as if it simply ended there. The class is put
-   on by the dialog, since CSS can't tell whether a box overflows. */
-.ha-scroll.more {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
-}
-
-.ha-scroll.more.at-end {
-  -webkit-mask-image: none;
-  mask-image: none;
-}
-
+/* `.ha-scroll` used to be here — a scrolling box inside the connector dialogs,
+   with a mask that faded its last few pixels once there was more below. The
+   dialogs are folds in a pane now (src/sync-ui.js) and the pane does the
+   scrolling, as one thing: a box that scrolls inside a box that scrolls is two
+   places to be lost in. The Backups pane lost the same wrapper earlier. */
 .ha-field {
   margin-top: 14px;
 }
 
-/* The "make yourself an app first" preamble in the Strava dialog */
+/* The "make yourself an app first" preamble in the Strava fold */
 .ha-help {
   margin: 14px 0 0;
   font-size: 12px;
@@ -2864,7 +2954,11 @@ body {
   color: rgba(255, 255, 255, 0.45);
 }
 
-.ha-scroll .auth-input {
+/* Every field inside Settings, which is smaller than the sign-in form these
+   are shared with. It was `.ha-scroll .auth-input` and so covered only the
+   three connector dialogs; the cron field and the admin panel's password box
+   were left at the login size, which is a difference nobody chose. */
+.settings-pane .auth-input {
   font-size: 13px;
   padding: 9px 12px;
   border-radius: 12px;
@@ -4230,7 +4324,7 @@ body {
    instead, and changes nothing on a desktop. */
 @media (pointer: coarse) {
   .auth-input,
-  .ha-scroll .auth-input,
+  .settings-pane .auth-input,
   .cp-hex,
   input[type='text'],
   input[type='password'],
@@ -4623,8 +4717,13 @@ body {
 /* Photographs are a different subject from the routes above them, and the
    expander that ends the routes block sat flush against this row — close enough
    that the two read as one control with a caption under it. The gap is the whole
-   of what says otherwise. */
-#photos-row {
+   of what says otherwise.
+
+   Only while that expander is actually there. It appears once there are routes
+   to colour by, and unconditional extra room for a control that is usually
+   hidden is a hole in the middle of the list on every map that has none — which
+   is what it was: 12px under "Your map" where every other pair sits at 7. */
+#routes-options-toggle:not([hidden]) ~ #photos-row {
   margin-top: 12px;
 }
 

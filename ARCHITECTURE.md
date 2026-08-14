@@ -1122,13 +1122,23 @@ wanted at different times. Its "Files and links" row is simply gone: a hub with
 one entry that leaves for a different dialog is a hub that lies about where its
 content is.
 
-Each of Sync's three rows still opens a **dialog**, because each is a form — an
-address and a long-lived token, an OAuth round trip, a phone's status — and a
-form is the one shape a tab is worse at than a modal. Settings gets out of the
-way for them and they come back to the tab, which is the same hand-off Komoot
-does from Import. Opening the tab re-reads all three: they run on the server, on
-timers, and a poll that started failing an hour ago is exactly what somebody
-opening it is there to find.
+Each of Sync's three rows is a **heading that opens downwards** into the form it
+used to have a dialog for. Three modals, three Back buttons and a hub in front
+of them whose whole content was a list of their names is the same shape Settings
+had just stopped being, one floor further down. Folding costs nothing that
+arrangement was buying: the heading keeps its status line, so the pane shut is
+the overview the hub was; opening one puts the form under the words that named
+it, with the other two still visible; and there is no Back, because you never
+left. One at a time — not to save room, since the pane scrolls, but because
+these are three answers to one question and two open forms turn a comparison
+into a search.
+
+Your phone leads, then Home Assistant, then Strava: the one most people have and
+the only one that needs nothing typed into it, then the two that ask for a
+token. Each form's own buttons sit at the foot of its fold rather than in the
+card's footer — a Save down there could not say what it saves. Opening the tab
+re-reads all three: they run on the server, on timers, and a poll that started
+failing an hour ago is exactly what somebody opening it is there to find.
 
 **The menu is two doors now**, Export and then Settings. Statistics and a
 picture are things you come to the menu to *do* while looking at the map;
@@ -7621,6 +7631,40 @@ It is loud in three places at once. A line in the server log at both ends; an
 amber chip across the top of the map that cannot be dismissed — the only thing
 that makes it go away is leaving; and the account name in the Settings header,
 reading *"tenant — opened by boss"*.
+
+#### …and your own phone must not follow you in
+
+The one place where "be the other account" is the wrong answer, and it is not
+obvious from anywhere the feature is written.
+
+**The apps have no login of their own.** `SyncClient` copies the web view's
+cookies into `HTTPCookieStorage.shared` after every page load and pushes with
+whatever is in that jar — deliberately, because a second session to keep in step
+with the first is the bug and not the feature. So an admin who opens somebody
+else's map *from inside the iOS or macOS app* has, in the same gesture, pointed
+their own background location logging, their Apple Health workouts and their
+entire photo library at that person's map. Silently, from a background wake,
+minutes later, with nothing on screen at the time.
+
+So `/api/device/fixes`, `/api/device/workouts` and `/api/device/photos` answer
+**409** to a session with `admin_id` set. They are the only three routes in this
+server whose caller is not the person reading the page, which is exactly what
+makes them the only three that need this: everywhere else, the request came from
+somebody looking at the account they meant to be looking at.
+
+Nothing is lost by refusing. The fix queue only drops a batch the server has
+taken (see `flush` in SyncClient.swift), unsent workouts are simply never marked
+as taken, and the photo library is re-read from scratch on every scan — so it
+all arrives on the next push, once the admin is back in their own account. The
+message is phrased for the phone's Settings tab, which is where a 409 surfaces:
+*"You are viewing another account on this device. Leave it on the Map tab before
+this phone syncs again."* Not a 401, which would tell them to sign in — the one
+thing that would not help.
+
+Editing cells, changing preferences and importing a file are all left alone
+while impersonating. Those are done *by hand, on purpose, by somebody who can
+see the amber chip*, and doing them on the account you opened is often the point
+of having opened it.
 
 Both legs reload the page. Every cache in the app — the cells, the derived
 trips, the routes, the preferences, the offline copy — belongs to whoever was

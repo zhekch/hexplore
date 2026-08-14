@@ -249,8 +249,43 @@ try {
     }
     check(leaked.length === 0, 'and every admin route refuses it, backups included', leaked.join(', '));
 
+    // --- The phone in your pocket ------------------------------------------------
+    //
+    // The apps have no login of their own: `SyncClient` copies the web view's
+    // cookies into the shared jar and pushes with whatever is in it. So an admin
+    // who opens somebody else's map *from inside the app* has pointed their own
+    // background logging, their Health workouts and their whole photo library at
+    // that person's map — silently, from a background wake, minutes later.
+    //
+    // These three are the only routes in the server whose caller is not the
+    // person reading the page, and they are the only three a borrowed session
+    // may not use. Everything else about being the other account is the point.
+    const PUSHES = [
+      ['/api/device/fixes', { device: { id: 'testdevice1' }, fixes: [[46.9, 7.4, 1700000000]] }],
+      ['/api/device/workouts', { device: { id: 'testdevice1' }, workouts: [] }],
+      ['/api/device/photos', { device: { id: 'testdevice1' }, photos: [[46.9, 7.4, 1700000000]] }],
+    ];
+    const pushed = [];
+    for (const [url, body] of PUSHES) {
+      const r = await api('POST', url, body, 'a');
+      if (r.status !== 409) pushed.push(`${url} → ${r.status}`);
+    }
+    check(pushed.length === 0, "a phone cannot push into the account its owner is only looking at",
+      pushed.join(', '));
+    check((await api('POST', PUSHES[0][0], PUSHES[0][1], 'a')).data?.error?.includes('another account'),
+      'and the refusal is written to be read on a phone',
+      JSON.stringify((await api('POST', PUSHES[0][0], PUSHES[0][1], 'a')).data));
+
     const back0 = await api('POST', '/api/admin/return', null, 'a');
     check(back0.status === 200, 'the way back works');
+    // …and the very same push works again the moment they are themselves.
+    const own = [];
+    for (const [url, body] of PUSHES) {
+      const r = await api('POST', url, body, 'a');
+      if (r.status !== 200) own.push(`${url} → ${r.status}`);
+    }
+    check(own.length === 0, 'and the same push lands the moment they are themselves again',
+      own.join(', '));
     // …and the sharper version of the same check. An admin who opens *another
     // admin's* account has an effective user who passes `isAdmin`, so the gate
     // has to refuse on the session rather than on the account — otherwise every
