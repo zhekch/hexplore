@@ -54,7 +54,7 @@
 // counted separately and reported unconditionally. The setting governs the
 // coverage numbers, which are the part that is genuinely ambient.
 
-import { activeLocale, hasKey, t } from './i18n.js';
+import { activeLocale, plural, t } from './i18n.js';
 
 // --- Tuning -------------------------------------------------------------------
 //
@@ -215,28 +215,6 @@ export function forgetSnapshot() {
 }
 
 // --- The difference -------------------------------------------------------------
-
-/**
- * "3 new places", by key.
- *
- * Two keys per phrase rather than one with a `{count}` and a rule, because the
- * rule is not the same everywhere: English has two forms, Russian has three and
- * picks between them on the last digit, Japanese has one. `Intl.PluralRules`
- * knows all of that, so the *category* comes from it and the strings come from
- * the locale file — which is the only arrangement where adding a language
- * cannot require changing this function.
- *
- * English only defines `one` and `other`; a language that needs `few` or `many`
- * adds those keys and they are found here without any code moving.
- */
-const plural = (n, stem) => {
-  const rules = new Intl.PluralRules(activeLocale());
-  const form = rules.select(n);
-  // `other` is the fallback for a category this locale file has not filled in,
-  // and it is the one every language is guaranteed to define.
-  const key = hasKey(`${stem}.${form}`) ? `${stem}.${form}` : `${stem}.other`;
-  return t(key, { count: n.toLocaleString(activeLocale()) });
-};
 
 /**
  * What has changed between two snapshots.

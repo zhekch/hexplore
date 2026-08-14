@@ -58,7 +58,10 @@ import {
 } from './whats-new.js';
 import { mountWhatsNew } from './whats-new-ui.js';
 import { HEALTH_SOURCE } from './whats-new.js';
-import { LOCALES, applyTranslations, locale, setLocale, t } from './i18n.js';
+// `pluralKey` renamed on the way in: src/history.js exports its own `plural`,
+// which is the English-only "3 cells" the undo log is written with. This one
+// picks a locale's plural *category* and looks the phrase up — see i18n.js.
+import { LOCALES, applyTranslations, locale, plural as pluralKey, setLocale, t } from './i18n.js';
 
 // The markup ships in English and is rewritten here, once, before anything is
 // on screen. Done at the top of the module rather than on DOMContentLoaded
@@ -293,6 +296,13 @@ const ROUTE_HOVER_SCALE = 1.45;
 // light coming on rather than a redraw, short enough that sweeping across a
 // dozen tracks does not leave a trail of them still fading.
 const ROUTE_HOVER_MS = 160;
+// How far either side of the pointer a route still counts as tapped, in screen
+// pixels. The core line is a hairline and a fingertip is a good deal wider than
+// one, so the hit test is given a box rather than a point — and the same box is
+// what finds the *other* routes stacked under the one you aimed at, which is
+// the whole of what `routesAt` answers. Wider would start listing a line you can
+// see is not under the cursor; narrower and a track needs aiming at.
+const ROUTE_TAP_PAD_PX = 8;
 // How much of a wiggle is worth drawing, in screen pixels — the whole of the
 // fix for the spikes that kept coming out of the glow at bends.
 //
@@ -4236,6 +4246,11 @@ async function namePlaces() {
 
 // Push the current list at the map and keep the menu's count honest.
 function syncRoutes() {
+  // Whatever is about to be drawn, it is not what the stack menu was opened
+  // against: an activity hidden, a route deleted, the list reloaded after a sync
+  // all pass through here. A menu offering a line that is no longer on the map
+  // is worse than one that closed.
+  closeRouteStack();
   updateSoloChip();
   updateRoutesUi();
   const src = map.getSource('routes');
@@ -4299,22 +4314,39 @@ function closeRouteInfo() {
   routeInfo?.hide();
 }
 
-// Which saved route is under the pointer, if any. A line a couple of pixels
-// wide is hard to hit, so the query gets some slack around the point — and the
-// glow layer, being wider, does most of the catching.
-function routeAt(point) {
-  if (!routesOn || !routeGeom || !map.getLayer('route-line')) return null;
-  const pad = 8;
-  const hit = map.queryRenderedFeatures(
+/**
+ * Every saved route under the pointer, newest first.
+ *
+ * A line a couple of pixels wide is hard to hit, so the query gets a box around
+ * the point rather than the point itself — and the glow layer, being wider, does
+ * most of the catching.
+ *
+ * **Newest first, not topmost first.** The query hands back what is drawn over
+ * what, and drawing order here is list order, so the route on top of a stack is
+ * its *oldest* member — which is a fact about how the source was assembled and
+ * about nothing anybody cares about. Filtering the list keeps the order every
+ * other list of routes in this app uses, and it means the route the pointer
+ * lights up is the one at the top of the menu a click opens.
+ */
+function routesAt(point) {
+  if (!routesOn || !routeGeom || !map.getLayer('route-line')) return [];
+  const pad = ROUTE_TAP_PAD_PX;
+  const hits = map.queryRenderedFeatures(
     [
       [point.x - pad, point.y - pad],
       [point.x + pad, point.y + pad],
     ],
     { layers: ROUTE_TAP_LAYERS },
-  )[0];
-  if (!hit) return null;
-  return routeList.find((r) => r.id === hit.properties?.id) ?? null;
+  );
+  if (!hits.length) return [];
+  // A route is one feature per layer asked and one per segment, so the same id
+  // comes back several times over.
+  const ids = new Set(hits.map((f) => f.properties?.id).filter((id) => id != null));
+  return routeList.filter((r) => ids.has(r.id));
 }
+
+/** The one a tap is about when it is about one — see routesAt for the order. */
+const routeAt = (point) => routesAt(point)[0] ?? null;
 
 // A tap on a route wins over the cell underneath it: you aimed at the line.
 function showRouteInfo(route) {
@@ -4322,6 +4354,126 @@ function showRouteInfo(route) {
   closePhotoInfo();
   setSelectedRoute(route.id);
   routeInfo?.show(route);
+}
+
+// --- When the line you tapped is twenty lines ----------------------------------
+//
+// A winter of skiing is forty runs down the same piste and a commute is the same
+// street four hundred times. On the map those are one thick line, and a tap on
+// it opened whichever of them the source happened to draw last — the topmost
+// feature, which is an honest answer to a question nobody asked. Zooming does
+// not help: the tracks really are on top of one another, so there is nothing to
+// aim at.
+//
+// So a tap that lands on more than one asks instead of answering. A menu at the
+// cursor, one row per activity with what it was called, when it was and how far,
+// and the card opens on whichever you pick. **Hovering a row lights its line on
+// the map**, which is what makes the list usable when six rows are the same
+// word: it is the same feature state the pointer already writes, so the
+// highlight costs nothing of ours (see setHoveredRoute).
+//
+// Shaped like the trails card next door — a list of named things the map is
+// offering is one idea and should not look like two — and left open after a
+// pick, because a stack is something you go through rather than choose from
+// once.
+let routeStackPopup = null;
+
+const routeStackDay = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+
+function closeRouteStack() {
+  routeStackPopup?.remove();
+  routeStackPopup = null;
+}
+
+/** One route as a row: its colour on the map, its name, its day and its length. */
+function routeStackRow(route) {
+  // A button rather than a div with a click on it: this is one of a list of
+  // things to choose between, and the tab stop, the Enter key and the focus ring
+  // all come with saying so.
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'popup-list-row route-stack-row';
+
+  // The colour its line is drawn in, so a row and a track can be matched by eye
+  // before either is read. Opaque, because an activity turned down to a third on
+  // the map is still one row in a list.
+  const dot = document.createElement('span');
+  dot.className = 'popup-list-dot';
+  dot.style.background = hexOpaque(sportColor(sportKey(route)));
+  row.append(dot);
+
+  const text = document.createElement('span');
+  text.className = 'popup-list-text';
+  const name = document.createElement('span');
+  name.className = 'route-stack-name';
+  // textContent, as everywhere a route name is drawn: it is whatever a file, an
+  // app or you called it.
+  name.textContent = route.name || t('routeStack.route');
+  text.append(name);
+  // The day and the distance, under the name rather than after it. Two of these
+  // rows are told apart by their numbers far more often than by their names, and
+  // on a 280 px card a name long enough to wrap would otherwise push them onto a
+  // line of their own anyway — at a ragged left edge instead of a straight one.
+  const meta = document.createElement('span');
+  meta.className = 'route-stack-meta';
+  meta.textContent = [
+    route.firstAt ? routeStackDay.format(new Date(route.firstAt * 1000)) : '',
+    route.lengthM ? formatDistance(route.lengthM) : '',
+  ].filter(Boolean).join(' · ');
+  text.append(meta);
+  row.append(text);
+  return row;
+}
+
+/** Open the menu of everything under a tap. Only ever called with two or more. */
+function showRouteStack(e, found) {
+  const card = document.createElement('div');
+  card.className = 'feature-popup route-stack';
+  const h = document.createElement('h4');
+  // The count is the heading, not a line under it: it is the reason the menu
+  // exists — that what looked like one line is eleven — and it is the first
+  // thing worth knowing about the place you just tapped.
+  h.textContent = pluralKey(found.length, 'routeStack.activities-here');
+  card.append(h);
+
+  const list = document.createElement('div');
+  list.className = 'popup-list';
+  const items = document.createElement('div');
+  items.className = 'popup-list-items';
+  list.append(items);
+  card.append(list);
+
+  for (const route of found) {
+    const row = routeStackRow(route);
+    row.addEventListener('mouseenter', () => setHoveredRoute(route.id));
+    row.addEventListener('focus', () => setHoveredRoute(route.id));
+    row.addEventListener('click', () => {
+      // Which one you are looking at, kept on the row as well as on the map: the
+      // line is highlighted under a menu that may be covering it.
+      for (const other of items.children) other.classList.toggle('picked', other === row);
+      showRouteInfo(route);
+    });
+    items.append(row);
+  }
+  // One listener for leaving the list rather than one per row. Moving from a row
+  // to the row below it *leaves* the first one, and clearing the highlight there
+  // would blink the map between every pair of rows.
+  items.addEventListener('mouseleave', () => setHoveredRoute(null));
+  items.addEventListener('focusout', (ev) => {
+    if (!items.contains(ev.relatedTarget)) setHoveredRoute(null);
+  });
+
+  closeRouteStack();
+  routeStackPopup = new gl.Popup({ closeButton: true, maxWidth: '280px' })
+    .setLngLat(e.lngLat)
+    .setDOMContent(card)
+    .addTo(map);
+  // However it goes, the line it was lighting up stops being lit. On the event
+  // rather than in `closeRouteStack`, because the commonest way this card
+  // closes never goes through that function: both libraries take a popup away
+  // on the next click of the map themselves, without asking anybody.
+  routeStackPopup.on('close', () => setHoveredRoute(null));
+  return true;
 }
 
 // MapLibre's tracking control hands the camera back when it sees a move it
@@ -6473,6 +6625,7 @@ async function switchEngine(key) {
     railPopup?.remove();
     airportPopup = null;
     railPopup = null;
+    closeRouteStack();
     // The blob layer leaves an `idle` handler and a 2.5-second timer
     // outstanding, both of which reach back for their source. A style swap
     // survives that; a map that no longer exists does not, and the timer throws
@@ -8790,10 +8943,12 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
         // map with no photographs on it does no work at all.
         const photo = photosOn && styleReady && showPhotoInfo(e);
         // A tap that landed on a saved route is about the route, not the ground
-        // under it; otherwise view mode inspects the cell.
-        const route = photo ? null : routeAt(e.point);
+        // under it; otherwise view mode inspects the cell. More than one under
+        // the same tap is a question rather than an answer — see showRouteStack.
+        const stack = photo ? [] : routesAt(e.point);
         if (photo) { /* the card is the whole of the tap */ }
-        else if (route) showRouteInfo(route);
+        else if (stack.length > 1) showRouteStack(e, stack);
+        else if (stack.length) showRouteInfo(stack[0]);
         // Then the train tracks, in the same order they are drawn in: a line you
         // travelled beats reference geometry about where a line exists, and both
         // beat the ground underneath. Only when the overlay is on *and* has been

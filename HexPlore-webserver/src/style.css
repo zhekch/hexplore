@@ -5011,6 +5011,110 @@ body {
   color: rgba(255, 255, 255, 0.55);
 }
 
+/* --- The routes under one tap ---------------------------------------------
+   The other list whose rows are chosen rather than read, and the only one where
+   that is true of every row: a trail row's name is a link out to OSM, this one's
+   whole row opens the activity. It is a `<button>` for that reason, so what it
+   needs here is mostly the undoing of a button — and then the one thing a
+   pressable row must have that a paragraph must not, which is somewhere for the
+   press to land. */
+/* Room for the pill, on both sides, and the reason it is here rather than left
+   to the row's own negative margins: `overflow-y: auto` computes the *other*
+   axis to auto as well, so a row hanging 6px past the content box put a
+   horizontal scrollbar under the list. Padding rather than a narrower row
+   because clipping happens at the padding box — the overhang is painted where
+   there is padding to paint it in, and adds nothing to scroll.
+
+   And taller than the trails card's 13em, which is eight of its one-line rows.
+   These are two lines each, and at 13em a stack of eleven showed three. */
+.route-stack .popup-list-items {
+  max-height: 18em;
+  padding-left: 6px;
+  margin-left: -6px;
+  padding-right: 10px;
+  margin-right: -10px;
+}
+
+.route-stack-row {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  /* Wider than the list by its own padding, and pulled back by the same amount:
+     the pill reaches past the text on both sides while the text itself stays
+     lined up with the heading above it. */
+  width: calc(100% + 12px);
+  margin: 0 -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  /* Family and weight only. `font: inherit` is the usual reset for a button, and
+     here it would also overwrite the 12px `.popup-list-row` sets on this very
+     element — the shorthand takes the *parent's* size, not the one the class
+     beside it already asked for. */
+  font-family: inherit;
+  font-weight: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+/* Tighter than the 7px the trails rows take. Those wrap constantly and need the
+   air to read as separate entries; these are a fixed two lines each with a
+   highlight of their own to show where one ends. */
+.route-stack-row + .route-stack-row {
+  margin-top: 1px;
+}
+
+.route-stack-row:hover,
+.route-stack-row:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.route-stack-row:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.45);
+  outline-offset: -1px;
+}
+
+/* The one the card is currently open on. Fainter than a hover, because a hover
+   is happening now and this is only where you were — and it has to stay legible
+   *under* a hover, which is the state the row is in while you read the card and
+   come back for the next one. */
+.route-stack-row.picked {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.route-stack-name {
+  font-weight: 600;
+}
+
+/* The day and the length. Its own line under the name — see routeStackRow — and
+   tabular, because a column of dates and distances is read down. */
+.route-stack-meta {
+  display: block;
+  margin-top: 1px;
+  color: rgba(255, 255, 255, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-theme='light'] .route-stack-row:hover,
+[data-theme='light'] .route-stack-row:focus-visible {
+  background: rgba(15, 23, 42, 0.09);
+}
+
+[data-theme='light'] .route-stack-row:focus-visible {
+  outline-color: rgba(15, 23, 42, 0.4);
+}
+
+[data-theme='light'] .route-stack-row.picked {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+[data-theme='light'] .route-stack-meta {
+  color: rgba(15, 23, 42, 0.58);
+}
+
 /* --- The trails list ------------------------------------------------------
    A row of it is the waymark, the name, where it runs, and a fold with how far.
    Everything below is what those four need that the railway's rows do not. */

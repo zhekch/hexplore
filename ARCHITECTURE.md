@@ -1878,6 +1878,34 @@ to the full entry in the routes dialog. The card used to carry Edit and Remove
 too, which made it a second place that knew how to change a route; everything
 that changes one now lives in exactly one place.
 
+**Where the tap lands on twenty lines it asks instead.** A winter of skiing is
+forty runs down the same piste and a commute is the same street four hundred
+times; on the map those are one thick line, and a tap used to open whichever of
+them the source happened to draw last — the topmost feature, an honest answer to
+a question nobody asked. There is no aiming your way out of that either, because
+the tracks really are on top of one another and zooming separates nothing. So
+more than one under the same tap opens a menu at the cursor instead: the count
+as its heading (*11 activities here*), a row each for what the activity was
+called, when it was and how far it went, and the card opens on whichever you
+pick. It stays open after a pick, because a stack is something you go through
+rather than choose from once. **Hovering a row lights its line on the map**,
+which is what makes the list usable when six rows are the same word — and it
+costs nothing of ours, being the `hov` feature state the pointer already writes,
+answered by paint expressions the glow layers already carry.
+
+What counts as under the tap is `ROUTE_TAP_PAD_PX`: an 8-pixel box around the
+point rather than the point itself, because a hairline is hard to hit with a
+fingertip — and the same box is what finds the neighbours. The glow, much wider
+than the core, does most of the catching. Rows are **newest first, not topmost
+first**: draw order here is list order, so the line on top of a stack is its
+*oldest* member, which is a fact about how the source was assembled and about
+nothing anyone cares about. It also means the route the pointer is already
+lighting up is the one at the top of the menu. The card is the trails card's
+shape — a list of named things the map is offering is one idea and should not
+look like two — with the one difference that earns itself: a trail row's name is
+a link out to OpenStreetMap and so is text, while here the whole row opens the
+activity and is a `<button>`, with the tab stop and the Enter key that follow.
+
 Every route in the list carries a **small drawing of its own shape**, which is
 how you actually recognise one — you know the Frutigen loop by its outline long
 before you read its name. The list can't afford the real geometry (82 routes of

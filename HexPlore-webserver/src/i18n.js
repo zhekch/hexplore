@@ -154,6 +154,34 @@ export function t(key, params) {
 /** Is there a string for this key at all? For the tests, and for the lint. */
 export const hasKey = (key) => key in strings || key in base;
 
+/**
+ * "3 new places", or "11 activities here" — a count and the noun that agrees
+ * with it, by key stem.
+ *
+ * Two keys per phrase rather than one with a `{count}` and a rule, because the
+ * rule is not the same everywhere: English has two forms, Russian has three and
+ * picks between them on the last digit, Japanese has one. `Intl.PluralRules`
+ * knows all of that, so the *category* comes from it and the strings come from
+ * the locale file — which is the only arrangement where adding a language
+ * cannot require changing this function.
+ *
+ * English only defines `one` and `other`; a language that needs `few` or `many`
+ * adds those keys and they are found here without any code moving. That is also
+ * why a phrase only ever said about two or more things still gets its `one`
+ * written out: English will never reach it, and the languages that split 2 from
+ * 5 are the reason the stem is a stem at all.
+ *
+ * @param {number} n
+ * @param {string} stem the key without its plural category
+ */
+export const plural = (n, stem) => {
+  const form = new Intl.PluralRules(activeLocale()).select(n);
+  // `other` is the fallback for a category this locale file has not filled in,
+  // and it is the one every language is guaranteed to define.
+  const key = hasKey(`${stem}.${form}`) ? `${stem}.${form}` : `${stem}.other`;
+  return t(key, { count: n.toLocaleString(activeLocale()) });
+};
+
 /** Every key English defines — the set every other language is checked against. */
 export const baseKeys = () => Object.keys(base);
 
