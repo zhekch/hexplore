@@ -19,6 +19,41 @@
      one is on the map and one is in the chrome, they are the same mark, and
      scripts/test/photos.mjs keeps them equal. */
   --photo: #c07bff;
+  /* --- Glass, and why it stopped being white -------------------------------
+     Every floating surface in this app is the same material: a veil over a
+     blurred backdrop. There were two recipes for it, and only one of them was
+     ever neutral.
+
+     A dialog sits over `.modal-overlay` — a 50% black scrim, and no `saturate()`
+     on the card — and composites to about rgb(29, 30, 32) over any basemap. That
+     is the one that reads as grey. Everything that floats over the *bare* map
+     used `rgba(255, 255, 255, 0.08)` and `saturate(170%)`, which is 0.92 of the
+     map's own colour with its chroma pushed up by seven tenths: over the 3D
+     basemap, whose ground and water are blue-grey, that is a panel with a
+     visible blue cast in it, sitting a few pixels from a dialog with none. The
+     material was doing two different things and reading as two different apps.
+
+     So a panel over the map now carries its own scrim rather than borrowing the
+     dialog's. Solve `a·C + (1−a)·M` against the dialog's `0.08·255 + 0.92·0.5·M`
+     and it comes out at 54% of rgb(38, 38, 38) — the same surface colour over
+     the same ground, without a full-screen scrim to get it. Saturation is gone
+     with it: over a scrim there is no map colour left to reward, and over the
+     map it was the tint itself.
+
+     `--glass-raised` is the same arithmetic for the surfaces that were a shade
+     denser than a panel (0.1 rather than 0.08) — a button, a pill — so a control
+     still sits a little proud of the panel behind it. `--glass-hover` is a lift
+     of *this*, not of white: a white one over a blue map put the tint straight
+     back for as long as the pointer was on it. Only the buttons that carry their
+     own glass take it; a button inside a pill is painted over the pill's own
+     composite, where a white veil is exactly right and always was.
+
+     A card that sits over a scrim of its own — the search palette, the
+     introduction, the auth gate — keeps the white veil, because the scrim under
+     it is already doing this job. See `.modal-card`. */
+  --glass: rgba(38, 38, 38, 0.54);
+  --glass-raised: rgba(46, 46, 46, 0.54);
+  --glass-hover: rgba(70, 70, 70, 0.58);
 }
 
 html,
@@ -71,9 +106,9 @@ body {
   height: 46px;
   appearance: none;
   border-radius: 15px;
-  background: rgba(255, 255, 255, 0.1);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  backdrop-filter: blur(20px) saturate(160%);
+  background: var(--glass-raised);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.35),
@@ -86,7 +121,7 @@ body {
 }
 
 .hud-pencil:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--glass-hover);
 }
 
 .hud-pencil:active {
@@ -103,9 +138,9 @@ body {
   min-width: 220px;
   padding: 16px 20px 14px;
   border-radius: 26px;
-  background: rgba(255, 255, 255, 0.08);
-  -webkit-backdrop-filter: blur(26px) saturate(170%);
-  backdrop-filter: blur(26px) saturate(170%);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(26px);
+  backdrop-filter: blur(26px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
     0 16px 44px rgba(0, 0, 0, 0.38),
@@ -221,9 +256,9 @@ body {
 /* Glassy map controls (geolocate button), bottom right — the thumb-reachable
    corner on desktop and on a phone alike. */
 :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
-  background: rgba(255, 255, 255, 0.1);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  backdrop-filter: blur(20px) saturate(160%);
+  background: var(--glass-raised);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 14px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
@@ -382,9 +417,9 @@ body {
     flex-direction: row-reverse;
     align-items: stretch;
     border-radius: 15px;
-    background: rgba(255, 255, 255, 0.1);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    backdrop-filter: blur(20px) saturate(160%);
+    background: var(--glass-raised);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.16);
     box-shadow:
       0 8px 24px rgba(0, 0, 0, 0.35),
@@ -441,9 +476,9 @@ body {
   height: 46px;
   appearance: none;
   border-radius: 15px;
-  background: rgba(255, 255, 255, 0.1);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  backdrop-filter: blur(20px) saturate(160%);
+  background: var(--glass-raised);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.35),
@@ -456,7 +491,15 @@ body {
 }
 
 .layers-btn:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--glass-hover);
+}
+
+/* Inside the pill — at either size, since the cluster is glass in both — the
+   glass belongs to the container, so the lift goes back to a white veil over
+   it. The rule above is a lift of the *map* glass and would darken a button
+   that is already sitting on some. */
+.layers-cluster .layers-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* display:grid above would defeat the hidden attribute — the same trap the
@@ -488,9 +531,9 @@ body {
   box-sizing: border-box;
   padding: 12px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.08);
-  -webkit-backdrop-filter: blur(26px) saturate(170%);
-  backdrop-filter: blur(26px) saturate(170%);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(26px);
+  backdrop-filter: blur(26px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
     0 16px 44px rgba(0, 0, 0, 0.38),
@@ -522,10 +565,16 @@ body {
      is anchored to — on a wide screen it opens downwards from the top-left and
      the stack is simply the other way up. */
   --menu-chrome: 124px;
-  /* How far up the last row the fade reaches when there is more below. Roughly
-     half a row: enough that a clipped row is plainly *fading out* rather than
-     cut, and not so much that the row above it is hard to read. */
+  /* How far into the end row the fade reaches when there is more past it.
+     Roughly half a row: enough that a clipped row is plainly *fading out* rather
+     than cut, and not so much that the row beside it is hard to read. */
   --menu-fade: 26px;
+  /* Which ends are currently fading. Both start at zero, so the mask below is
+     one expression rather than four rules — a stop of zero width is a stop that
+     does nothing, and the gradient collapses to solid black. The classes are set
+     by `refreshMenuOverflow()` in src/main.js. */
+  --menu-fade-start: 0px;
+  --menu-fade-end: 0px;
   max-height: calc(100vh - var(--safe-t) - var(--safe-b) - var(--menu-chrome));
   /* Small viewport units, so a phone's collapsing address bar cannot leave the
      menu taller than the screen it is on. Declared second: a browser without
@@ -540,15 +589,40 @@ body {
   scrollbar-width: none;
 }
 
-/* Only while there is something under the fold, and only until you reach it —
-   see refreshMenuOverflow() in src/main.js. A mask rather than a gradient
-   overlay because the menu is glass: anything painted on top of the last row
-   would be a band of colour over a blurred backdrop, and would have to know
-   what the backdrop was. A mask takes the row's own pixels away instead, so
-   whatever is behind the panel shows through exactly as it does elsewhere. */
+/* Only while there is something past the fold, and only at the ends there is
+   something past — see refreshMenuOverflow() in src/main.js. A mask rather than
+   a gradient overlay because the menu is glass: anything painted on top of the
+   end row would be a band of colour over a blurred backdrop, and would have to
+   know what the backdrop was. A mask takes the row's own pixels away instead, so
+   whatever is behind the panel shows through exactly as it does elsewhere.
+
+   **Both ends, not just the bottom.** A menu scrolled down is clipped at the top
+   as hard as it ever was at the bottom, and a row sliced through by a straight
+   edge reads as a rendering fault — which is the whole argument the bottom fade
+   was added on. It only ever answered half of it. */
+.menu-scroll.is-overflowing {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--menu-fade-start),
+    #000 calc(100% - var(--menu-fade-end)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--menu-fade-start),
+    #000 calc(100% - var(--menu-fade-end)),
+    transparent
+  );
+}
+
+.menu-scroll.is-overflowing:not(.is-at-start) {
+  --menu-fade-start: var(--menu-fade);
+}
+
 .menu-scroll.is-overflowing:not(.is-at-end) {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--menu-fade)), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--menu-fade)), transparent);
+  --menu-fade-end: var(--menu-fade);
 }
 
 .menu-scroll::-webkit-scrollbar {
@@ -626,10 +700,22 @@ body {
 
   /* The fade says "there is more that way", and that way is now sideways.
      `refreshMenuOverflow()` in src/main.js measures whichever axis is the one
-     that scrolls, so the class this hangs on is already right. */
-  .menu-scroll.is-overflowing:not(.is-at-end) {
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--menu-fade)), transparent);
-    mask-image: linear-gradient(to right, #000 calc(100% - var(--menu-fade)), transparent);
+     that scrolls, so the classes this hangs on are already right. */
+  .menu-scroll.is-overflowing {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--menu-fade-start),
+      #000 calc(100% - var(--menu-fade-end)),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--menu-fade-start),
+      #000 calc(100% - var(--menu-fade-end)),
+      transparent
+    );
   }
 }
 
@@ -685,8 +771,8 @@ body {
   padding: 12px 14px;
   border-radius: 18px;
   background: rgba(28, 28, 28, 0.94);
-  -webkit-backdrop-filter: blur(24px) saturate(170%);
-  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
   font-size: 11.5px;
@@ -1255,9 +1341,9 @@ body {
   box-sizing: border-box;
   padding: 14px 16px 12px;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.08);
-  -webkit-backdrop-filter: blur(26px) saturate(170%);
-  backdrop-filter: blur(26px) saturate(170%);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(26px);
+  backdrop-filter: blur(26px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
     0 16px 44px rgba(0, 0, 0, 0.38),
@@ -2036,7 +2122,27 @@ body {
 
 .import-row select {
   appearance: none;
+  /* --- Sized to the answer, not to the longest one on offer -----------------
+     A `<select>` is as wide as its widest `<option>` whatever is selected, and
+     three of these rows have one long option among short ones. "What's new" has
+     "After substantial changes" in it, so the row read as a 400px pill with the
+     word *Always* in the corner of it — a control that looks like a text field
+     somebody forgot to fill in, and the widest thing on the page by a factor of
+     three.
+
+     `field-sizing: content` is the whole fix: the box takes the width of the
+     option that is actually showing, and grows when you pick a longer one.
+     Browsers without it keep the old behaviour, which is why the cap below is
+     not conditional — it is what holds those to something a row can carry, and
+     it is why the ellipsis is set as well. The floor keeps a two-word answer
+     from shrinking into a tab rather than a pill. */
+  field-sizing: content;
   flex: none;
+  min-width: 88px;
+  max-width: min(56%, 280px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font: inherit;
   font-size: 12.5px;
   font-weight: 600;
@@ -3502,9 +3608,9 @@ body {
      two backdrop-filtered pills touching would show a doubled seam. */
   .layers-cluster {
     border-radius: 15px;
-    background: rgba(255, 255, 255, 0.1);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    backdrop-filter: blur(20px) saturate(160%);
+    background: var(--glass-raised);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.16);
     box-shadow:
       0 8px 24px rgba(0, 0, 0, 0.35),
@@ -4406,8 +4512,8 @@ body {
   padding: 10px 12px 10px 14px;
   border-radius: 16px;
   background: rgba(58, 14, 12, 0.86);
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
-  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
   border: 1px solid rgba(255, 122, 105, 0.5);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
   color: #ffd9d4;
@@ -4796,9 +4902,9 @@ body {
 :is(.maplibregl-popup-content, .mapboxgl-popup-content) {
   padding: 14px 16px 12px;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.08);
-  -webkit-backdrop-filter: blur(26px) saturate(170%);
-  backdrop-filter: blur(26px) saturate(170%);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(26px);
+  backdrop-filter: blur(26px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
     0 16px 44px rgba(0, 0, 0, 0.38),
@@ -4814,7 +4920,7 @@ body {
    its cards; it has simply never been written down for these ones. */
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   :is(.maplibregl-popup-content, .mapboxgl-popup-content) {
-    background: rgba(18, 20, 27, 0.94);
+    background: rgba(24, 24, 24, 0.94);
   }
 
   [data-theme='light'] :is(.maplibregl-popup-content, .mapboxgl-popup-content) {
@@ -5700,8 +5806,8 @@ body {
   padding: 7px 8px 7px 14px;
   border-radius: 999px;
   background: rgba(28, 28, 28, 0.92);
-  -webkit-backdrop-filter: blur(20px) saturate(170%);
-  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   color: rgba(255, 255, 255, 0.86);
@@ -5818,8 +5924,8 @@ body {
   padding: 9px 15px;
   border-radius: 14px;
   background: rgba(22, 22, 22, 0.82);
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
-  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
   color: #fff;
@@ -6078,8 +6184,8 @@ body {
      panel of the one already there. The scrim behind it does the work that
      opacity was doing. */
   background: rgba(255, 255, 255, 0.08);
-  -webkit-backdrop-filter: blur(26px) saturate(170%);
-  backdrop-filter: blur(26px) saturate(170%);
+  -webkit-backdrop-filter: blur(26px);
+  backdrop-filter: blur(26px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.5),
@@ -9036,8 +9142,8 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   border-radius: 30px;
   background: var(--intro-pane);
   border: 1px solid var(--intro-edge);
-  -webkit-backdrop-filter: blur(28px) saturate(150%);
-  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px);
   box-shadow:
     0 30px 70px var(--intro-shadow),
     inset 0 1px 0 var(--intro-sheen);
@@ -9821,8 +9927,8 @@ body.intro-picking .layers {
   border-radius: 20px;
   background: rgba(16, 16, 22, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
-  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.45);
   color: rgba(255, 255, 255, 0.94);
   font-size: 14.5px;

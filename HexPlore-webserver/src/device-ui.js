@@ -1,11 +1,11 @@
-// The "Your phone" fold of Settings → Sync: which phones are reporting their own
+// The "Your devices" fold of Settings → Sync: which devices are reporting their own
 // position, and whether they are actually doing it.
 //
 // It is the only connector with nothing to configure, and that is not an
 // oversight. Home Assistant and Strava are set up here because here is where the
-// server can be told an address and handed a token. A phone cannot be set up
+// server can be told an address and handed a token. A device cannot be set up
 // from here at all — a schedule stored on this server could not wake it — so the
-// settings live in the iOS app and what is left for this page is the question
+// settings live in the app on it, and what is left for this page is the question
 // they raise: *is it working?*
 //
 // Which is worth saying somewhere. A logger you cannot see the output of is
@@ -58,7 +58,7 @@ export function mountDevices({ onDevices } = {}) {
   function render() {
     listEl.replaceChildren();
     // The setup note is only worth reading when there is nothing to look at;
-    // once a phone is listed, the list is the answer.
+    // once a device is listed, the list is the answer.
     helpEl.hidden = devices.length > 0;
     statusEl.hidden = devices.length === 0;
 
@@ -68,7 +68,7 @@ export function mountDevices({ onDevices } = {}) {
 
       const text = document.createElement('span');
       const name = document.createElement('b');
-      name.textContent = d.name || 'A phone';
+      name.textContent = d.name || 'A device';
       const detail = document.createElement('small');
       const bits = [`last spoke ${whenAgo(d.lastSeen)}`];
       if (d.totalFixes) bits.push(plural(d.totalFixes, 'fix', 'es'));
@@ -77,8 +77,8 @@ export function mountDevices({ onDevices } = {}) {
       detail.textContent = bits.join(' · ');
       text.append(name, detail);
 
-      // Forgetting a phone drops this row and nothing else. The cells it sent
-      // came from real fixes and are no less true for the phone being gone —
+      // Forgetting a device drops this row and nothing else. The cells it sent
+      // came from real fixes and are no less true for the device being gone —
       // the same rule disconnecting Home Assistant follows.
       const forget = document.createElement('button');
       forget.type = 'button';
@@ -94,7 +94,7 @@ export function mountDevices({ onDevices } = {}) {
       const newest = devices.reduce((t, d) => Math.max(t, d.lastSeen || 0), 0);
       statusEl.textContent = devices.length === 1
         ? `Last updated at ${whenAgo(newest)}.`
-        : `${devices.length} phones · last updated at ${whenAgo(newest)}.`;
+        : `${devices.length} devices · last updated at ${whenAgo(newest)}.`;
     }
     onDevices?.(devices);
   }
@@ -126,8 +126,8 @@ export function mountDevices({ onDevices } = {}) {
 
   refreshBtn.addEventListener('click', load);
 
-  // Logging out: forget what this account's phones looked like, without
-  // touching the phones themselves — they belong to whoever signs in next only
+  // Logging out: forget what this account's devices looked like, without
+  // touching the devices themselves — they belong to whoever signs in next only
   // if that is the same person, and the server decides that, not this page.
   function clear() {
     devices = [];
@@ -137,6 +137,6 @@ export function mountDevices({ onDevices } = {}) {
   // No `reset`: there is nothing here to fold away. Unlike the other two this
   // holds no secret and arms no button — the only destructive thing in it,
   // Forget, is per row and asks nothing, because it drops a status row and
-  // leaves every cell the phone ever sent.
+  // leaves every cell the device ever sent.
   return { draw: load, refresh: load, clear, devices: () => devices };
 }

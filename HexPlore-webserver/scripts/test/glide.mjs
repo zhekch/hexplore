@@ -169,32 +169,70 @@ console.log('\nThe camera that follows a lock');
 {
   const eased = [];
   const flown = [];
+  // The centre moves, because every camera move here is measured against where
+  // the camera already is — a fixed centre would make the second fix of a walk
+  // look like an arrival for no reason other than the stub.
+  let center = [7.44, 46.94];
+  let easing = false;
   const map = {
-    getCenter: () => [7.44, 46.94],
+    getCenter: () => center,
     project: ([lng, lat]) => ({ x: lng * 100000, y: -lat * 100000 }),
     getCanvas: () => ({ clientWidth: 800, clientHeight: 600 }),
-    easeTo: (options, eventData) => eased.push({ options, eventData }),
+    isEasing: () => easing,
+    easeTo: (options, eventData) => {
+      eased.push({ options, eventData });
+      center = options.center;
+    },
   };
   const control = {
-    _updateCamera(position) { flown.push(position.coords.latitude); },
+    _updateCamera(position) {
+      flown.push(position.coords.latitude);
+      center = [position.coords.longitude, position.coords.latitude];
+    },
   };
   smoothLocationCamera(control, map);
 
-  // Two metres off the centre of the screen: following.
+  // The first fix of a session, two metres off the centre of the screen. Near
+  // enough to be a step of a walk by distance, and an arrival all the same: this
+  // is the load where the camera was already zooming into an IP guess of the
+  // right city, and easing to the fix cancelled the zoom mid-flight.
   clock = 1000;
   control._updateCamera(fix(7.44, 46.9402));
-  eq(flown.length, 0, 'a step of a walk is not handed to fitBounds');
+  eq(flown.length, 1, 'the first fix is an arrival however near it lands');
+  eq(eased.length, 0, 'so the opening flight is the library\'s, zoom and all');
+
+  // …and the one after it, a second later, is the walk.
+  clock = 2000;
+  control._updateCamera(fix(7.44, 46.9403));
+  eq(flown.length, 1, 'a step of a walk is not handed to fitBounds');
   eq(eased.length, 1, 'it is eased');
   eq(eased[0].eventData, { geolocateSource: true },
     'and flagged as the control\'s own move, or tracking would switch itself off');
-  eq(eased[0].options.center, [7.44, 46.9402], 'onto the fix');
+  eq(eased[0].options.center, [7.44, 46.9403], 'onto the fix');
   eq(eased[0].options.easing(0.25), 0.25, 'with a linear ease, so the ground slides at one speed');
   check(!('zoom' in eased[0].options), 'and the zoom is left where the viewer put it');
 
   // Half the country away: arriving.
+  clock = 3000;
   control._updateCamera(fix(7.44, 48.5));
-  eq(flown.length, 1, 'a fix most of a window away is an arrival, and the library flies to it');
+  eq(flown.length, 2, 'a fix most of a window away is an arrival, and the library flies to it');
   eq(eased.length, 1, 'rather than being eased across the map');
+
+  // A fix landing inside that flight is left alone rather than cutting it short.
+  clock = 4000;
+  easing = true;
+  control._updateCamera(fix(7.44, 48.5001));
+  eq(flown.length, 2, 'a fix arriving mid-flight does not restart the flight');
+  eq(eased.length, 1, 'nor finish it at walking pace');
+  easing = false;
+  clock = 5000;
+  control._updateCamera(fix(7.44, 48.5002));
+  eq(eased.length, 2, 'and following resumes once it has landed');
+
+  // Tracking switched off for a while, then back on: a return, not a step.
+  clock = 60000;
+  control._updateCamera(fix(7.44, 48.5003));
+  eq(flown.length, 3, 'a fix long after the last one is an arrival too');
 
   // A map that cannot answer yet is the library's problem, not ours.
   const half = { easeTo: () => { throw new Error('too early'); } };

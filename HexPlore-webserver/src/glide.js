@@ -253,6 +253,29 @@ export function smoothLocationDot(control) {
  * to be seen, and the library's `fitBounds` also picks the zoom for it, which is
  * exactly right once and exactly wrong every second.
  *
+ * **The first fix is an arrival by the clock, not by the distance**, and that is
+ * the half `isArrival` cannot see. A page that has just opened has already put
+ * the camera on an *IP guess* — the right city, a few hundred metres out — and
+ * is zooming into it (see `flyToIpLocation` in src/main.js). The first real fix
+ * then lands well inside half a window, so the distance test called it a step of
+ * a walk and eased to it linearly: `easeTo` replaces whatever animation is
+ * running, so the opening zoom stopped dead and the map slid the rest of the way
+ * at a constant rate with no zoom left in it. That is the load everybody sees,
+ * and it is a walking-pace ease being asked to do an arrival's job.
+ *
+ * So the gap since the last *followed* fix decides it too. Zero means nothing
+ * has been followed yet — a fresh page, or a control just switched back on — and
+ * anything past `GLIDE_MAX_MS` means tracking has been off or backgrounded long
+ * enough that this is a return rather than a step. Both are handed to the
+ * library, which flies, and which picks a zoom on the way.
+ *
+ * And then the flight is **left in the air**. A `flyTo` to your street takes a
+ * second or two and the next fix lands inside it, so following would cancel the
+ * arrival a third of the way through and finish the journey at walking pace —
+ * the same fault as before, arriving a second later. While the library's own
+ * move is still running the camera is simply not touched; the dot keeps gliding,
+ * which is the half of this that was ever visible.
+ *
  * `geolocateSource` is not decoration. Both libraries watch their own map for
  * movement and drop out of the locked state when they see some, unless the move
  * carries that flag — so a camera move made on the control's behalf has to say
@@ -267,17 +290,26 @@ export function smoothLocationCamera(control, map) {
   if (typeof original !== 'function' || typeof map?.easeTo !== 'function') return () => {};
 
   let cameraAt = 0;
+  let arriving = false; // the library's own flight has not landed yet
 
   control._updateCamera = (position) => {
     const at = coordsOf(position);
-    if (!at || isArrival(map, at)) {
-      cameraAt = 0;
+    const at0 = now();
+    // Zero until something has been followed, and stale once tracking has been
+    // away — see the note above about the opening zoom this used to cancel.
+    const gap = cameraAt ? at0 - cameraAt : 0;
+    const following = gap > 0 && gap <= GLIDE_MAX_MS;
+    cameraAt = at ? at0 : 0;
+    if (!at || !following || isArrival(map, at)) {
+      arriving = !!at;
       original.call(control, position);
       return;
     }
-    const at0 = now();
-    const gap = cameraAt ? at0 - cameraAt : 0;
-    cameraAt = at0;
+    // Guarded by name as well as by the flag, because `isEasing` is not in
+    // either library's documented surface: a map that has stopped answering
+    // reads as "landed", which is how this behaved before the flag existed.
+    if (arriving && map.isEasing?.() === true) return;
+    arriving = false;
     map.easeTo(
       { center: at, duration: glideMs(gap), easing: (t) => t },
       { geolocateSource: true },

@@ -36,11 +36,20 @@ glass look. Click hexagons to mark places you've visited.
   than a couple thousand cells. In view mode a tap opens the **info card** for
   that area instead. Set `EDIT_ENABLED = false` in `src/main.js` to ship a
   fully view-only build (no pencil, no editing, at all).
-- **Menu**: one glass button opens sections for the base map, coloring, and your
-  map (saved routes, editing, statistics, import, sync). The **ⓘ**
-  buttons open a floating note beside the menu — nothing expands inline, and
-  swapping coloring modes swaps the color picker for the legend inside a
-  fixed-height slot, so the panel never resizes under the pointer.
+- **Menu**: one glass button opens three sections — *Appearance* (which basemap,
+  how it is lit, how fine the grid is, what colours it), *Your map* (whether the
+  ground answers a tap, your activities, your photographs) and, under those, the
+  reference overlays somebody else drew (train tracks, airfields, waymarked
+  trails) with the doors to statistics, the image export and Settings at the
+  foot. Your own layers sit above the reference ones because those are what the
+  app is for; the overlays are what you switch on to look something up and off
+  again. The **ⓘ** buttons open a floating note beside the menu — nothing expands
+  inline, and swapping coloring modes swaps the color picker for the legend
+  inside a fixed-height slot, so the panel never resizes under the pointer.
+  A menu taller than the room it has fades out at **both** ends rather than being
+  cut, and only at the end there is something past — a row sliced by a straight
+  edge reads as a rendering fault, which was as true at the top as it ever was at
+  the bottom (`refreshMenuOverflow`, `--menu-fade`).
 - **Where the controls sit.** On a wide screen the menu and search share one
   glass pill at the **top left** — the two things reached for most, next to each
   other rather than stacked, in the corner a pointer starts from — the geolocate
@@ -1866,11 +1875,23 @@ The visited map is about *ground covered*, which throws away the shape of the
 journey. A route keeps that shape: import an activity (a run, a ride, a flight,
 a Timeline day) with **Save routes** ticked and the line itself is stored
 alongside the cells it lit up, drawn over your colored map. A row in the menu
-toggles them, **labelled by the count itself** — "Activities · 82", or
-"Activities · 34 of 82" while some are hidden, or what to do about an empty map
-when there are none. It used to read "Saved routes" with that count as a second
-line underneath, which is one row saying the same thing twice: the switch is
-beside a count either way, and the count is the half that tells you something.
+toggles them, called **Activities**, with the count as a *status line* under it —
+"82 activities", or "34 of 82 shown" while some are hidden — and only while the
+layer is on, because a count of what is not drawn is a number about nothing.
+`.menu-row small:empty` folds the line away entirely, so a switched-off row lines
+up with the switches around it.
+
+That is Photos' arrangement, and this row was the odd one out against it. It has
+been through both extremes: "Saved routes" with the count as a second line
+underneath said the same thing twice, and the fix for that — putting the count
+*in* the label, "Activities · 82" — meant the row was called something different
+every time a track was imported, and read as a heading rather than as the thing
+you press. The name is the name; the count is what the row currently knows.
+
+The one thing that survives the switch being off is having nothing to import yet:
+"Import a track in Settings" is not a count, it is the only explanation of why
+the switch beside it is disabled, and hiding it would leave a dead control with
+no way to find out what would make it live.
 
 Tapping a route line on the map opens a small card — what it was, how far, how
 long — with two ways on: **Zoom to route**, or **More info**, which hands over
@@ -6547,6 +6568,27 @@ shorter side of the window: what makes a camera move feel like a jump is how far
 across the window it went, which is a question about the zoom as much as about
 the ground.
 
+**And by the clock, which is the half the distance cannot see.** A page that has
+just opened has already put the camera on an IP guess — the right city, a few
+hundred metres out — and is zooming into it (`flyToIpLocation`). The first real
+fix then lands well inside half a window, so the distance test called it a step
+of a walk and eased to it linearly; `easeTo` replaces whatever animation is
+running, so the opening zoom stopped dead and the map finished the journey at a
+constant rate with no zoom left in it. That was the load everybody saw, and it is
+a walking-pace ease being asked to do an arrival's job. So the gap since the last
+*followed* fix decides it too: zero means nothing has been followed yet, and
+anything past `GLIDE_MAX_MS` means tracking has been away long enough that this
+is a return. Measured on the real page, the load now runs z10.5 → z14 as one
+decelerating flight onto the fix, where it used to slide flat across at z10.5.
+
+**Then the flight is left in the air.** A `flyTo` to your street takes a second
+or two and the next fix lands inside it, so following would have cancelled the
+arrival a third of the way through and finished it at walking pace — the same
+fault, arriving a second later. While the library's own move is still running
+(`map.isEasing()`, guarded by name, since it is not documented surface) the
+camera is not touched at all; the dot keeps gliding, which is the half of this
+anybody was ever going to see.
+
 The move carries `{ geolocateSource: true }`, and that is load-bearing. Both
 libraries watch their own map for movement and drop out of tracking when they see
 some unless it carries that flag, so following you would otherwise switch
@@ -6560,11 +6602,19 @@ queue.
 
 ## Asking the ground to be quiet
 
-**Tap for details**, under the layers menu's Photos row, and on by default.
-Tapping a cell or a region for what it knows is what this map is *for*, which is
-the opposite default from the railway's equivalent switch and for the opposite
-reason — the railway is somebody else's reference data laid over your map, and
-this is your map.
+**Interactable**, the first row of the layers menu's *Your map* section, and on
+by default. Tapping a cell or a region for what it knows is what this map is
+*for*, which is the opposite default from the railway's equivalent switch and for
+the opposite reason — the railway is somebody else's reference data laid over
+your map, and this is your map.
+
+It was called *Tap for details* and sat at the bottom of the section, under
+Activities and Photos. Two things were wrong with that. The name describes a
+gesture that half the people using this do not make — a laptop has no tap — where
+what the switch actually decides is whether the ground is a thing you can ask at
+all. And it is the row that says what the two under it *do* rather than whether
+they are drawn, so it belongs above them rather than at the end of a list it is
+not a member of.
 
 What it costs is that reading the map with a finger opens a card every other tap,
 and there was no way to say "I am just looking". Switched off, the ground stops
@@ -6823,6 +6873,42 @@ The rule is entirely about which of two events is trusted, and a real DOM would
 not synthesise the common-ancestor behaviour for the test anyway — the test has
 to state the sequence it is describing either way.
 
+## One glass, and why it stopped being white
+
+Every floating surface here is the same material: a veil over a blurred backdrop.
+There were two recipes for it, though, and only one of them was ever neutral.
+
+A dialog sits over `.modal-overlay` — a 50% black scrim, and no `saturate()` on
+the card — and composites to about `rgb(29, 30, 32)` over any basemap. That is
+the one that reads as grey, and it is the one people like. Everything that floats
+over the *bare* map used `rgba(255, 255, 255, 0.08)` with `saturate(170%)`, which
+is 0.92 of the map's own colour with its chroma pushed up by seven tenths. Over
+the 3D basemap, whose ground and water are blue-grey, that is a panel with a
+visible blue cast in it sitting a few pixels from a dialog with none. Measured
+over a `rgb(26, 31, 44)` ground: the menu came out `rgb(44, 49, 61)` — seventeen
+levels of blue over red — against the dialog's `rgb(32, 34, 40)`, which has
+eight. The material was doing two different things and reading as two apps.
+
+So a panel over the map carries its own scrim rather than borrowing the dialog's.
+Solving `a·C + (1−a)·M` against the dialog's `0.08·255 + 0.92·0.5·M` gives 54% of
+`rgb(38, 38, 38)`, which is `--glass` in `src/style.css`; `--glass-raised` is the
+same arithmetic for the surfaces that were a shade denser (a button, a pill), so
+a control still sits a little proud of the panel behind it. Saturation is gone
+everywhere: over a scrim there is no map colour left to reward, and over the map
+it *was* the tint. The same ground now measures `rgb(33, 35, 41)` under the menu
+against `rgb(32, 34, 40)` under the dialog — one level per channel.
+
+Two things follow from it. A card that sits over a scrim of its own — the search
+palette, the introduction, the auth gate, every dialog — keeps the white veil,
+because the scrim under it is already doing this job. And a hover is a lift of
+*this* rather than of white (`--glass-hover`), except on a button that sits
+inside a pill, which is painted over the pill's own composite where a white veil
+is exactly right and always was.
+
+The cost is that a panel over bright ground is now considerably darker than it
+used to be, because that is what matching a dialog *means*: the dialog dims the
+whole screen to get there, and a menu has to do it under itself.
+
 ## Chrome over a photograph
 
 Under a vector basemap the ground is a palette we chose, so one set of glass
@@ -6875,8 +6961,10 @@ have been on its own.
 **The palette is the same glass as the menu.** It used to be its own material —
 `rgba(24, 26, 32, 0.86)`, a near-opaque slab with more blue in it than red — so
 opening it read as a colder, darker app arriving on top of the map rather than a
-panel of the one already there. It is a white veil over the map now, exactly as
-the menu is, and it joins the luminance sample when it is open: it covers the
+panel of the one already there. It is a white veil over its own scrim now, which
+is the recipe every card over a scrim uses (see [One glass, and why it stopped
+being white](#one-glass-and-why-it-stopped-being-white)), and it joins the
+luminance sample when it is open: it covers the
 middle of the screen, and a bright valley there under a dark corner by the
 buttons would otherwise leave it wearing white text on a pale card.
 
@@ -7210,6 +7298,18 @@ asked. Each entry is a button: pressing it takes that source's cells off the map
 pressing it again puts them back (`toggleSource`, `hiddenSources`). A hidden
 entry keeps its place in the list and its colour, drawn as a hollow ring instead
 of a filled swatch — it is the only way back, so it cannot go anywhere.
+
+**A second press on any entry does the whole list**: everything showing means
+"hide the rest", anything already hidden means "put it all back" (`setAllSources`).
+A legend of a dozen sources is otherwise a dozen presses away from *just my own
+tracks* and another dozen back, and a double press is what every legend anybody
+has used already does. Two details are worth stating. It is counted by hand
+against `DOUBLE_PRESS_MS` rather than left to `dblclick`, which a touch screen
+does not reliably send; and the first press of a pair still does its own job
+immediately rather than being held back for a third of a second to find out
+whether a second one is coming — so the shortcut decides from the state *before*
+the pair began, or that first toggle would answer the question itself and a
+double press on a full legend would land back where it started.
 
 It lives in `visited-map:hidden-sources:v1` and **not** in the account, unlike
 the trips you put away. The two look alike and are not: putting a trip away is a

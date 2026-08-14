@@ -78,7 +78,7 @@ export function mountHomeAssistant({ onSynced, onLink }) {
 
     if (!entities.length) {
       devicesNote.textContent =
-        'No device trackers with coordinates. The Home Assistant companion app on your phone is what usually provides them.';
+        'No device trackers with coordinates. The Home Assistant companion app on your device is what usually provides them.';
       return;
     }
 
@@ -108,7 +108,7 @@ export function mountHomeAssistant({ onSynced, onLink }) {
       devicesList.append(row);
     }
     devicesNote.textContent =
-      'Pick one entry per device — a person and their phone report the same position twice.';
+      'Pick one entry per device — a person and their device report the same position twice.';
   }
 
   function renderStatus() {

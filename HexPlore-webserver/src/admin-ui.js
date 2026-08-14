@@ -224,7 +224,7 @@ export function mountAdmin({ onLeave } = {}) {
       ['routes', n(u.routes)],
       ['photos', n(u.photos)],
       ['workouts', n(u.workouts)],
-      ['phones', n(u.devices)],
+      ['devices', n(u.devices)],
       // Raw fixes their phones have pushed, which is a different question from
       // cells: a phone logging every minute in one room adds fixes and no
       // cells, and that difference is what "is the logger actually running"

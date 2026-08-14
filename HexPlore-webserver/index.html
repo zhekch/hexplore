@@ -164,7 +164,80 @@
               </div>
               <div data-i18n="cells-off.visited-areas-hidden" class="menu-note" id="cells-off" hidden>Visited areas hidden.</div>
             </div>
+          </section>
 
+          <section class="menu-section">
+            <div data-i18n="layers-menu.your-map" class="menu-heading">Your map</div>
+            <!-- Whether the ground answers a tap at all. On by default, because
+                 a map you can ask about is the point of this one — but reading
+                 it with a finger means opening a card on every second tap, and
+                 this is the way to just look at it. Routes, photographs and the
+                 reference overlays keep their own taps: those are things you
+                 aimed at, not the ground you happened to touch.
+
+                 First of the three, because it is the one that says what a tap
+                 *does* rather than what is drawn — and because it was last, at
+                 the bottom of a section it had nothing to do with, which is
+                 where a switch goes to be never found. -->
+            <label class="menu-row" id="cells-interactive-row">
+              <span data-i18n-text="cells-interactive-row.interactable">Interactable</span>
+              <input type="checkbox" id="cells-interactive-toggle" />
+            </label>
+            <!-- The count is the second line now, and only while the layer is
+                 on — which is the arrangement Photos below has always had, and
+                 the one this row was the odd one out against. As a *label* it
+                 meant the row was called something different every time a track
+                 was imported, and "Activities · 12" over a switch reads as a
+                 heading rather than as the thing you press. What to do about an
+                 empty map stays on whatever the switch is doing: a disabled
+                 switch with nothing under it is a control with no explanation. -->
+            <label class="menu-row" id="routes-row">
+              <span data-i18n-text="routes-row.activities">Activities<small id="routes-note"></small></span>
+              <input type="checkbox" id="routes-toggle" />
+            </label>
+            <!-- Folded away by default: these are per-activity controls and
+                 there can be a dozen of them, which would bury the rest of the
+                 menu if they were always on show. -->
+            <button type="button" class="menu-expand" id="routes-options-toggle"
+              aria-expanded="false" aria-controls="routes-options" hidden>
+              <span data-i18n="routes-options-toggle.show-and-color-by-activity">Show and color by activity</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+            <div class="routes-options" id="routes-options" hidden></div>
+            <!-- Your photographs as points on the map, and the picture itself
+                 when you tap one.
+
+                 Hidden here and unhidden by main.js only inside the iOS app,
+                 which is the one place it can work: a photo library is on a
+                 device the page cannot reach into, and the server has never held
+                 anything but the coordinates. A switch that could never be
+                 anything but off is worse than no switch — see src/photos.js. -->
+            <label class="menu-row" id="photos-row" hidden>
+              <!-- Kept, where the other second lines went: this one is not a
+                   description but the row's only status — "Reading your
+                   library…", a refused permission, or how many pictures and
+                   videos are actually on the map. -->
+              <span data-i18n-text="photos-row.photos">Photos<!-- Empty until there is something to say. It was "Where your
+                     pictures were taken", which described the row rather than
+                     reporting on it — and cost this row a second line that the
+                     switches above it do not have, so "Your map" read as more
+                     loosely spaced than the overlays. main.js fills it in with
+                     the real status: reading the library, a refused permission,
+                     or how many pictures are on the map. --><small id="photos-note"></small></span>
+              <input type="checkbox" id="photos-toggle" />
+            </label>
+          </section>
+
+          <!-- --- Somebody else's map ---------------------------------------
+               Three reference overlays, and they are under your own layers
+               rather than over them. You switch one of these on to look
+               something up — where the line goes, whether that is an airfield —
+               and off again afterwards; the three above are what the app is
+               for, and were being read past to reach them. -->
+          <section class="menu-section">
             <!-- Just the switch. What the overlay draws, and whether it answers
                  a tap, is eight controls that you set once and then read the map
                  — so they are in Settings, and this stays beside the other
@@ -194,7 +267,7 @@
                  menu cannot fall out of step with what the proxy will fetch.
 
                  Everything else is folded away, the same arrangement the routes
-                 use below: three rows you set once — how loud, whether a tap
+                 use above: three rows you set once — how loud, whether a tap
                  asks the trails, and what the card lists when it does — against
                  a menu you flick through to change what is drawn. All of it is
                  hidden while the overlay is off, because a control for a layer
@@ -235,63 +308,6 @@
                 <input type="checkbox" id="trails-tap-toggle" />
               </label>
             </div>
-          </section>
-
-          <section class="menu-section">
-            <div data-i18n="layers-menu.your-map" class="menu-heading">Your map</div>
-            <!-- Labelled by its own second line, because the second line was
-                 the informative one. "Saved routes" over "Activities · 12" is
-                 the same fact told twice, and the row is a switch beside a
-                 count either way — so the count is the label, and what to do
-                 about an empty map is the label when there is no count. -->
-            <label class="menu-row" id="routes-row">
-              <span data-i18n="routes-note.import-a-track-in-settings" id="routes-note">Import a track in Settings</span>
-              <input type="checkbox" id="routes-toggle" />
-            </label>
-            <!-- Folded away by default: these are per-activity controls and
-                 there can be a dozen of them, which would bury the rest of the
-                 menu if they were always on show. -->
-            <button type="button" class="menu-expand" id="routes-options-toggle"
-              aria-expanded="false" aria-controls="routes-options" hidden>
-              <span data-i18n="routes-options-toggle.show-and-color-by-activity">Show and color by activity</span>
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
-                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-            <div class="routes-options" id="routes-options" hidden></div>
-            <!-- Your photographs as points on the map, and the picture itself
-                 when you tap one.
-
-                 Hidden here and unhidden by main.js only inside the iOS app,
-                 which is the one place it can work: a photo library is on a
-                 phone, a page cannot open one, and the server has never held
-                 anything but the coordinates. A switch that could never be
-                 anything but off is worse than no switch — see src/photos.js. -->
-            <label class="menu-row" id="photos-row" hidden>
-              <!-- Kept, where the other second lines went: this one is not a
-                   description but the row's only status — "Reading your
-                   library…", a refused permission, or how many pictures and
-                   videos are actually on the map. -->
-              <span data-i18n-text="photos-row.photos">Photos<!-- Empty until there is something to say. It was "Where your
-                     pictures were taken", which described the row rather than
-                     reporting on it — and cost this row a second line that the
-                     switches above it do not have, so "Your map" read as more
-                     loosely spaced than the overlays. main.js fills it in with
-                     the real status: reading the library, a refused permission,
-                     or how many pictures are on the map. --><small id="photos-note"></small></span>
-              <input type="checkbox" id="photos-toggle" />
-            </label>
-            <!-- Whether the ground answers a tap at all. On by default, because
-                 a map you can ask about is the point of this one — but reading
-                 it with a finger means opening a card on every second tap, and
-                 this is the way to just look at it. Routes, photographs and the
-                 reference overlays keep their own taps: those are things you
-                 aimed at, not the ground you happened to touch. -->
-            <label class="menu-row" id="cells-interactive-row">
-              <span data-i18n-text="cells-interactive-row.tap-for-details">Tap for details</span>
-              <input type="checkbox" id="cells-interactive-toggle" />
-            </label>
             <!-- Gap: above it is what's drawn on the map, below it the panels
                  that open over it. -->
             <button type="button" class="menu-action menu-gap" id="stats-open">
@@ -314,7 +330,14 @@
                  what you open when the map is already wrong, which is rarer and
                  which you go looking for rather than reach for. Last is also
                  where the eye expects it, since it is where every application
-                 puts it. -->
+                 puts it.
+
+                 Neither carries a second line any more. "A picture of where you
+                 have been" and "Import, sync, layers and the rest" were describing
+                 doors that are already named, at the bottom of a menu whose other
+                 second line is a *status* — so the two kinds of small text read as
+                 the same kind, and the block of them was the heaviest thing in the
+                 panel. A door needs a name on it and nothing else. -->
             <button type="button" class="menu-action" id="export-open">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
@@ -322,7 +345,7 @@
                 <path d="m3.5 16.5 4.6-4.2a1.7 1.7 0 0 1 2.3 0l3.4 3.2" />
                 <path d="m13.2 13.6 2-1.8a1.7 1.7 0 0 1 2.3 0l2.9 2.7" />
               </svg>
-              <span data-i18n-text="export-open.export-an-image">Export an image<small data-i18n="export-menu-note.a-picture-of-where-you">A picture of where you have been</small></span>
+              <span data-i18n="export-open.export-an-image">Export an image</span>
             </button>
             <button type="button" class="menu-action" id="settings-open">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -330,12 +353,7 @@
                 <circle cx="16" cy="7" r="2" />
                 <circle cx="10" cy="17" r="2" />
               </svg>
-              <!-- Import and sync are named because they are the two that
-                   *moved* and the only way to either now; the other two words are
-                   the shape of the place. Somebody looking for a door that used
-                   to be in this menu has to be able to see where it went without
-                   opening anything. -->
-              <span data-i18n-text="settings-open.settings">Settings<small data-i18n="settings-menu-note.import-sync-layers-and-the" id="settings-menu-note">Import, sync, layers and the rest</small></span>
+              <span data-i18n="settings-open.settings">Settings</span>
             </button>
           </section>
 
@@ -961,7 +979,7 @@
                  of doors is a page you read on the way to somewhere else.
 
                  Each row still opens a dialog of its own, because each is a form
-                 — an address and a token, an OAuth round trip, a phone's status.
+                 — an address and a token, an OAuth round trip, a device's status.
                  Settings gets out of the way for them and they come back to this
                  tab, the same hand-off Komoot does from Import. -->
             <section class="settings-pane" id="pane-sync" role="tabpanel" aria-labelledby="settings-tab-sync" hidden>
@@ -983,8 +1001,8 @@
                         <path d="M11 18.5h2" />
                       </svg>
                       <span class="sync-option-text">
-                        <b data-i18n="sync.your-phone">Your phone</b>
-                        <small data-i18n="sync-device-note.no-phone-syncing" id="sync-device-note">No phone syncing</small>
+                        <b data-i18n="sync.your-devices">Your devices</b>
+                        <small data-i18n="sync-device-note.no-devices-syncing" id="sync-device-note">No devices syncing</small>
                       </span>
                       <svg class="sync-fold-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="m9 5 7 7-7 7" />
@@ -993,8 +1011,8 @@
                     <div class="sync-fold-body" id="fold-device-body" hidden>
                       <p data-i18n-text="device-help.everything-else-here-is-a" class="ha-help" id="device-help">
                         Everything else here is a file you export or an address this server can go and read.
-                        A phone is neither: it moves, it sleeps, and it decides for itself when to speak. So it
-                        is set up <b data-i18n="device-help.on-the-phone">on the phone</b> — Hexplore for iOS, Settings tab — and this page is where
+                        A device is neither: it moves, it sleeps, and it decides for itself when to speak. So it
+                        is set up <b data-i18n="device-help.on-the-device">on the device</b> — Hexplore for iOS, Settings tab — and this page is where
                         you see whether it is working.
                       </p>
                       <div class="ha-devices-list" id="device-list"></div>
@@ -1972,7 +1990,7 @@
                 </svg>
               </div>
               <div class="intro-perm-text">
-                <b data-i18n="intro.import.get-title">Put it on your phone</b>
+                <b data-i18n="intro.import.get-title">Put it on your device</b>
                 <small data-i18n="intro.import.get-body">
                   The App Store link isn't live yet — when it is, this square is the thing you point a camera
                   at.

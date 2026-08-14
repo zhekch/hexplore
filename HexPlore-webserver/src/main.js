@@ -185,6 +185,13 @@ const LEVEL0_ZOOM = 10;
 
 const VIEW_PAD = 0.35; // extra region coverage around the viewport, per side
 
+// How close two presses of the same control have to be to count as one double
+// press. Counted by hand rather than left to `dblclick`, which a touch screen
+// does not reliably send — see the Type legend's handler, which is the only
+// thing that asks. Long enough for a deliberate double tap with a thumb, short
+// enough that two separate decisions a beat apart are two decisions.
+const DOUBLE_PRESS_MS = 350;
+
 // --- Which way the camera may point --------------------------------------------
 // The map turns. It did not, for a long time, and the reason was never that
 // anybody wanted a map you could only look at from the south: it was that every
@@ -2196,16 +2203,38 @@ function setCellsOn(on) {
   updateLayersUi();
 }
 
+/** Take one source's cells off the map, or put them back. See hiddenSources. */
+function toggleSource(src) {
+  if (!src) return;
+  if (!hiddenSources.delete(src)) hiddenSources.add(src);
+  applyHiddenSources();
+}
+
 /**
- * Take one source's cells off the map, or put them back. See hiddenSources.
+ * All of them, or none of them — the answer to a double press on any one entry.
+ *
+ * A legend of a dozen sources is a dozen presses away from "just my own tracks"
+ * and another dozen back, and the way out of that in every legend anybody has
+ * used is a double click. Which of the two it does is decided by whether
+ * anything is hidden *now*: everything showing means the double press is asking
+ * for the other extreme, and anything else means it is asking to start again.
+ *
+ * @param {boolean} show
+ */
+function setAllSources(show) {
+  if (show) hiddenSources.clear();
+  else for (const src of sourceOrder) hiddenSources.add(src);
+  applyHiddenSources();
+}
+
+/**
+ * Which sources are hidden has changed; make the map agree.
  *
  * A full roll-up rather than anything cleverer: which source speaks for a cell
  * is only decided while the whole set is being walked, and this is a press of a
  * legend entry rather than something that happens as you pan.
  */
-function toggleSource(src) {
-  if (!src) return;
-  if (!hiddenSources.delete(src)) hiddenSources.add(src);
+function applyHiddenSources() {
   saveHiddenSources();
   recomputeLit();
   updateLayersUi();
@@ -4378,6 +4407,10 @@ function setRoutesOn(on) {
   if (on === routesOn) return;
   routesOn = on;
   saveRoutesPref();
+  // The row's second line answers to this switch, and switching it on the first
+  // time goes down an async path — so it is refreshed here rather than waiting
+  // for the geometry to land. `syncRoutes` does it again when it does.
+  updateRoutesUi();
   if (!on) {
     closeRouteInfo();
     soloRoute = null;
@@ -5232,15 +5265,23 @@ function updateRoutesUi() {
   // stop. The same goes for the distance — the second copy was adding its
   // kilometres to the total as if you had ridden them again.
   const listed = listedRoutes();
-  // The row's whole label, where it used to be a second line under "Saved
-  // routes": a count, and how much of it you are currently looking at. The
-  // distance went with the rest of the subtext — it is in Routes and statistics,
-  // which is a screen for reading numbers on.
-  note.textContent = listed.length
-    ? (shown.length === listed.length
-        ? `${t('routes-note.activities')} · ${listed.length}`
-        : `${t('routes-note.activities')} · ${shown.length} of ${listed.length}`)
-    : t('routes-note.import-a-track-in-settings');
+  // The row's second line, and — like Photos below it — a *status* rather than a
+  // description: how many there are, and how much of that you are currently
+  // looking at. Empty while the layer is off, because a count of what is not
+  // drawn is a number about nothing; `.menu-row small:empty` folds the line away
+  // entirely, so the row lines up with the switches around it.
+  //
+  // The one thing that survives the switch being off is having nothing to show
+  // at all. That is not a count, it is the row's only explanation of why its
+  // switch is disabled, and hiding it would leave a dead control with no way to
+  // find out what would make it live.
+  note.textContent = !listed.length
+    ? t('routes-note.import-a-track-in-settings')
+    : !routesOn
+      ? ''
+      : shown.length === listed.length
+        ? `${listed.length} ${listed.length === 1 ? 'activity' : 'activities'}`
+        : `${shown.length} of ${listed.length} shown`;
   renderRouteOptions();
 }
 
@@ -8441,7 +8482,8 @@ function updateLayersUi() {
       // The title was already carrying the full name, which a narrow column
       // clips; what it does is on the end of it, because a swatch and a name
       // read as a legend and nothing else here says they can be pressed.
-      key.title = off ? `${label} — hidden. Click to show` : `${label} — click to hide`;
+      key.title = (off ? `${label} — hidden. Click to show` : `${label} — click to hide`)
+        + ', double-click for all or none';
       key.setAttribute('aria-pressed', String(!off));
       const dot = document.createElement('i');
       // A custom property rather than `background`, so the stylesheet can spend
@@ -8498,7 +8540,7 @@ const menuClosers = [];
 
 /**
  * Tell the menu whether it is currently taller than the room it has, and how
- * close to the bottom it is scrolled.
+ * close to each end of it the scroll has got.
  *
  * The panel's height is worked out from the space that is free (see
  * `--menu-chrome` in style.css), so on any current phone the whole menu fits
@@ -8525,9 +8567,11 @@ function refreshMenuOverflow() {
   const across = box.scrollWidth - box.clientWidth;
   const room = Math.max(down, across);
   const at = across > down ? box.scrollLeft : box.scrollTop;
-  // A pixel of slack: sub-pixel layout leaves fractional remainders that would
-  // otherwise keep the fade on a menu already scrolled to the end.
+  // A pixel of slack at either end: sub-pixel layout leaves fractional
+  // remainders that would otherwise keep a fade on a menu already scrolled as
+  // far as it goes.
   box.classList.toggle('is-overflowing', room > 1);
+  box.classList.toggle('is-at-start', at <= 1);
   box.classList.toggle('is-at-end', room <= 1 || at >= room - 1);
 }
 
@@ -8604,9 +8648,31 @@ function wireLayersControl() {
   // Delegated, unlike the three above: the Type legend's entries are rebuilt
   // every time the menu is refreshed, so a listener per entry would be wired
   // again on every pan that changes the detail level.
+  //
+  // The double press is counted here rather than left to `dblclick`, which a
+  // touch screen does not reliably send — and the first press of a pair is *not*
+  // held back waiting to find out, because a legend entry that takes a third of
+  // a second to answer is a worse control than one with no shortcut in it. So
+  // the first press does its own job, and the second one asks the whole legend
+  // instead of undoing it. Which way it goes is decided from the state *before*
+  // the pair began: everything showing means "hide the rest", and anything
+  // already hidden means "put it all back" — otherwise the first press's own
+  // toggle would answer the question and a double press on a full legend would
+  // land back where it started.
+  let lastKey = null;
   document.getElementById('type-legend').addEventListener('click', (e) => {
     const key = e.target.closest('[data-source]');
-    if (key) toggleSource(key.dataset.source);
+    if (!key) return;
+    const at = performance.now();
+    const src = key.dataset.source;
+    if (lastKey && lastKey.src === src && at - lastKey.at < DOUBLE_PRESS_MS) {
+      const { hadHidden } = lastKey;
+      lastKey = null;
+      setAllSources(hadHidden);
+      return;
+    }
+    lastKey = { src, at, hadHidden: hiddenSources.size > 0 };
+    toggleSource(src);
   });
   railToggle.addEventListener('change', () => setRail(railToggle.checked));
   trailsToggle.addEventListener('change', () => setTrails(trailsToggle.checked));
@@ -9803,10 +9869,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   deviceUi = mountDevices({
     onDevices: (devices) => {
       let text;
-      if (!devices.length) text = 'No phone syncing';
+      if (!devices.length) text = 'No devices syncing';
       else if (devices.length === 1) {
-        text = `${devices[0].name || 'A phone'} · ${whenAgo(devices[0].lastSeen)}`;
-      } else text = `${devices.length} phones syncing`;
+        text = `${devices[0].name || 'A device'} · ${whenAgo(devices[0].lastSeen)}`;
+      } else text = `${devices.length} devices syncing`;
       sync?.setDeviceStatus(text);
     },
   });
