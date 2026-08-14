@@ -1,12 +1,12 @@
 // Fifty colours, and how to hand them out so that no two things next to each
 // other get the same one.
 //
-// Two callers, one problem. A stack of eleven ski runs down one piste is eleven
-// lines drawn in one colour, so the menu that lists them cannot say which row is
-// which line except by lighting one at a time (see showRouteStack in
-// src/main.js) — and **Color each route** is the same answer left on: an
-// activity colour cannot tell two rides apart, because they are the same
-// activity.
+// Three callers, one problem: things that ought to be told apart, drawn in one
+// colour. A stack of eleven ski runs down one piste is eleven lines the menu
+// listing them cannot point at except one at a time (see showRouteStack in
+// src/main.js); **Color each route** is that same answer left on; and *Random
+// colors* is it one level up, where a map of six activities is six shades of the
+// same orange until somebody sets five of them by hand.
 //
 // It lives on its own rather than in main.js because handing out N distinct
 // colours from a fixed list is the sort of thing that is worth a test: the
@@ -105,5 +105,25 @@ export function paletteFor(keys) {
     stride: STRIDES[seed % STRIDES.length],
   });
   return new Map(list.map((k, i) => [k, colors[i]]));
+}
+
+/**
+ * A colour each, deliberately different from last time — what *Random colors*
+ * hands out to the activities.
+ *
+ * Random where `paletteFor` is stable, and for the opposite reason: this one is
+ * pressed *again* when the answer was not liked, so giving back the same answer
+ * would make the button look broken. Only the start and the step are random —
+ * the colours themselves still come out of the palette in its own order, so a
+ * random set is still a spread one rather than three greens and a mustard.
+ *
+ * @param {number} n
+ * @param {() => number} [rng] injectable for the tests
+ */
+export function randomPalette(n, rng = Math.random) {
+  return paletteRun(n, {
+    start: Math.floor(rng() * ROUTE_PALETTE.length),
+    stride: STRIDES[Math.floor(rng() * STRIDES.length)],
+  });
 }
 

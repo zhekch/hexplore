@@ -1990,17 +1990,32 @@ deliberately not prevented: delaying the eye by a quarter-second so it could fin
 out whether a second click was coming would make every single click feel broken
 to save a flicker on a rarer one, and two toggles land back where they started.
 
-**Color each route** sits under the list, on one row with the reset. It is the
-answer to the thing an activity colour cannot do by definition: eleven ski runs
-down one piste are one activity, so they are one colour, however carefully that
-colour was chosen. With the switch on, every route on the map is drawn in a
-colour of its own from the fifty (below) — put in front of the activity colours
-as a match on the feature id, the same mechanism a stack menu borrows while it is
-open, and the two never collide because a menu leaves the lines alone when this
-is already on.
+Under the list is one row of three: **Random colors**, **Per route**, and the
+reset that undoes both. Short labels because there is 272 px of menu and three of
+them; what each does at length is in its tooltip.
 
-It is a **switch**, not a press: it is a way of looking at the map that you leave
-on, and it is stored with the hidden activities and the per-activity colours,
+*Random colors* gives every activity a colour of its own. Six activities on one
+map are six shades of the same orange until somebody sets five of them by hand,
+and setting them by hand is six trips through a colour panel to answer a question
+— *which of these lines is the cycling* — that has no right answer, only a
+distinct one. It is random rather than fixed because it is pressed *again* when
+the answer was not liked; what is random is only where in the palette it starts
+and how far it steps, so a random set is still a spread one rather than three
+greens and a mustard. The colours are ordinary activity colours once handed out:
+stored on the account, editable in the picker.
+
+*Per route* is the answer to the thing an activity colour cannot do by
+definition: eleven ski runs down one piste are one activity, so they are one
+colour, however carefully that colour was chosen. With the switch on, every route
+on the map is drawn in a colour of its own from the fifty (below) — put in front
+of the activity colours as a match on the feature id, the same mechanism a stack
+menu borrows while it is open, and the two never collide because a menu leaves
+the lines alone when this is already on. Pressing *Random colors* switches it
+off, because asking for activity colours is asking to see them, and under a
+colour per route they are invisible: a press that visibly did nothing.
+
+*Per route* is a **switch**, not a press: it is a way of looking at the map that
+you leave on, and it is stored with the hidden activities and the colours,
 so a map left in this state is in it tomorrow and on the other device. What is
 *not* stored is a single colour — they are derived from the route ids, so the
 same map comes up the same way everywhere with nothing synced but the boolean,
@@ -4433,6 +4448,31 @@ argument that put the clock there: an easter egg you went and found is a thing
 you decided, not a fact about the laptop you decided it at.
 
 ## What a basemap switch takes with it
+
+**The incoming library's stylesheet arrives last, and last wins.** This one is
+worth reading before adding any rule to `style.css` that names a library class.
+
+A dynamically imported CSS file is appended to the end of `<head>` when the
+import resolves. On a first load that happens to be the right way round —
+`boot.js` loads the library, *then* imports `main.js`, whose first line imports
+`style.css` — so our overrides land after theirs and hold. A basemap switch does
+the same import from the other end of the app's life, and lands the library's CSS
+after ours.
+
+Most of this app's overrides survived that by luck: they are more specific than
+the rule they replace. The popup card was not. `.maplibregl-popup-content` against
+theirs is one class each, a tie, and the later one wins — so after a switch the
+tapped-route card came back as their square white box with our white text still
+on it, which on screen is a card with nothing in it but a column of coloured
+dots. In light mode it was legible and merely wrong.
+
+`useEngineCss` in `src/gl-engine.js` fetches the stylesheet as *text* (Vite's
+`?inline`) and puts it at the **top** of the head instead, ahead of anything this
+app wrote. Same lazy fetch — a session that never opens the 3D basemap still
+never downloads its 40 KB — and the ordering is now a fact rather than a
+coincidence. `scripts/test/mapbox.mjs` reads the source and fails if that ever
+goes back to an ordinary CSS import, because nothing else can: the fault needs a
+second library loaded into a live page to appear at all.
 
 **"My location" is put back when the map itself is replaced.** Crossing between
 the two map libraries replaces the map object, and a control belongs to the map

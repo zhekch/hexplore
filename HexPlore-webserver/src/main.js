@@ -139,7 +139,7 @@ import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
 import { busy } from './busy.js';
 import { routesToFC, totalLength, formatDistance, canonicalSport, duplicateRoutes } from './routes.js';
-import { paletteFor } from './route-colors.js';
+import { paletteFor, randomPalette } from './route-colors.js';
 import { reconcilePrefs, remoteToken } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
@@ -5423,11 +5423,45 @@ function renderRouteOptions() {
     box.append(row);
   }
 
-  // The two that act on the whole list, side by side under it. Short labels
-  // because there is 272 px of menu and two of them: what they do at length is
-  // in the tooltip, and one of them is a switch whose state says most of it.
+  // The three that act on the whole list, on one row under it. Short labels
+  // because there is 272 px of menu: what each does at length is in the tooltip,
+  // and one of them is a switch whose state says most of it. The row wraps
+  // rather than squeezing, for the narrow menu and the long translation.
   const actions = document.createElement('div');
   actions.className = 'route-option-actions';
+
+  // One press, a colour each — for the *activities*, which is the level this
+  // panel is about. Six of them on one map are six shades of the same orange
+  // until somebody sets five by hand, and setting them by hand is six trips
+  // through a colour panel to answer a question — *which of these lines is the
+  // cycling* — that has no right answer, only a distinct one.
+  //
+  // Random rather than fixed because it is pressed *again* when the answer was
+  // not liked; only the start and the step are random, so a random set is still
+  // a spread one. See randomPalette in src/route-colors.js.
+  const random = document.createElement('button');
+  random.type = 'button';
+  random.className = 'route-option-action';
+  random.textContent = 'Random colors';
+  random.title = 'Give every activity a colour of its own';
+  random.addEventListener('click', () => {
+    const keys = sportsPresent().map((s) => s.key);
+    const colors = randomPalette(keys.length);
+    keys.forEach((key, i) => sportColors.set(key, colors[i]));
+    // Asking for activity colours is asking to see them, and with the switch
+    // beside this one on they would be hidden under a colour per route — a
+    // press that visibly did nothing.
+    routeRainbow = false;
+    refreshRainbow();
+    saveRouteView();
+    syncRouteSwatches();
+    repaintRouteColors();
+    // Nothing about *which* routes are drawn has changed, so this is the state
+    // refresh rather than syncRoutes: the only control that has to catch up is
+    // the reset, which has just become worth offering.
+    refreshRouteOptionStates();
+  });
+  actions.append(random);
 
   // **A colour per route, not per activity.** Eleven ski runs are one colour
   // however carefully the activity was chosen, which is the whole of what this
@@ -5438,7 +5472,9 @@ function renderRouteOptions() {
   const each = document.createElement('button');
   each.type = 'button';
   each.className = 'route-option-action route-option-each';
-  each.textContent = 'Color each route';
+  // Two words, because three buttons have to share 272 px of menu and the row
+  // reads as a pair of answers to "coloured by what" with a reset after them.
+  each.textContent = 'Per route';
   each.title = 'Draw every route in a colour of its own, instead of one per activity';
   each.setAttribute('aria-pressed', routeRainbow ? 'true' : 'false');
   each.classList.toggle('on', routeRainbow);

@@ -77,6 +77,47 @@ let loaded = null;
 export const engineNow = () => loaded;
 
 /**
+ * The library's own stylesheet, put where it cannot win.
+ *
+ * A plain `import('maplibre-gl/dist/maplibre-gl.css')` — which is what this was
+ * — hands the file to the bundler, and the bundler appends it to the **end** of
+ * `<head>` at the moment the import resolves. On a first load that is the right
+ * way round by luck: boot.js awaits this before importing main.js, and main.js
+ * imports `style.css` on its first line, so ours lands last and our overrides
+ * hold.
+ *
+ * On a basemap switch it is the wrong way round, and the whole of this app's
+ * map chrome is overrides. `.maplibregl-popup-content` against theirs is a tie
+ * on specificity — one class each — so whichever came last wins, and after a
+ * switch that is theirs: the tapped-route card came back as a square white box
+ * with our white text still on it, which is a card with nothing visible in it
+ * but the coloured dots. Every other override in style.css happens to be more
+ * specific than the rule it replaces and so survived, which is exactly the kind
+ * of luck that runs out quietly.
+ *
+ * So the CSS is fetched as text (`?inline` gives the string and injects
+ * nothing) and put at the *top* of the head, before anything this app wrote.
+ * Same lazy fetch — a session that never opens the 3D basemap still never
+ * downloads its 40 KB — and now the order is a fact rather than a coincidence.
+ */
+async function useEngineCss(which) {
+  if (typeof document === 'undefined') return;
+  if (document.querySelector(`style[data-engine-css="${which}"]`)) return;
+  const mod = which === MAPBOX
+    ? await import('mapbox-gl/dist/mapbox-gl.css?inline')
+    : await import('maplibre-gl/dist/maplibre-gl.css?inline');
+  // Guarded again: two switches in quick succession can both get this far.
+  if (document.querySelector(`style[data-engine-css="${which}"]`)) return;
+  const el = document.createElement('style');
+  el.dataset.engineCss = which;
+  el.textContent = mod.default ?? '';
+  // First in the head, so *everything* the app has to say about their classes
+  // comes after it — including the rule in index.html that keeps the page
+  // hidden until it is styled.
+  document.head.prepend(el);
+}
+
+/**
  * Load a map library and its stylesheet.
  *
  * @param {string} which MAPBOX or MAPLIBRE
@@ -84,10 +125,7 @@ export const engineNow = () => loaded;
  */
 export async function loadEngine(which) {
   if (which === MAPBOX) {
-    const [mod] = await Promise.all([
-      import('mapbox-gl'),
-      import('mapbox-gl/dist/mapbox-gl.css'),
-    ]);
+    const [mod] = await Promise.all([import('mapbox-gl'), useEngineCss(MAPBOX)]);
     const gl = mod.default ?? mod;
     // Mapbox GL JS reads this global when it resolves a `mapbox://` URL, which
     // is every URL in Standard. Set before any Map is constructed; there is no
@@ -96,10 +134,7 @@ export async function loadEngine(which) {
     loaded = { gl, engine: MAPBOX };
     return loaded;
   }
-  const [mod] = await Promise.all([
-    import('maplibre-gl'),
-    import('maplibre-gl/dist/maplibre-gl.css'),
-  ]);
+  const [mod] = await Promise.all([import('maplibre-gl'), useEngineCss(MAPLIBRE)]);
   loaded = { gl: mod.default ?? mod, engine: MAPLIBRE };
   return loaded;
 }

@@ -41,6 +41,8 @@ const {
   installAddLayerSlots, isSlot,
 } = await import('../../src/gl-engine.js');
 
+const { readFileSync } = await import('node:fs');
+
 let pass = 0;
 let fail = 0;
 const check = (ok, label, detail) => {
@@ -423,6 +425,36 @@ console.log('\nThe blue dot is a state that survives a basemap switch');
   const missed = ['maplibregl', 'mapboxgl'].filter((p) => state(p, 'background') === 'off');
   check(missed.length === 0,
     'no library reads a backgrounded control as one that was never switched on', missed.join(', '));
+}
+
+// --- The stylesheet, and where a switch puts it --------------------------------
+//
+// A source check rather than a rendering one, and it is the only kind available:
+// what went wrong here cannot be seen until a *second* library has been loaded
+// into a live page, which is a browser and a basemap switch away from any test
+// this suite can run.
+//
+// What happened: the library's own CSS was pulled in with a plain
+// `import('maplibre-gl/dist/maplibre-gl.css')`, which the bundler appends to the
+// end of <head> when it resolves. On a first load that lands *before*
+// src/style.css and everything is fine. On a basemap switch it lands *after*,
+// and `.maplibregl-popup-content` against theirs is one class each — a tie, so
+// the later one wins. The tapped-route card came back as a square white box
+// with our white text still on it: a card with nothing in it but coloured dots.
+//
+// So the CSS is fetched as text and put at the top of the head instead. These
+// three lines are what stops that quietly going back to an ordinary import.
+console.log('\nThe library stylesheet cannot outrank ours');
+{
+  const src = readFileSync(new URL('../../src/gl-engine.js', import.meta.url), 'utf8');
+  // Comments out first: the note above this code quotes the very import it is
+  // there to warn against, and a test that reads prose is a test that fails on
+  // an explanation.
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const plain = /import\(\s*'[^']*-gl\.css'\s*\)/.test(code);
+  check(!plain, 'no bare CSS import — those are appended after ours, and win on a tie');
+  check(/-gl\.css\?inline'/.test(src), 'the stylesheets are pulled in as text (`?inline`)');
+  check(/document\.head\.prepend\(/.test(src), 'and put at the top of the head, ahead of anything this app wrote');
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

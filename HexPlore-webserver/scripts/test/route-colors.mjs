@@ -7,7 +7,7 @@
 //
 //   node scripts/test/route-colors.mjs
 
-import { ROUTE_PALETTE, paletteFor, paletteRun } from '../../src/route-colors.js';
+import { ROUTE_PALETTE, paletteFor, paletteRun, randomPalette } from '../../src/route-colors.js';
 
 let pass = 0;
 let fail = 0;
@@ -71,6 +71,22 @@ console.log('\nAnd a whole map of them, for "Color each route"');
   check(run.every((c, i) => i === 0 || c !== run[i - 1]), 'and never twice in a row');
   check([...all.values()].every((c) => ROUTE_PALETTE.includes(c)), 'nothing comes out that is not in the palette');
   check(many.every((id) => paletteFor(many).get(id) === all.get(id)), 'the same map comes up the same way twice');
+}
+
+console.log('\nAnd the ones "Random colors" hands the activities');
+{
+  // A fixed sequence, so "random" can be checked at all.
+  const feed = (...ns) => { let i = 0; return () => ns[i++ % ns.length]; };
+  const six = randomPalette(6, feed(0.02, 0.61));
+  check(six.length === 6 && distinct(six), 'six activities, six colours');
+
+  const first = randomPalette(6, feed(0.1, 0.1));
+  const second = randomPalette(6, feed(0.7, 0.8));
+  check(first.join() !== second.join(), 'pressing it again gives a different set');
+
+  check(randomPalette(1, feed(0.5, 0.5)).length === 1, 'one activity is still a colour');
+  check(randomPalette(50, feed(0.33, 0.44)).every((c) => ROUTE_PALETTE.includes(c)),
+    'and nothing comes out that is not in the palette');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

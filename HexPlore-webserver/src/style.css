@@ -5384,14 +5384,15 @@ body {
   border-radius: 7px;
 }
 
-/* The two under the list — *Color each route*, and the reset that turns it off
-   along with everything else. One row: the labels are short enough to share
-   272px, and stacking two full-width pills under a list of three activities made
-   the buttons the loudest thing in the fold. `Reset` takes the space it needs
-   for its own word and the switch takes the rest, so the row does not change
-   shape when the reset appears. */
+/* The three under the list — a colour each for the activities, the switch that
+   gives one to every route instead, and the reset that undoes both. One row:
+   the labels are short enough to share 272px, and three full-width pills under a
+   list of three activities would make the buttons the loudest thing in the fold.
+   It wraps rather than squeezing, because a translation is not obliged to be
+   this short. */
 .route-option-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 6px;
 }
