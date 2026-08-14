@@ -58,7 +58,11 @@ const TABS = [
   { key: 'personal' },
   { key: 'maplayers' },
   { key: 'sources' },
+  // Import and Sync are adjacent because they are the two halves of one
+  // question — how does where I have been get in — asked of a file you have and
+  // of something that will keep answering on its own.
   { key: 'import' },
+  { key: 'sync' },
   { key: 'backups', admin: true },
   { key: 'admin', admin: true },
   { key: 'other' },

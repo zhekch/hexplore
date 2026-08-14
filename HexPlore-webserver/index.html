@@ -289,49 +289,21 @@
               </svg>
               <span data-i18n="stats-open.routes-and-statistics">Routes and statistics</span>
             </button>
-            <!-- Three doors, and each one is a destination rather than a
-                 signpost.
+            <!-- Two doors, and both are a destination rather than a signpost.
 
-                 The first is **Sync**, and it used to be "Import & sync" with a
-                 file picker as its first row. Importing a file is in Settings
-                 now, so the word came off the door: what is left behind it is
-                 the three things the server keeps *asking* — Home Assistant,
-                 Strava, a phone — where the only question you ever have is
-                 whether it is still working. A menu entry offering two ways to
-                 reach one importer is a menu entry you have to read.
+                 There were four here not long ago: "Import & sync" and "Export &
+                 settings", each a hub of rows that opened further dialogs. The
+                 hubs are gone — Settings is one tabbed dialog and holds the
+                 importer, the connections, the backups and the rest as tabs, and
+                 taking a picture of the map is a button of its own because it is
+                 the one thing in the old hub you *do* rather than configure.
 
-                 The other two used to be one, called "Export & settings", and
-                 that hub held three rows: a picture, the backups, and a door to
-                 the real settings. It was a list you had to read to find the one
-                 thing behind it, and two of the three were not exports at all.
-                 So Settings is its own dialog now (and holds the backups and the
-                 importer as tabs), and taking a picture of the map — the one
-                 thing here you *do* rather than configure — is a button of its
-                 own. -->
-            <button type="button" class="menu-action" id="sync-open">
-              <!-- Two arrows round a circle: the shape that reads as *kept in
-                   step*, where the tray-and-arrow it used to have read as
-                   *put a file in* — which is exactly the half that moved out. -->
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M20 11.5A8 8 0 0 0 6.3 6" />
-                <path d="M4 12.5A8 8 0 0 0 17.7 18" />
-                <path d="M4 4v4h4" />
-                <path d="M20 20v-4h-4" />
-              </svg>
-              <span data-i18n-text="sync-open.sync">Sync<small data-i18n="sync-menu-note.home-assistant-strava-phone" id="sync-menu-note">Home Assistant, Strava, phone</small></span>
-            </button>
-            <button type="button" class="menu-action" id="settings-open">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
-                <circle cx="16" cy="7" r="2" />
-                <circle cx="10" cy="17" r="2" />
-              </svg>
-              <!-- Import is named here and the other three are the shape of the
-                   place. It is the one that *moved*, and the only way in now, so
-                   somebody looking for it has to be able to see where it went
-                   without opening anything. -->
-              <span data-i18n-text="settings-open.settings">Settings<small data-i18n="settings-menu-note.personal-layers-sources-import" id="settings-menu-note">Personal, layers, sources, import</small></span>
-            </button>
+                 **Export first, Settings last.** Statistics and a picture are
+                 things you come here to do while looking at the map; settings are
+                 what you open when the map is already wrong, which is rarer and
+                 which you go looking for rather than reach for. Last is also
+                 where the eye expects it, since it is where every application
+                 puts it. -->
             <button type="button" class="menu-action" id="export-open">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
@@ -340,6 +312,19 @@
                 <path d="m13.2 13.6 2-1.8a1.7 1.7 0 0 1 2.3 0l2.9 2.7" />
               </svg>
               <span data-i18n-text="export-open.export-an-image">Export an image<small data-i18n="export-menu-note.a-picture-of-where-you">A picture of where you have been</small></span>
+            </button>
+            <button type="button" class="menu-action" id="settings-open">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+                <circle cx="16" cy="7" r="2" />
+                <circle cx="10" cy="17" r="2" />
+              </svg>
+              <!-- Import and sync are named because they are the two that
+                   *moved* and the only way to either now; the other two words are
+                   the shape of the place. Somebody looking for a door that used
+                   to be in this menu has to be able to see where it went without
+                   opening anything. -->
+              <span data-i18n-text="settings-open.settings">Settings<small data-i18n="settings-menu-note.import-sync-layers-and-the" id="settings-menu-note">Import, sync, layers and the rest</small></span>
             </button>
           </section>
 
@@ -550,80 +535,6 @@
       </div>
     </div>
 
-    <div class="modal-overlay" id="sync-overlay" hidden>
-      <div class="modal-card">
-        <div class="modal-head">
-          <div>
-            <div data-i18n="sync.sync" class="modal-title">Sync</div>
-            <div data-i18n="sync.the-things-that-keep-your" class="modal-sub">The things that keep your map current on their own. A file you have is Settings → Import.</div>
-          </div>
-          <button data-i18n-aria-label="sync-close.close" class="cell-info-close" id="sync-close" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-
-        <!-- Three rows, and there used to be a fourth: "Files and links", which
-             opened the importer. It is Settings → Import now, and this row is
-             gone rather than turned into a shortcut to it — a hub with one entry
-             that leaves for a different dialog is a hub that lies about where
-             its content is. The subtitle above says where the importer went,
-             which is the one thing somebody arriving here out of habit needs. -->
-        <div class="sync-options">
-          <button type="button" class="sync-option" data-sync="ha">
-            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M3 10.5 12 3l9 7.5" />
-              <path d="M5.5 9v11h13V9" />
-              <path d="M12 20v-6" />
-            </svg>
-            <span class="sync-option-text">
-              <b data-i18n="sync.home-assistant">Home Assistant</b>
-              <small data-i18n="sync-ha-note.not-connected" id="sync-ha-note">Not connected</small>
-            </span>
-            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m9 5 7 7-7 7" />
-            </svg>
-          </button>
-
-
-          <button type="button" class="sync-option" data-sync="strava">
-            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M9 13 14 3l5 10h-3l-2-4-2 4Z" />
-              <path d="M13.5 13 16 18l2.5-5" />
-              <path d="M5 21h6" />
-            </svg>
-            <span class="sync-option-text">
-              <b data-i18n="sync.strava">Strava</b>
-              <small data-i18n="sync-strava-note.not-connected" id="sync-strava-note">Not connected</small>
-            </span>
-            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m9 5 7 7-7 7" />
-            </svg>
-          </button>
-
-          <button type="button" class="sync-option" data-sync="device">
-            <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
-              <path d="M11 18.5h2" />
-            </svg>
-            <span class="sync-option-text">
-              <b data-i18n="sync.your-phone">Your phone</b>
-              <small data-i18n="sync-device-note.no-phone-syncing" id="sync-device-note">No phone syncing</small>
-            </span>
-            <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m9 5 7 7-7 7" />
-            </svg>
-          </button>
-
-        </div>
-
-        <div class="modal-actions">
-          <button data-i18n="sync-done.done" type="button" class="modal-btn primary" id="sync-done">Done</button>
-        </div>
-      </div>
-    </div>
-
     <!-- Settings: one dialog, a rail of sections down the left, the section you
          picked filling everything to the right of it.
 
@@ -699,6 +610,19 @@
                 <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
               </svg>
               <span data-i18n="settings.import">Import</span>
+            </button>
+            <button type="button" class="settings-tab" id="settings-tab-sync" data-tab="sync" role="tab" aria-controls="pane-sync" aria-selected="false">
+              <!-- Two arrows round a circle: the shape that reads as *kept in
+                   step*, next to the tray-and-arrow above it that reads as *put
+                   a file in*. The pair is the whole distinction between the two
+                   tabs, said without a word. -->
+              <svg class="settings-tab-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 11.5A8 8 0 0 0 6.3 6" />
+                <path d="M4 12.5A8 8 0 0 0 17.7 18" />
+                <path d="M4 4v4h4" />
+                <path d="M20 20v-4h-4" />
+              </svg>
+              <span data-i18n="settings.sync">Sync</span>
             </button>
             <!-- The last two are hidden until the server says this account can
                  administer it. Hidden rather than disabled: a greyed-out Admin
@@ -1007,6 +931,79 @@
                    thing, far from what it clears. -->
               <div class="pane-actions">
                 <button data-i18n="import-go.import" type="button" class="modal-btn primary" id="import-go" disabled>Import</button>
+              </div>
+            </section>
+
+            <!-- --- Sync ---------------------------------------------------------
+                 The three things that keep the map current on their own. Next to
+                 Import because they answer the same question from the other end
+                 — *how does where I have been get in?* — and apart from it
+                 because the answers are wanted at different times: a file is
+                 something you do once and look at, a connection is something you
+                 set up once and then only ever come back to in order to ask
+                 whether it is still working. Which is what the three status
+                 lines are for; you can read them without opening anything.
+
+                 This was a dialog off the menu, and before that it was "Import &
+                 sync" with the importer as its first row. It is a tab now for
+                 the reason all of these are: a hub whose whole content is a list
+                 of doors is a page you read on the way to somewhere else.
+
+                 Each row still opens a dialog of its own, because each is a form
+                 — an address and a token, an OAuth round trip, a phone's status.
+                 Settings gets out of the way for them and they come back to this
+                 tab, the same hand-off Komoot does from Import. -->
+            <section class="settings-pane" id="pane-sync" role="tabpanel" aria-labelledby="settings-tab-sync" hidden>
+              <div class="pane-head">
+                <div data-i18n="sync.sync" class="pane-title">Sync</div>
+                <div data-i18n="sync.the-things-that-keep-your" class="pane-sub">The things that keep your map current on their own, without a file to hand them.</div>
+              </div>
+              <div class="pane-body">
+                <div class="sync-options">
+                  <button type="button" class="sync-option" data-sync="ha">
+                    <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M3 10.5 12 3l9 7.5" />
+                      <path d="M5.5 9v11h13V9" />
+                      <path d="M12 20v-6" />
+                    </svg>
+                    <span class="sync-option-text">
+                      <b data-i18n="sync.home-assistant">Home Assistant</b>
+                      <small data-i18n="sync-ha-note.not-connected" id="sync-ha-note">Not connected</small>
+                    </span>
+                    <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="m9 5 7 7-7 7" />
+                    </svg>
+                  </button>
+
+                  <button type="button" class="sync-option" data-sync="strava">
+                    <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M9 13 14 3l5 10h-3l-2-4-2 4Z" />
+                      <path d="M13.5 13 16 18l2.5-5" />
+                      <path d="M5 21h6" />
+                    </svg>
+                    <span class="sync-option-text">
+                      <b data-i18n="sync.strava">Strava</b>
+                      <small data-i18n="sync-strava-note.not-connected" id="sync-strava-note">Not connected</small>
+                    </span>
+                    <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="m9 5 7 7-7 7" />
+                    </svg>
+                  </button>
+
+                  <button type="button" class="sync-option" data-sync="device">
+                    <svg class="sync-option-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+                      <path d="M11 18.5h2" />
+                    </svg>
+                    <span class="sync-option-text">
+                      <b data-i18n="sync.your-phone">Your phone</b>
+                      <small data-i18n="sync-device-note.no-phone-syncing" id="sync-device-note">No phone syncing</small>
+                    </span>
+                    <svg class="sync-option-go" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="m9 5 7 7-7 7" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </section>
 

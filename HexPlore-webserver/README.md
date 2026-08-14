@@ -177,13 +177,14 @@ All optional — every one has a working default.
 ## Getting your data in
 
 Five ways in, and you can mix them. A file you have is **Settings → Import**;
-the three that keep going on their own are Menu → **Sync**.
+the three that keep going on their own are **Settings → Sync**, the tab beside
+it.
 
 | | |
 | --- | --- |
 | **Files** | *Settings → Import.* Drop in GPX, KML, TCX, FIT, GeoJSON, CSV, a `.gz`, or a whole Strava ZIP — as many at a time as you like. Parsed **in your browser**: the file never leaves your machine, only the cells it resolves to. Google Timeline, Snapchat and Apple Photos exports are recognised too |
-| **Home Assistant** | Paste your address and a long-lived token, tick the devices to follow, and the server keeps the map current on its own. It reads history your recorder already wrote — it never wakes your phone |
-| **Strava** | One-time sign-in, then your activities come across on a schedule |
+| **Home Assistant** | *Settings → Sync.* Paste your address and a long-lived token, tick the devices to follow, and the server keeps the map current on its own. It reads history your recorder already wrote — it never wakes your phone |
+| **Strava** | *Settings → Sync.* One-time sign-in, then your activities come across on a schedule |
 | **Komoot** | *Settings → Import → Paste Komoot links.* Paste a tour link; your browser fetches it |
 | **Your phone** | [Hexplore for iOS](../HexPlore-IOS/README.md) records where you have been in the background and sends it here, with no other app in the middle. It also brings across the Apple Health workouts that went somewhere — a ride, a walk, a run outdoors — as cells and as saved lines, and reads the locations your **photo library** already knows. Set up on the phone; this page shows you whether it is working |
 

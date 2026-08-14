@@ -448,10 +448,11 @@ routes belong to an account rather than to the repo.
 
 ## Sync
 
-Menu → **Sync** is the door in front of every app the map can pull from *on its
-own*, as opposed to files you export by hand — those are Settings → Import,
-which is also where Komoot's one-tour-at-a-time link goes, since pasting a link
-is a thing you do once rather than a connection that keeps running:
+Settings → **Sync** is the tab in front of every app the map can pull from *on
+its own*, as opposed to files you export by hand — those are Settings → Import,
+the tab beside it, which is also where Komoot's one-tour-at-a-time link goes,
+since pasting a link is a thing you do once rather than a connection that keeps
+running:
 
 | | |
 | --- | --- |
@@ -1047,7 +1048,7 @@ account's cells and routes under URLs that say nothing about whose they are.
 
 Menu → **Settings**. A rail of sections down the left, the one you picked
 filling everything to the right of it: Personal, Map layers, Sources, Import,
-Backups, Admin, Other.
+Sync, Backups, Admin, Other.
 
 **What it replaces was six dialogs stacked four deep.** "Export & settings" was
 a hub of three rows, one of which opened "Settings", which was a column of rows
@@ -1115,12 +1116,25 @@ question you ever have is *is it still working*, and a file you drop is
 something you do once and then go and look at the result of. Those are two
 errands, wanted at two different times.
 
-So that hub is **Sync** now — three connections and their status lines — and its
-"Files and links" row is gone rather than turned into a shortcut into Settings.
-A hub with one entry that leaves for a different dialog is a hub that lies about
-where its content is; its subtitle says where the importer went instead, which
-is what somebody arriving there out of habit actually needs. The menu entry lost
-the word too, and with it the tray-and-arrow icon that meant *put a file in*.
+So that hub is **Sync**, and it is the tab beside Import — near enough that the
+two halves of one question are one press apart, separate because the errands are
+wanted at different times. Its "Files and links" row is simply gone: a hub with
+one entry that leaves for a different dialog is a hub that lies about where its
+content is.
+
+Each of Sync's three rows still opens a **dialog**, because each is a form — an
+address and a long-lived token, an OAuth round trip, a phone's status — and a
+form is the one shape a tab is worse at than a modal. Settings gets out of the
+way for them and they come back to the tab, which is the same hand-off Komoot
+does from Import. Opening the tab re-reads all three: they run on the server, on
+timers, and a poll that started failing an hour ago is exactly what somebody
+opening it is there to find.
+
+**The menu is two doors now**, Export and then Settings. Statistics and a
+picture are things you come to the menu to *do* while looking at the map;
+settings are what you open when the map is already wrong, which is rarer, which
+you go looking for rather than reach for, and which is last in every application
+anybody has used.
 
 **Export left**, in the other direction: it is a door off the menu of its own
 now. It was the one row in that hub you *do* rather than configure, and it was

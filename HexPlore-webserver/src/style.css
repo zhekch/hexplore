@@ -7459,6 +7459,18 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   min-width: 0;
 }
 
+/* A list of doors does not get wider than it is readable. These rows are a
+   label, a status line and a chevron, and stretched across a 950px pane the
+   chevron ends up a hand's width from the thing it belongs to — which is the
+   phone-shaped column's problem in reverse. Sync and Other are the two panes
+   made of them, and the danger zone below Other's is measured the same way so
+   the column has one edge rather than two. */
+.settings-pane .sync-options,
+.settings-pane .settings-danger,
+.settings-pane .settings-version {
+  max-width: 620px;
+}
+
 /* --- The admin pane ------------------------------------------------------------
    Tiles for the machine, a list for the disk, a row per account. All of it built
    from src/admin-ui.js. */
@@ -7550,14 +7562,19 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   color: rgba(15, 23, 42, 0.5);
 }
 
-/* One account. Three parts — who, the counts, the buttons — and the counts wrap
-   away first: a name and the way to reset its password are what this row is
-   for, and the numbers are what you read once you have found it. */
+/* One account, in two lines: who and the counts, then the buttons.
+
+   **Always two**, which is the point. It was one flex row that wrapped when it
+   ran out of width, so a row with two buttons kept them on the first line and a
+   row with four pushed them onto the second — and a list of accounts where the
+   Delete button is at a different height on every row is a list you have to aim
+   at. The buttons are also the only things here you press, so they get a line
+   with nothing else on it to be near. */
 .admin-user {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px 14px;
+  gap: 8px 16px;
   padding: 10px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
@@ -7571,8 +7588,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 8px;
-  min-width: 150px;
-  flex: 1 1 180px;
+  min-width: 0;
 }
 
 .admin-user-who b {
@@ -7611,6 +7627,7 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 .admin-user-stats {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px 14px;
 }
 
@@ -7638,10 +7655,11 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 }
 
 .admin-user-acts {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
-  margin-left: auto;
 }
 
 .admin-user-acts .modal-btn {
@@ -7759,9 +7777,14 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
     display: none;
   }
 
-  .admin-user-acts {
-    margin-left: 0;
-    flex-basis: 100%;
+  /* One column: the counts drop under the name rather than being squeezed
+     against it, and the buttons keep the line they already had. */
+  .admin-user {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-user-stats {
+    justify-content: flex-start;
   }
 }
 

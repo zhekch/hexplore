@@ -134,7 +134,10 @@ const panes = [...html.matchAll(/<section class="settings-pane" id="pane-([^"]+)
 {
   const at = main.indexOf('sections: {');
   const block = main.slice(at, main.indexOf('},', at));
-  const given = [...block.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]).filter((k) => k !== 'sections');
+  // `key: value` and the shorthand `key,` both count — a section whose handle
+  // happens to be named after its tab is written the short way, and reading
+  // only the long one would call it missing.
+  const given = [...block.matchAll(/^\s*(\w+)\s*[:,]/gm)].map((m) => m[1]).filter((k) => k !== 'sections');
   const missing = tabs.filter((t) => !given.includes(t));
   check(missing.length === 0, 'and main.js hands a section in for each', missing.join(', '));
 }

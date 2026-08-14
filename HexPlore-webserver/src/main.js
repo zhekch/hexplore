@@ -6946,9 +6946,19 @@ function syncPhotoLayer() {
   });
 }
 
-/** What the menu row says under "Photos". */
+/**
+ * What the menu row says under "Photos", when there is anything to say.
+ *
+ * Nothing, while the switch is off. It used to read "Where your pictures were
+ * taken", which describes the row rather than reporting on it — and the row is
+ * already called Photos, so the sentence said nothing twice and cost the one
+ * row in "Your map" a second line that Activities and Tap for details do not
+ * have. A column of switches on two different rhythms reads as a mistake before
+ * it reads as a description. `.menu-row small:empty` folds the line away
+ * entirely, so the row lines up with the two around it.
+ */
 function photoNote() {
-  if (!photosOn) return 'Where your pictures were taken';
+  if (!photosOn) return '';
   if (photoScanning) return 'Reading your library…';
   switch (photoTrouble) {
     case 'denied':
@@ -8996,7 +9006,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   let sync = null;
   homeAssistant = mountHomeAssistant({
     onSynced: () => hydrateVisited(),
-    onClose: () => sync?.open(),
+    onClose: () => settings?.open('sync'),
     onLink: (link) => {
       let text;
       if (!link) text = 'Not connected';
@@ -9038,7 +9048,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   };
   stravaUi = mountStrava({
     onSynced: afterActivities,
-    onClose: () => sync?.open(),
+    onClose: () => settings?.open('sync'),
     onLink: (l) => {
       let text;
       if (!l) text = 'Not connected';
@@ -9059,7 +9069,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   // Nothing to configure and nothing to poll — the phone decides both. This is
   // only here so "is it working?" has an answer on a laptop.
   deviceUi = mountDevices({
-    onClose: () => sync?.open(),
+    onClose: () => settings?.open('sync'),
     onDevices: (devices) => {
       let text;
       if (!devices.length) text = 'No phone syncing';
@@ -9071,7 +9081,22 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   });
   // Three connections and nothing else: the file importer that used to be this
   // dialog's first row is Settings → Import. See src/sync-ui.js.
-  sync = mountSync({ homeAssistant, strava: stravaUi, device: deviceUi });
+  sync = mountSync({
+    homeAssistant,
+    strava: stravaUi,
+    device: deviceUi,
+    // Each row opens a dialog of its own, so Settings gets out of the way
+    // rather than being stacked under one.
+    onLeave: () => settings?.close(),
+    // All three run on the server, on timers, while nobody is watching — see
+    // `draw` in src/sync-ui.js. Not awaited: each writes its own status line
+    // when its answer lands, and the pane is already showing the last one.
+    onDraw: () => {
+      homeAssistant?.refresh();
+      stravaUi?.refresh();
+      deviceUi?.refresh();
+    },
+  });
   // Removing a source is the only action in here that changes the map, so it is
   // the only one that has to say so afterwards.
   const sourcesUi = mountSources({
@@ -9229,6 +9254,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       maplayers: mapLayersUi,
       sources: sourcesUi,
       import: importer,
+      sync,
       backups: backupUi,
       admin: adminUi,
       other: personalUi.other,
@@ -9236,10 +9262,6 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     isAdmin: () => isAdmin(),
     username: () => username,
     asAdmin: () => asAdmin(),
-  });
-  document.getElementById('sync-open').addEventListener('click', () => {
-    setMenuOpen(false);
-    sync.open();
   });
   document.getElementById('settings-open').addEventListener('click', () => {
     setMenuOpen(false);
