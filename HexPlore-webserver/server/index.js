@@ -497,6 +497,20 @@ for (const [table, column, decl] of [
   if (!cols.some((c) => c.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
     console.log(`[visited-map] added ${table}.${column}`);
+    // `users.last_login` starts empty on every account that already existed,
+    // which the admin panel would report as "signed in never" for people who
+    // are demonstrably signed in. A session row is created by a login and
+    // records when — so the newest one is the honest answer, and it is
+    // available for free. Only ever fills a blank: from here on the column is
+    // written by the login itself.
+    if (table === 'users' && column === 'last_login') {
+      const filled = db.prepare(`
+        UPDATE users SET last_login = COALESCE(
+          (SELECT MAX(created_at) FROM sessions WHERE sessions.user_id = users.id), '')
+        WHERE last_login = ''
+      `).run().changes;
+      if (filled) console.log(`[visited-map] dated ${filled} accounts from their sessions`);
+    }
   }
 }
 

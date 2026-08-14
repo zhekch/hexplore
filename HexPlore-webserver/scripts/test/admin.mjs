@@ -317,6 +317,37 @@ try {
     check(admins.join(',') === 'second', 'ADMIN_USERS is granted, and the fallback stays out of the way',
       JSON.stringify(rows));
 
+    // …and the other half of carrying an old database over. `last_login` starts
+    // empty on every account that predates it, and reporting "signed in never"
+    // for somebody who is demonstrably signed in is a worse answer than none. A
+    // session row is created by a login and records when, so the newest one is
+    // the honest date. Dropping the column and restarting is what a real
+    // upgrade does.
+    server.kill();
+    await new Promise((r) => server.once('exit', r));
+    const older = new DatabaseSync(DB);
+    older.exec('ALTER TABLE users DROP COLUMN last_login');
+    older.close();
+    server = spawn(process.execPath, ['server/index.js'], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        PORT: String(PORT),
+        DB_PATH: DB,
+        BACKUP_DIR: path.join(dir, 'backups'),
+        ALLOW_REGISTRATION: '1',
+        UPDATE_CHECK: '0',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    server.stderr.on('data', (b) => { serverErr += b.toString(); });
+    await waitForServer();
+    const dated = new DatabaseSync(DB, { readOnly: true });
+    const logins = dated.prepare('SELECT username, last_login FROM users ORDER BY id').all();
+    dated.close();
+    check(logins.every((r) => r.last_login !== ''), 'the login date is backfilled from the sessions',
+      JSON.stringify(logins));
+
     server.kill();
     await new Promise((r) => server.once('exit', r));
     const db3 = new DatabaseSync(DB);
