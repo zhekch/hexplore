@@ -1918,6 +1918,26 @@ which case the card takes nothing: every line is its own colour already, and
 swapping them for a different set under the tap would be the map answering a
 question with a change of subject.
 
+**And everything the card does not list comes off the map while it is open.**
+The card answers "which of these lines is which"; the rest of the map is the
+noise that made the question worth asking, and a braid of eleven with two
+hundred other tracks crossing it is eleven rows you cannot check against
+anything.
+
+*Turned down to nothing, not filtered out*, and that distinction took two goes.
+`setFilter` is the obvious way to say "these ones only" and it is applied where
+the tile's buffers are built — so everything else stops existing as far as the
+map is concerned, `queryRenderedFeatures` included. A tap on a track the card
+does not list then comes back as bare ground: the card closes on that same click
+and lifts the filter, but the tiles are rebuilt on a worker and the hit test in
+that tick still cannot see it. Opacity is read at paint time and the query
+ignores it entirely — the same property the wide glow relies on to keep catching
+taps it does not draw — so one `case` in `routeAlphaExpr` empties the core line,
+all eight glow rings and the 3D ghost together, and a route a few hundred metres
+away is still one click from its own card. A smaller `setData` would have been
+worse again: it re-parses megabytes of geometry twice per tap and throws away the
+feature state carrying the hover and the selection.
+
 **The card being replaced is closed before the new one takes its colours**, and
 that order is load-bearing rather than tidy. Giving them back happens on the
 popup's `close` event — which is the only place that hears about the commonest

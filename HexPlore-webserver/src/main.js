@@ -3659,6 +3659,11 @@ let stackColors = new Map();
 // the route ids rather than stored, so it is the same on every device and costs
 // nothing to sync; rebuilt whenever the list it was derived from changes.
 let rainbowColors = new Map();
+// The routes an open stack card lists, or null when there is no card. While it
+// is set, everything else on the map is turned down to nothing — see
+// setStackOnly, which is also where the reason it is opacity and not a filter
+// is written down.
+let stackOnly = null;
 
 function saveRoutesPref() {
   try {
@@ -4245,7 +4250,18 @@ const routeColorExpr = (mix) => {
   expr.push(base);
   return expr;
 };
-const routeAlphaExpr = () => routeMatchExpr(hexAlpha);
+// The activity's own alpha — and nothing at all for a route an open stack card
+// does not list. Every route layer's opacity is a multiple of this one, so one
+// case here empties the line, all eight glow rings and the ghost together.
+const routeAlphaExpr = () => {
+  const base = routeMatchExpr(hexAlpha);
+  return stackOnly ? ['case', inStack(), base, 0] : base;
+};
+const inStack = () => ['in', ['id'], ['literal', [...stackOnly]]];
+// The see-through-buildings copy, which is flat rather than per-activity — so
+// the one thing that can move it is a stack card emptying everything else.
+const routeGhostOpacity = () =>
+  (stackOnly ? ['case', inStack(), ROUTE_GHOST_OPACITY, 0] : ROUTE_GHOST_OPACITY);
 
 /**
  * Every route currently drawn in a colour that is not its activity's.
@@ -4514,6 +4530,35 @@ function clearStackColors() {
   repaintRouteColors();
 }
 
+/**
+ * Draw only the routes the open card lists, or (with null) everything again.
+ *
+ * The card answers "which of these lines is which", and the rest of the map is
+ * the noise that made the question worth asking: a braid of eleven is
+ * unreadable, and a braid of eleven with two hundred other tracks crossing it is
+ * eleven rows you cannot check against anything.
+ *
+ * **Turned down to nothing, not filtered out**, and that is the whole of what
+ * this took two goes to get right. A `setFilter` is the obvious way to say
+ * "these ones only" and it is applied where the tile's buffers are *built*, so
+ * everything else stops existing as far as the map is concerned — including for
+ * `queryRenderedFeatures`. A tap on a track the card does not list then comes
+ * back as bare ground: the card closes on that same click and lifts the filter,
+ * but the tiles are rebuilt on a worker and the hit test in that tick still
+ * cannot see it. Opacity is read at paint time and the query ignores it
+ * entirely, which is the same property the wide glow relies on to keep catching
+ * taps it does not draw.
+ *
+ * A smaller `setData` would have been worse again: the source holds the geometry
+ * of every route on the map — several megabytes on a real one — and pushing a
+ * subset re-parses all of it twice per tap and throws away the feature state
+ * carrying the hover and the selection.
+ */
+function setStackOnly(ids) {
+  stackOnly = ids ? new Set(ids) : null;
+  repaintRouteColors();
+}
+
 /** The stack as activities: newest group first, newest route first inside it. */
 function routeStackGroups(routes) {
   const groups = new Map();
@@ -4589,6 +4634,8 @@ function showRouteStack(e, found) {
     stackColors = paletteFor(groups.flatMap((g) => g.list).map((r) => r.id));
     repaintRouteColors();
   }
+  // And nothing else on the map while it is open — see setStackOnly.
+  setStackOnly(found.map((r) => r.id));
 
   const wide = stackGoesWide() && groups.length > 1;
   // What the columns want, and what there is room for. They are usually the
@@ -4673,6 +4720,7 @@ function showRouteStack(e, found) {
     if (routeStackPopup && routeStackPopup !== popup) return;
     setHoveredRoute(null);
     clearStackColors();
+    setStackOnly(null);
   });
   routeStackPopup = popup;
   popup.addTo(map);
@@ -5544,9 +5592,12 @@ function repaintRouteColors() {
     map.setPaintProperty(id, 'line-color', routeGlowColor());
     map.setPaintProperty(id, 'line-opacity', glowRingOpacity());
   }
-  // Its opacity never moves — only its colour, which follows the activity.
+  // Flat, except for the one thing that can empty it: a stack card open over a
+  // 3D map would otherwise leave every other route showing through the
+  // buildings while its own copy above ground had gone.
   if (map.getLayer(ROUTE_GHOST_ID)) {
     map.setPaintProperty(ROUTE_GHOST_ID, 'line-color', routeLineColor());
+    map.setPaintProperty(ROUTE_GHOST_ID, 'line-opacity', routeGhostOpacity());
   }
 }
 
@@ -9151,7 +9202,7 @@ function installGrid() {
       paint: {
         'line-color': routeLineColor(),
         // Flat, and that is the whole reason this layer exists.
-        'line-opacity': ROUTE_GHOST_OPACITY,
+        'line-opacity': routeGhostOpacity(),
         'line-occlusion-opacity': 1,
         'line-width': routeWidth(1),
       },
@@ -9383,6 +9434,14 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       }
       if (currentLevel == null) return;
       if (mode !== 'edit') {
+        // The open stack card goes first, before anything is asked what is under
+        // the pointer. While it is up the route layers are filtered down to the
+        // routes it lists (see setStackOnly), and a hit test run against that is
+        // a hit test that cannot see the line you are pointing at — a tap on a
+        // different track a mile away would come back as bare ground. Both
+        // libraries close the card on this click anyway; this only makes sure it
+        // has happened before the question is asked rather than after.
+        closeRouteStack();
         // Photographs first, ahead of even the routes: this is the smallest target
         // on the map and the only one drawn *over* them, so a dot sitting on a
         // line you rode is a dot you aimed at. Guarded by the switch so a tap on a
