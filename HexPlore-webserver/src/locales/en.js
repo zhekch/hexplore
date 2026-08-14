@@ -360,6 +360,7 @@ export default {
   "photo-info-play.play-video": "Play video",
   "photo-info-title.photo": "Photo",
   "photos-row.photos": "Photos",
+  "popup-grip.drag-to-move": "Drag to move this card",
   "rail-bar-dismiss.dismiss": "Dismiss",
   "rail.a-tap-on-a-railway": "A tap on a railway opens a card about it, and the cursor says so",
   "rail.interactable": "Interactable",

@@ -4861,6 +4861,28 @@ body {
   line-height: 1.3;
 }
 
+/* The heading is the card's handle — see src/popup-drag.js.
+
+   `touch-action: none` is the half that makes it work on a phone, and it has to
+   be here rather than in the handler: the browser decides whether a touch is a
+   gesture or a drag before the first `pointermove` arrives, and by the time
+   JavaScript could say otherwise it has already committed to scrolling. The
+   card's own list still scrolls; this is the heading only.
+
+   No hover rule and no colour of its own. The cursor is the affordance on a
+   desktop and the title says the rest; on a phone there is no cursor and a
+   heading that lit up under a finger would be a button that does nothing. */
+.popup-grip {
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.popup-grip.dragging {
+  cursor: grabbing;
+}
+
 .feature-popup-kind {
   margin: 2px 0 0;
   font-size: 11px;

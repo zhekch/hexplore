@@ -2087,6 +2087,40 @@ total is used where the API gives it), so a flat ride doesn't accumulate into a
 mountain from GPS jitter. A route whose file carried no elevation shows no climb
 rather than 0 m. Removing a route leaves its cells alone — you were still there.
 
+### The card can be moved, and the offset belongs to the library
+
+A card anchored to the point you tapped is standing on the thing it is about.
+Eleven activities is most of the window and all eleven run underneath it, so the
+heading is a handle: press it and the card goes where you put it. It is on all
+four `feature-popup` cards — the stack, the railway, the trails, the airports —
+because they are one card with four sets of rows, and a handle on the one that
+provoked it would be a card that moves on Tuesdays.
+
+**The drag writes `Popup#setOffset` rather than a transform of its own.** Both
+libraries position a popup by writing `transform` onto its container on every
+frame of every pan, so a translate of ours lives until the next frame and then
+loses; holding it would mean fighting the renderer for one property forty times
+a second. `setOffset` is a screen-space nudge they compose into the transform
+they were going to write anyway — so the card stays anchored to its own point
+and travels with the place when you pan, which is the whole reason it is a popup
+and not a dialog. Measured: dragged 180 px right and 140 px up, the card moves
+exactly that and the map's centre does not move at all; panned 120 px
+afterwards, the card goes with the ground.
+
+Three things it must not break, and all three are checked the same way — a real
+click on the canvas through Chrome's input pipeline, not a synthesised event.
+A press that never moves leaves the card where it was (`DRAG_SLOP_PX`, so the
+heading is still a heading). A row still selects and still opens the route card
+underneath. And `KEEP_ON_SCREEN_PX` is the way back: a card dragged clean off the
+window could not be dragged on again, and the only way out would be closing it —
+which costs you the row you had picked.
+
+`touch-action: none` on the handle is the half that makes it work on a phone,
+and it has to be in the stylesheet rather than the handler. The browser decides
+whether a touch is a scroll or a drag before the first `pointermove` is
+delivered, so by the time JavaScript could object it has already committed. It
+is on the heading alone; the list below it still scrolls.
+
 ### Fifty colours, and how they are handed out
 
 `src/route-colors.js` is the palette behind both *Color each route* and the
