@@ -252,6 +252,7 @@ export function geolocateStateOf(el) {
 // than a change at the fourteen call sites in `main.js` and the three overlay
 // modules: those all say `map.addLayer(spec, before)` today and go on saying it.
 export const WASH_SLOT_ID = '@hexplore-wash';
+export const ROUTE_SLOT_ID = '@hexplore-routes';
 export const LABEL_SLOT_ID = '@hexplore-labels';
 
 // `bottom` is above the ground and the water and **below the roads**, which is
@@ -270,8 +271,21 @@ export const LABEL_SLOT_ID = '@hexplore-labels';
 // rather than as lines over a map. That is the same fault CARTO Dark had for the
 // opposite reason, and washAnchorIn()'s comment in src/basemap.js is written
 // about it.
+//
+// `middle` is above the roads and **below the labels**, which is where a saved
+// route has always been described as belonging: over the street network, under
+// the place names.
+//
+// It needed a slot of its own only once the route line stopped being draped —
+// see `groundLine` in src/main.js. A draped layer is drawn into the terrain's
+// texture before anything undraped is drawn at all, so for as long as the route
+// was draped it went under every label whatever slot it claimed, and `top` was
+// never tested. Taking it out of the drape to get its resolution back is also
+// taking it out of that protection: in `top` it came out over the street names,
+// which is the one thing the label anchor was chosen to prevent.
 const SLOT_OF = {
   [WASH_SLOT_ID]: 'bottom',
+  [ROUTE_SLOT_ID]: 'middle',
   [LABEL_SLOT_ID]: 'top',
 };
 

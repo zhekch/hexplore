@@ -3951,6 +3951,76 @@ the gesture is muscle memory and it should not change when the basemap does.
 read before it is written, the same way `dropLockOnZoom` reaches for
 `_watchState`.
 
+### The drape costs a fifth of the map's sharpness, and only on a retina screen
+
+The same draping that flattens the bridges also softens everything drawn on the
+ground, and for years the answer to *why does the 3D map look worse* was that it
+did not — which was true of every machine it had been measured on and false on
+the one it was being looked at on.
+
+**The number is a getter.** With terrain on, a ground layer is not drawn to the
+screen: it is drawn into an offscreen texture per terrain tile and that texture
+is draped over the mesh. `Terrain.drapeBufferSize` is
+`proxySourceCache.getSource().tileSize * 2` — a fixed **1024 × 1024**, with no
+`devicePixelRatio` anywhere in it. What varies is how much screen one proxy tile
+covers, and that is 512 CSS px at an integer zoom and about 720 at a half one:
+
+| | drape texels per device pixel |
+| --- | --- |
+| 1× display, integer zoom | 2.00 |
+| 1× display, half zoom | 1.42 |
+| **2× display, integer zoom** | **1.00** |
+| **2× display, half zoom** | **0.71** |
+
+So on a 1× screen the drape is *supersampled* and there is genuinely nothing
+wrong. On a 2× screen it is at parity at best and at 71% of the linear
+resolution at worst, and then resampled a second time onto the framebuffer.
+
+**Measured, same style and camera, `setTerrain` on against off:** gradient
+energy over the frame comes to **0.78–0.81**, flat across every zoom from 14 to
+15. A 3 px route goes from *6 device px of colour with a one-pixel edge* to
+*4 px with a 2 px ramp either side*, and its peak never reaches full. Symbol
+layers are not draped, which is the visible signature: crisp street names over
+soft lines.
+
+**Raising the buffer does not fix it, and that was worth finding out.** Shadowing
+the getter with 2048² — four times the texture memory across a pool of five and
+a render cache of up to fifty — recovers **7% of the 34%** and leaves the route's
+edge exactly where it was, 4 px of colour and 2 px of ramp. What softens the line
+is the resampling, not the resolution. No number of texels fixes a resample.
+
+**What does fix it is not being draped.** `line-elevation-reference: 'ground'`
+makes a line an elevated bucket, `isLayerDraped` answers false, and it is drawn
+to the screen as ordinary geometry at the full pixel ratio while still following
+the ground. Measured after: 6 px and a one-pixel edge, identical to the same map
+with no terrain under it, and `queryRenderedFeatures` still finds it.
+
+**Only the core route line takes it**, and the two things that decided the scope
+are both in `groundLine` in `src/main.js`. The glow is eight translucent rings
+whose job is to be soft. And an undraped translucent line shows its own tile
+seams — Mapbox stencils a line against the overlap between its tiles only when
+`line-opacity` is a *constant* other than 1, `constantOr(1)` on an expression
+answers 1, and the glow's opacity is an expression because hover and selection
+ride on it. Draped, the drape's stencil covered for that. Undraped, it is a
+hairline of doubled brightness across the halo at every tile boundary, plainly
+visible at 8×. The core line has the same overlap and no visible seam, because
+0.95 over 0.95 is 0.9975.
+
+**And it needed a slot of its own.** A draped layer goes under every label
+whatever slot it claims, so `top` — where the route stack has always been
+inserted, alongside the photo pins — was never actually tested. Undraped in
+`top` the route came out *over* the street names. `ROUTE_SLOT_ID` is `middle`,
+above the roads and below the labels, which is where a route has always been
+described as belonging. It is given to the core line alone: `routeStackBottom()`
+is `route-glow-1`, and the trails, the railways and the airports all insert
+themselves in front of that, so moving the glow would have moved those three as
+well — and the airports' icons are symbols, which would have gone under
+Standard's labels with them.
+
+The wash and the waymarked trails are still draped and still soft. Neither has
+an equivalent escape: `raster-elevation` would take them off the ground rather
+than off the drape.
+
 ### The sun follows the clock, unless it is told not to
 
 The light preset is a choice of five and Standard only has four. **Auto** is the

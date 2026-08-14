@@ -47,7 +47,8 @@ import {
 import { rememberSunSite } from './sun.js';
 import { installGlide } from './glide.js';
 import {
-  LABEL_SLOT_ID, MAPBOX, STYLE_KEY, WASH_SLOT_ID, ctrlClass, ctrlSelector, engineForBasemap, engineNow,
+  LABEL_SLOT_ID, MAPBOX, ROUTE_SLOT_ID, STYLE_KEY, WASH_SLOT_ID, ctrlClass, ctrlSelector,
+  engineForBasemap, engineNow,
   geolocateStateOf, installAddLayerSlots, installGlobalStateShim, installSpriteShim, isSlot, loadEngine,
   matchMapboxRotation,
 } from './gl-engine.js';
@@ -9023,6 +9024,51 @@ function installGrid() {
   // ROUTE_GLOW_RINGS — and the bevel bought nothing but a corner visibly cut off
   // wherever a route turns sharply. Both the glow and the trip track are back on
   // the one layout, and end in the same shape as the lines they are drawn under.
+
+  // **On the 3D map the route line is ground geometry, not a picture of one.**
+  //
+  // With terrain on, Mapbox does not draw a ground layer to the screen: it
+  // draws it into an offscreen texture per terrain tile and drapes that over
+  // the mesh. The texture is a fixed 1024×1024 — `Terrain.drapeBufferSize` is
+  // `proxyTileSize * 2` and has **no devicePixelRatio in it** — while a proxy
+  // tile covers 512 CSS px at an integer zoom and about 720 at a half one. On a
+  // 2× display that is 1.00 texels per device pixel at best and 0.71 at worst,
+  // and then it is resampled a second time onto the screen. A 3 px route came
+  // out as 4 px of colour with a 2 px ramp either side, where the flat maps
+  // give 6 px and a one-pixel edge.
+  //
+  // `line-elevation-reference` is the one thing that takes a line out of the
+  // drape: the bucket becomes elevated, `isLayerDraped` answers false, and the
+  // line is drawn to the screen as ordinary geometry at the full pixel ratio —
+  // still following the ground, because that is what `ground` means. Measured
+  // after: 6 px and a one-pixel edge, identical to the same map with no terrain
+  // under it at all.
+  //
+  // **On a 1× display the drape is supersampled and there is nothing here to
+  // fix**, which is why this survived being looked at more than once. Measured
+  // in a default headless Chrome the two maps come out identical.
+  //
+  // **Only the core line, and the glow stays draped.** Two reasons, and the
+  // second is the one that decided it. The glow is a halo — it is eight
+  // translucent rings whose whole job is to be soft, and a sharper blur is not
+  // a thing anybody can see. And an undraped translucent line shows its own
+  // tile seams: Mapbox stencils a line against the overlap between its tiles
+  // only when `line-opacity` is a constant other than 1, and `constantOr(1)` on
+  // an expression answers 1 — so the glow, whose opacity is an expression
+  // because hover and selection ride on it, gets no mask and composites twice
+  // in the column where two tiles meet. Draped, the drape's own stencil covered
+  // that. Undraped, it is a hairline of extra brightness across the halo at
+  // every tile boundary, and it was plainly visible at 8×. The core line has
+  // the same overlap and no visible seam, because 0.95 over 0.95 is 0.9975.
+  //
+  // Raising the drape buffer instead was tried and does not work: 2048² recovers
+  // 7% of the 34% of edge energy the drape costs, and leaves the route's edge
+  // exactly as it was — 4 px of colour, 2 px of ramp. What softens it is the
+  // resampling, not the resolution, and no number of texels fixes a resample.
+  //
+  // MapLibre has no such property and the flat four have no terrain under them,
+  // so this is the Mapbox map's alone.
+  const groundLine = engine === MAPBOX ? { 'line-elevation-reference': 'ground' } : {};
   const isRegion = ['==', ['get', 'k'], 1];
   const isBoundary = ['==', ['get', 'k'], 2];
   const isLabel = ['==', ['get', 'k'], 3];
@@ -9188,6 +9234,19 @@ function installGrid() {
   // a bug. `promoteId` makes the route's own id the feature id, so the selected
   // one can be widened through feature-state instead of a second layer.
   const beforeLabels = labelStart();
+  // The core route line, and nothing else, goes in one slot lower on the 3D
+  // map. It is the only layer here that stopped being draped — see `groundLine`
+  // — and a draped layer goes under every label whatever slot it claims, which
+  // is why `top` was never wrong before and is wrong now. Undraped in `top` the
+  // route came out *over* the street names, which is the one thing the label
+  // anchor exists to prevent.
+  //
+  // Everything else stays where it was, deliberately. `routeStackBottom()` is
+  // `route-glow-1`, and the trails, the railways and the airports all insert
+  // themselves in front of it — so moving the glow would move those three as
+  // well, and the airports' icons are symbols that would have gone under
+  // Standard's labels with them.
+  const beforeRoutes = engine === MAPBOX ? ROUTE_SLOT_ID : beforeLabels;
   // `tolerance` rather than the 0.375 px default, and it is the one thing
   // standing between the glow and a row of spikes — see ROUTE_SIMPLIFY_PX.
   map.addSource('routes', {
@@ -9228,13 +9287,13 @@ function installGrid() {
   });
   map.addLayer({
     id: 'route-line', type: 'line', source: 'routes',
-    layout: { ...lineLayout, visibility: routesOn ? 'visible' : 'none' },
+    layout: { ...lineLayout, ...groundLine, visibility: routesOn ? 'visible' : 'none' },
     paint: {
       'line-color': routeLineColor(),
       'line-opacity': routeLineOpacity(),
       'line-width': routeWidth(1),
     },
-  }, beforeLabels);
+  }, beforeRoutes);
 
   // Where the trips are measured from. Off by default, and on top of the whole
   // stack when it is on — no `beforeId`, unlike everything else here. It is one
