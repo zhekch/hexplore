@@ -1913,7 +1913,20 @@ actually holding when you tap a braid of eleven tracks. They come from
 `src/route-colors.js` (below), they are put in front of the activity's colour as
 a match on the feature's own id, and they are given back the moment the card
 closes — colour only, so an activity you have turned down to a third stays turned
-down while it is being pointed at.
+down while it is being pointed at. Unless *Color each route* is already on, in
+which case the card takes nothing: every line is its own colour already, and
+swapping them for a different set under the tap would be the map answering a
+question with a change of subject.
+
+**The card being replaced is closed before the new one takes its colours**, and
+that order is load-bearing rather than tidy. Giving them back happens on the
+popup's `close` event — which is the only place that hears about the commonest
+way this card goes, the next click on the map, since both libraries take a popup
+away themselves without asking. Closing after the new set was assigned therefore
+wiped the new set, and the second tap of a session was the last one that
+recoloured anything. A stale `close` — a popup already replaced can still be told
+to close, because the library kept its handler in a list it copied before the new
+one existed — is ignored by asking whether it is still the card on screen.
 
 The rows are **grouped by activity, newest first inside each**, because a tap on
 a valley floor finds the ski runs, the walk up and the ride home, and those are
@@ -1923,17 +1936,27 @@ group is a column**: three activities read as three lists side by side rather
 than as one list you scroll through to discover there was a bike ride in it. On a
 phone — and in any window under 720 px — it stays the single column, because
 "columns" there means a card wider than the screen. The card's width is counted
-from the columns rather than guessed, capped at 700 px, and past that the columns
-scroll sideways.
+from the columns rather than guessed and capped at **four across**, which is as
+many as a tap on real ground has turned up in one place and still leaves most of
+a laptop's map visible around the card; a fifth scrolls sideways.
 
-One detail of that is worth writing down, because it looked like a rendering
-fault and was not: the list states `overflow-x` instead of leaving it at `auto`.
-`overflow-y: auto` computes the other axis to `auto` as well, and an `auto`
-horizontal axis on a box measured *while it is being positioned* — which is what
-a popup is — can be handed a scrollbar in one layout pass and never have it taken
-away. The card came up with sixteen pixels of empty scrollbar under it while
-`scrollWidth === clientWidth`, and re-applying the identical styles by hand made
-it vanish.
+Two details of that are worth writing down, because both looked like rendering
+faults and one was.
+
+The list states `overflow-x` instead of leaving it at `auto`. `overflow-y: auto`
+computes the other axis to `auto` as well, and an `auto` horizontal axis on a box
+measured *while it is being positioned* — which is what a popup is — can be
+handed a scrollbar in one layout pass and never have it taken away. The card came
+up with sixteen pixels of empty scrollbar under it while `scrollWidth ===
+clientWidth`, and re-applying the identical styles by hand made it vanish.
+
+And the scrollbars themselves are stated on **both axes, plus the corner where
+they meet**. Styling any part of a `::-webkit-scrollbar` takes the whole thing
+off the platform's own drawing, and whatever is left unstated then comes out in
+the browser's defaults rather than the page's — `color-scheme` is ignored from
+that point on. The sideways bar arrived sixteen pixels tall in pale grey and the
+little square between the two bars arrived white, in the bottom-right corner of a
+dark card on a dark map.
 
 Every route in the list carries a **small drawing of its own shape**, which is
 how you actually recognise one — you know the Frutigen loop by its outline long
@@ -1967,15 +1990,23 @@ deliberately not prevented: delaying the eye by a quarter-second so it could fin
 out whether a second click was coming would make every single click feel broken
 to save a flicker on a rarer one, and two toggles land back where they started.
 
-**Give each a color** is under the list, beside the reset. Six activities on one
-map are six shades of the same orange until somebody sets five of them by hand,
-and setting them by hand is six trips through a colour panel to answer a question
-— *which of these lines is the cycling* — that has no right answer, only a
-distinct one. It is random rather than fixed because it is pressed *again* when
-the answer was not liked; what is random is only where in the palette it starts
-and how far it steps, so a random set is still a spread one rather than three
-greens and a mustard. The colours are ordinary activity colours once handed out:
-stored on the account, editable in the picker, undone by the reset beside it.
+**Color each route** sits under the list, on one row with the reset. It is the
+answer to the thing an activity colour cannot do by definition: eleven ski runs
+down one piste are one activity, so they are one colour, however carefully that
+colour was chosen. With the switch on, every route on the map is drawn in a
+colour of its own from the fifty (below) — put in front of the activity colours
+as a match on the feature id, the same mechanism a stack menu borrows while it is
+open, and the two never collide because a menu leaves the lines alone when this
+is already on.
+
+It is a **switch**, not a press: it is a way of looking at the map that you leave
+on, and it is stored with the hidden activities and the per-activity colours,
+so a map left in this state is in it tomorrow and on the other device. What is
+*not* stored is a single colour — they are derived from the route ids, so the
+same map comes up the same way everywhere with nothing synced but the boolean,
+and a route deleted takes its colour with it rather than leaving a hole in a
+saved list. The per-activity swatches are untouched underneath; switching it off
+returns to them.
 
 A route imported from Komoot keeps **a link back to the tour**, shown in its
 details as *Open on Komoot*. The link is rebuilt from the tour id and the share
@@ -2023,7 +2054,7 @@ rather than 0 m. Removing a route leaves its cells alone — you were still ther
 
 ### Fifty colours, and how they are handed out
 
-`src/route-colors.js` is the palette behind both *Give each a color* and the
+`src/route-colors.js` is the palette behind both *Color each route* and the
 colours a stack menu borrows while it is open. It is a module rather than a
 constant because handing out *N* distinct colours is a thing worth a test: the
 property that matters — no repeats until the palette runs out, neighbours far
@@ -2039,11 +2070,13 @@ greens and up by 9 for blues and violets, and saturation comes down by 12–16
 across 45°–165°, where the first cut of this had four highlighter greens in it.
 
 A run of them steps by a number coprime with fifty, so it walks the whole palette
-before repeating. Which start and which step is the only difference between the
-two callers: the stack menu derives both from the route ids, so the same stack
-comes up in the same colours every time you tap it while a different stack does
-not, and *Give each a color* picks them at random, because that one is pressed
-again when the answer was not liked.
+before repeating. Both callers get their start and their step from the ids they
+are colouring, which is what makes the answer stable without being stored: the
+same stack comes up in the same colours every time you tap it, a different stack
+somewhere else gets a different set, and a whole map of them looks the same on
+the phone as on the laptop. Past the fiftieth it wraps — two routes out of three
+hundred sharing a colour is not worth a different design, and neighbours in the
+list never do.
 
 ### Working out the activity
 

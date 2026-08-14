@@ -4768,6 +4768,22 @@ body {
   color: rgba(255, 255, 255, 0.92);
 }
 
+/* Where the blur cannot be had, the glass has to stop being glass. 8% white over
+   a map is a card you can read *because* of what is behind it, and a browser
+   that ignores `backdrop-filter` — or a web view that has it switched off —
+   would be showing a heading and a list of routes over a full-strength map with
+   nothing between them. This is the same trade the rest of the app makes for
+   its cards; it has simply never been written down for these ones. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :is(.maplibregl-popup-content, .mapboxgl-popup-content) {
+    background: rgba(18, 20, 27, 0.94);
+  }
+
+  [data-theme='light'] :is(.maplibregl-popup-content, .mapboxgl-popup-content) {
+    background: rgba(248, 250, 252, 0.94);
+  }
+}
+
 /* No tip. It is a solid triangle and this card is translucent glass, so the two
    can never agree — the tip reads as a stuck-on tab of the wrong colour. The
    other card in this app does not have one either, and the popup opens where
@@ -4896,9 +4912,23 @@ body {
 }
 
 /* Faint, and only there while the list is scrollable — a permanent groove down
-   the side of a two-route list would read as a divider. */
+   the side of a two-route list would read as a divider.
+
+   **Both axes, and the corner where they meet.** Styling any part of a scrollbar
+   switches the whole thing off the platform's own drawing, and the parts left
+   unstated then come out in the browser's defaults rather than in the page's:
+   the sideways bar under a card of columns arrived sixteen pixels tall in pale
+   grey, and the little square where the two bars meet arrived white, on a dark
+   map, in the bottom-right corner of the card. Neither is themeable by any other
+   route — `color-scheme` is ignored once a custom scrollbar is in play. */
 .popup-list-items::-webkit-scrollbar {
   width: 5px;
+  height: 5px;
+}
+
+.popup-list-items::-webkit-scrollbar-track,
+.popup-list-items::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .popup-list-items::-webkit-scrollbar-thumb {
@@ -5235,12 +5265,18 @@ body {
 }
 
 /* The same values `.cell-info` uses in light, for the same reason. */
+/* The same glass, lighter — and *thinner* than it was. At 0.92 this was a white
+   card that happened to be blurred: on the pale basemaps you could not tell it
+   was over a map at all, which is the one thing the dark side of this has never
+   had a problem with. 0.78 still carries 12px text at contrast (the blur behind
+   it is doing most of that work, not the alpha) and lets the ground read
+   through. */
 [data-theme='light'] :is(.maplibregl-popup-content, .mapboxgl-popup-content) {
-  background: rgba(248, 250, 252, 0.92);
+  background: rgba(248, 250, 252, 0.78);
   border-color: rgba(15, 23, 42, 0.16);
   box-shadow:
-    0 16px 44px rgba(15, 23, 42, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    0 16px 44px rgba(15, 23, 42, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
   color: rgba(15, 23, 42, 0.94);
 }
 
@@ -5348,14 +5384,21 @@ body {
   border-radius: 7px;
 }
 
-/* The two under the list — *Give each a color*, and the reset that undoes it
-   along with everything else. Stacked rather than side by side: at 272px the
-   menu has no room for two labels this long, and one of them is hidden most of
-   the time, which would leave a half-width button on its own. */
+/* The two under the list — *Color each route*, and the reset that turns it off
+   along with everything else. One row: the labels are short enough to share
+   272px, and stacking two full-width pills under a list of three activities made
+   the buttons the loudest thing in the fold. `Reset` takes the space it needs
+   for its own word and the switch takes the rest, so the row does not change
+   shape when the reset appears. */
+.route-option-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .route-option-action {
   appearance: none;
-  width: 100%;
-  margin-top: 6px;
+  flex: 1;
   padding: 5px 8px;
   border-radius: 9px;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -5363,12 +5406,26 @@ body {
   color: rgba(255, 255, 255, 0.66);
   font: inherit;
   font-size: 11px;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.route-option-reset {
+  flex: none;
 }
 
 .route-option-action:hover {
   background: rgba(255, 255, 255, 0.11);
   color: #fff;
+}
+
+/* On, in the same lit-glass the segmented controls use for the option you are
+   on. It is the only one of these two that has a state at all. */
+.route-option-each.on {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 /* The little outline beside each route in the list. Drawn from the cached
@@ -5459,6 +5516,13 @@ body {
 [data-theme='light'] .route-option-action:hover {
   background: rgba(15, 23, 42, 0.11);
   color: #0f172a;
+}
+
+[data-theme='light'] .route-option-each.on {
+  border-color: rgba(15, 23, 42, 0.2);
+  background: rgba(15, 23, 42, 0.16);
+  color: #0f172a;
+  box-shadow: none;
 }
 
 /* The dialogs go light too, so their new pieces need the same treatment. */

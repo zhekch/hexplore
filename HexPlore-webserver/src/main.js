@@ -139,7 +139,7 @@ import { createHistory, plural } from './history.js';
 import { showToast } from './toast.js';
 import { busy } from './busy.js';
 import { routesToFC, totalLength, formatDistance, canonicalSport, duplicateRoutes } from './routes.js';
-import { paletteFor, randomPalette } from './route-colors.js';
+import { paletteFor } from './route-colors.js';
 import { reconcilePrefs, remoteToken } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
@@ -3612,6 +3612,10 @@ const foldedCount = () => dupeOf.size;
 
 function refoldRoutes() {
   dupeOf = duplicateRoutes(routeList);
+  // The per-route colours are derived from the list, so they are re-derived
+  // wherever it changes — which is every call site of this. A route imported or
+  // deleted otherwise leaves the map painted from a list that no longer exists.
+  refreshRainbow();
 }
 let routeGeom = false; // whether the lines themselves have been fetched
 let routeInfo = null; // set by mountRouteInfo() once the DOM is wired
@@ -3642,6 +3646,10 @@ let hoveredRoute = null;
 // rather than beside the card that fills it, because the paint expressions read
 // it and they are built long before that card exists — see routeColorExpr.
 let stackColors = new Map();
+// …and the same thing for good, when **Color each route** is on. Worked out from
+// the route ids rather than stored, so it is the same on every device and costs
+// nothing to sync; rebuilt whenever the list it was derived from changes.
+let rainbowColors = new Map();
 
 function saveRoutesPref() {
   try {
@@ -3676,6 +3684,16 @@ const ROUTE_NO_SPORT = '\u0000none';
 
 let hiddenSports = new Set(); // activities switched off
 let sportColors = new Map(); // activity → hex, only where it differs
+// **Color each route**: on, every route on the map is drawn in a colour of its
+// own rather than its activity's. A view of the same data like the two above it,
+// and stored with them — a map somebody left in this state should still be in it
+// tomorrow, and on the other device.
+//
+// It is a switch rather than a set of stored colours because the colours are not
+// a choice: they come out of `paletteFor` from the route ids, so the same map
+// comes up the same way everywhere without a single hex being synced. See
+// rainbowColors, which is where they are worked out.
+let routeRainbow = false;
 
 // Both halves are keyed by activity name, and those names have been tidied at
 // least once (Road ride → Cycling, Hike → Hiking). A stored key that predates a
@@ -3692,6 +3710,7 @@ function adoptRouteView(raw) {
       .filter(([, v]) => /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(v)))
       .map(([k, v]) => [canonKey(k), v]),
   );
+  routeRainbow = raw?.rainbow === true;
 }
 
 function loadRouteView() {
@@ -3725,7 +3744,11 @@ function loadRouteView() {
   setClock(localStorage.getItem(CLOCK_KEY));
 }
 
-const routeViewJson = () => ({ hidden: [...hiddenSports], colors: Object.fromEntries(sportColors) });
+const routeViewJson = () => ({
+  hidden: [...hiddenSports],
+  colors: Object.fromEntries(sportColors),
+  rainbow: routeRainbow,
+});
 
 // --- Preferences that follow the account -------------------------------------
 // Every colour you choose — the visited wash and one per activity — plus which
@@ -4198,21 +4221,51 @@ function routeMatchExpr(of) {
 // selected-route bump as well, which is two more multiplications than anyone
 // asked for. It comes back as a factor on the line's opacity instead.
 //
-// The stack menu's colours go *in front of* the activity's, as a match on the
-// feature's own id — eleven routes of one activity are one colour by definition,
-// and telling them apart for as long as the menu is open is the whole of what
-// that card is for. Colour only, deliberately: `routeAlphaExpr` below is left
-// asking the activity, so a walk you have turned down to a third stays turned
-// down while it is being pointed at.
+// Per-route colours go *in front of* the activity's, as a match on the feature's
+// own id. Two things put them there — **Color each route**, and a stack menu
+// while it is open — and they are the same mechanism because they are the same
+// idea: a set of routes one colour cannot tell apart. Colour only, deliberately:
+// `routeAlphaExpr` below is left asking the activity, so a walk you have turned
+// down to a third stays turned down while it is being pointed at.
 const routeColorExpr = (mix) => {
   const base = routeMatchExpr((hex) => mix(hexOpaque(hex)));
-  if (!stackColors.size) return base;
+  const over = perRouteColors();
+  if (!over.size) return base;
   const expr = ['match', ['id']];
-  for (const [id, hex] of stackColors) expr.push(id, mix(hexOpaque(hex)));
+  for (const [id, hex] of over) expr.push(id, mix(hexOpaque(hex)));
   expr.push(base);
   return expr;
 };
 const routeAlphaExpr = () => routeMatchExpr(hexAlpha);
+
+/**
+ * Every route currently drawn in a colour that is not its activity's.
+ *
+ * The stack's colours win over the standing ones where both exist, which in
+ * practice they never do: with **Color each route** on, a stack menu leaves the
+ * lines alone, because they are already all different and recolouring them under
+ * the tap would be the map changing as an answer to being asked a question.
+ */
+const perRouteColors = () => {
+  if (!rainbowColors.size) return stackColors;
+  if (!stackColors.size) return rainbowColors;
+  return new Map([...rainbowColors, ...stackColors]);
+};
+
+/** The colour a route is drawn in right now, whatever is deciding that. */
+const routeDrawColor = (route) =>
+  perRouteColors().get(route.id) ?? hexOpaque(sportColor(sportKey(route)));
+
+/**
+ * Work out the standing per-route colours, or drop them.
+ *
+ * Derived from the listed routes rather than stored: the same map comes up the
+ * same way on the phone and the laptop with nothing synced but the switch, and a
+ * route deleted takes its colour with it.
+ */
+function refreshRainbow() {
+  rainbowColors = routeRainbow ? paletteFor(listedRoutes().map((r) => r.id)) : new Map();
+}
 
 // Pull the route list. Metadata only by default — the lines are a much bigger
 // payload, and there's no point fetching them until they're on screen.
@@ -4279,6 +4332,10 @@ function syncRoutes() {
   for (const id of routeDrawLayers()) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', routesOn ? 'visible' : 'none');
   }
+  // A list that has changed is a set of per-route colours that has changed with
+  // it — see refoldRoutes — and the paint property holding them is not rebuilt
+  // by pushing data at the source.
+  if (routeRainbow) repaintRouteColors();
   // Feature state doesn't survive setData, and a basemap switch rebuilds the
   // source from scratch — so the highlight is re-applied here, not once.
   if (selectedRoute != null && routeGeom) {
@@ -4420,11 +4477,12 @@ let routeStackPopup = null;
 const routeStackDay = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
 // How wide the columns version may get, and how much room it needs before it is
-// offered at all. The card is a popup on a map rather than a panel, so it should
-// never be most of the window: four columns is a wide answer to a small
-// question, and past that the list scrolls sideways like any other.
-const ROUTE_STACK_MAX_PX = 700;
+// offered at all. **Four activities across**, which is as many as a tap on real
+// ground has ever turned up in one place and still leaves most of a laptop's map
+// visible around the card; a fifth scrolls sideways, on a bar five pixels tall
+// rather than the browser's own sixteen (see `.popup-list-items` in style.css).
 const ROUTE_STACK_COLUMN_PX = 190;
+const ROUTE_STACK_MAX_PX = 4 * (ROUTE_STACK_COLUMN_PX + 16) + 30;
 // Wide enough for two columns and the map still visible either side, and not a
 // touch device — where "columns" means a card wider than the phone.
 const stackGoesWide = () => !coarsePointer.matches && window.innerWidth >= 720;
@@ -4475,7 +4533,7 @@ function routeStackRow(route) {
   // activity turned down to a third on the map is still one row in a list.
   const dot = document.createElement('span');
   dot.className = 'popup-list-dot';
-  dot.style.background = stackColors.get(route.id) ?? hexOpaque(sportColor(sportKey(route)));
+  dot.style.background = routeDrawColor(route);
   row.append(dot);
 
   const text = document.createElement('span');
@@ -4503,12 +4561,25 @@ function routeStackRow(route) {
 
 /** Open the menu of everything under a tap. Only ever called with two or more. */
 function showRouteStack(e, found) {
+  // **First**, before a single colour is handed out. The card being replaced
+  // gives its own back on the way out, and it does that from an event — so
+  // closing it after the new set was assigned wiped the new set, and the second
+  // tap of a session was the last one that recoloured anything.
+  closeRouteStack();
+
   const groups = routeStackGroups(found);
   // The colours are handed out down the card as it will be read — group by
   // group, newest first — because the palette's own order is what keeps
   // neighbours far apart, and neighbours here are rows in a column.
-  stackColors = paletteFor(groups.flatMap((g) => g.list).map((r) => r.id));
-  repaintRouteColors();
+  //
+  // Nothing to hand out when **Color each route** is already on: every line is
+  // its own colour, the rows show those colours, and swapping them for a
+  // different set under the tap would be the map answering a question with a
+  // change of subject.
+  if (!routeRainbow) {
+    stackColors = paletteFor(groups.flatMap((g) => g.list).map((r) => r.id));
+    repaintRouteColors();
+  }
 
   const wide = stackGoesWide() && groups.length > 1;
   // What the columns want, and what there is room for. They are usually the
@@ -4569,8 +4640,7 @@ function showRouteStack(e, found) {
     if (!items.contains(ev.relatedTarget)) setHoveredRoute(null);
   });
 
-  closeRouteStack();
-  routeStackPopup = new gl.Popup({
+  const popup = new gl.Popup({
     closeButton: true,
     // Stated in pixels because the library writes it onto the popup as an inline
     // style, so a class cannot win against it. The columns are counted rather
@@ -4579,16 +4649,24 @@ function showRouteStack(e, found) {
     maxWidth: wide ? `${Math.min(want, room)}px` : '280px',
   })
     .setLngLat(e.lngLat)
-    .setDOMContent(card)
-    .addTo(map);
+    .setDOMContent(card);
   // However it goes, the map goes back to what it was drawing before. On the
   // event rather than in `closeRouteStack`, because the commonest way this card
   // closes never goes through that function: both libraries take a popup away on
   // the next click of the map themselves, without asking anybody.
-  routeStackPopup.on('close', () => {
+  //
+  // Guarded on still being the card on screen. A popup that has been replaced
+  // can still be told to close — the library keeps its click handler in a list
+  // it copied before this one existed, and calling `remove()` twice fires
+  // `close` twice — and its tidying up would be done to the card that replaced
+  // it.
+  popup.on('close', () => {
+    if (routeStackPopup && routeStackPopup !== popup) return;
     setHoveredRoute(null);
     clearStackColors();
   });
+  routeStackPopup = popup;
+  popup.addTo(map);
   return true;
 }
 
@@ -5218,8 +5296,13 @@ function refreshRouteOptionStates() {
     eye.title = shown ? 'Hide these on the map' : 'Show these on the map';
     eye.innerHTML = shown ? EYE_ON_SVG : EYE_OFF_SVG;
   }
+  const each = box.querySelector('.route-option-each');
+  if (each) {
+    each.classList.toggle('on', routeRainbow);
+    each.setAttribute('aria-pressed', routeRainbow ? 'true' : 'false');
+  }
   const reset = box.querySelector('.route-option-reset');
-  if (reset) reset.hidden = !sportColors.size && !hiddenSports.size;
+  if (reset) reset.hidden = !sportColors.size && !hiddenSports.size && !routeRainbow;
 }
 
 function dropRoutePickers() {
@@ -5340,47 +5423,52 @@ function renderRouteOptions() {
     box.append(row);
   }
 
-  // One press, a colour each. Six activities on one map are six shades of the
-  // same orange until somebody sets five of them by hand, and setting them by
-  // hand is six trips through a colour panel to answer a question — *which of
-  // these lines is the cycling* — that has no right answer, only a distinct one.
-  //
-  // Random rather than a fixed assignment because the button is pressed *again*
-  // when the answer was not liked; the colours themselves come out of the
-  // palette in its own order, so a random set is still a spread one. See
-  // randomPalette in src/route-colors.js.
-  const random = document.createElement('button');
-  random.type = 'button';
-  random.className = 'route-option-action';
-  random.textContent = 'Give each a color';
-  random.addEventListener('click', () => {
-    const keys = sportsPresent().map((s) => s.key);
-    const colors = randomPalette(keys.length);
-    keys.forEach((key, i) => sportColors.set(key, colors[i]));
+  // The two that act on the whole list, side by side under it. Short labels
+  // because there is 272 px of menu and two of them: what they do at length is
+  // in the tooltip, and one of them is a switch whose state says most of it.
+  const actions = document.createElement('div');
+  actions.className = 'route-option-actions';
+
+  // **A colour per route, not per activity.** Eleven ski runs are one colour
+  // however carefully the activity was chosen, which is the whole of what this
+  // answers — and it is a switch rather than a press because it is a way of
+  // looking at the map that you leave on, not a thing you do to it. The colours
+  // come from the route ids (see refreshRainbow), so there is nothing to store
+  // and nothing to re-roll.
+  const each = document.createElement('button');
+  each.type = 'button';
+  each.className = 'route-option-action route-option-each';
+  each.textContent = 'Color each route';
+  each.title = 'Draw every route in a colour of its own, instead of one per activity';
+  each.setAttribute('aria-pressed', routeRainbow ? 'true' : 'false');
+  each.classList.toggle('on', routeRainbow);
+  each.addEventListener('click', () => {
+    routeRainbow = !routeRainbow;
+    refreshRainbow();
     saveRouteView();
-    syncRouteSwatches();
     repaintRouteColors();
-    // Nothing about *which* routes are drawn has changed, so this is the state
-    // refresh rather than syncRoutes: the only row that has to catch up is the
-    // reset, which has just become worth offering.
     refreshRouteOptionStates();
   });
-  box.append(random);
+  actions.append(each);
 
   const reset = document.createElement('button');
   reset.type = 'button';
   reset.className = 'route-option-action route-option-reset';
-  reset.textContent = 'Reset colors and show all';
-  reset.hidden = !sportColors.size && !hiddenSports.size;
+  reset.textContent = 'Reset';
+  reset.title = 'Reset colors and show every activity';
+  reset.hidden = !sportColors.size && !hiddenSports.size && !routeRainbow;
   reset.addEventListener('click', () => {
     sportColors.clear();
     hiddenSports.clear();
+    routeRainbow = false;
+    refreshRainbow();
     saveRouteView();
     syncRouteSwatches();
     repaintRouteColors();
     syncRoutes();
   });
-  box.append(reset);
+  actions.append(reset);
+  box.append(actions);
 }
 
 // Beside the menu where there's room, above it when there isn't (phones, where
