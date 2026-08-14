@@ -1,13 +1,16 @@
-// The palette hands out colours that are actually different.
+// The palette hands out colours that are actually far apart.
 //
-// The whole point of these is that no two rows in one menu — and no two
-// activities on one map — share a colour, and that is a property nobody can see
-// by reading the list. A stride that quietly shared a factor with fifty would
-// hand out ten colours five times over and the code would look perfectly fine.
+// *Different* was the first version of this test and it was the wrong property:
+// two routes under one tap came back as two shades of blue, fifty distinct
+// colours in the palette notwithstanding, because a fixed step through a
+// golden-angle sweep can land twelve degrees from where it started. What has to
+// hold is the separation — two things opposite, three a triangle, and no two
+// neighbours in a list near each other — and none of that can be seen by reading
+// the list of hexes.
 //
 //   node scripts/test/route-colors.mjs
 
-import { ROUTE_PALETTE, paletteFor, paletteRun, randomPalette } from '../../src/route-colors.js';
+import { ROUTE_PALETTE, paletteFor, randomPalette } from '../../src/route-colors.js';
 
 let pass = 0;
 let fail = 0;
@@ -17,23 +20,71 @@ const check = (ok, label, detail) => {
 };
 const distinct = (list) => new Set(list).size === list.length;
 
+// The same arithmetic the module does, written out again rather than imported:
+// a test that shares its subject's maths cannot catch its subject's maths.
+const hueOf = (hex) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (!d) return 0;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return ((h * 60) % 360 + 360) % 360;
+};
+const gap = (a, b) => {
+  const d = Math.abs(hueOf(a) - hueOf(b)) % 360;
+  return d > 180 ? 360 - d : d;
+};
+const worstPair = (list) => {
+  let worst = 360;
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) worst = Math.min(worst, gap(list[i], list[j]));
+  }
+  return worst;
+};
+const worstNeighbour = (list) => Math.min(...list.slice(1).map((c, i) => gap(list[i], c)));
+
 console.log('\nThe palette itself');
 {
   check(ROUTE_PALETTE.length === 50, `fifty colours (${ROUTE_PALETTE.length})`);
   check(distinct(ROUTE_PALETTE), 'no colour is in it twice');
   check(ROUTE_PALETTE.every((c) => /^#[0-9a-f]{6}$/.test(c)), 'every one is a six-digit hex');
+  // Nothing below can hand out a spread the palette does not hold.
+  const hues = ROUTE_PALETTE.map(hueOf).sort((a, b) => a - b);
+  const widest = Math.max(...hues.map((h, i) => (i ? h - hues[i - 1] : h + 360 - hues[hues.length - 1])));
+  check(widest < 20, `and no gap in the wheel wider than 20° (${widest.toFixed(1)}°)`);
 }
 
-console.log('\nA run of them');
+console.log('\nTwo of anything are opposites');
 {
-  for (const stride of [3, 7, 9, 11, 13, 17, 19, 21, 23]) {
-    const all = paletteRun(50, { start: 7, stride });
-    check(distinct(all), `stride ${stride} walks all fifty before repeating`, `${new Set(all).size} distinct`);
+  // The report this was written for: click two routes, get two blues.
+  const pairs = [[1, 2], [7, 9], [104, 3005], ['a', 'b'], [42, 43]];
+  for (const ids of pairs) {
+    const two = [...paletteFor(ids).values()];
+    check(gap(two[0], two[1]) > 150,
+      `${JSON.stringify(ids)} → ${two.join(' and ')}`, `only ${gap(two[0], two[1]).toFixed(0)}° apart`);
   }
-  check(paletteRun(0).length === 0, 'asking for none gives none');
-  const over = paletteRun(53, { start: 3, stride: 7 });
-  check(over.length === 53 && new Set(over).size === 50, 'past fifty it wraps rather than running out');
-  check(paletteRun(4, { start: -1, stride: 7 }).every(Boolean), 'a negative start is still a colour');
+}
+
+console.log('\nAnd more than two are spread around the wheel');
+{
+  for (const n of [3, 4, 5, 6, 8, 12]) {
+    const ids = Array.from({ length: n }, (_, i) => i * 7 + 3);
+    const set = [...paletteFor(ids).values()];
+    // What a wheel divided n ways allows, less what the palette's own gaps cost.
+    const want = 360 / n - 12;
+    check(worstPair(set) >= want,
+      `${n} routes sit at least ${want.toFixed(0)}° apart (${worstPair(set).toFixed(0)}°)`);
+    // …and consecutive rows are not merely different but obviously so, which is
+    // what a list read top to bottom needs and a spread in hue order does not
+    // give: twelve of those would be thirty degrees a step.
+    //
+    // 80° rather than something rounder because four colours ninety degrees
+    // apart cannot do better than ninety, whatever order they are handed out in
+    // — one pair of neighbours has to be adjacent on the wheel.
+    check(worstNeighbour(set) > 80,
+      `and no two in a row are close (${worstNeighbour(set).toFixed(0)}°)`);
+  }
 }
 
 console.log('\nOne colour each, for the routes under a tap');
@@ -46,10 +97,16 @@ console.log('\nOne colour each, for the routes under a tap');
   const again = paletteFor(ids);
   check(ids.every((id) => a.get(id) === again.get(id)), 'the same stack comes up in the same colours');
 
-  // The one that matters for it reading as "these are different things": two
-  // stacks that share their first route must not share their colours.
-  const other = paletteFor([4, 9, 11, 12, 40, 41, 42, 43, 44, 51, 78]);
-  check([...a.values()].join() !== [...other.values()].join(), 'a different stack gets a different set');
+  // Different stacks often get different sets, and "often" is the honest word —
+  // it used to be "always", and that was bought with the fault this palette was
+  // rewritten for. All that varies between two stacks now is where on the wheel
+  // their spread begins; the palette is about seven degrees coarse, so two
+  // starts landing within that of each other choose the same eleven entries and
+  // come out identical. Being spread as far apart as the wheel allows is what
+  // anybody is actually looking at, and two stacks are never looked at together.
+  const sets = new Set(Array.from({ length: 20 }, (_, i) =>
+    [...paletteFor([4, 9, 11, 12, 40, 41, 42, 43, 44, 51, 78 + i]).values()].join()));
+  check(sets.size >= 8, `twenty different stacks give ${sets.size} different sets`);
 
   const strings = paletteFor(['a', 'b', 'c']);
   check(strings.size === 3 && distinct([...strings.values()]), 'keys need not be numbers');

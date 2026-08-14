@@ -1910,9 +1910,19 @@ const routeGlowOpacity = () => {
   const soft = STYLES[styleKey].theme === 'light' ? 0.26 : 0.35;
   // Under the pointer, most of the way to the selected strength but not all of
   // it — a hover that looked identical to a selection would be answering the
-  // question before it was asked.
+  // question before it was asked. Worked out from `soft` whether or not `soft`
+  // is used, so that lighting a route up looks the same on every basemap.
   const lit = soft + (strong - soft) * 0.75;
-  return ['*', routeAlphaExpr(), ['case', ROUTE_SELECTED, strong, ROUTE_HOVERED, lit, soft]];
+  // **Nothing at rest on the 3D basemap.** The glow is six times the core there
+  // rather than three and a bit (see ROUTE_GLOW_SCALE_3D), because a flat
+  // basemap is a quiet background and a lit scene with texture and shadow in it
+  // is not — but that width over a map already full of colour and relief is a
+  // haze the tracks are inside rather than a halo around them, and with a colour
+  // per route it is six of them bleeding into each other. So the halo is kept
+  // for the two routes that are being pointed at and the rest are the crisp core
+  // line the flat maps draw. Both themes: Standard is busy in either.
+  const rest = engine === MAPBOX ? 0 : soft;
+  return ['*', routeAlphaExpr(), ['case', ROUTE_SELECTED, strong, ROUTE_HOVERED, lit, rest]];
 };
 // The core line is nearly solid, and an activity you have made translucent
 // scales that down rather than replacing it.

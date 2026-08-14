@@ -52,40 +52,136 @@ export const ROUTE_PALETTE = [
   '#879339', '#5caeeb', '#d3456e', '#46c847', '#8564d3',
 ];
 
-// Every step that walks the whole palette before repeating — that is, every
-// number under half of 50 that shares no factor with it. Stepping by one of
-// these from any start visits all fifty entries, so a run of colours can never
-// repeat until the fiftieth, and *which* of them is used is what makes two
-// draws from the same palette look like two different sets rather than one set
-// rotated.
-const STRIDES = [3, 7, 9, 11, 13, 17, 19, 21, 23];
+// --- Picking a set out of it --------------------------------------------------
+//
+// Distinct is not the same as *far apart*, and the difference is the whole of
+// what this section is for. Handing out the palette by walking it at a fixed
+// step gives fifty different answers and no promise about any of them: step by
+// 13 and each entry lands 13 × 137.5° = 347.6° along, which is twelve degrees of
+// hue from where it started. Two routes under one tap came out as two shades of
+// blue, both technically different colours, and that is not what a colour is
+// being asked to say here.
+//
+// So a set is chosen by *hue*: n entries as near as this palette can get to
+// 360/n apart. Two things get opposites, three get a triangle, twelve get every
+// thirtieth degree — and nothing has to be true of the palette's order for that
+// to hold.
+const HUES = ROUTE_PALETTE.map((hex) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (!d) return 0;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return ((h * 60) % 360 + 360) % 360;
+});
+
+/** How far apart two hues are, the short way round. */
+const hueGap = (a, b) => {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+};
 
 /**
- * `n` colours from the palette, walking it by `stride` from `start`.
+ * `n` colours whose hues are as evenly spread around the wheel as this palette
+ * allows, starting from `startHue`.
  *
- * Distinct until the palette runs out, and after that it wraps rather than
- * running out of answers: fifty-one routes under one tap is not a case worth a
- * different behaviour, and the fifty-first sharing with the first is a far
- * better answer than no colour at all.
+ * Greedy and tiny — fifty entries against at most fifty targets — and it takes
+ * the *nearest unused* entry to each target rather than the nearest, so a hue
+ * the palette is thin around cannot be handed out twice while its neighbour goes
+ * unused.
  */
-export function paletteRun(n, { start = 0, stride = 1 } = {}) {
-  const size = ROUTE_PALETTE.length;
-  const step = STRIDES.includes(stride) ? stride : 1;
-  const from = ((start % size) + size) % size;
-  return Array.from({ length: Math.max(0, n) }, (_, i) => ROUTE_PALETTE[(from + i * step) % size]);
+function spreadOfHues(n, startHue) {
+  const want = Math.max(0, Math.min(n, ROUTE_PALETTE.length));
+  const taken = new Set();
+  const out = [];
+  for (let k = 0; k < want; k++) {
+    const target = (((startHue + (k * 360) / want) % 360) + 360) % 360;
+    let best = -1;
+    let bestGap = Infinity;
+    for (let i = 0; i < HUES.length; i++) {
+      if (taken.has(i)) continue;
+      const gap = hueGap(HUES[i], target);
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = i;
+      }
+    }
+    taken.add(best);
+    out.push(ROUTE_PALETTE[best]);
+  }
+  return out;
+}
+
+/**
+ * The order to hand a spread out in, so that *neighbours* are far apart too.
+ *
+ * A set spread evenly by hue and handed out in hue order is a rainbow ramp: item
+ * one and item two are 360/n apart, which for a stack of twelve is thirty
+ * degrees and reads as "two blues" all over again — while item one and item
+ * seven, which nobody is comparing, are opposites.
+ *
+ * A fixed step through the ring is the obvious answer and it is not enough: the
+ * step has to be coprime with n or it does not visit everything, and for n = 6
+ * the only coprime steps are 1 and 5, which are the rainbow ramp forwards and
+ * backwards. What works for every n is placing them one at a time, each time
+ * taking the position furthest from everything placed so far — and, where
+ * several are equally far, the one furthest from the one just placed. That
+ * second rule is not a tie-break for tidiness: without it n = 6 comes out as
+ * 0,3,1,2,… and two of the six sit next to each other on the wheel *and* in the
+ * list, which is the whole fault this is here to avoid.
+ */
+function weaveOrder(m) {
+  const ring = (a, b) => {
+    const d = Math.abs(a - b) % m;
+    return Math.min(d, m - d);
+  };
+  const order = [0];
+  const left = new Set(Array.from({ length: m - 1 }, (_, i) => i + 1));
+  while (left.size) {
+    let best = -1;
+    let bestNear = -1;
+    let bestLast = -1;
+    for (const i of left) {
+      const near = Math.min(...order.map((p) => ring(i, p)));
+      const last = ring(i, order[order.length - 1]);
+      if (near > bestNear || (near === bestNear && last > bestLast)) {
+        best = i;
+        bestNear = near;
+        bestLast = last;
+      }
+    }
+    left.delete(best);
+    order.push(best);
+  }
+  return order;
+}
+
+/** `n` colours, spread by hue and ordered so that neighbours are far apart. */
+function pickColors(n, startHue) {
+  const want = Math.max(0, n);
+  const m = Math.min(want, ROUTE_PALETTE.length);
+  if (!m) return [];
+  const spread = spreadOfHues(m, startHue);
+  const order = weaveOrder(m);
+  // Past fifty it wraps rather than running out of answers: the fifty-first
+  // route sharing with the first is a far better answer than no colour at all,
+  // and it is still never the same as its neighbour.
+  return Array.from({ length: want }, (_, i) => spread[order[i % m]]);
 }
 
 /**
  * A colour each for a set of things that already have identities — the routes
  * under one tap, or every route on the map.
  *
- * **Stable, and different for different sets.** The start and the step are
- * derived from the keys themselves, so the same stack of eleven runs comes up
- * in the same eleven colours every time you tap it (a menu that reshuffled
+ * **Stable, and different for different sets.** Only where on the wheel the
+ * spread begins is derived from the keys, so the same stack of eleven runs comes
+ * up in the same eleven colours every time you tap it (a menu that reshuffled
  * itself on reopening would be worse than one colour for all of them), and the
  * same map comes up the same way on the phone and on the laptop with nothing
  * synced but a switch — while a different stack elsewhere on the map gets a
- * different set.
+ * different set. What does *not* vary is how far apart they are: that is the
+ * point of them.
  *
  * @param {Array<number|string>} keys route ids, in the order they are listed
  * @returns {Map<number|string, string>} key → hex
@@ -100,10 +196,7 @@ export function paletteFor(keys) {
     const s = String(k);
     for (let i = 0; i < s.length; i++) seed = (Math.imul(seed, 31) + s.charCodeAt(i)) >>> 0;
   }
-  const colors = paletteRun(list.length, {
-    start: seed % ROUTE_PALETTE.length,
-    stride: STRIDES[seed % STRIDES.length],
-  });
+  const colors = pickColors(list.length, seed % 360);
   return new Map(list.map((k, i) => [k, colors[i]]));
 }
 
@@ -113,17 +206,14 @@ export function paletteFor(keys) {
  *
  * Random where `paletteFor` is stable, and for the opposite reason: this one is
  * pressed *again* when the answer was not liked, so giving back the same answer
- * would make the button look broken. Only the start and the step are random —
- * the colours themselves still come out of the palette in its own order, so a
- * random set is still a spread one rather than three greens and a mustard.
+ * would make the button look broken. What is random is only where on the wheel
+ * the spread starts — six activities are six hues sixty degrees apart either
+ * way, just a different six.
  *
  * @param {number} n
  * @param {() => number} [rng] injectable for the tests
  */
 export function randomPalette(n, rng = Math.random) {
-  return paletteRun(n, {
-    start: Math.floor(rng() * ROUTE_PALETTE.length),
-    stride: STRIDES[Math.floor(rng() * STRIDES.length)],
-  });
+  return pickColors(n, rng() * 360);
 }
 

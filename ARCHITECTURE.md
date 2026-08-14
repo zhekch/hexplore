@@ -2084,14 +2084,38 @@ because HSL is not perceptual: lightness comes down by up to 12 for yellows and
 greens and up by 9 for blues and violets, and saturation comes down by 12–16
 across 45°–165°, where the first cut of this had four highlighter greens in it.
 
-A run of them steps by a number coprime with fifty, so it walks the whole palette
-before repeating. Both callers get their start and their step from the ids they
-are colouring, which is what makes the answer stable without being stored: the
-same stack comes up in the same colours every time you tap it, a different stack
-somewhere else gets a different set, and a whole map of them looks the same on
-the phone as on the laptop. Past the fiftieth it wraps — two routes out of three
-hundred sharing a colour is not worth a different design, and neighbours in the
-list never do.
+**Distinct is not the same as far apart, and only the second one is any use.**
+The first version of this handed the palette out by walking it at a fixed step —
+fifty different answers, and no promise about any particular two of them. Step by
+13 and each entry lands 13 × 137.5° = 347.6° along, which is twelve degrees of
+hue from where it started: two routes under one tap came out as two shades of
+blue, both technically different colours.
+
+So a set is chosen by hue instead. For *n* things, take the palette entries
+nearest to *n* targets 360/n apart: two get opposites, three a triangle, twelve
+every thirtieth degree. Where the spread starts is the only thing derived from
+the ids, which is what keeps it stable without being stored — the same stack
+comes up the same way every time you tap it, and a whole map of them looks the
+same on the phone as on the laptop.
+
+Then the *order* they are handed out in, which is a second problem wearing the
+first one's clothes. A set spread evenly by hue and given out in hue order is a
+rainbow ramp: rows one and two of a stack of twelve are thirty degrees apart and
+read as two blues all over again, while rows one and seven — which nobody is
+comparing — are opposites. A fixed step through the ring is the obvious fix and
+is not enough (for six, the only steps coprime with six are the ramp forwards and
+backwards), so they are placed one at a time, each time taking the position
+furthest from everything placed so far, breaking ties by distance from the one
+just placed. That last rule is not tidiness: without it six comes out
+0,3,1,2,… and two of them sit next to each other on the wheel *and* in the list.
+
+What comes out: consecutive rows never closer than about 85°, at any count, and
+two of anything are opposites. Past the fiftieth it wraps — two routes out of
+three hundred sharing a colour is not worth a different design, and neighbours
+never do. The cost is that two *different* stacks now often look alike, because
+all that separates them is where their spread began; they are never looked at
+together, and being as far apart as the wheel allows is what anybody is actually
+looking at.
 
 ### Working out the activity
 
@@ -4232,6 +4256,16 @@ Standard puts the line in a lit scene with texture and shadow under it, and the
 halo that reads as *drawn on* a flat basemap disappears into that one. And a route behind a
 building is dimmed rather than gone — which took two goes and a line of the
 style spec.
+
+That width is now **only paid when a route is being pointed at**: on this basemap
+the resting glow is zero and hover and selection keep theirs. Six times the core
+over a map that already has colour and relief in it is not a halo around the
+tracks so much as a haze they are inside, and with a colour per route it is six
+haloes bleeding into one another. What is left at rest is the crisp core line the
+flat basemaps draw, which is what the glow was widened to compete with in the
+first place. Both themes: Standard is busy in either. The hit test is unaffected
+— `queryRenderedFeatures` reads geometry and width, not opacity, so the widest
+glow ring still catches taps it no longer draws.
 
 `line-occlusion-opacity` is Mapbox's property for it: the opacity of the part of
 a line that is behind something. Setting it on the two route layers did nothing
