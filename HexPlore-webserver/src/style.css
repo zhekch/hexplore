@@ -3764,14 +3764,44 @@ body {
 }
 
 /* Light basemap chrome. The controls sit over pale land and water, so use a
-   brighter, more opaque glass surface with dark text and icons. */
+   brighter glass surface with dark text and icons.
+
+   **How much of the map comes through, and why it is not the same number as
+   the satellite block further down.** The dark chrome is 8% white over a
+   26 px blur: the map is plainly there underneath, moving when you pan, and
+   that is most of what makes it read as glass rather than as a box. The light
+   chrome was 0.86–0.92, which is a sheet of paper — the blur had nothing left
+   to blur.
+
+   0.7 for a panel and 0.78 for a button is the same picture on the other side.
+   It works here because the light theme only ever sits over a *vector* basemap
+   we chose the palette for: Voyager, and Standard in its day and dawn presets.
+   Satellite is `theme: 'dark'` and never gets here. So the worst thing behind
+   this glass is a pale road on pale ground, and the blur turns it into a wash
+   of colour rather than anything with an edge — checked with routes running
+   under the panel, which is the case that would have shown it.
+
+   The `[data-chrome='light']` block near the end of this file has the same
+   selectors and keeps the old, more solid values on purpose. That one fires
+   over *imagery* — a snowfield, a salt flat — where what is underneath is
+   whatever the satellite saw, and legibility is the whole reason it exists.
+
+   **Which is why the four rules that carry these numbers are written
+   `:root[data-theme='light']` and the rest of this block is not.** The sampled
+   block comes later in the file at the same specificity, and a pale vector
+   basemap samples light too — so without the `:root` it would win here and
+   this change would do nothing at all, which is exactly what the first attempt
+   did. The extra specificity says the thing that is true: a basemap *declaring*
+   it is light is better information than an average of a few hundred pixels,
+   and when we have both, the declaration decides. Satellite never has one —
+   its theme is `dark` — so the sampled values still own that case alone. */
 :root[data-theme='light'] {
   color-scheme: light;
 }
 
-[data-theme='light'] .hud-pencil,
-[data-theme='light'] .layers-btn {
-  background: rgba(248, 250, 252, 0.86);
+:root[data-theme='light'] .hud-pencil,
+:root[data-theme='light'] .layers-btn {
+  background: rgba(248, 250, 252, 0.78);
   border-color: rgba(15, 23, 42, 0.16);
   box-shadow:
     0 8px 24px rgba(15, 23, 42, 0.2),
@@ -3779,14 +3809,14 @@ body {
   color: rgba(15, 23, 42, 0.9);
 }
 
-[data-theme='light'] .hud-pencil:hover,
-[data-theme='light'] .layers-btn:hover {
-  background: rgba(255, 255, 255, 0.96);
+:root[data-theme='light'] .hud-pencil:hover,
+:root[data-theme='light'] .layers-btn:hover {
+  background: rgba(255, 255, 255, 0.9);
 }
 
-[data-theme='light'] .hud-panel,
-[data-theme='light'] .layers-menu {
-  background: rgba(248, 250, 252, 0.9);
+:root[data-theme='light'] .hud-panel,
+:root[data-theme='light'] .layers-menu {
+  background: rgba(248, 250, 252, 0.7);
   border-color: rgba(15, 23, 42, 0.16);
   box-shadow:
     0 16px 44px rgba(15, 23, 42, 0.24),
@@ -3851,8 +3881,8 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
-[data-theme='light'] :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
-  background: rgba(248, 250, 252, 0.86);
+:root[data-theme='light'] :is(.maplibregl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-right) :is(.maplibregl-ctrl-group, .mapboxgl-ctrl-group) {
+  background: rgba(248, 250, 252, 0.78);
   border-color: rgba(15, 23, 42, 0.16);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
 }
@@ -3871,8 +3901,8 @@ body {
    column, with "my location" in it) and one on a wide screen (a row, menu and
    search). Either way the glass is on the container and the buttons inside it
    are flat, so they need the light treatment taken back off them. */
-[data-theme='light'] .layers-cluster {
-  background: rgba(248, 250, 252, 0.86);
+:root[data-theme='light'] .layers-cluster {
+  background: rgba(248, 250, 252, 0.78);
   border-color: rgba(15, 23, 42, 0.16);
   box-shadow:
     0 8px 24px rgba(15, 23, 42, 0.2),
@@ -3954,6 +3984,14 @@ body {
     0 16px 44px rgba(15, 23, 42, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
   color: rgba(15, 23, 42, 0.94);
+}
+
+/* The cell card floats on the map with nothing between it and the ground, the
+   same as the panels — so it is glass on the same terms. The dialog above keeps
+   its own value: it comes up over a scrim that has already taken the map away,
+   and a translucent sheet over a dimmed map is neither one thing nor the other. */
+[data-theme='light'] .cell-info {
+  background: rgba(248, 250, 252, 0.7);
 }
 
 [data-theme='light'] .cell-info-coord,
