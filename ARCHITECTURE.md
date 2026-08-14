@@ -4250,22 +4250,22 @@ up. What it costs instead is the bookkeeping: feature state does not survive
 mode with the map still, so `setMode` and `mouseleave` have to clear it or a lit
 route stays lit with nothing under it.
 
-**Two things a route needs that only this basemap can give it.** Its glow is
-wider here — `ROUTE_GLOW_SCALE_3D` — because
-Standard puts the line in a lit scene with texture and shadow under it, and the
-halo that reads as *drawn on* a flat basemap disappears into that one. And a route behind a
-building is dimmed rather than gone — which took two goes and a line of the
-style spec.
+**One thing a route needs that only this basemap can give it** — and one it was
+given for years and did not.
 
-That width is now **only paid when a route is being pointed at**: on this basemap
-the resting glow is zero and hover and selection keep theirs. Six times the core
-over a map that already has colour and relief in it is not a halo around the
-tracks so much as a haze they are inside, and with a colour per route it is six
-haloes bleeding into one another. What is left at rest is the crisp core line the
-flat basemaps draw, which is what the glow was widened to compete with in the
-first place. Both themes: Standard is busy in either. The hit test is unaffected
-— `queryRenderedFeatures` reads geometry and width, not opacity, so the widest
-glow ring still catches taps it no longer draws.
+The one it did not need is a **wider glow**. It used to be 6× the core here
+against 3.4× on the flat basemaps, on the reasoning that Standard puts the line
+in a lit scene with texture and shadow under it and the flat halo disappears into
+that. What it produced instead was a route that looked *different in kind*
+between the two maps — softer, wider, and read by the person using it as lower
+resolution, which it was not: both libraries simplify the source geometry with
+the same formula (`tolerance × EXTENT / tileSize`), so the line is the same line.
+Removing the resting glow on 3D entirely was then tried, and was worse the other
+way: crisper, and a route that no longer reads as drawn *on* the ground. One
+number for every basemap is what looks right, and it is the flat one.
+
+The one it does need is **a route you can still see behind a building** — dimmed
+rather than gone, which took two goes and a line of the style spec.
 
 `line-occlusion-opacity` is Mapbox's property for it: the opacity of the part of
 a line that is behind something. Setting it on the two route layers did nothing
@@ -7974,6 +7974,22 @@ style key of its own — `flat` is what it sends, and `setStyleKey` reads that a
 "whichever of the three you were last on", remembered in `visited-map:flat-style`
 so that leaving for Satellite and coming back does not land you somewhere you did
 not choose.
+
+**And because it is one question, the answer carries across.** Crossing between
+the kinds should change what is drawing the map, not how bright it is: leaving
+Light for 3D at eleven at night and landing on a black city is the map
+disagreeing with the button that was just pressed. So 2D→3D sets the sun from the
+theme (light → Day, dark → Night) and 3D→2D reads `presetTheme()` back — dusk and
+night land on a dark flat basemap, dawn and day on a light one, keeping the one
+you were last on where it already agrees, so a night map returns to Terrain
+rather than Dark if that is where you came from.
+
+Two details of that. It sets the *choice* rather than the preset, so it turns
+Auto off — which is the honest reading of the gesture, since pressing a button
+that means "light map" is choosing a sun however indirectly, and Auto is one
+switch away in Settings. And it runs after the token gate, because a press that
+ends in the dialog asking for a Mapbox token has not switched anything and should
+not have moved the sun either.
 
 The five themselves: **Dark** (CARTO Dark Matter), **Terrain**, **Light**
 (CARTO Voyager), **Satellite**, and **3D** (Mapbox Standard — see "The 3D

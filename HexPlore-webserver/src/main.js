@@ -1913,16 +1913,12 @@ const routeGlowOpacity = () => {
   // question before it was asked. Worked out from `soft` whether or not `soft`
   // is used, so that lighting a route up looks the same on every basemap.
   const lit = soft + (strong - soft) * 0.75;
-  // **Nothing at rest on the 3D basemap.** The glow is six times the core there
-  // rather than three and a bit (see ROUTE_GLOW_SCALE_3D), because a flat
-  // basemap is a quiet background and a lit scene with texture and shadow in it
-  // is not — but that width over a map already full of colour and relief is a
-  // haze the tracks are inside rather than a halo around them, and with a colour
-  // per route it is six of them bleeding into each other. So the halo is kept
-  // for the two routes that are being pointed at and the rest are the crisp core
-  // line the flat maps draw. Both themes: Standard is busy in either.
-  const rest = engine === MAPBOX ? 0 : soft;
-  return ['*', routeAlphaExpr(), ['case', ROUTE_SELECTED, strong, ROUTE_HOVERED, lit, rest]];
+  // The same numbers on every basemap, deliberately. Taking the resting glow
+  // away on 3D was tried and put back: what it left was a crisper line, and
+  // crisper is not what a route on this map is for — the haze is how a line
+  // drawn on the ground reads as *on* the ground rather than as one more thing
+  // in the scene. See glowScale for the other half of that lesson.
+  return ['*', routeAlphaExpr(), ['case', ROUTE_SELECTED, strong, ROUTE_HOVERED, lit, soft]];
 };
 // The core line is nearly solid, and an activity you have made translucent
 // scales that down rather than replacing it.
@@ -1943,16 +1939,19 @@ const glowRingOpacity = () =>
 
 // --- Routes on a map with buildings in it -------------------------------------
 //
-// Two things the 3D basemap needs and the flat four do not.
+// One thing the 3D basemap needs and the flat four do not — and one it was given
+// for years and did not.
 //
-// **A wider glow.** On a flat basemap the glow is haze around a crisp line and
-// 3.4× the core is plenty. Standard puts the route in a lit scene with texture
-// and shadow under it, and at that busy a background the same halo disappears
-// into the ground. Widening it is what makes the line read as *drawn on* the map
-// rather than as one more thing in it — which is the whole job of the glow, done
-// harder because the background got harder.
-const ROUTE_GLOW_SCALE_3D = 6;
-const glowScale = () => (engine === MAPBOX ? ROUTE_GLOW_SCALE_3D : ROUTE_GLOW_SCALE);
+// **The glow is not it.** It used to be 6× the core here against 3.4× on the flat
+// basemaps, on the reasoning that Standard puts the route in a lit scene with
+// texture and shadow under it and the flat halo disappears into that. What it
+// actually produced was a route that looked *different in kind* between the two
+// maps — softer, wider, lower-resolution, a haze the track is inside rather than
+// a halo around it — and with a colour per route, six of those bleeding into
+// each other. Taking it away entirely was tried next and was worse in the other
+// direction. One number for every basemap is what looks right, and it is the
+// flat one.
+const glowScale = () => ROUTE_GLOW_SCALE;
 
 // **And a route you can still see behind a building.** A line is drawn on the
 // ground, so a tower between it and the camera hides it completely — which on a
@@ -6884,6 +6883,21 @@ const FLAT_STYLES = ['dark', 'terrain', 'voyager'];
 const FLAT_KEY = 'visited-map:flat-style:v1';
 const isFlat = (key) => FLAT_STYLES.includes(key);
 
+/**
+ * The flat basemap that matches the sun 3D is under.
+ *
+ * Dusk and night are dark; dawn and day are light (`presetTheme`). The one you
+ * were last on is kept if it agrees with that — coming back from a night map to
+ * Terrain rather than to Dark is still coming back to a dark map — and replaced
+ * when it does not.
+ */
+function flatForLight() {
+  const want = presetTheme();
+  const held = lastFlatStyle();
+  if (STYLES[held].theme === want) return held;
+  return want === 'light' ? 'voyager' : 'dark';
+}
+
 /** The flat basemap 2D goes back to. Remembered across visits, like the rest. */
 function lastFlatStyle() {
   if (isFlat(styleKey)) return styleKey;
@@ -6899,8 +6913,9 @@ function lastFlatStyle() {
 function setStyleKey(key) {
   // The 2D button names a *kind* rather than a basemap: it is the only entry in
   // the row that does not answer to a style of its own, because the three it
-  // stands for are now in the row below it.
-  if (key === 'flat') return setStyleKey(lastFlatStyle());
+  // stands for are now in the row below it. Coming back from 3D it answers with
+  // the sun rather than with memory — see darkOrLight.
+  if (key === 'flat') return setStyleKey(styleKey === 'mapbox' ? flatForLight() : lastFlatStyle());
   if (!STYLES[key] || key === styleKey) return;
   if (isFlat(key)) {
     try {
@@ -6916,6 +6931,22 @@ function setStyleKey(key) {
     setMenuOpen(false);
     mapboxUi?.open();
     return;
+  }
+  // …and going the other way, the theme answers for the sun. Both directions of
+  // the same rule: crossing between the kinds of map should not change how
+  // *bright* the map is, only what is drawing it. Leaving Light for 3D at eleven
+  // at night and landing on a black city is the map disagreeing with the button
+  // that was just pressed.
+  //
+  // After the token gate, not before: a press that ends in the dialog asking for
+  // a token has not switched anything, and should not have moved the sun either.
+  //
+  // It sets the choice rather than the preset, which turns Auto off — and that
+  // is the honest reading of the gesture: pressing a button that means "light
+  // map" is choosing a sun, however indirectly. Auto is a switch in Settings and
+  // stays one press away.
+  if (key === 'mapbox' && isFlat(styleKey)) {
+    setLightChoice(STYLES[styleKey].theme === 'light' ? 'day' : 'night');
   }
   // Crossing between the two map libraries, which no `setStyle` can do: the map
   // object itself has to be replaced. Everything else about the switch — the
