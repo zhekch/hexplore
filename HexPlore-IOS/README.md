@@ -397,9 +397,15 @@ it. There is no system prompt behind this one: the heading comes from
 CoreLocation, whose permission the section above has already asked for, so a
 dialog here would be a question with nothing on the other side of it.
 
-The page still asks on the press of its own locate button, because in a browser
-that press is what makes the request a user gesture. Nothing is lost by that
-here — it is the same button either way.
+WebKit still wants the request to come from a **user gesture**, delegate or no
+delegate, and that is the one thing this app has to be told apart for. In a
+browser the page arms the request on its locate button, because there the ask
+raises a dialog and a dialog should come from the press that means it. Here there
+is no dialog, so the gesture is a formality rather than a question, and any touch
+does — `src/heading.js` listens for a `click` or a `touchend` anywhere once it
+sees `data-client="ios"`. It shipped once without that distinction, and what that
+looked like was a beam that never appeared until you pressed a locate button you
+had no reason to press, the blue dot already being on the map.
 
 ## Signing in
 

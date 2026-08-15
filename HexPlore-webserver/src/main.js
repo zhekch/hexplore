@@ -1134,10 +1134,30 @@ let geolocate = null;
 // Where the browser last put you, so a second press can return there. Survives
 // a rebuild, because where you are is not a fact about the map library.
 let lastFix = null;
-// Undoing the beam that says which way you are facing, because unlike the glide
-// it holds a listener on the *window* — one per basemap switch would be a leak
-// that grew every time somebody looked at the 3D map.
-let stopHeading = null;
+// The beam that says which way you are facing, and the mode that turns the map
+// with it. Held rather than left to itself because unlike the glide it owns a
+// listener on the *window* — one per basemap switch would be a leak that grew
+// every time somebody looked at the 3D map.
+let headingBeam = null;
+// Whether the map is currently turning with you: the locate button's third
+// state. Mirrored here from src/heading.js because the button's appearance is
+// this file's business.
+let headingUp = false;
+// The class that says so, written onto the library's own button.
+//
+// Ours rather than either library's, because neither has a name for this — and
+// added *alongside* their classes rather than replacing one, so the state stays
+// "locked, and also turning": the fill comes from their `-active` and the bezel
+// from this.
+//
+// Declared up here, above the build callback that reads it, because
+// `onMapBuilt` runs its callback **immediately** — so everything in that block
+// executes while this module is still being evaluated. It survived further down
+// only by luck: `showHeadingUp` finds no button on the first pass and gives up
+// before touching this, so the temporal dead zone was never entered. That is a
+// module-initialisation order held together by a `?.`, which is not a thing to
+// leave lying about.
+const HEADING_UP_CLASS = 'hexplore-geolocate-heading-up';
 onMapBuilt(() => {
   geolocate = new gl.GeolocateControl({
     positionOptions: { enableHighAccuracy: true },
@@ -1164,16 +1184,80 @@ onMapBuilt(() => {
   // it from, and nowhere else — so it is a phone feature without ever asking
   // what kind of device this is. The selector names both libraries' button, so
   // it stays right across a switch.
-  stopHeading?.();
-  stopHeading = installHeading(geolocate, ctrlSelector('ctrl-geolocate'));
+  headingBeam?.stop();
+  headingBeam = installHeading(geolocate, ctrlSelector('ctrl-geolocate'), map);
+  // Panning or zooming away from yourself hands the camera back, and a camera
+  // that has been handed back is not one that should still be turning itself.
+  // Both libraries fire this on the way out of their locked state, whether it
+  // was a gesture, `dropLockOnZoom`, or `dropToBackground` — which makes it the
+  // one place all of them pass through.
+  //
+  // The bearing is deliberately *left where it is*. Reset belongs to the press
+  // that asked for it (see `keepGeolocateOn`) and to the compass button, which
+  // is the control whose whole job is putting north back; snapping the map round
+  // because you dragged it would be undoing a turn you might have made yourself.
+  geolocate.on('trackuserlocationend', () => setHeadingUp(false));
+  // A rebuilt control is a fresh button carrying none of our classes, behind a
+  // fresh beam that has not been asked to turn anything. Said here rather than
+  // left to the event above, so the two copies of this cannot disagree while a
+  // basemap switch is in flight.
+  headingUp = false;
+  showHeadingUp();
 });
+
+/** The locate button's third state, applied to whichever button exists now. */
+function showHeadingUp() {
+  const btn = document.querySelector(ctrlSelector('ctrl-geolocate'));
+  btn?.classList.toggle(HEADING_UP_CLASS, headingUp);
+}
+
+/**
+ * Turn the map with you, or stop — and say so on the button.
+ *
+ * @param {boolean} on
+ * @param {boolean} [toNorth] put the bearing back on the way out
+ */
+function setHeadingUp(on, toNorth = false) {
+  const want = !!on && !!headingBeam?.hasCompass();
+  if (want === headingUp) return;
+  headingUp = want;
+  headingBeam?.setHeadingUp(want);
+  showHeadingUp();
+  // Half a degree rather than zero, the same tolerance `refreshCompass` uses and
+  // for the same reason: an ease lands on 1e-14 often enough, and a map that
+  // animates back to a north it is already facing is a button that looks broken.
+  if (!want && toNorth && Math.abs(map.getBearing?.() ?? 0) > 0.5) {
+    // Flagged, or the control reads its own straightening as you taking the
+    // camera and drops the lock it just handed back to you.
+    map.easeTo({ bearing: 0, duration: 400 }, { geolocateSource: true });
+  }
+}
 
 // Both libraries' tracking control is a three-state toggle: off → locked → (pan
 // away) → background → off. That means pressing it twice without moving turns
 // tracking *off* and takes the blue dot with it, which is never what "show me
 // where I am" is asking for — the button appears to delete your own location.
 //
-// Only the locked→off step is intercepted. Background→locked is the control's
+// **There is no press that unfocuses you, on any device.** The button either
+// puts you back in the middle of the map or changes how the map is oriented
+// around you; the off state is where a visit *starts* and is never returned to
+// by pressing anything. Letting go of the camera is what panning and zooming
+// are for, and those already do it — a button whose second press deletes the
+// answer it just gave is a button that punishes a double tap.
+//
+// So a press means, in order:
+//
+//   off        → the control's own: ask, and lock on to the first fix
+//   background → the control's own: re-centre and lock on again
+//   locked     → turn the map to your heading, where there is a compass
+//   heading-up → back to north-up, still locked on
+//
+// The last two are this app's, and the third state is only offered where a
+// compass has actually spoken — on a desk the press falls through to a
+// re-centre, which is the honest thing for a machine that cannot know which way
+// it is facing, and means the button never advertises something it cannot do.
+//
+// Only the locked press is intercepted. Background→locked is the control's
 // own re-centre and is exactly right, so it is left alone.
 //
 // **Listened for on the document, not on the button, because the button may not
@@ -1203,6 +1287,17 @@ function keepGeolocateOn() {
       if (!btn || geolocateStateOf(btn) !== 'locked') return;
       e.stopPropagation();
       e.preventDefault();
+      // Already turning with you: back to north-up, and *this* is the press that
+      // earns the reset — you asked for the rotation and you have asked for it
+      // to stop.
+      if (headingUp) {
+        setHeadingUp(false, true);
+        return;
+      }
+      if (headingBeam?.hasCompass()) {
+        setHeadingUp(true);
+        return;
+      }
       if (lastFix) map.easeTo({ center: lastFix, duration: 500 });
     },
     true,

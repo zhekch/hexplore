@@ -6499,13 +6499,30 @@ data. The three states are its classes: `-active` while the camera is locked to
 your position, `-background` once it has let the camera go but is still watching
 (hollow again — it is no longer following), and `-waiting` while it is asking.
 
-**Pressing it while it is already following you must not delete you.** Both
-libraries' tracking control is a three-state toggle — off → locked → (pan away) →
-background → off — so two presses without moving turn tracking off and take the
-blue dot with it. That is never what "show me where I am" was asking for, and on
-screen it reads as the button erasing your own location. `keepGeolocateOn` takes
-the locked→off press and re-centres instead; background→locked is the control's
-own re-centre and is left alone.
+**No press unfocuses you, on any device.** Both libraries' tracking control is a
+three-state toggle — off → locked → (pan away) → background → off — so two
+presses without moving turn tracking off and take the blue dot with it. That is
+never what "show me where I am" was asking for, and on screen it reads as the
+button erasing your own location. The off state is where a visit *starts* and is
+never returned to by pressing anything: letting go of the camera is what panning
+and zooming are for, and they already do it. A button whose second press deletes
+the answer its first press gave is a button that punishes a double tap.
+
+So a press means, in order:
+
+| state | press does |
+| --- | --- |
+| off | the control's own: ask, and lock on to the first fix |
+| background | the control's own: re-centre, and lock on again |
+| locked | turn the map to your heading |
+| heading-up | back to north-up, still locked on |
+
+The last two are this app's — `keepGeolocateOn` intercepts the locked press —
+and the third state is **only offered where a compass has actually spoken**. On a
+desk the press falls through to a re-centre, which is the honest thing for a
+machine that cannot know which way it is facing, and means the button never
+advertises a state it cannot enter. Background→locked is the control's own
+re-centre and is left alone.
 
 **It listens on the document, because the button may not exist yet** — and that
 sentence is the whole of why this was fixed once and was still broken on the 3D
@@ -6696,11 +6713,22 @@ the dot and never behind the map.
 `DeviceOrientationEvent.requestPermission()` outside a click is rejected, and a
 rejection is not a refusal — the same call inside one still raises the prompt. So
 it is tried once on the way in, for the returning visitor whose grant Safari has
-remembered, and otherwise armed on the **locate button**: the press that means
-"where am I", the only control on the page the question is about, and the one
-that has already been given the map's other prompt. It is called synchronously
-inside the handler, because what makes a call count as a gesture is being made
-while the click is still on the stack and a microtask is the far side of that.
+remembered, and otherwise armed on a gesture. It is called synchronously inside
+the handler, because what makes a call count as a gesture is being made while the
+click is still on the stack and a microtask is the far side of that.
+
+**Which gesture is a different answer in the app, and getting it wrong shipped
+once.** In a browser it is the locate button and nothing else: asking raises
+Safari's Motion & Orientation dialog, a dialog is a question, and it should come
+from the press that means "where am I" rather than from whatever the viewer
+happened to touch first. Inside the iOS app there is no dialog at all —
+`WebPanel.swift` grants it without asking, because the heading rides on a
+CoreLocation permission the app already holds — so the gesture is a formality
+WebKit insists on rather than a question anybody is answering, and **any touch
+satisfies it**. Arming only the button there meant the beam did not appear until
+you pressed a button you had no reason to press, the dot already being on the
+map. `touchend` as well as `click`, because dragging the map is a gesture that
+produces no click at all, and dragging the map is the first thing anybody does.
 
 The permission is remembered separately from the listener, and that separation
 is load-bearing rather than tidy. A basemap switch drops the control, so the last
@@ -6718,10 +6746,60 @@ permission that has already been asked for, so a dialog here would be a question
 with nothing behind it. The Mac has no magnetometer and gets neither the delegate
 method (WebKit does not offer it there) nor the beam.
 
+### Turning the map with you
+
+The third state of the locate button. The camera stays on you and the *ground*
+rotates, so that up on the screen is the way you are facing — which is the mode
+every phone map has for walking somewhere, and the reason it exists is that
+matching a turned map to a street in front of you is a thing people are bad at.
+The beam does not move in this mode: it points straight up, because the marker
+carries `heading` and the library subtracts the bearing, and the two are now the
+same number.
+
+**One camera command carries both the centre and the bearing, and it has to.**
+`setBearing` is a `jumpTo`, and `jumpTo` calls `stop()` — so a rotation issued on
+its own cancels whatever animation is running, which while you are being followed
+is the dot's own camera ease. The first version drove the bearing per frame and
+did exactly that sixty times a second: the map turned beautifully and stopped
+following you. So the mode **owns the camera outright** while it is on;
+`smoothLocationCamera` in src/glide.js stands down at its first line, and `aim()`
+issues one `easeTo` carrying centre and bearing together. The centre is where the
+dot is *drawn* rather than the last fix, because the dot is mid-glide and the
+camera belongs under the dot.
+
+**The re-aim interval is a budget on `moveend`, not on smoothness.** The rotation
+is smooth whatever the interval says — each re-aim animates for exactly as long
+as it is until the next, so the camera never steps — and what a quarter of a
+second buys is that the app's own settle work (`askChromeAgain`, `refreshSnow`,
+`updateTiles`, all hung off `moveend`) runs a few times a second rather than
+sixty. Two conditions release it, and they are the two halves of staying put:
+the bearing having moved two degrees, which is turning on the spot, and the dot
+having slid eight pixels off the middle of the window, which is walking in a
+straight line. Neither is true for a phone lying on a table, so a still phone
+costs nothing at all.
+
+**Letting go is not the same as putting north back.** Panning or zooming away
+fires `trackuserlocationend` — the one event every route out of the locked state
+passes through, including `dropLockOnZoom` and `dropToBackground` — and that
+switches the mode off and *leaves the bearing where it is*. Straightening the map
+belongs to the press that asked for it and to the compass button, whose whole job
+that is; snapping the map round because you dragged it would be undoing a turn
+you might have made yourself.
+
+The button's third icon is the same plane, still filled because the camera is
+still locked on you, now inside a **bezel** — a ring is the shared symbol for a
+dial that turns, and it says the arrow is no longer the thing that is moving. It
+is a third shape rather than a colour, which is the rule the other two are built
+on. Two alternatives were drawn and measured at the size this is actually
+rendered: a ring with a gap at the top read as two unrelated arcs at 21px, and
+drawing the map's own beam behind the plane — the tempting one, because it ties
+the button to the thing on the map — collapsed into a single blob.
+
 `scripts/test/heading.mjs` covers the four ways to get a compass wrong — a
-reading that is not one, due north, the screen's rotation and the wrap — and
-pins the permission dance against a second copy of the module, because that is a
-test about the state the first copy's settling leaves behind.
+reading that is not one, due north, the screen's rotation and the wrap — pins the
+permission dance against a second copy of the module, because that is a test
+about the state the first copy's settling leaves behind, and drives the camera
+mode with a hand-cranked clock to hold both halves of the re-aim budget.
 
 ## Asking the ground to be quiet
 

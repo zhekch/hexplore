@@ -29,6 +29,8 @@
 // `_updateMarker` costs the dot its smoothing, which nobody will notice, and
 // never the dot itself, which everybody would.
 
+import { headingUpOn } from './heading.js';
+
 // --- Tuning -------------------------------------------------------------------
 
 // How long the dot takes to reach the fix it was given.
@@ -293,6 +295,13 @@ export function smoothLocationCamera(control, map) {
   let arriving = false; // the library's own flight has not landed yet
 
   control._updateCamera = (position) => {
+    // While the map is being turned to your heading, that mode owns the camera
+    // outright — it centres on the dot and rotates in one `easeTo`, several
+    // times a second, and every camera command stops whatever animation is
+    // running. Two of them easing towards two different places is a camera that
+    // arrives at neither, so this one stands down rather than competing. See
+    // `aim` in src/heading.js.
+    if (headingUpOn()) return;
     const at = coordsOf(position);
     const at0 = now();
     // Zero until something has been followed, and stale once tracking has been

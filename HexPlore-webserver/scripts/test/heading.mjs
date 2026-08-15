@@ -55,7 +55,11 @@ function element() {
     },
   };
 }
-globalThis.document = { createElement: element, addEventListener: () => {} };
+globalThis.document = {
+  createElement: element,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+};
 
 /** Run every frame that is due, at `t` milliseconds. */
 function tick(t) {
@@ -65,7 +69,8 @@ function tick(t) {
 }
 
 const {
-  BEAM_CLASS, easeHeading, headingFrom, installHeading, screenHeading, turnBetween, wrapDeg,
+  BEAM_CLASS, easeHeading, headingFrom, headingUpOn, installHeading, screenHeading, turnBetween,
+  wrapDeg,
 } = await import('../../src/heading.js');
 
 let pass = 0;
@@ -94,14 +99,30 @@ function fakeControl() {
     _dotElement: element(),
     _userLocationDotMarker: {
       rotation: null,
+      at: { lng: 7.44, lat: 46.94 },
       rotationAlignment: 'auto',
       pitchAlignment: 'auto',
+      getLngLat() { return this.at; },
       setRotation(v) { this.rotation = v; return this; },
       getRotationAlignment() { return this.rotationAlignment; },
       setRotationAlignment(v) { this.rotationAlignment = v; return this; },
       getPitchAlignment() { return this.pitchAlignment; },
       setPitchAlignment(v) { this.pitchAlignment = v; return this; },
     },
+  };
+}
+
+/**
+ * A map that records what it was asked to do, and projects the dot to wherever
+ * the test says it is on screen.
+ */
+function fakeMap() {
+  return {
+    eased: [],
+    dotAt: { x: 400, y: 300 },
+    getCanvas: () => ({ clientWidth: 800, clientHeight: 600 }),
+    project(at) { return at ? this.dotAt : { x: 0, y: 0 }; },
+    easeTo(options, eventData) { this.eased.push({ options, eventData }); },
   };
 }
 
@@ -169,7 +190,8 @@ console.log('\nEasing a heading');
 console.log('\nThe beam on the dot');
 {
   const control = fakeControl();
-  const undo = installHeading(control, '.ctrl-geolocate');
+  const beam = installHeading(control, '.ctrl-geolocate');
+  const undo = beam.stop;
   const marker = control._userLocationDotMarker;
 
   eq(control._dotElement.children.length, 0, 'nothing is added to a dot before there is a heading');
@@ -221,10 +243,78 @@ console.log('\nThe beam on the dot');
   eq(listeners.size, 0, 'with no listener left on the window, which is what a basemap switch leaks');
 }
 
+console.log('\nTurning the map with you');
+{
+  const control = fakeControl();
+  const map = fakeMap();
+  const beam = installHeading(control, '.ctrl-geolocate', map);
+  const marker = control._userLocationDotMarker;
+
+  eq(beam.hasCompass(), false, 'before a reading there is no compass to offer');
+  eq(headingUpOn(), false, 'and nothing is turning');
+  beam.setHeadingUp(true);
+  eq(headingUpOn(), false,
+    'the mode refuses to switch on without one, so the button cannot advertise it');
+  eq(frames.length, 0, 'and books nothing');
+
+  clock = 20000;
+  fire({ absolute: true, alpha: -40 });
+  eq(beam.hasCompass(), true, 'one reading is enough to offer it');
+
+  beam.setHeadingUp(true);
+  eq(headingUpOn(), true, 'switched on');
+  eq(frames.length, 1, 'and a frame is booked at once');
+  tick(20016);
+  eq(map.eased.length, 1, 'the map is aimed in the frame the button was pressed in');
+  const aimed = map.eased[0];
+  eq(aimed.options.center, { lng: 7.44, lat: 46.94 },
+    'centred on where the dot is drawn, not on the fix it is still gliding towards');
+  eq(aimed.options.bearing, 40, 'and turned to face the way you are');
+  eq(aimed.eventData, { geolocateSource: true },
+    'flagged as the control\'s own, or tracking switches itself off a moment later');
+  eq(aimed.options.easing(0.25), 0.25, 'with a linear ease, so one turn is one movement');
+  eq(marker.rotation, 40,
+    'the beam still carries the heading — the library subtracts the bearing, so it points up');
+
+  tick(20100);
+  eq(map.eased.length, 1, 'a frame later the camera has not moved: it has a budget');
+  tick(20400);
+  eq(map.eased.length, 1,
+    'and past the budget, standing still with a steady heading still costs nothing');
+
+  // Walking in a straight line: the bearing is unchanged and the dot slides off
+  // the middle of the window, which is the other half of staying centred.
+  map.dotAt = { x: 430, y: 300 };
+  tick(20700);
+  eq(map.eased.length, 2, 'the dot drifting off the middle re-aims on its own');
+  map.dotAt = { x: 400, y: 300 };
+
+  // Turning on the spot: the position does not change and the bearing does.
+  clock = 21000;
+  fire({ absolute: true, alpha: -130 });
+  for (let t = 21100; t < 23000; t += 100) tick(t);
+  check(map.eased.length > 3, 'a turn re-aims repeatedly', `got ${map.eased.length}`);
+  near(map.eased.at(-1).options.bearing, 130, 1, 'ending on the heading you turned to');
+  check(map.eased.length < 12,
+    'and spends a handful of camera moves on it, not one per frame',
+    `got ${map.eased.length}`);
+
+  const spent = map.eased.length;
+  beam.setHeadingUp(false);
+  eq(headingUpOn(), false, 'switched off');
+  tick(23200);
+  tick(23400);
+  eq(map.eased.length, spent, 'the camera is left exactly where it was');
+  eq(frames.length, 0, 'and the loop stops rather than idling for ever');
+
+  beam.stop();
+  eq(listeners.size, 0, 'and letting go lets go');
+}
+
 console.log('\nA control this does not recognise is left alone');
 {
   const bare = {};
-  const undo = installHeading(bare, '.ctrl-geolocate');
+  const undo = installHeading(bare, '.ctrl-geolocate').stop;
   fire({ absolute: true, alpha: -40 });
   eq(Object.keys(bare), [], 'nothing is written onto a control with no dot');
   eq(frames.length, 0, 'and nothing is animated');
@@ -237,7 +327,7 @@ console.log('\nA control this does not recognise is left alone');
   const late = fakeControl();
   const marker = late._userLocationDotMarker;
   const control = { _dotElement: null, _userLocationDotMarker: null };
-  const stop = installHeading(control, '.ctrl-geolocate');
+  const stop = installHeading(control, '.ctrl-geolocate').stop;
   fire({ absolute: true, alpha: -40 });
   eq(frames.length, 0, 'a reading with no dot to draw on does nothing');
   control._dotElement = late._dotElement;
@@ -267,13 +357,14 @@ console.log('\nSafari, where the compass is a permission and the permission need
   globalThis.document = {
     createElement: element,
     addEventListener: (type, fn) => clicks.set(type, fn),
+    removeEventListener: (type) => clicks.delete(type),
   };
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   const press = (hit) => clicks.get('click')?.({ target: { closest: () => (hit ? {} : null) } });
 
   const fresh = await import('../../src/heading.js?permission');
   const control = fakeControl();
-  const undo = fresh.installHeading(control, '.ctrl-geolocate');
+  const undo = fresh.installHeading(control, '.ctrl-geolocate').stop;
   await flush();
   eq(asks, 1, 'it is asked once on the way in, for a visitor whose grant Safari remembers');
   eq(listeners.size, 0, 'and a rejection outside a gesture leaves nothing listening');
@@ -293,10 +384,52 @@ console.log('\nSafari, where the compass is a permission and the permission need
   // looked at the 3D map and never again.
   undo();
   eq(listeners.size, 0, 'letting go of the last watcher lets go of the sensor');
-  const again = fresh.installHeading(fakeControl(), '.ctrl-geolocate');
+  const again = fresh.installHeading(fakeControl(), '.ctrl-geolocate').stop;
   eq(asks, 2, 'but a permission already granted is not asked for a second time');
   eq(listeners.size, 1, 'and the compass comes straight back');
   again();
+  eq(clicks.size, 0, 'and the gesture listeners come off once they have done their one job');
+}
+
+console.log('\nInside the app, where there is no dialog to be careful about');
+{
+  // The bug: in the app the beam did not appear until the locate button was
+  // pressed — a button nobody has any reason to press when the dot is already
+  // on the map. The gesture WebKit insists on is a formality there, because
+  // `WebPanel.swift` grants without asking, so any touch should satisfy it.
+  let asks = 0;
+  let grant = false;
+  const taps = new Map();
+  globalThis.DeviceOrientationEvent = {
+    requestPermission() {
+      asks += 1;
+      return grant ? Promise.resolve('granted') : Promise.reject(new Error('needs a gesture'));
+    },
+  };
+  globalThis.document = {
+    createElement: element,
+    documentElement: { dataset: { client: 'ios' } },
+    addEventListener: (type, fn) => taps.set(type, fn),
+    removeEventListener: (type) => taps.delete(type),
+  };
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  const elsewhere = { target: { closest: () => null } };
+
+  const fresh = await import('../../src/heading.js?ios');
+  const stop = fresh.installHeading(fakeControl(), '.ctrl-geolocate').stop;
+  await flush();
+  eq(asks, 1, 'still asked once on the way in');
+  eq(listeners.size, 0, 'and still rejected, because WebKit wants a gesture either way');
+
+  check(taps.has('touchend'),
+    'a drag of the map is a gesture that produces no click at all, so touchend is listened for too');
+
+  grant = true;
+  taps.get('touchend')(elsewhere);
+  eq(asks, 2, 'and a touch anywhere is enough — it is not a question anybody is answering');
+  await flush();
+  eq(listeners.size, 1, 'so the beam is there by the time you have looked at the map');
+  stop();
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
