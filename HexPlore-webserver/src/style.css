@@ -398,6 +398,22 @@ body {
      swallowing taps on the ground underneath it would make the map unusable
      precisely where you are standing. */
   pointer-events: none;
+  /* **Behind the dot**, and it takes a negative index rather than tree order to
+     get there — on one library out of the two.
+
+     MapLibre's dot element is the marker itself and its white ring is that
+     element's `::after`, which is the last thing in the box and so paints over
+     anything appended before it. Mapbox's dot is a *statically positioned* child
+     div inside a wrapper, and a positioned box always paints above a static one
+     whatever the order — so the beam cut a blue notch through the white ring on
+     the 3D basemap and nowhere else, which is exactly the kind of difference
+     between the two engines that is invisible until somebody switches basemap.
+
+     Safe because the marker element carries a `transform` and so is a stacking
+     context: this goes behind the dot, never behind the map. On MapLibre it
+     still lands over the marker's own blue background, which cannot be seen —
+     the beam is the same blue. */
+  z-index: -1;
   background-image: radial-gradient(
     circle closest-side at 50% 50%,
     rgba(var(--beam-ink), 0.8) 0%,

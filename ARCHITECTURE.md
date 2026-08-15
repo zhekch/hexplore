@@ -6683,6 +6683,15 @@ the basemap underneath — the locate button deliberately does — and for the
 mirror-image reason: this belongs to the dot, and a beam in another colour is two
 objects rather than one.
 
+**It goes behind the dot on a negative z-index, and that is one library out of
+two.** MapLibre's dot element *is* the marker and its white ring is that
+element's `::after`, so the ring paints over anything appended before it and
+tree order was enough. Mapbox's dot is a statically positioned child div inside a
+wrapper, and a positioned box paints above a static one whatever the order — so
+the beam cut a blue notch through the white ring on the 3D basemap and nowhere
+else. `z-index: -1` is contained by the marker's own transform, so it goes behind
+the dot and never behind the map.
+
 **Safari makes the compass a permission, and the permission needs a gesture.**
 `DeviceOrientationEvent.requestPermission()` outside a click is rejected, and a
 rejection is not a refusal — the same call inside one still raises the prompt. So
