@@ -352,6 +352,81 @@ body {
   color: rgba(15, 23, 42, 0.9);
 }
 
+/* --- Which way you are facing --------------------------------------------------
+   The cone of light out of the blue dot, added to the dot's own element by
+   src/heading.js the first time a compass says anything. Nothing draws it on a
+   device without one, which is why there is no media query here: the shape
+   exists only where there was a heading to point it.
+
+   **The colour is the dot's**, `#1da1f2`, because that is what this is — the
+   dot saying something more, not a second thing on the map. It is the one place
+   the map chrome does not follow the ink of the basemap underneath (see the
+   locate button above, which deliberately does), and the reason is the same in
+   reverse: the beam belongs to the dot, and a beam in a different colour from
+   the thing it comes out of reads as two objects.
+
+   Built out of two gradients rather than a wedge with a border, because the
+   whole of what makes this read as light rather than as a triangle is that it
+   **fades in both directions** — outwards with distance, and sideways towards
+   the edges of the cone. A hard-edged wedge is a compass needle, which is a
+   claim about precision no magnetometer can support.
+
+     - the *background* is the fade with distance. `closest-side` puts its outer
+       stop exactly on the edge of the box, and the innermost stop is at **zero**
+       so the cone springs from under the dot rather than beginning outside it.
+       It started at the edge of the white ring instead, on the reasoning that
+       the part behind the dot cannot be seen anyway — and what that produced was
+       a beam floating a clear gap away from its own dot, because a wedge is only
+       a few pixels wide near its apex and the feathered sides eat most of those.
+       The hidden centimetre is what joins the two.
+     - the *mask* is the cone. A conic gradient from −30° spans the wedge
+       symmetrically about twelve o'clock, feathered by six degrees at each side;
+       the marker is rotated to aim it, so straight up here means "the way the
+       marker is pointing" and the library subtracts the map's bearing itself. */
+.hexplore-user-heading {
+  --beam-reach: 104px;
+  --beam-ink: 29, 161, 242;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--beam-reach);
+  height: var(--beam-reach);
+  /* Half the box, back and up: `transform` is left free because the marker's
+     own transform is not the only thing that may want it. */
+  margin: calc(var(--beam-reach) / -2) 0 0 calc(var(--beam-reach) / -2);
+  /* The dot is an annotation, not a target. A cone the width of six fingers
+     swallowing taps on the ground underneath it would make the map unusable
+     precisely where you are standing. */
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle closest-side at 50% 50%,
+    rgba(var(--beam-ink), 0.8) 0%,
+    rgba(var(--beam-ink), 0.55) 24%,
+    rgba(var(--beam-ink), 0.2) 55%,
+    rgba(var(--beam-ink), 0) 100%
+  );
+  --beam-wedge: conic-gradient(
+    from -30deg at 50% 50%,
+    transparent 0deg,
+    #000 6deg,
+    #000 54deg,
+    transparent 60deg
+  );
+  -webkit-mask-image: var(--beam-wedge);
+  mask-image: var(--beam-wedge);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* A fix that has stopped arriving greys the dot out, and a beam still pointing
+   confidently out of a grey dot is the one combination here that says something
+   untrue. Both libraries hang the class on the *marker's* element — MapLibre on
+   `_dotElement` directly, Mapbox through `Marker.addClassName` — which is the
+   beam's parent either way. */
+:is(.maplibregl-user-location-dot-stale, .mapboxgl-user-location-dot-stale) .hexplore-user-heading {
+  display: none;
+}
+
 /* Small screens: tighter margins, panel fits the viewport */
 @media (max-width: 480px) {
   .hud {

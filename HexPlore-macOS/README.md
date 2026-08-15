@@ -62,6 +62,20 @@ subscription pushed from native: a Mac does not move between fixes often enough
 for the difference to show, and the shim's `maximumAge` handling makes a repeat
 ask nearly free.
 
+### There is no beam, because there is no compass
+
+The site draws a cone out of the blue dot showing which way you are facing. It
+comes from a magnetometer, a Mac does not have one, and that is the whole of the
+story — `src/heading.js` takes a heading only from a reading that says it is
+absolute, so on this window nothing is drawn and nothing is missing.
+
+Worth stating rather than leaving to be discovered, because there is a delegate
+method next door that looks like the answer and is not: WebKit's
+`requestDeviceOrientationAndMotionPermission…`, which the iPhone app implements,
+is `API_UNAVAILABLE(macos)`. There is no permission to grant here and nothing
+behind it if there were. This is the one difference on the list that costs
+nothing to work around, because there is no workaround to want.
+
 ### Apple Health is gone, and the workouts are not
 
 The iPhone app's third section reads workouts that carry an `HKWorkoutRoute`.

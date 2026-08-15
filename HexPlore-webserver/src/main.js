@@ -46,6 +46,7 @@ import {
 } from './mapbox.js';
 import { rememberSunSite } from './sun.js';
 import { installGlide } from './glide.js';
+import { installHeading } from './heading.js';
 import { draggableCard } from './popup-drag.js';
 import {
   LABEL_SLOT_ID, MAPBOX, ROUTE_SLOT_ID, STYLE_KEY, WASH_SLOT_ID, ctrlClass, ctrlSelector,
@@ -1133,6 +1134,10 @@ let geolocate = null;
 // Where the browser last put you, so a second press can return there. Survives
 // a rebuild, because where you are is not a fact about the map library.
 let lastFix = null;
+// Undoing the beam that says which way you are facing, because unlike the glide
+// it holds a listener on the *window* — one per basemap switch would be a leak
+// that grew every time somebody looked at the 3D map.
+let stopHeading = null;
 onMapBuilt(() => {
   geolocate = new gl.GeolocateControl({
     positionOptions: { enableHighAccuracy: true },
@@ -1154,6 +1159,13 @@ onMapBuilt(() => {
   // teleport. src/glide.js is what makes the dot walk to it — and what stops
   // the camera flying to each one while it is locked on you.
   installGlide(geolocate, map);
+  // And which way you are pointing, which is the half of "where am I" a dot
+  // cannot answer. src/heading.js draws it wherever there is a compass to draw
+  // it from, and nowhere else — so it is a phone feature without ever asking
+  // what kind of device this is. The selector names both libraries' button, so
+  // it stays right across a switch.
+  stopHeading?.();
+  stopHeading = installHeading(geolocate, ctrlSelector('ctrl-geolocate'));
 });
 
 // Both libraries' tracking control is a three-state toggle: off → locked → (pan

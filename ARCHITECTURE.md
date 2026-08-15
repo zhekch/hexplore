@@ -6600,6 +6600,120 @@ smoothing, which nobody will notice, and never the dot itself, which everybody
 would. `scripts/test/glide.mjs` drives it with a hand-cranked clock and frame
 queue.
 
+### And the beam, because a dot cannot say which way you are pointing
+
+Standing in a street with a phone, "where am I" is half the question and "which
+way am I facing" is the other half — it is why people turn on the spot with a
+map in their hand rather than reading the street names. Every phone map answers
+it with a cone of light out of the dot, and `src/heading.js` draws one.
+
+**It is a phone feature without a single line asking whether this is a phone.**
+A heading is taken only from a reading that says it is absolute, and a laptop
+has no magnetometer to produce one — so the beam appears exactly where it can
+honestly be drawn, there is no user-agent test to keep in step with anything,
+and the desktop keeps the dot it always had.
+
+That gate is the substance of the file, not a formality. Plain `deviceorientation`
+on most hardware reports `alpha` relative to wherever the device happened to be
+lying when the page loaded: a number in degrees that looks precisely like a
+heading, and points nowhere. Only `absolute === true` — or iOS's
+`webkitCompassHeading`, which is CoreLocation's true-north bearing — is a
+compass. iOS also ships the one signal here that can say *I do not know*, a
+`webkitCompassAccuracy` that goes negative while the sensor settles or after the
+phone has been near a magnet, and that is believed. Everywhere else "absolute"
+generally means magnetic north, a few degrees out in most of the world and
+narrower than the beam is wide.
+
+Note `Number.isFinite` rather than a truth test on `webkitCompassHeading`, which
+is what Mapbox GL JS's own version does: **a heading of exactly 0 is due north**,
+and treating it as absent falls through to the alpha branch and reports the way
+the phone was lying when the tab opened.
+
+**The screen turns and the device frame does not.** A compass reports the
+direction the device's *natural top edge* is pointing, whatever the screen is
+doing, so a phone in landscape reports a heading ninety degrees from the one the
+map is drawn in. `screen.orientation.angle` is the bridge and the sign is a coin
+toss worth writing down: at angle 90 the screen axes map onto the device's as
+(screen x → device y, screen y → device −x) — the same remapping Android's own
+compass code does for `ROTATION_90` — so screen-up is ninety degrees
+*anticlockwise* of the device's top, and the correction is a subtraction. 180
+and 270 then fall out of the same expression rather than needing a table.
+
+**The reading is filtered, not interpolated**, and that is the opposite of what
+the dot beside it gets. A position arrives once a second and the honest thing to
+do between two of them is walk the line. A heading arrives sixty times a second
+and is already a stream — there is nothing to interpolate across, only noise to
+reject. A phone lying still reports a heading that wanders a couple of degrees,
+and a 100-pixel beam aimed straight at each reading *shivers*, which is the one
+thing that reads as broken rather than imprecise. So it is an exponential
+low-pass with a 120 ms time constant, derived from elapsed time rather than
+counted in frames so that it means the same on a 120 Hz phone, a 60 Hz one and a
+tab coming back from the background. Angles are eased **the short way round**:
+350° to 10° is twenty degrees clockwise, and the arithmetic that does not know it
+sweeps three hundred and forty the other way once per revolution, in front of
+somebody turning on the spot.
+
+**Neither library could supply this.** Mapbox GL JS has `showUserHeading` and
+MapLibre has nothing at all, and this app switches between the two while it is
+running — a beam that exists on one basemap and not on the other four is worse
+than no beam. So there is one implementation, driven onto whichever control is
+live exactly as `src/glide.js` drives one dot-smoother onto both, reading before
+it writes.
+
+**The marker is aligned to the map, and only once there is something to point
+at.** `rotationAlignment: 'map'` is what makes north-east mean north-east on a
+map that has been turned, and `pitchAlignment: 'map'` lays the beam on the ground
+on one that is tilted — the library does both itself, so nothing here has to know
+the bearing. It is deferred because that same alignment flattens the dot into an
+ellipse on a pitched map, and a device with no compass should look exactly as it
+did before this existed. Mapbox's own dot is built this way from the start, which
+is the same choice made one step earlier; MapLibre's is left alone until there is
+a heading.
+
+The cone itself is CSS — two gradients rather than a wedge with a border, because
+what makes it read as *light* rather than as a compass needle is that it fades in
+both directions, outwards with distance and sideways towards its edges. A
+hard-edged wedge is a claim about precision no magnetometer can support. The
+innermost stop of the radial fade sits at **zero**, not at the edge of the dot's
+white ring: the part behind the dot cannot be seen, but leaving it out left the
+beam floating a visible gap away from its own dot, because a wedge is only a few
+pixels wide near its apex and the feathered sides eat most of those. It is the
+dot's own blue, which is the one place the map chrome does not take the ink of
+the basemap underneath — the locate button deliberately does — and for the
+mirror-image reason: this belongs to the dot, and a beam in another colour is two
+objects rather than one.
+
+**Safari makes the compass a permission, and the permission needs a gesture.**
+`DeviceOrientationEvent.requestPermission()` outside a click is rejected, and a
+rejection is not a refusal — the same call inside one still raises the prompt. So
+it is tried once on the way in, for the returning visitor whose grant Safari has
+remembered, and otherwise armed on the **locate button**: the press that means
+"where am I", the only control on the page the question is about, and the one
+that has already been given the map's other prompt. It is called synchronously
+inside the handler, because what makes a call count as a gesture is being made
+while the click is still on the stack and a microtask is the far side of that.
+
+The permission is remembered separately from the listener, and that separation
+is load-bearing rather than tidy. A basemap switch drops the control, so the last
+watcher leaves and a new one arrives a moment later; asking again at that point
+is asking with no gesture anywhere near it, which is a rejection. The beam would
+have worked until you looked at the 3D map, and never again.
+
+**In the app there is a second half**, because a `WKWebView` denies that
+permission by default when the delegate does not implement it — a dot with no
+beam and nothing anywhere saying why.
+`WebViewController.webView(_:requestDeviceOrientationAndMotionPermissionFor:…)`
+grants it, on the same reasoning as the geolocation one beside it: this is your
+own map on a server you run, and the heading comes from a CoreLocation
+permission that has already been asked for, so a dialog here would be a question
+with nothing behind it. The Mac has no magnetometer and gets neither the delegate
+method (WebKit does not offer it there) nor the beam.
+
+`scripts/test/heading.mjs` covers the four ways to get a compass wrong — a
+reading that is not one, due north, the screen's rotation and the wrap — and
+pins the permission dance against a second copy of the module, because that is a
+test about the state the first copy's settling leaves behind.
+
 ## Asking the ground to be quiet
 
 **Interactable**, the first row of the layers menu's *Your map* section, and on

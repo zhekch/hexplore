@@ -385,6 +385,22 @@ server you run, having already been through the system prompt once.
 however the permissions are set — https or `localhost` only. One more reason for
 `tailscale serve`.
 
+### The compass, for the beam out of that dot
+
+The page draws a cone showing which way you are facing, and it reads that from
+`webkitCompassHeading` on a `deviceorientation` event. A web view delivers those
+only to a page that has called `DeviceOrientationEvent.requestPermission()` and
+been told yes — and **a `WKWebView` says no by default when the delegate does
+not implement the question**, which looks like a dot with no beam and nothing
+anywhere explaining it. `requestDeviceOrientationAndMotionPermissionFor` grants
+it. There is no system prompt behind this one: the heading comes from
+CoreLocation, whose permission the section above has already asked for, so a
+dialog here would be a question with nothing on the other side of it.
+
+The page still asks on the press of its own locate button, because in a browser
+that press is what makes the request a user gesture. Nothing is lost by that
+here — it is the same button either way.
+
 ## Signing in
 
 In the web view, using the site's own login, because there is no native session

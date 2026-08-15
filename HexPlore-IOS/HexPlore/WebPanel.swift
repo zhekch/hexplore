@@ -283,6 +283,30 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         decisionHandler(.grant)
     }
 
+    /// The page's compass, granted.
+    ///
+    /// The beam out of the blue dot that says which way you are facing reads
+    /// `webkitCompassHeading`, and a web view delivers that only to a page that
+    /// has called `DeviceOrientationEvent.requestPermission()` and been told
+    /// yes. **Without this method the answer is no** — `WKWebView` denies by
+    /// default when the delegate does not implement it, and what that looks
+    /// like is a dot with no beam and nothing anywhere saying why. See
+    /// `askForCompass` in src/heading.js, which is the other end of it.
+    ///
+    /// Granted, for the reason the geolocation one above is: this is your own
+    /// map on a server you run, asking the one question a map on a phone is for.
+    /// There is no system prompt behind this one at all — the heading comes from
+    /// CoreLocation, whose permission has already been asked for — so a dialog
+    /// here would be a question with nothing on the other side of it.
+    func webView(
+        _ webView: WKWebView,
+        requestDeviceOrientationAndMotionPermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+        decisionHandler(.grant)
+    }
+
     /// Ask iOS for location, once.
     ///
     /// It has to come from the app: a web view cannot raise the system prompt on
