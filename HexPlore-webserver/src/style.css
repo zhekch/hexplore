@@ -90,6 +90,29 @@ body {
   touch-action: manipulation;
 }
 
+/* The grey square a phone flashes over whatever you just pressed.
+
+   It is a *rectangle*, drawn over the element's border box, and nothing in this
+   app's chrome is a rectangle: the buttons are round pills, the menu rows are
+   inset and rounded, the cards have 14px corners. So every press put a hard
+   square behind a soft shape for a tenth of a second — the one piece of this
+   interface that was never designed, only defaulted to.
+
+   Removing it is not removing the feedback. The highlight exists for documents
+   made of links, where a tapped word has no other way to acknowledge the press;
+   here every control already answers for itself, either with an `:active` rule
+   or with the `:hover` lift that a touch screen applies on press. What is left
+   is a control that lights up in its own shape.
+
+   Declared once at the root because it inherits, which is also the only way to
+   reach the parts of this page nobody wrote: the map libraries' own control
+   buttons. They set it to transparent inside `.maplibregl-map` themselves — and
+   on a phone `main.js` moves the geolocate button *out* of the map element and
+   into the layers cluster, which is precisely where it started flashing. */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 .hud {
   position: fixed;
   top: calc(20px + var(--safe-t));
