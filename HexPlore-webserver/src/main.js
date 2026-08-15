@@ -1205,6 +1205,22 @@ onMapBuilt(() => {
   showHeadingUp();
 });
 
+/**
+ * A camera move made on the locate button's behalf.
+ *
+ * **Always flagged, and that is the whole reason it exists as a function.** Both
+ * libraries drop out of their locked state on any camera move that does not
+ * carry `geolocateSource` — `_onMoveStart` tests that flag and nothing else, not
+ * whether a gesture was anywhere near it — so a move the control makes *for*
+ * itself silently lets go of the lock it is using. That shipped: the press that
+ * re-centres you turned the solid arrow hollow, which is precisely the thing the
+ * press was intercepted to prevent, arriving by the other door.
+ *
+ * Every camera move this button causes goes through here, so the flag is a
+ * property of the helper rather than something four call sites have to remember.
+ */
+const geolocateEase = (options) => map.easeTo(options, { geolocateSource: true });
+
 /** The locate button's third state, applied to whichever button exists now. */
 function showHeadingUp() {
   const btn = document.querySelector(ctrlSelector('ctrl-geolocate'));
@@ -1227,9 +1243,7 @@ function setHeadingUp(on, toNorth = false) {
   // for the same reason: an ease lands on 1e-14 often enough, and a map that
   // animates back to a north it is already facing is a button that looks broken.
   if (!want && toNorth && Math.abs(map.getBearing?.() ?? 0) > 0.5) {
-    // Flagged, or the control reads its own straightening as you taking the
-    // camera and drops the lock it just handed back to you.
-    map.easeTo({ bearing: 0, duration: 400 }, { geolocateSource: true });
+    geolocateEase({ bearing: 0, duration: 400 });
   }
 }
 
@@ -1298,7 +1312,7 @@ function keepGeolocateOn() {
         setHeadingUp(true);
         return;
       }
-      if (lastFix) map.easeTo({ center: lastFix, duration: 500 });
+      if (lastFix) geolocateEase({ center: lastFix, duration: 500 });
     },
     true,
   );

@@ -6524,6 +6524,18 @@ machine that cannot know which way it is facing, and means the button never
 advertises a state it cannot enter. Background→locked is the control's own
 re-centre and is left alone.
 
+**Intercepting the press was only half of it, and the other half is a flag.**
+Both libraries drop out of their locked state on *any* camera move that does not
+carry `geolocateSource`: `_onMoveStart` tests that and nothing else, not whether
+a gesture was anywhere near it. So the re-centre this handler performs — a plain
+`easeTo` — quietly let go of the lock it was using, and the solid arrow went
+hollow when you pressed it. The exact thing the interception exists to prevent,
+arriving by the other door, and it survived a round of "no press unfocuses you"
+because the press *looks* like it is doing the right thing. Every camera move the
+button causes now goes through `geolocateEase`, so the flag is a property of one
+helper rather than something four call sites have to remember. It is the same
+flag, and the same reasoning, as the one `smoothLocationCamera` carries.
+
 **It listens on the document, because the button may not exist yet** — and that
 sentence is the whole of why this was fixed once and was still broken on the 3D
 basemap. MapLibre builds its control's UI inside `onAdd` and checks the
@@ -6787,13 +6799,23 @@ that is; snapping the map round because you dragged it would be undoing a turn
 you might have made yourself.
 
 The button's third icon is the same plane, still filled because the camera is
-still locked on you, now inside a **bezel** — a ring is the shared symbol for a
-dial that turns, and it says the arrow is no longer the thing that is moving. It
-is a third shape rather than a colour, which is the rule the other two are built
-on. Two alternatives were drawn and measured at the size this is actually
-rendered: a ring with a gap at the top read as two unrelated arcs at 21px, and
-drawing the map's own beam behind the plane — the tempting one, because it ties
-the button to the thing on the map — collapsed into a single blob.
+still locked on you, **stood upright**. Not a fourth drawing: in this mode your
+heading *is* up, because the map turns until it is, so an arrow pointing at the
+top of the screen is a literal description of the state rather than a symbol
+standing in for one — and it keeps all three states one object seen three ways,
+which the fill/outline pair already was. 47 degrees, which is where the plane's
+own axis is: the shape is drawn pointing up and to the right and the angle from
+its tail notch to its tip is `atan2(8.2, 7.67)`, measured off the path rather
+than guessed and checked at the size it is drawn, where 45 leans visibly right
+and 49 leans left. The rotation is on the element rather than inside the SVG,
+because turning the artwork inside its own 24-unit box puts the tip through the
+top edge.
+
+An earlier version drew a **bezel** around a shrunken plane, on the reasoning
+that a ring is the symbol for a dial that turns. It is a worse idea than it
+sounds: it makes the third state a different object from the first two, and it
+spends the icon's twenty-one pixels on a ring rather than on the one thing the
+state is about, which is a direction.
 
 `scripts/test/heading.mjs` covers the four ways to get a compass wrong — a
 reading that is not one, due north, the screen's rotation and the wrap — pins the
