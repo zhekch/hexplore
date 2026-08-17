@@ -8129,15 +8129,20 @@ wrong.
 ### …before there is a Settings page to read it off
 
 The foot of Settings answers the question only once the app is open and a server
-is already serving it. The three moments you most want the number are all
-earlier than that: a build, which becomes a `dist/` that something serves later
-and elsewhere; a restart, which may or may not have actually pulled anything;
-and a boot, which may have come back up on the code it went down with.
+is already serving it. The two moments you most want the number are earlier than
+that: a restart, which may or may not have actually pulled anything, and a boot,
+which may have come back up on the code it went down with.
 
-So `server/banner.js` prints it at each of them — `vite build` through a small
-plugin in `vite.config.js`, `scripts/restart.sh` once the new server is
-answering, and `server/index.js` from its `listen` callback. The art is not the
-point; the line under it is.
+So `server/banner.js` prints it at each — `scripts/restart.sh` once the new
+server is answering, and `server/index.js` from its `listen` callback. The art
+is not the point; the line under it is.
+
+**Once per invocation, at the end.** `vite build` deliberately prints nothing,
+even though a build is the other moment the version is certain: `npm run
+restart` builds and *then* starts, so a banner there put two on screen a second
+apart, and the one that matters is the last — it is read off the process that
+came up, not off the source the build went in with. A number printed twice
+invites the question of which one is right, which is the opposite of the job.
 
 The server is handed the constant it is *running*, which stops being the same
 thing as the constant on disk the moment a pull lands under a process nobody has
