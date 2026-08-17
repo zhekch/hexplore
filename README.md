@@ -49,4 +49,7 @@ Read it before changing anything non-trivial.
 
 ## Licence
 
-[Apache 2.0](LICENSE).
+[Apache 2.0](LICENSE). Copyright 2026 Yevhen Danyliuk.
+
+The map data comes from other people and keeps its own licences — [NOTICE](NOTICE)
+says which, and is the file to carry along if you redistribute this.

@@ -1,0 +1,38 @@
+Sporra
+Copyright 2026 Yevhen Danyliuk
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License in the LICENSE file distributed with this work, or at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+--------------------------------------------------------------------------------
+
+This product includes map data and libraries from third parties, which remain
+under their own licences. The two CC BY 4.0 sets below require attribution
+wherever this work is redistributed; the rest are listed so that nobody has to
+work out where a boundary came from.
+
+  Natural Earth (https://www.naturalearthdata.com/) — country and region
+  boundaries, lakes and shaded relief. Public domain.
+
+  geoBoundaries (https://www.geoboundaries.org/) — detailed administrative
+  boundaries, compositing national survey data. CC BY 4.0.
+
+  GeoNames (https://www.geonames.org/) — town names, from cities1000, thinned.
+  CC BY 4.0.
+
+  OpenStreetMap contributors (https://www.openstreetmap.org/) — railways via
+  OpenRailwayMap (https://openrailwaymap.app/), and waymarked trails and route
+  lookup. ODbL.
+
+  MapLibre GL JS (https://maplibre.org/) — vector map rendering. BSD 3-Clause.
+
+  polygon-clipping (https://github.com/mfogel/polygon-clipping) — boolean
+  operations on polygons. MIT.
+
+Basemap tiles are served by CARTO (https://carto.com/basemaps/), OpenFreeMap
+(https://openfreemap.org/), Esri World Imagery, and Mapbox
+(https://www.mapbox.com/) under their own terms. The Mapbox basemap is drawn
+only for a viewer who has supplied their own access token.
