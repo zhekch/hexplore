@@ -707,7 +707,7 @@ in the device list. That matches how every other source works and is the reason
 
 #### And a Mac, pushing through the same door
 
-`Sporra-macOS/` is the same client for a machine that is not a phone, and it
+`sporra-macos/` is the same client for a machine that is not a phone, and it
 posts to the same `/api/device/fixes` with the same `{device, fixes}` body. The
 server does not distinguish them and should not: the contract above — FIFO
 queue, forward-only cursor, retries that are no-ops — is about how a *pushing*
@@ -6111,7 +6111,7 @@ that arrives as a stream of `wheel` events and reached nothing at all here. A
 swipe over the photograph did nothing to it.
 
 So the **picture** takes the horizontal wheel, and the rule is the Mac app's own
-(`GalleryView.scrollWheel` in `Sporra-macOS`): accumulate `deltaX`, step at
+(`GalleryView.scrollWheel` in `sporra-macos`): accumulate `deltaX`, step at
 `WHEEL_STEP` (40px), and take only wheels that are plainly sideways — a
 two-finger scroll down a trackpad drifts left and right the whole way, and a
 card that changes picture because of that is unusable.

@@ -11,9 +11,9 @@ Point it at your location history and it fills itself in.
 
 | | |
 |---|---|
-| **[Sporra-webserver/](Sporra-webserver/README.md)** | The web app and its Node/SQLite server. This is the product; the other two are ways to carry it. |
-| **[Sporra-IOS/](Sporra-IOS/README.md)** | An iPhone app that hosts the web app in a web view and adds the one thing a browser cannot do: record where you have been with the screen off. |
-| **[Sporra-macOS/](Sporra-macOS/README.md)** | The same program on a Mac. Its README is written as a diff against the iOS one, because the places the two differ are the only interesting part. |
+| **[sporra-webserver/](sporra-webserver/README.md)** | The web app and its Node/SQLite server. This is the product; the other two are ways to carry it. |
+| **[sporra-ios/](sporra-ios/README.md)** | An iPhone app that hosts the web app in a web view and adds the one thing a browser cannot do: record where you have been with the screen off. |
+| **[sporra-macos/](sporra-macos/README.md)** | The same program on a Mac. Its README is written as a diff against the iOS one, because the places the two differ are the only interesting part. |
 
 They live in one repo because they are one program. The apps are web views over
 the same site, the Swift hex-grid maths in `SporraCore` is checked against the
@@ -26,14 +26,14 @@ You only need the first folder. Node 20+ is the one requirement.
 
 ```sh
 git clone https://github.com/zhekch/sporra.git
-cd sporra/Sporra-webserver
+cd sporra/sporra-webserver
 npm install
 npm run dev
 ```
 
 Open <http://localhost:5173> and register an account — **the first account on an
 empty database is always allowed**, and registration closes itself afterwards.
-[Sporra-webserver/README.md](Sporra-webserver/README.md) covers running it
+[sporra-webserver/README.md](sporra-webserver/README.md) covers running it
 for real, getting your location history in, and the configuration.
 
 Nothing in the two app folders is needed to run the server, and nothing there is
