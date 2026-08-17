@@ -3377,6 +3377,14 @@ html {
 #stats-overlay {
   grid-template-rows: minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr);
+  /* The tab strip's own height (38px) plus the margin `.stats-body` carries
+     below it. The wide layout lifts the list up beside the tabs by exactly this
+     and pays it back as padding on the summary column. Declared here rather than
+     on `.stats-tabs`, which is a sibling of both the things that read it —
+     custom properties inherit downwards and not sideways.
+     It is a measurement of two rules further down, so it has to move when they
+     do; both are marked. */
+  --stats-tabs-lead: 52px;
 }
 
 #stats-overlay .modal-card {
@@ -3439,8 +3447,29 @@ html {
 
   /* A wide dialog that shows three rows of a list is a wide dialog with nothing
      in it. The cap exists for short windows, and `vh` still answers that. */
-  .stats-body {
+  /* Scoped by the overlay's id on purpose: the base `.stats-body` rule is
+     further down this file, so a bare `.stats-body` here loses to it on source
+     order however far into a media query it is hidden. Both declarations below
+     were silently doing nothing. */
+  #stats-overlay .stats-body {
     max-height: min(68vh, 580px);
+    /* Up beside the tabs. The tab strip is 340px wide and the card is 1,180, so
+       the whole width to the right of it was empty while the list it belongs to
+       started below — a band of nothing across the top of the dialog, and one
+       fewer row of the list for it.
+
+       The whole scroller moves rather than the list column alone: the heading
+       below sticks to the top of this box, and a column pulled out of it would
+       have nothing left to stick to. The left column pays the offset back as
+       padding, so the summary still begins under the tabs rather than behind
+       them. Both numbers are the tab strip's own height plus the margin that
+       was here — measured, not guessed, and checked by eye when either
+       changes. */
+    margin-top: calc(14px - var(--stats-tabs-lead));
+  }
+
+  .stats-side {
+    padding-top: var(--stats-tabs-lead);
   }
 
   /* The list column starts with a heading, and a heading carries 27px of
@@ -3453,11 +3482,45 @@ html {
     padding-top: 0;
     border-top: 0;
   }
+
+  /* And it stays. "Coverage · Area / Share" and "Your routes · Newest / Longest
+     / Flat" are not titles, they are the controls that decide what the list
+     under them contains — and they were scrolling away at the first flick,
+     leaving a list of countries with nothing saying what it was sorted by and no
+     way to change it without scrolling back up. Pinned to the top of the
+     scroller, so the list moves under its own controls.
+
+     Opaque, because the rows pass beneath it. `.stats-body` is inside a card
+     with a blurred translucent background, so this borrows the same colour
+     rather than inventing one — a transparent sticky header shows the list
+     sliding through the words. */
+  .stats-main > .stats-head:first-child {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    padding-bottom: 8px;
+    margin-bottom: 0;
+    /* The card it sits in is `rgba(255,255,255,0.08)` over a blurred map, so
+       there is no flat colour to match. `--glass-raised` is the token for
+       exactly this — a surface that had to sit a shade above the glass under it
+       — and the blur is what actually hides the rows sliding beneath, rather
+       than the tint. */
+    background: var(--glass-raised);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+  }
+
+  /* The summary column is sticky as a block, so its own headings need no
+     treatment — but the chart's hover chip has to pass over the list beside it
+     rather than under it. */
+  .stats-side {
+    z-index: 4;
+  }
 }
 
-.stats-tabs .seg-btn {
-  padding: 5px 10px;
-}
+/* (Sizing for these lives with `.stats-tabs` above — one rule, so nothing
+   further down the file can quietly win on source order the way `.seg-mini`
+   did.) */
 
 /* The Trips tab's find row: type to narrow the list, or open the calendar and
    pick a day. Outside .stats-body on purpose — the list redraws on every

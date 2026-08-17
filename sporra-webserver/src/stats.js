@@ -155,6 +155,7 @@ export async function computeStats(cellIds, cellMeta, only = null) {
   let firstAt = 0;
   let lastAt = 0;
   const byYear = new Map(); // year → cells first seen that year
+  const km2ByYear = new Map(); // …and the ground those cells cover
   // Every calendar day the history has evidence for. Both ends of a cell's span
   // count and the quiet middle does not — the same reading of a stored row the
   // calendar dots use, so the two can never disagree about a day.
@@ -207,6 +208,12 @@ export async function computeStats(cellIds, cellMeta, only = null) {
     if (cellFirst) {
       const y = new Date(cellFirst * 1000).getFullYear();
       byYear.set(y, (byYear.get(y) ?? 0) + 1);
+      // Ground as well as count, because a cell is not a unit anybody has a feel
+      // for and its size depends on latitude: the same number of them is four
+      // times the ground in Kenya that it is in Iceland. The bars stay counts —
+      // that is what "new ground" is being measured in against the level shown —
+      // and the reading on hover is the area they add up to.
+      km2ByYear.set(y, (km2ByYear.get(y) ?? 0) + area);
     }
   }
 
@@ -259,6 +266,7 @@ export async function computeStats(cellIds, cellMeta, only = null) {
     streakEnd: streak.endsAt,
     sources: [...bySource.entries()].map(([key, n]) => ({ key, cells: n })).sort((a, b) => b.cells - a.cells),
     years: fillYearGaps([...byYear.entries()].sort((a, b) => a[0] - b[0])),
+    km2Years: Object.fromEntries(km2ByYear),
     firstAt,
     lastAt,
   };

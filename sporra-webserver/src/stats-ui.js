@@ -885,7 +885,16 @@ export function mountStats({
 
     if (s.years.length > 1) {
       side.append(headRow('New ground by year'));
-      side.append(yearChart(s.years, (n, year) => `${plural(n, 'cell')} first seen in ${year}`, (n) => plural(n, 'cell')));
+      // Ground, not cells. A cell is not a unit anybody has a feel for, and it
+      // is not even a constant one — the same count is four times the ground in
+      // Kenya that it is in Iceland. The bars stay counts, which is what "new
+      // ground by year" is drawn from; the reading is what they come to.
+      const groundIn = (year) => km2(s.km2Years?.[year] ?? 0);
+      side.append(yearChart(
+        s.years,
+        (n, year) => `${groundIn(year)} first seen in ${year}`,
+        (n, year) => groundIn(year),
+      ));
     }
 
     if (s.sources.length) {

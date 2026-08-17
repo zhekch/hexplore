@@ -1,4 +1,4 @@
-// Tiny auth + per-user cell-storage API for Visited Map.
+// Tiny auth + per-user cell-storage API for Sporra.
 //
 // Built entirely on Node's standard library — no npm dependencies:
 //   • node:http     — the server
@@ -103,7 +103,7 @@ import { banner } from './banner.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.87.1';
+export const SERVER_VERSION = '0.88.0';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //

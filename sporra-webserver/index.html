@@ -65,7 +65,7 @@
       </button>
       <div class="hud-panel" id="hud-panel" hidden>
         <div class="hud-title-row">
-          <div data-i18n="hud.visited-map" class="hud-title">Visited&nbsp;Map</div>
+          <div data-i18n="hud.sporra" class="hud-title">Sporra</div>
           <button data-i18n="hud-done.done" class="hud-done" id="hud-done" type="button">Done</button>
         </div>
         <div class="hud-row"><span data-i18n="hud.cell-size">Cell size</span><b id="hud-size">–</b></div>
@@ -420,7 +420,10 @@
             </svg>
           </button>
         </div>
-        <div class="seg seg-mini stats-tabs" id="stats-tabs">
+        <!-- A full-size `.seg`, not a `.seg-mini` like the sort controls further
+             down. This is the switch between the two halves of the dialog, and
+             it was wearing the same clothes as "Area / Share". -->
+        <div class="seg stats-tabs" id="stats-tabs">
           <button data-i18n="stats-tabs.routes" type="button" class="seg-btn active" data-tab="routes">Routes</button>
           <button data-i18n="stats-tabs.statistics" type="button" class="seg-btn" data-tab="cells">Statistics</button>
         </div>
@@ -2236,7 +2239,7 @@
 
     <div class="auth-overlay" id="auth-overlay" hidden>
       <form class="auth-card" id="auth-form">
-        <div data-i18n="auth-form.visited-map" class="auth-title">Visited&nbsp;Map</div>
+        <div data-i18n="auth-form.sporra" class="auth-title">Sporra</div>
         <div data-i18n="auth-sub.sign-in-to-see-your" class="auth-sub" id="auth-sub">Sign in to see your map</div>
         <input data-i18n-placeholder="auth-username.username" class="auth-input" id="auth-username" type="text" name="username" placeholder="Username"
           autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40" />
