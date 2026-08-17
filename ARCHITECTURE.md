@@ -1704,6 +1704,29 @@ corner is pointing at it), and the **alignment** is how the lines sit within the
 block. Sizes are all fractions of the image's own height, which is what lets a
 300 px preview be the same picture as a 2560 px file rather than a picture of one.
 
+**And it can be dragged**, for the places none of the nine describes — out of a
+busy corner, off a peninsula, into a gap in the map. `caption.nudge` is an offset
+from the anchor, and it is a *fraction of the canvas* rather than a length, for
+the same reason the sizes are: dragging a 700 px preview has to mean the same
+thing in a 5,760 px export, and nothing else makes that true. It stays an offset
+*from the anchor* rather than an absolute position because the anchor still has a
+job afterwards — it is what the block is measured from, so a caption pinned
+bottom-right stays bottom-right when the shape changes from a square to a wide
+one, and carries its offset over.
+
+Pressing a cell in the grid clears the nudge. That is what makes the grid a way
+back: without it the cell you pressed would apply its own leftover offset and
+land somewhere else again, so the one control that means "put it *here*" would
+stop meaning that exactly when it was needed. The block is held inside the
+canvas whatever the offset says, because there is no gesture that recovers a
+caption you cannot see.
+
+The hit test reads `captionRectOf(canvas)` — the rect `drawCaption` recorded on
+the way past, per canvas and weakly held. Recorded rather than recomputed because
+working out where the text is means measuring it, which means the font, the
+fit-shrink below, and a canvas context: a second implementation would agree with
+the first until somebody changed one of them.
+
 And it **fits rather than clips**. Three continents on one line with the size
 dragged to the top of its range will not fit any frame, and there are only two
 honest answers: run the title off the edge, or set it smaller. `drawCaption`

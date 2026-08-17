@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CAPTION_FIELDS, CELL_SIZES, MAX_PIXELS, PALETTES, SCALES, SHAPES, accentOf,
-  blobLevelFor, cameraFor, captionLines, circularSpan, coverageOf, divisionGeoms, exportFilename, fitCamera,
+  blobLevelFor, cameraFor, captionLines, captionPlace, circularSpan, coverageOf, divisionGeoms, exportFilename, fitCamera,
   fitBox, frameFor, isLightColor, lngLatAt, paletteOf, pickAt, presetOf, scopeAreaKm2, scopeGeometry,
   scopeName, sizeOf, unwrapRing, visitedAreas,
 } from '../../src/export-image.js';
@@ -527,6 +527,57 @@ console.log('\nThe preview is fitted to its shape, not to a slab');
       (box.w / box.h).toFixed(4));
     check(box.w <= 320.001 && box.h <= 400.001, `and ${w}:${h} stays inside the box it was given`);
   }
+}
+
+// --- Where the caption sits -------------------------------------------------
+//
+// Nine anchors and a drag, and the drag is stored as a fraction of the canvas
+// rather than in pixels. That is the property worth pinning: a caption dragged
+// into place against a 700px preview has to land in the same place in a 5,760px
+// export, and the only thing making that true is that the offset is not a length.
+console.log('\nWhere the caption sits');
+{
+  const size = { w: 1000, h: 800 };
+  const at = (anchor, nudge) => captionPlace({ anchor, nudge }, size, 200, 100, 40);
+  const isAt = (got, x, y, label) =>
+    check(near(got.x, x, 1e-9) && near(got.y, y, 1e-9), label, `(${got.x}, ${got.y})`);
+
+  isAt(at('top-left'), 40, 40, 'top-left is the margin, both ways');
+  isAt(at('bottom-right'), 760, 660, 'bottom-right measures the block back from the far edge');
+  isAt(at('middle-center'), 400, 350, 'and middle-center centres the block, not its corner');
+
+  // The drag. A tenth of the canvas is 100px across and 80px down, which is the
+  // whole point: the same fraction, different pixels per axis.
+  isAt(at('top-left', { x: 0.1, y: 0.1 }), 140, 120, 'a nudge moves it by that fraction of each side');
+  isAt(at('top-left', { x: -0.02, y: 0 }), 20, 40,
+    'and a negative one moves it back past the margin, which is still on the canvas');
+
+  // The same spec against a canvas eight times the size, which is the preview
+  // against the export. This is the property the whole design rests on.
+  const small = at('top-left', { x: 0.1, y: 0.1 });
+  const big = captionPlace({ anchor: 'top-left', nudge: { x: 0.1, y: 0.1 } },
+    { w: 8000, h: 6400 }, 1600, 800, 320);
+  check(near(big.x / 8000, small.x / 1000, 1e-12) && near(big.y / 6400, small.y / 800, 1e-12),
+    'and the same nudge is the same place on a canvas eight times the size',
+    `${big.x / 8000} vs ${small.x / 1000}`);
+
+  // Off the edge is the one place it must not end up: nothing on screen brings
+  // back a caption you cannot see.
+  isAt(at('top-left', { x: -5, y: -5 }), 0, 0, 'dragged far past the top-left it stops at the corner');
+  isAt(at('top-left', { x: 5, y: 5 }), 800, 700,
+    'and past the bottom-right it stops with the block still on the canvas');
+
+  // A block that cannot fit — a long caption in a big font on a small canvas.
+  // The clamp must not invert and hand back a negative.
+  isAt(captionPlace({ anchor: 'bottom-right' }, { w: 300, h: 200 }, 900, 400, 40), 0, 0,
+    'a block bigger than the canvas is pinned at the origin rather than off it');
+
+  // Absent and malformed nudges are the stored specs of every build before this
+  // one, and a caption that throws is a dialog that will not open.
+  isAt(at('top-left', undefined), 40, 40, 'no nudge at all is no offset');
+  isAt(at('top-left', { x: 'x', y: null }), 40, 40, 'and nonsense in one is read as none');
+  isAt(captionPlace({}, size, 200, 100, 40), 40, 660,
+    'and a caption with no anchor at all falls back to bottom-left');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

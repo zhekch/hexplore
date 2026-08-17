@@ -455,6 +455,55 @@ export const CAPTION_ANCHORS = [
   'bottom-left', 'bottom-center', 'bottom-right',
 ];
 
+// Where the caption block ended up, per canvas, so the dialog can work out
+// whether a press landed on the text.
+//
+// Held here rather than recomputed by the UI because working it out means
+// measuring the text, which means the font, the fit-shrink and a canvas context
+// — the whole of drawCaption. A second implementation of that would agree with
+// this one until the day somebody changed one of them.
+//
+// Keyed by canvas so the preview and the full-size render cannot overwrite each
+// other's answer; weak so neither keeps a canvas alive.
+const captionRects = new WeakMap();
+
+/** Where the caption was last drawn on this canvas, in its pixels, or null. */
+export const captionRectOf = (canvas) => captionRects.get(canvas) ?? null;
+
+/**
+ * The caption's place, as the anchor decides it and the drag moves it.
+ *
+ * `nudge` is a fraction of the canvas rather than pixels, so a caption dragged
+ * into place on a 1080px preview is in the same place on a 5,760px export — the
+ * one property that makes dragging a preview mean anything at all.
+ *
+ * It is a nudge *from the anchor* rather than an absolute position because the
+ * anchor still has a job after the drag: it is what the block is measured from,
+ * so a caption pinned bottom-right stays bottom-right when the shape changes
+ * from a square to a wide one, carrying its offset with it.
+ */
+export function captionPlace(caption, size, blockW, blockH, margin) {
+  const [vert, horiz] = String(caption.anchor ?? 'bottom-left').split('-');
+  const baseX =
+    horiz === 'left' ? margin
+    : horiz === 'right' ? size.w - margin - blockW
+    : (size.w - blockW) / 2;
+  const baseY =
+    vert === 'top' ? margin
+    : vert === 'bottom' ? size.h - margin - blockH
+    : (size.h - blockH) / 2;
+  const nx = Number(caption.nudge?.x) || 0;
+  const ny = Number(caption.nudge?.y) || 0;
+  // Held inside the canvas, not inside the margin: the margin is where the
+  // anchors put things, and a caption somebody dragged has left that behind on
+  // purpose. Off the edge entirely is the one place it must not go, because
+  // there is no gesture that brings back something you cannot see.
+  return {
+    x: Math.max(0, Math.min(Math.max(0, size.w - blockW), baseX + nx * size.w)),
+    y: Math.max(0, Math.min(Math.max(0, size.h - blockH), baseY + ny * size.h)),
+  };
+}
+
 const dateFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const asDate = (sec) => (sec ? dateFmt.format(new Date(sec * 1000)) : null);
 const asCount = (n) => Number(n ?? 0).toLocaleString();
@@ -571,6 +620,9 @@ export const DEFAULT_SPEC = {
   caption: {
     on: true,
     anchor: 'bottom-left',
+    // Nothing until it is dragged, which is what makes the nine anchors still
+    // the whole story for anyone who never touches the picture.
+    nudge: { x: 0, y: 0 },
     align: 'left',
     fields: ['title', 'covered', 'regions', 'first'],
     title: '',
@@ -1328,7 +1380,10 @@ function captionMetrics(caption, size, fit = 1) {
 }
 
 function drawCaption(ctx, lines, caption, size, color) {
-  if (!lines.length) return;
+  if (!lines.length) {
+    captionRects.delete(ctx.canvas);
+    return;
+  }
   const stack = (CAPTION_FONTS[caption.font] ?? CAPTION_FONTS.system).stack;
 
   const layout = (scale) => {
@@ -1371,16 +1426,14 @@ function drawCaption(ctx, lines, caption, size, color) {
   if (shrink < 0.999) out = layout(shrink);
 
   const { m, titleFont, labelFont, valueFont, measured, blockW, blockH } = out;
-  const [vert, horiz] = caption.anchor.split('-');
 
-  const blockX =
-    horiz === 'left' ? m.margin
-    : horiz === 'right' ? size.w - m.margin - blockW
-    : (size.w - blockW) / 2;
-  let y =
-    vert === 'top' ? m.margin
-    : vert === 'bottom' ? size.h - m.margin - blockH
-    : (size.h - blockH) / 2;
+  const place = captionPlace(caption, size, blockW, blockH, m.margin);
+  const blockX = place.x;
+  let y = place.y;
+  // Recorded before the text is painted, so what the dialog hit-tests is the
+  // block that was actually drawn — after the fit-shrink above, which is the
+  // step that makes a measured guess wrong.
+  captionRects.set(ctx.canvas, { x: blockX, y: place.y, w: blockW, h: blockH });
 
   ctx.save();
   ctx.textBaseline = 'top';

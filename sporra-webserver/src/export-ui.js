@@ -20,7 +20,7 @@
 
 import {
   CAPTION_ANCHORS, CAPTION_FIELDS, CAPTION_FONTS, DEFAULT_SPEC, MAX_SIDE_PX, PALETTES, SCALES,
-  CELL_SIZES, SHAPES, SWATCH_PRESETS, accentOf, cameraFor, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitBox, fitCamera,
+  CELL_SIZES, SHAPES, SWATCH_PRESETS, accentOf, cameraFor, captionRectOf, coverageOf, ensureGeography, ensureSharpBoundaries, exportFilename, fitBox, fitCamera,
   frameOf, isLightColor, lngLatAt, paletteOf, pickAt, presetOf, renderExport, scopeCountryOf,
   scopeName, sizeOf, visitedAreas,
 } from './export-image.js';
@@ -132,7 +132,14 @@ const freshSpec = () => ({
   ...DEFAULT_SPEC,
   scope: { ...DEFAULT_SPEC.scope, ids: [] },
   colors: {},
-  caption: { ...DEFAULT_SPEC.caption, fields: [...DEFAULT_SPEC.caption.fields] },
+  // `nudge` cloned for the reason `fields` is: a spread copies the reference,
+  // and the first drag would then be writing into DEFAULT_SPEC — where it would
+  // survive a reset, because reset copies the defaults it had already edited.
+  caption: {
+    ...DEFAULT_SPEC.caption,
+    nudge: { ...DEFAULT_SPEC.caption.nudge },
+    fields: [...DEFAULT_SPEC.caption.fields],
+  },
 });
 
 /**
@@ -224,6 +231,16 @@ function loadSpec() {
   if (c && typeof c === 'object') {
     if (typeof c.on === 'boolean') spec.caption.on = c.on;
     if (CAPTION_ANCHORS.includes(c.anchor)) spec.caption.anchor = c.anchor;
+    // A fraction of the canvas each way. Bounded well past anything reachable by
+    // dragging — the renderer holds the block inside the canvas anyway — so a
+    // hand-edited or corrupted spec cannot put the caption somewhere no gesture
+    // can reach it back from.
+    if (c.nudge && typeof c.nudge === 'object') {
+      spec.caption.nudge = {
+        x: Math.min(1, Math.max(-1, Number(c.nudge.x) || 0)),
+        y: Math.min(1, Math.max(-1, Number(c.nudge.y) || 0)),
+      };
+    }
     if (ALIGNS.some((a) => a.key === c.align)) spec.caption.align = c.align;
     if (CAPTION_FONTS[c.font]) spec.caption.font = c.font;
     if (Number.isFinite(c.size)) spec.caption.size = Math.min(1.8, Math.max(0.6, c.size));
@@ -417,6 +434,11 @@ export function mountExport({ onClose, data }) {
     btn.setAttribute('aria-label', anchor.replace('-', ' '));
     btn.addEventListener('click', () => {
       spec.caption.anchor = anchor;
+      // The grid is how you get back. A drag leaves the caption somewhere none
+      // of the nine describes, and without this the cell you pressed would move
+      // it by its own offset and land somewhere else again — the control would
+      // stop meaning "here" the moment it was most needed.
+      spec.caption.nudge = { x: 0, y: 0 };
       save();
       sync();
       schedule();
@@ -1128,7 +1150,48 @@ export function mountExport({ onClose, data }) {
     };
   }
 
+  /** Where a pointer is in the preview's own pixels, which is what the rect is in. */
+  function previewPointAt(e) {
+    const box = frame.getBoundingClientRect();
+    if (!box.width || !box.height) return null;
+    const size = previewSize();
+    return {
+      px: ((e.clientX - box.left) / box.width) * size.w,
+      py: ((e.clientY - box.top) / box.height) * size.h,
+      size,
+    };
+  }
+
+  /** Is this pointer on the caption? */
+  function onCaption(e) {
+    if (!spec.caption?.on) return false;
+    const rect = captionRectOf(canvas);
+    const p = previewPointAt(e);
+    if (!rect || !p) return false;
+    // Slack around the block, because the block is the ink and the target is the
+    // thing: a one-line caption in a small font is a few pixels tall, and asking
+    // for a finger on exactly that is asking for the map to pan instead.
+    const pad = Math.max(8, p.size.h * 0.015);
+    return p.px >= rect.x - pad && p.px <= rect.x + rect.w + pad
+      && p.py >= rect.y - pad && p.py <= rect.y + rect.h + pad;
+  }
+
+  // Dragging the caption rather than the picture. A separate gesture from the
+  // pan below and deliberately not part of it: `drag` moves the camera and needs
+  // `spec.view` pinned first, and the caption has nothing to do with where the
+  // map is looking.
+  let capDrag = null;
+
   canvas.addEventListener('pointerdown', (e) => {
+    // The caption is drawn over the picture, so a press that lands on it is
+    // about the text. Single pointer only — the second finger of a pinch is
+    // always the map, whatever it happens to land on.
+    if (!capDrag && !pinch && touches.size === 0 && onCaption(e)) {
+      canvas.setPointerCapture(e.pointerId);
+      capDrag = { id: e.pointerId, px: e.clientX, py: e.clientY };
+      frame.classList.add('dragging');
+      return;
+    }
     const view = atPointer(e);
     if (!view) return;
     canvas.setPointerCapture(e.pointerId);
@@ -1146,6 +1209,30 @@ export function mountExport({ onClose, data }) {
   });
 
   canvas.addEventListener('pointermove', (e) => {
+    if (capDrag && e.pointerId === capDrag.id) {
+      const box = frame.getBoundingClientRect();
+      if (box.width && box.height) {
+        // In fractions of the frame, which is the same fraction of the canvas
+        // whatever size either of them is — so the drag lands in the same place
+        // in a 5,760px export as it looks in a 700px preview.
+        const n = spec.caption.nudge ?? { x: 0, y: 0 };
+        spec.caption.nudge = {
+          x: Math.min(1, Math.max(-1, n.x + (e.clientX - capDrag.px) / box.width)),
+          y: Math.min(1, Math.max(-1, n.y + (e.clientY - capDrag.py) / box.height)),
+        };
+        capDrag.px = e.clientX;
+        capDrag.py = e.clientY;
+        paintSoon();
+      }
+      return;
+    }
+    // Only a hint, and only while nothing is being dragged: the pointer changes
+    // over the caption so that it looks like something you can pick up. Without
+    // it the whole gesture is undiscoverable — there is nothing else on screen
+    // to say the text is not simply painted on.
+    if (!drag && !pinch && !touches.size) {
+      canvas.style.cursor = onCaption(e) ? 'move' : '';
+    }
     if (!touches.has(e.pointerId)) return;
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (!spec.view) return;
@@ -1182,6 +1269,19 @@ export function mountExport({ onClose, data }) {
   });
 
   function endDrag(e) {
+    // Its own exit, before the pan's: a caption drag never entered `touches`, so
+    // the line below would drop it on the floor and leave `capDrag` set — every
+    // later pointer would then go on moving the caption.
+    if (capDrag && e.pointerId === capDrag.id) {
+      capDrag = null;
+      frame.classList.remove('dragging');
+      // Saved on release rather than per move: the position is worth keeping and
+      // a drag is a hundred of them.
+      save();
+      sync();
+      schedule();
+      return;
+    }
     if (!touches.delete(e.pointerId)) return;
     if (pinch) {
       if (touches.size >= 2) {
