@@ -119,6 +119,55 @@ export function mountStats({
     overlay.hidden = true;
   };
 
+  /**
+   * The two columns both tabs are built into: the reading on the left, the list
+   * on the right.
+   *
+   * Both tabs used to be one column of everything, which is right in a 400px
+   * dialog and falls apart in a wide one — a label and its number end up at
+   * opposite ends of a metre of screen, a bar chart inflates into a row of
+   * billboards, and a progress bar becomes a sliver on a track nobody can judge
+   * a length against. Widening the card without this is not a bigger dialog, it
+   * is the same dialog stretched.
+   *
+   * Narrow, they are two plain blocks in source order and nothing has changed.
+   * The split is entirely in the stylesheet — see `.stats-cols`.
+   */
+  function columns() {
+    const wrap = document.createElement('div');
+    wrap.className = 'stats-cols';
+    const side = document.createElement('div');
+    side.className = 'stats-side';
+    const main = document.createElement('div');
+    main.className = 'stats-main';
+    wrap.append(side, main);
+    body.append(wrap);
+    return { side, main };
+  }
+
+  /** A bar chart of one number per year, with the number itself on hover. */
+  function yearChart(entries, describe) {
+    const max = Math.max(...entries.map(([, n]) => n));
+    const chart = document.createElement('div');
+    chart.className = 'stats-years';
+    for (const [year, n] of entries) {
+      const col = document.createElement('div');
+      col.className = 'stats-year';
+      col.innerHTML = '<em></em><i></i><span></span>';
+      // The reading is on the element rather than in a `title`: a native tooltip
+      // waits a second, appears wherever the pointer is, and cannot be styled —
+      // and it would show *as well as* this one. `aria-label` keeps the same
+      // sentence for anything not using a pointer at all.
+      const said = describe(n, year);
+      col.setAttribute('aria-label', said);
+      col.querySelector('em').textContent = said;
+      col.querySelector('i').style.height = `${Math.max(3, (n / max) * 100)}%`;
+      col.querySelector('span').textContent = String(year).slice(2);
+      chart.append(col);
+    }
+    return chart;
+  }
+
   function row(label, value, sub) {
     const el = document.createElement('div');
     el.className = 'stats-row';
@@ -611,13 +660,14 @@ export function mountStats({
     const seconds = timed.reduce((n, r) => n + recordedSeconds(r), 0);
     const dated = list.filter((r) => r.firstAt).map((r) => r.firstAt);
 
-    body.append(
+    const { side, main } = columns();
+    side.append(
       row('Routes', list.length.toLocaleString()),
       row('Total distance', formatDistance(metres), `${Math.round(metres).toLocaleString()} m`),
       row('Longest', formatDistance(longest.lengthM), longest.name),
     );
     if (seconds > 0) {
-      body.append(
+      side.append(
         row(
           'Time recorded',
           formatDuration(seconds) ?? '–',
@@ -628,7 +678,7 @@ export function mountStats({
     if (dated.length) {
       const from = day(Math.min(...dated));
       const to = day(Math.max(...dated));
-      body.append(row('Span', from === to ? from : `${from} – ${to}`));
+      side.append(row('Span', from === to ? from : `${from} – ${to}`));
     }
 
     // Distance per year, on the same chart the cells tab uses for new ground.
@@ -639,21 +689,9 @@ export function mountStats({
       byYear.set(y, (byYear.get(y) ?? 0) + r.lengthM);
     }
     if (byYear.size > 1) {
-      body.append(headRow('Distance by year'));
+      side.append(headRow('Distance by year'));
       const years = [...byYear.entries()].sort((a, b) => a[0] - b[0]);
-      const max = Math.max(...years.map(([, m]) => m));
-      const chart = document.createElement('div');
-      chart.className = 'stats-years';
-      for (const [year, m] of years) {
-        const col = document.createElement('div');
-        col.className = 'stats-year';
-        col.title = `${formatDistance(m)} in ${year}`;
-        col.innerHTML = '<i></i><span></span>';
-        col.querySelector('i').style.height = `${Math.max(3, (m / max) * 100)}%`;
-        col.querySelector('span').textContent = String(year).slice(2);
-        chart.append(col);
-      }
-      body.append(chart);
+      side.append(yearChart(years, (m, year) => `${formatDistance(m)} in ${year}`));
     }
 
     const redraw = () => {
@@ -661,7 +699,7 @@ export function mountStats({
       renderRoutes();
       body.scrollTop = at;
     };
-    body.append(
+    main.append(
       headRow(
         'Your routes',
         sortAndGroup(
@@ -671,7 +709,7 @@ export function mountStats({
         ),
       ),
     );
-    body.append(...groupedList(
+    main.append(...groupedList(
       list,
       ROUTE_GROUPS[routeGroup],
       ROUTE_SORTS[routeSort].sort,
@@ -707,7 +745,7 @@ export function mountStats({
         redraw();
       });
       el.append(text, btn);
-      body.append(el);
+      main.append(el);
     }
   }
 
@@ -812,8 +850,9 @@ export function mountStats({
       return;
     }
 
+    const { side, main } = columns();
     const seen = [day(s.firstAt), day(s.lastAt)].filter(Boolean);
-    body.append(
+    side.append(
       row('Cells', s.cells.toLocaleString()),
       row('Ground covered', km2(s.km2), `${Math.round(s.km2).toLocaleString()} km²`),
       row('Share of Earth’s land', pct(s.worldPct), `${EARTH_LAND_KM2.toLocaleString()} km² total`),
@@ -823,10 +862,10 @@ export function mountStats({
       // Counted against the countries you have been to rather than against the
       // world: "12 of 4,553" is a number nobody can feel, and every region in a
       // country you've already visited is one you could plausibly go and see.
-      body.append(row('Regions', `${s.regions.length} of ${s.regionsReachable}`, 'states, provinces, cantons'));
+      side.append(row('Regions', `${s.regions.length} of ${s.regionsReachable}`, 'states, provinces, cantons'));
     }
     if (seen.length) {
-      body.append(
+      side.append(
         row('History spans', seen.length === 2 && seen[0] !== seen[1] ? `${seen[0]} – ${seen[1]}` : seen[0]),
       );
     }
@@ -834,14 +873,26 @@ export function mountStats({
       // How much of that span the map actually knows about. A history spanning
       // eight years made of two holidays is a different map from one with a
       // phone logging every day, and the span alone can't tell them apart.
-      body.append(row('Days recorded', s.days.toLocaleString(), 'days the history has evidence for'));
+      side.append(row('Days recorded', s.days.toLocaleString(), 'days the history has evidence for'));
       if (s.streakDays > 1) {
-        body.append(row('Longest streak', plural(s.streakDays, 'day'), `up to ${dayOf(s.streakEnd)}`));
+        side.append(row('Longest streak', plural(s.streakDays, 'day'), `up to ${dayOf(s.streakEnd)}`));
+      }
+    }
+
+    if (s.years.length > 1) {
+      side.append(headRow('New ground by year'));
+      side.append(yearChart(s.years, (n, year) => `${plural(n, 'cell')} first seen in ${year}`));
+    }
+
+    if (s.sources.length) {
+      side.append(headRow('Where the cells came from'));
+      for (const src of s.sources) {
+        side.append(row(sourceLabel(src.key), plural(src.cells, 'cell')));
       }
     }
 
     if (s.countries.length) {
-      body.append(
+      main.append(
         headRow(
           'Coverage',
           sortSeg(SORTS, sortBy, (key) => {
@@ -850,31 +901,7 @@ export function mountStats({
           }),
         ),
       );
-      body.append(coverageList(s));
-    }
-
-    if (s.sources.length) {
-      body.append(headRow('Where the cells came from'));
-      for (const src of s.sources) {
-        body.append(row(sourceLabel(src.key), plural(src.cells, 'cell')));
-      }
-    }
-
-    if (s.years.length > 1) {
-      body.append(headRow('New ground by year'));
-      const max = Math.max(...s.years.map(([, n]) => n));
-      const chart = document.createElement('div');
-      chart.className = 'stats-years';
-      for (const [year, n] of s.years) {
-        const col = document.createElement('div');
-        col.className = 'stats-year';
-        col.title = `${plural(n, 'cell')} first seen in ${year}`;
-        col.innerHTML = '<i></i><span></span>';
-        col.querySelector('i').style.height = `${Math.max(3, (n / max) * 100)}%`;
-        col.querySelector('span').textContent = String(year).slice(2);
-        chart.append(col);
-      }
-      body.append(chart);
+      main.append(coverageList(s));
     }
   }
 

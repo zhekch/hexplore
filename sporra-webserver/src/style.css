@@ -3387,10 +3387,61 @@ html {
    because a segmented control stretched the width of a desktop dialog stops
    looking like a switch between two things and starts looking like a banner with
    a seam in it — and the wider it gets the further the label sits from the edge
-   you are actually aiming at. */
+   you are actually aiming at.
+   Sized like the one on a phone rather than like the mini segments elsewhere in
+   the dialog: this is the switch between the two halves of the whole thing, not
+   a sort order, and on a phone — where the card is 400px and it fills the width
+   — that is exactly what it reads as. Wide, the same proportions have to be
+   asked for rather than inherited from the container. */
 .stats-tabs {
   margin-top: 14px;
-  max-width: 320px;
+  width: min(340px, 100%);
+}
+
+.stats-tabs .seg-btn {
+  flex: 1 1 0;
+  font-size: 13px;
+  padding: 7px 12px;
+}
+
+/* --- Two columns: the reading on the left, the list on the right ---------------
+   Both tabs are a column of summary rows, a chart, and a long list. At 400px
+   that is the only arrangement there is. At 1,180px it is the wrong one: a label
+   and its number end up a hand's width apart, the year bars inflate into
+   billboards, and a coverage bar becomes a sliver on a track too long to judge
+   against. Stretching is not the same as widening.
+
+   So the numbers and the chart take a column the width the old dialog was — the
+   width they were designed for — and the list gets the rest, which is the part
+   that actually had more to show.
+
+   Below the breakpoint these are two plain blocks in source order, which is the
+   single column exactly as it was. */
+.stats-side,
+.stats-main {
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .stats-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+    gap: 30px;
+    align-items: start;
+  }
+
+  /* The summary is the frame of reference for the list beside it, so it stays
+     put while the list is scrolled rather than sliding away at the first flick. */
+  .stats-side {
+    position: sticky;
+    top: 0;
+  }
+
+  /* A wide dialog that shows three rows of a list is a wide dialog with nothing
+     in it. The cap exists for short windows, and `vh` still answers that. */
+  .stats-body {
+    max-height: min(68vh, 580px);
+  }
 }
 
 .stats-tabs .seg-btn {
@@ -3720,6 +3771,7 @@ html {
 }
 
 .stats-year {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -3728,6 +3780,41 @@ html {
   gap: 4px;
   height: 100%;
   min-width: 0;
+}
+
+/* The number, on hover. It replaces a `title`, which waited a second, appeared
+   wherever the pointer happened to be, and could not be styled.
+
+   Absolute, so it does not take part in the layout: in flow it would push the
+   bars down and the chart would change height as the pointer moved across it.
+   Inside the chart's own box rather than above it, because the body it sits in
+   scrolls and anything hanging over the top edge is clipped by that. */
+.stats-year em {
+  position: absolute;
+  bottom: calc(100% - 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: rgba(18, 18, 20, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  /* Never a hit target: it is centred over a bar that is only 40px wide, so at
+     the ends of the chart it overhangs its neighbours, and a tooltip that
+     swallows the hover of the bar beside it flickers. */
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.stats-year:hover em,
+.stats-year:focus-visible em {
+  opacity: 1;
 }
 
 .stats-year i {
