@@ -3383,8 +3383,14 @@ html {
   width: min(1180px, 100%);
 }
 
+/* Two words do not need 1,180px. Capped rather than left to fill the card,
+   because a segmented control stretched the width of a desktop dialog stops
+   looking like a switch between two things and starts looking like a banner with
+   a seam in it — and the wider it gets the further the label sits from the edge
+   you are actually aiming at. */
 .stats-tabs {
   margin-top: 14px;
+  max-width: 320px;
 }
 
 .stats-tabs .seg-btn {
