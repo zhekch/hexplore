@@ -2291,6 +2291,12 @@ html {
   flex: none;
   min-width: 88px;
   max-width: min(56%, 280px);
+  /* The floor above is what a pill needs to stay a pill, and a short answer does
+     not fill it — "3×" left-aligned in 88px is a word with a hole after it, and
+     the hole reads as a control still waiting to be filled in rather than as one
+     already answered. Centring spends the slack on both sides, where it looks
+     like the shape of the button instead of like missing text. */
+  text-align: center;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -8739,6 +8745,19 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
 
 .export-custom[hidden] {
   display: none;
+}
+
+/* The multipliers under a typed size. A `.seg` by its markup so the buttons are
+   the same object as everywhere else, but never a selection: each press acts on
+   what is in the boxes and there is nothing afterwards to mark as chosen. Hence
+   no `active` state — the answer is the number in the field above, which is
+   already on screen. */
+.export-mult {
+  margin-top: 8px;
+}
+
+.export-mult .seg-btn {
+  flex: 1 1 0;
 }
 
 .export-custom input {

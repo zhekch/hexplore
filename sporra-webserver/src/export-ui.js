@@ -115,6 +115,16 @@ const ZOOM_STEP = 0.0016;
 // more.
 const ZOOM_RANGE = [0.005, 80];
 
+// What the buttons under a typed size offer. They multiply what is in the boxes
+// rather than a preset, which is the only thing they can mean there: a size
+// typed in pixels has no preset behind it to be a multiple of.
+//
+// So they compound — 2× twice is four times the size — and ½× is what makes that
+// safe to play with. Without a way back down the only undo for an accidental 3×
+// is remembering what you had typed, which is exactly the state somebody
+// reaching for a multiplier is not in.
+const CUSTOM_MULTIPLIERS = [0.5, 2, 3, 4];
+
 const clampSide = (v) => Math.max(120, Math.min(MAX_SIDE_PX, Math.round(Number(v) || 0)));
 
 /** A deep-ish copy, so the defaults can never be written through. */
@@ -512,6 +522,23 @@ export function mountExport({ onClose, data }) {
     });
   }
 
+  const multRow = $('export-custom-mult');
+  for (const m of CUSTOM_MULTIPLIERS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'seg-btn';
+    btn.textContent = m === 0.5 ? '½×' : `${m}×`;
+    // Both sides from the same numbers in the same tick, so a clamp on one axis
+    // cannot quietly change the proportions of the other. `clampSide` already
+    // holds each to the canvas limits; the note underneath reports the result,
+    // including the further cap on total pixels.
+    bind(btn, 'click', () => {
+      spec.customW = clampSide(spec.customW * m);
+      spec.customH = clampSide(spec.customH * m);
+    });
+    multRow.append(btn);
+  }
+
   const fontSel = $('export-font');
   for (const [key, f] of Object.entries(CAPTION_FONTS)) {
     const opt = document.createElement('option');
@@ -789,8 +816,10 @@ export function mountExport({ onClose, data }) {
     fillPresets();
     customOn.checked = spec.custom;
     $('export-custom-row').hidden = !spec.custom;
-    // Quality multiplies a preset. A size typed in pixels is already the answer.
+    // Quality multiplies a preset. A size typed in pixels is already the answer,
+    // so the select goes and the multipliers that act on the boxes take over.
     $('export-quality-row').hidden = spec.custom;
+    multRow.hidden = !spec.custom;
     customW.value = String(spec.customW);
     customH.value = String(spec.customH);
     scaleSel.value = String(spec.scale);
