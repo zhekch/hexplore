@@ -54,7 +54,9 @@ glass look. Click hexagons to mark places you've visited.
   glass pill at the **top left** — the two things reached for most, next to each
   other rather than stacked, in the corner a pointer starts from — the geolocate
   button keeps the bottom right, and the pencil takes the bottom left, where it
-  is only present at all when editing is switched on. On phones everything
+  is only present at all when editing is switched on — and where it stands on
+  top of two things that were already there, see [The scale
+  bar](#the-scale-bar). On phones everything
   stacks in the bottom-right corner instead (geolocate, menu, pencil), and
   opening the menu tucks them away behind a bottom sheet. Both sizes build the
   cluster the same way: the glass belongs to the container and the buttons
@@ -355,6 +357,21 @@ glass look. Click hexagons to mark places you've visited.
   (in days) or furthest from home, and group by country. Both lists put the
   blocks that say nothing — an activity never worked out, a trip with no country
   under it — at the bottom rather than the top.
+- **Wide, the list's heading is not in the scroller.** "Coverage · Area / Share"
+  and "Your routes · Newest / Longest / Flat" are not titles, they are the
+  controls deciding what is in the list beneath them, and a heading that scrolls
+  away leaves a list with nothing saying how it is ordered. The obvious fix —
+  `position: sticky` — is the wrong one here, and worth knowing why: a sticky
+  heading has rows travelling *through* its words, so it needs an opaque fill,
+  and no fill can be right. The dialog is 8% white over a blurred map, so its
+  colour is half whatever you are flying over; a fixed near-black matched it on
+  a night basemap and read as a bar of tar over brown ground. Instead the list
+  column is a fixed-height flex box (`.stats-main`) whose first row is the
+  heading and whose second is a scroller of its own (`.stats-main-list`, built
+  by `columns()` in `src/stats-ui.js`). Nothing passes behind the words, so
+  nothing has to be painted, and the heading keeps the card's glass. Narrow, that
+  wrapper is `display: contents` and the dialog is the single scrolling column
+  it always was.
 - **Glass tiles**: unvisited cells draw as slightly inset, sharp-cornered
   glass tiles with a whisper-thin stroke — tuned by `TILE_INSET`.
 
@@ -8160,6 +8177,30 @@ moving (the Detail buttons, a dataset arriving), and a bar refreshed only on
 be the thing a press lands on. Inside the iOS app it clears the tab bar the way
 the button cluster does — the safe area ends exactly where the tab bar begins,
 so `--safe-b` alone puts it against the bar rather than above it.
+
+**The bottom-left corner is a column, not a corner.** Three things want it: the
+map library's wordmark (bottom-left because Mapbox says so, and a condition of
+using their tiles), the scale bar (bottom-left because that is where a map's
+scale has been for as long as maps have had one), and — on a wide screen — the
+pencil, which took the corner when the layers cluster moved to the top. All
+three were landing on the same 46 pixels, the wordmark reading through the glass
+of the button with the distance running across both.
+
+So they stack, read from the floor up: wordmark, scale bar, pencil.
+`--corner-logo` and `--corner-scale` at the top of `style.css` are what each
+lower one costs the one above it, and they are named because three rules in
+three places have to agree on them — the base `.scale`, the wide `.hud`, and the
+iOS corrections to both. `--corner-logo` is **zero unless a wordmark is actually
+on screen** (`body:has(…-ctrl-logo)`): MapLibre draws none, and reserving room
+for something absent is the same mistake in reverse.
+
+**On a phone the scale bar goes to the middle instead.** The bottom-left there is
+the wordmark and the attribution button, and a distance wedged among them was
+the hardest thing on the screen to read; the middle of the bottom edge is empty,
+because the phone stack is all on the right. It still sits one line up rather
+than beside the wordmark: the reading can run to about 190px and a small phone is
+320 wide, so centred it starts at 65 while the wordmark ends at 108 — they clear
+each other on the widest phone and not on the narrowest.
 
 ## The build number, and bumping it
 

@@ -121,18 +121,48 @@ html {
   user-select: none;
 }
 
-/* --- The scale bar ------------------------------------------------------------
-   Bottom left, which is where a map's scale has been for as long as maps have
-   had one, and the only bottom corner not already spoken for: the button
-   cluster is bottom right and the attribution is top right.
+/* --- The bottom-left corner ----------------------------------------------------
+   Three things want it and only one of them can have the floor.
 
-   Below the chrome's z-index rather than beside it. Nothing here is pressable —
+   The map library's wordmark is bottom-left because that is where Mapbox puts
+   it and it is a condition of using their tiles. The scale bar is bottom-left
+   because that is where a map's scale has been for as long as maps have had
+   one. And on a wide screen the pencil is bottom-left too, because the layers
+   cluster moved to the top and left the corner empty — except it was never
+   empty. All three landed on the same 46 pixels: the wordmark read through the
+   glass of the button, the distance ran across both.
+
+   So the corner is a column, read from the floor up: wordmark, scale bar,
+   pencil. The two numbers below are what each of the lower two costs the one
+   above it, and they are here rather than inlined because three rules in three
+   different places have to agree on them.
+
+   `--corner-logo` is zero by default and only paid for when a wordmark is
+   actually on screen — MapLibre draws none, and a corner reserving room for
+   something that is not there is the same mistake in reverse. */
+:root {
+  --corner-logo: 0px;
+  --corner-scale: 25px;
+}
+
+body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
+  --corner-logo: 33px;
+}
+
+/* The wordmark, moved off the map library's own 10px margin onto the same 20px
+   inset the rest of this app uses, and inside the safe area — in the phone app
+   it was sitting under the home indicator. */
+:is(.maplibregl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-left) > * {
+  margin: 0 0 calc(20px + var(--safe-b)) calc(20px + var(--safe-l));
+}
+
+/* Below the chrome's z-index rather than beside it. Nothing here is pressable —
    it is a reading, not a control — so it must never be the thing a press lands
    on, and `pointer-events: none` says that outright rather than relying on it
    not being in the way. */
 .scale {
   position: fixed;
-  bottom: calc(20px + var(--safe-b));
+  bottom: calc(20px + var(--safe-b) + var(--corner-logo));
   left: calc(20px + var(--safe-l));
   z-index: 5;
   display: flex;
@@ -658,8 +688,10 @@ html {
   .hud {
     top: auto;
     /* Bottom-left, which an open card covers as thoroughly as it covers the
-       cluster on the right — so it takes the same lift. */
-    bottom: calc(20px + var(--lift, 0px));
+       cluster on the right — so it takes the same lift. Above the wordmark and
+       the scale bar, which were already down there: see the corner column at
+       the top of this file. */
+    bottom: calc(20px + var(--corner-logo) + var(--corner-scale) + var(--lift, 0px));
     transition: bottom 0.18s ease;
   }
 
@@ -3498,6 +3530,13 @@ html {
   min-width: 0;
 }
 
+/* Narrow, the list's own box is not a box: the rows are children of the column
+   in source order, exactly as they were before the wide layout needed to pull
+   the heading out of the scroller. See `columns()` in src/stats-ui.js. */
+.stats-main-list {
+  display: contents;
+}
+
 @media (min-width: 900px) {
   .stats-cols {
     display: grid;
@@ -3514,25 +3553,29 @@ html {
   }
 
   /* A wide dialog that shows three rows of a list is a wide dialog with nothing
-     in it. The cap exists for short windows, and `vh` still answers that. */
+     in it. The cap exists for short windows, and `vh` still answers that.
+     Named because two boxes are cut to it — the dialog's scroller and the list
+     column inside it, which has to end exactly where the card does. */
+  #stats-overlay {
+    --stats-pane: min(68vh, 580px);
+  }
+
   /* Scoped by the overlay's id on purpose: the base `.stats-body` rule is
      further down this file, so a bare `.stats-body` here loses to it on source
      order however far into a media query it is hidden. Both declarations below
      were silently doing nothing. */
   #stats-overlay .stats-body {
-    max-height: min(68vh, 580px);
+    max-height: var(--stats-pane);
     /* Up beside the tabs. The tab strip is 340px wide and the card is 1,180, so
        the whole width to the right of it was empty while the list it belongs to
        started below — a band of nothing across the top of the dialog, and one
        fewer row of the list for it.
 
-       The whole scroller moves rather than the list column alone: the heading
-       below sticks to the top of this box, and a column pulled out of it would
-       have nothing left to stick to. The left column pays the offset back as
-       padding, so the summary still begins under the tabs rather than behind
-       them. Both numbers are the tab strip's own height plus the margin that
-       was here — measured, not guessed, and checked by eye when either
-       changes. */
+       The whole scroller moves rather than the list column alone, and the left
+       column pays the offset back as padding so the summary still begins under
+       the tabs rather than behind them. Both numbers are the tab strip's own
+       height plus the margin that was here — measured, not guessed, and checked
+       by eye when either changes. */
     margin-top: calc(14px - var(--stats-tabs-lead));
   }
 
@@ -3540,42 +3583,69 @@ html {
     padding-top: var(--stats-tabs-lead);
   }
 
-  /* The list column starts with a heading, and a heading carries 27px of
-     lead-in: a rule, the space over it and the space under it. That is right
-     between two sections of one column and wrong at the top of a second one —
-     it dropped the list a line below the numbers it sits beside, and drew a rule
-     across the top of the card with nothing above it to separate. */
-  .stats-main > .stats-head:first-child {
-    margin-top: 0;
-    padding-top: 0;
-    border-top: 0;
-  }
+  /* --- The heading stays, and nothing scrolls behind it -------------------------
+     "Coverage · Area / Share" and "Your routes · Newest / Longest / Flat" are
+     not titles, they are the controls that decide what the list under them
+     contains — and they were scrolling away at the first flick, leaving a list
+     of countries with nothing saying what it was sorted by and no way to change
+     it without scrolling back up.
 
-  /* And it stays. "Coverage · Area / Share" and "Your routes · Newest / Longest
-     / Flat" are not titles, they are the controls that decide what the list
-     under them contains — and they were scrolling away at the first flick,
-     leaving a list of countries with nothing saying what it was sorted by and no
-     way to change it without scrolling back up. Pinned to the top of the
-     scroller, so the list moves under its own controls.
+     Pinning them with `position: sticky` is the obvious answer and it is the
+     wrong one, for a reason worth writing down. A sticky heading has the rows
+     travelling *through* its words, so it needs an opaque fill — and no fill
+     can be right here. This card is 8% white over a blurred map: its colour is
+     half whatever you happen to be flying over. A fixed near-black matched it
+     over a night basemap and read as a bar of tar laid across the dialog over
+     brown ground, which is what it was.
 
-     Opaque, because the rows pass beneath it. `.stats-body` is inside a card
-     with a blurred translucent background, so this borrows the same colour
-     rather than inventing one — a transparent sticky header shows the list
-     sliding through the words. */
-  .stats-main > .stats-head:first-child {
+     So the heading is not in the scroller at all. The column is a fixed-height
+     flex box, the heading is its first row and does not move, and everything
+     below it scrolls in a box of its own. Nothing passes behind the words, so
+     nothing has to be painted over, and the heading keeps the card's own glass
+     whatever is under it. src/stats-ui.js builds the wrapper. */
+  .stats-main {
+    display: flex;
+    flex-direction: column;
+    /* Pinned like the summary beside it. The left column can be the taller of
+       the two — Statistics is a dozen rows and two charts — and when it is, the
+       dialog's own scroller is what moves; this column should stay where it is
+       rather than slide away with it. */
     position: sticky;
     top: 0;
-    z-index: 3;
-    padding-bottom: 8px;
-    margin-bottom: 0;
-    /* Opaque, and that is not a preference. Rows scroll *under* this, so
-       anything see-through shows them travelling through the words — a glass
-       tint at 54% and a blur behind it still read as a smudged rectangle with
-       two lists in it. A header that hides what passes beneath is the only kind
-       there is; the hairline is what makes it a header rather than a patch of a
-       different colour. */
-    background: #191920;
+    max-height: var(--stats-pane);
+  }
+
+  /* A heading carries 27px of lead-in: a rule, the space over it and the space
+     under it. That is right between two sections of one column and wrong at the
+     top of a second one — it dropped the list a line below the numbers it sits
+     beside, and drew a rule across the top of the card with nothing above it to
+     separate. The hairline moves underneath instead, where it marks the top of
+     the box the rows scroll in. */
+  .stats-main > .stats-head:first-child {
+    flex: none;
+    margin: 0 0 10px;
+    padding-top: 0;
+    padding-bottom: 10px;
+    border-top: 0;
     box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .stats-main-list {
+    display: block;
+    /* A flex child will not shrink below its content without this, and the
+       column would grow past its cap instead of scrolling. */
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* No rail, the same call as the card and the menu: a track down the inside
+       edge of a glass panel reads as a seam in it. */
+    scrollbar-width: none;
+  }
+
+  .stats-main-list::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
   }
 
   /* The summary column is sticky as a block, so its own headings need no
@@ -4003,6 +4073,22 @@ html {
     bottom: calc(12px + var(--safe-b) + var(--lift, 0px));
     align-items: flex-end;
     transition: bottom 0.18s ease;
+  }
+
+  /* The scale bar goes to the middle. A phone's bottom-left corner is the
+     wordmark and the attribution button, and a distance reading wedged in
+     among them was the hardest thing on the screen to read — a ruler, a round
+     "i" and a logo in a hand's width. There is nothing across the middle of the
+     bottom edge (the controls are all on the right), so that is where it goes.
+
+     It still stands on the wordmark's shoulders rather than beside it. The
+     reading can run to about 190px and a small phone is 320 wide, so centred it
+     starts at 65 and the wordmark ends at 108: on the widest phone they clear
+     each other and on the narrowest they do not. One line up, they never
+     have to. */
+  .scale {
+    left: 50%;
+    transform: translateX(-50%);
   }
 
   /* An open card is a sheet across the bottom of the screen and the buttons are
@@ -8146,25 +8232,27 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   }
 }
 
-/* The scale bar sits in the same bottom-left corner the pencil uses inside the
-   app, and there is a tab bar under both. The safe area ends exactly where the
-   tab bar does, so `--safe-b` alone puts the reading against it rather than
-   above it — the same ten pixels the button cluster takes, for the same reason,
-   except that here it is legibility rather than a missed press.
+/* Inside the app there is a tab bar under the whole bottom edge. The safe area
+   ends exactly where the tab bar does, so `--safe-b` alone puts the reading
+   against it rather than above it — the same ten pixels the button cluster
+   takes, for the same reason, except that here it is legibility rather than a
+   missed press.
 
    In a browser there is no tab bar and `--safe-b` is zero or the home
-   indicator, which the base rule already answers. */
+   indicator, which the base rule already answers. `--corner-logo` is carried
+   through because sideways the wordmark is still underneath; on a phone the bar
+   is centred and gives that allowance back. */
 html[data-client='ios'] .scale {
-  bottom: calc(30px + var(--safe-b));
+  bottom: calc(30px + var(--safe-b) + var(--corner-logo));
 }
 
-/* Sideways, the pencil is on its own in the bottom-left corner and still has a
-   tab bar under it. The wide layout's own rule is written for a browser and
-   leaves the safe area out; inside the app that is the difference between a
-   button and a button you cannot press. */
+/* Sideways, the pencil has the bottom-left corner to itself apart from the two
+   things stacked under it, and still has a tab bar below that. The wide layout's
+   own rule is written for a browser and leaves the safe area out; inside the app
+   that is the difference between a button and a button you cannot press. */
 @media (min-width: 561px) {
   html[data-client='ios'] .hud {
-    bottom: calc(22px + var(--safe-b) + var(--lift, 0px));
+    bottom: calc(22px + var(--safe-b) + var(--corner-logo) + var(--corner-scale) + var(--lift, 0px));
   }
 }
 

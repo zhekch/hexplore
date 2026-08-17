@@ -132,6 +132,22 @@ export function mountStats({
    *
    * Narrow, they are two plain blocks in source order and nothing has changed.
    * The split is entirely in the stylesheet — see `.stats-cols`.
+   *
+   * `list` is where the rows go and `main` is where their heading goes, and the
+   * two are separate for one reason: wide, the list scrolls inside its own box
+   * so the heading above it never has to be painted over. It used to be a
+   * sticky heading in a shared scroller, which meant filling it with something
+   * opaque to stop the rows travelling through the words — and no fixed colour
+   * can match a glass card whose own colour is half the map behind it. Over
+   * brown ground it was a jet-black bar pasted across a warm dialog. A heading
+   * that nothing scrolls under needs no paint at all.
+   *
+   * Narrow, `.stats-main-list` is `display: contents` and this wrapper does not
+   * exist as far as the layout is concerned.
+   *
+   * The list box is already in the column when this returns, so a heading goes
+   * in with `prepend` rather than `append` — it has to be `.stats-main`'s first
+   * child for the stylesheet to know it is the one that stays.
    */
   function columns() {
     const wrap = document.createElement('div');
@@ -140,9 +156,29 @@ export function mountStats({
     side.className = 'stats-side';
     const main = document.createElement('div');
     main.className = 'stats-main';
+    const list = document.createElement('div');
+    list.className = 'stats-main-list';
+    main.append(list);
     wrap.append(side, main);
     body.append(wrap);
-    return { side, main };
+    return { side, main, list };
+  }
+
+  /**
+   * Redraw without throwing the reader back to the top.
+   *
+   * Two scrollers, not one: wide, the list has its own box (see `columns`), and
+   * a redraw that only remembered the dialog's scroll put every sort change
+   * back at the first row. Read before, restored after — the nodes themselves
+   * are replaced in between, so the element has to be looked up twice.
+   */
+  function keepScroll(draw) {
+    const outer = body.scrollTop;
+    const inner = body.querySelector('.stats-main-list')?.scrollTop ?? 0;
+    draw();
+    body.scrollTop = outer;
+    const list = body.querySelector('.stats-main-list');
+    if (list) list.scrollTop = inner;
   }
 
   /** A bar chart of one number per year, with the number itself on hover. */
@@ -664,7 +700,7 @@ export function mountStats({
     const seconds = timed.reduce((n, r) => n + recordedSeconds(r), 0);
     const dated = list.filter((r) => r.firstAt).map((r) => r.firstAt);
 
-    const { side, main } = columns();
+    const { side, main, list: rows } = columns();
     side.append(
       row('Routes', list.length.toLocaleString()),
       row('Total distance', formatDistance(metres), `${Math.round(metres).toLocaleString()} m`),
@@ -698,12 +734,8 @@ export function mountStats({
       side.append(yearChart(years, (m, year) => `${formatDistance(m)} in ${year}`, (m) => formatDistance(m)));
     }
 
-    const redraw = () => {
-      const at = body.scrollTop;
-      renderRoutes();
-      body.scrollTop = at;
-    };
-    main.append(
+    const redraw = () => keepScroll(renderRoutes);
+    main.prepend(
       headRow(
         'Your routes',
         sortAndGroup(
@@ -713,7 +745,7 @@ export function mountStats({
         ),
       ),
     );
-    main.append(...groupedList(
+    rows.append(...groupedList(
       list,
       ROUTE_GROUPS[routeGroup],
       ROUTE_SORTS[routeSort].sort,
@@ -749,17 +781,13 @@ export function mountStats({
         redraw();
       });
       el.append(text, btn);
-      main.append(el);
+      rows.append(el);
     }
   }
 
   // Every control in this tab redraws the list it is in, so they all need the
   // reader to stay where they were rather than being thrown back to the top.
-  const reRender = () => {
-    const at = body.scrollTop;
-    render(last);
-    body.scrollTop = at;
-  };
+  const reRender = () => keepScroll(() => render(last));
 
   /**
    * Coverage, as one list.
@@ -854,7 +882,7 @@ export function mountStats({
       return;
     }
 
-    const { side, main } = columns();
+    const { side, main, list } = columns();
     const seen = [day(s.firstAt), day(s.lastAt)].filter(Boolean);
     side.append(
       row('Cells', s.cells.toLocaleString()),
@@ -905,7 +933,7 @@ export function mountStats({
     }
 
     if (s.countries.length) {
-      main.append(
+      main.prepend(
         headRow(
           'Coverage',
           sortSeg(SORTS, sortBy, (key) => {
@@ -914,7 +942,7 @@ export function mountStats({
           }),
         ),
       );
-      main.append(coverageList(s));
+      list.append(coverageList(s));
     }
   }
 
