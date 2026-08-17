@@ -220,6 +220,15 @@ export const landmarksVisibleAt = (zoom) => zoom >= BUILDINGS_MINZOOM;
 
 const TOKEN_KEY = 'visited-map:mapbox-token:v1';
 const PRESET_KEY = 'visited-map:mapbox-light:v1';
+// Whether Auto was asked for *deliberately*, which is a different fact from
+// whether Auto is currently in force. Crossing from a flat basemap to 3D picks a
+// fixed sun from the flat map's theme (see setStyleKey) — a reasonable reading
+// of an indirect gesture, and the wrong reading of a switch somebody went into
+// Settings and turned on. Without this the two were indistinguishable, so the
+// switch could not survive the very press that makes the 3D map visible: every
+// route to seeing Time of day turned it off on the way, and it stayed off,
+// because the fixed sun it left behind is stored.
+const AUTO_PINNED_KEY = 'visited-map:mapbox-light-auto:v1';
 
 /** The viewer's Mapbox token, or '' if they have not given one. */
 export function mapboxToken() {
@@ -323,6 +332,31 @@ export function lightChoice() {
     held = null;
   }
   return LIGHT_CHOICES.some((p) => p.key === held) ? held : DEFAULT_CHOICE;
+}
+
+/**
+ * Was Auto turned on deliberately, rather than merely being the default?
+ *
+ * Only the Settings switch sets this: the row of suns in the layers menu offers
+ * the four presets and no Auto button, so there is exactly one control in the
+ * app that means "decide for me" and exactly one gesture to trust.
+ */
+export function autoPinned() {
+  try {
+    return localStorage.getItem(AUTO_PINNED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Remember, or forget, that Auto was asked for by hand. */
+export function pinAuto(on) {
+  try {
+    if (on) localStorage.setItem(AUTO_PINNED_KEY, '1');
+    else localStorage.removeItem(AUTO_PINNED_KEY);
+  } catch {
+    /* fine — it falls back to the old behaviour, which is not harmful */
+  }
 }
 
 /** Choose one. Returns what is now stored. */

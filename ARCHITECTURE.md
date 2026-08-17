@@ -8495,10 +8495,25 @@ rather than Dark if that is where you came from.
 
 Two details of that. It sets the *choice* rather than the preset, so it turns
 Auto off — which is the honest reading of the gesture, since pressing a button
-that means "light map" is choosing a sun however indirectly, and Auto is one
-switch away in Settings. And it runs after the token gate, because a press that
-ends in the dialog asking for a Mapbox token has not switched anything and should
-not have moved the sun either.
+that means "light map" is choosing a sun however indirectly. And it runs after
+the token gate, because a press that ends in the dialog asking for a Mapbox token
+has not switched anything and should not have moved the sun either.
+
+**Unless Auto was asked for by hand, which outranks it.** That reading holds for
+an indirect gesture and not for a switch somebody opened Settings to turn on, and
+the difference was invisible because both end at the same `lightChoice()`. So
+`AUTO_PINNED_KEY` records the intent separately: the Settings switch sets it,
+choosing one of the four suns by hand clears it, and 2D→3D leaves the sun alone
+while it is set.
+
+Without it the switch could not survive being used. There is no Auto button in
+the layers row — `buildLightRow` offers the four presets, because under Auto
+there is no `auto` to mark as active — so Settings is the only place it can be
+turned on, and the only press that then shows you what it does is the one that
+crosses to 3D. Turn it on, press 3D to look, and it is off again, with a fixed
+sun stored behind it for every visit after: the setting read as broken rather
+than as overruled, because the gesture that undid it was the gesture for seeing
+it work.
 
 The five themselves: **Dark** (CARTO Dark Matter), **Terrain**, **Light**
 (CARTO Voyager), **Satellite**, and **3D** (Mapbox Standard — see "The 3D

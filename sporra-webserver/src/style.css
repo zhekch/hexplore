@@ -778,6 +778,17 @@ html {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+/* The rule is meant to sit centred in its own gap — 12px of air either side.
+   Below it that was 12px *plus* the first row's own `--menu-row-gap`, because a
+   row spaces itself from the row above and the first one in a section has none
+   to space itself from. 22px under the line against 12px over it, which reads
+   as the divider belonging to the section above rather than between the two.
+   Most visible over "Train tracks", the first row of the reference overlays. */
+.menu-section + .menu-section > :first-child,
+.menu-scroll > .layers-account > :first-child {
+  margin-top: 0;
+}
+
 /* --- A phone held sideways: the menu turns on its side too ---------------------
    A landscape phone is a wide screen by every measurement this stylesheet takes
    — 844px on the current iPhone — so it gets the wide layout above, which is
@@ -3342,7 +3353,30 @@ html {
   color: #ff8a80;
 }
 
-/* Statistics dialog */
+/* Statistics dialog
+
+   Wider than the 400px `.modal-card` the other dialogs share, for the reason
+   Settings is: both tabs are tables of numbers in a column, and a column is what
+   runs out first. A route's name, distance, climb and date have somewhere to go
+   at this width instead of wrapping, and the statistics tiles get more than one
+   across.
+
+   Sized like Settings and the export dialog, which means the overlay needs an
+   explicit track each way. `.modal-overlay` is `place-items: center` over auto
+   tracks, so the track sizes to the card while the card's `100%` sizes to the
+   track; the browser settles that circle somewhere arbitrary. A definite
+   `minmax(0, 1fr)` gives the percentage something real to resolve against, and
+   `place-items: center` still centres the card inside it. See the note over
+   `#settings-overlay`. */
+#stats-overlay {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#stats-overlay .modal-card {
+  width: min(1180px, 100%);
+}
+
 .stats-tabs {
   margin-top: 14px;
 }

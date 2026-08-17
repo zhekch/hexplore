@@ -40,9 +40,9 @@ import {
 } from './coloring.js';
 import { terrainStyle, satelliteStyle, washAnchorIn } from './basemap.js';
 import {
-  AUTO_LIGHT, BASEMAP_IMPORT, LIGHT_CHOICES, LIGHT_PRESETS, STANDARD_STYLE, configureStandard, hasMapboxToken,
-  lightChoice, lightPreset, mapboxToken, presetTheme, refreshAutoLight, setLightChoice,
-  setMapboxToken,
+  AUTO_LIGHT, BASEMAP_IMPORT, LIGHT_CHOICES, LIGHT_PRESETS, STANDARD_STYLE, autoPinned, configureStandard,
+  hasMapboxToken, lightChoice, lightPreset, mapboxToken, pinAuto, presetTheme, refreshAutoLight,
+  setLightChoice, setMapboxToken,
 } from './mapbox.js';
 import { rememberSunSite } from './sun.js';
 import { installGlide } from './glide.js';
@@ -7163,7 +7163,15 @@ function setStyleKey(key) {
   // is the honest reading of the gesture: pressing a button that means "light
   // map" is choosing a sun, however indirectly. Auto is a switch in Settings and
   // stays one press away.
-  if (key === 'mapbox' && isFlat(styleKey)) {
+  //
+  // Unless Auto was asked for by hand, which outranks it. The reading above
+  // holds for an *indirect* gesture — nobody pressing "3D" is thinking about the
+  // sun — but it was also overruling the one control that exists to say "decide
+  // for me", and doing it on the only press that makes the 3D map appear at all.
+  // The switch could not survive being used: turn it on, press 3D to see what it
+  // does, and it is off again, with a fixed sun stored behind it for every visit
+  // after.
+  if (key === 'mapbox' && isFlat(styleKey) && !autoPinned()) {
     setLightChoice(STYLES[styleKey].theme === 'light' ? 'day' : 'night');
   }
   // Crossing between the two map libraries, which no `setStyle` can do: the map
@@ -8354,7 +8362,12 @@ function buildLightRow() {
     btn.className = 'seg-btn';
     btn.dataset.light = choice.key;
     btn.textContent = choice.label;
-    btn.addEventListener('click', () => setLightPresetNow(choice.key));
+    // Picking a sun by hand is the plainest way there is of saying you no
+    // longer want one picked for you, so it releases the pin as well.
+    btn.addEventListener('click', () => {
+      pinAuto(false);
+      setLightPresetNow(choice.key);
+    });
     return btn;
   }));
 }
@@ -10088,7 +10101,12 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
     // it on re-resolves immediately, so the map is right before the dialog is
     // shut. No `pushPrefs` — the choice lives in localStorage and nowhere else,
     // because which sun a *screen* wants is a fact about the screen.
-    onSunAuto: (on) => setLightPresetNow(on ? AUTO_LIGHT : lightPreset()),
+    // The pin goes with it, in both directions: this switch is the only place
+    // Auto can be asked for, so it is the only place that can mean it.
+    onSunAuto: (on) => {
+      pinAuto(on);
+      setLightPresetNow(on ? AUTO_LIGHT : lightPreset());
+    },
     whatsNew: () => bannerMode(),
     onWhatsNew: (mode) => {
       setBannerMode(mode);

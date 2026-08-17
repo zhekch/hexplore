@@ -32,9 +32,9 @@ globalThis.localStorage = {
 };
 
 const {
-  AUTO_LIGHT, BASEMAP_IMPORT, LIGHT_CHOICES, LIGHT_PRESETS, configureStandard, hasMapboxToken,
-  landmarksVisibleAt, lightChoice, lightPreset, mapboxToken, presetTheme, refreshAutoLight,
-  setLightChoice, setMapboxToken, standardConfig, tokenComplaint,
+  AUTO_LIGHT, BASEMAP_IMPORT, LIGHT_CHOICES, LIGHT_PRESETS, autoPinned, configureStandard,
+  hasMapboxToken, landmarksVisibleAt, lightChoice, lightPreset, mapboxToken, pinAuto, presetTheme,
+  refreshAutoLight, setLightChoice, setMapboxToken, standardConfig, tokenComplaint,
 } = await import('../../src/mapbox.js');
 const {
   LABEL_SLOT_ID, WASH_SLOT_ID, ctrlClass, ctrlClasses, ctrlSelector, geolocateStateOf, hasCtrlClass,
@@ -96,6 +96,55 @@ console.log('\nWhere the sun is');
   stored['visited-map:mapbox-light:v1'] = 'midnight';
   eq(lightChoice(), AUTO_LIGHT, 'as does a stored value the list has never heard of');
   eq(presetTheme('midnight'), 'light', 'and an unknown preset is assumed light rather than crashing');
+}
+
+// --- Auto asked for, versus Auto by default ---------------------------------
+//
+// These are the same value of `lightChoice()` and different facts about the
+// viewer, and setStyleKey needs to tell them apart: crossing from a flat basemap
+// to 3D picks a fixed sun from the flat map's theme, which is a fair reading of
+// an indirect press and the wrong one for a switch somebody turned on by hand.
+//
+// Getting this wrong is not subtle in use and is invisible here without the
+// distinction: the only press that makes the 3D map appear is also the press
+// that turned Time of day off, so the switch could never survive being tried,
+// and the fixed sun it left behind is stored for every visit after.
+console.log('\nAuto, asked for rather than defaulted to');
+{
+  stored = {};
+  eq(lightChoice(), AUTO_LIGHT, 'Auto is the default');
+  check(!autoPinned(), 'but nobody has asked for it, which is a different thing');
+
+  pinAuto(true);
+  check(autoPinned(), 'the Settings switch says so');
+  // The pin is about intent and outlives any particular sun, so that turning
+  // Auto on, choosing Dusk, and turning it back on again is not three states.
+  setLightChoice('dusk');
+  check(autoPinned(), 'and survives a sun being stored underneath it');
+
+  pinAuto(false);
+  check(!autoPinned(), 'switching it off releases it');
+  pinAuto(false);
+  check(!autoPinned(), 'and releasing it twice is not an error');
+
+  // localStorage refused outright — a browser with site data switched off. The
+  // old behaviour is the safe fallback, so this must answer no rather than throw.
+  const real = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem() { throw new Error('denied'); },
+    setItem() { throw new Error('denied'); },
+    removeItem() { throw new Error('denied'); },
+  };
+  check(!autoPinned(), 'storage that refuses to be read answers no rather than throwing');
+  let threw = false;
+  try {
+    pinAuto(true);
+  } catch {
+    threw = true;
+  }
+  check(!threw, 'and storage that refuses to be written swallows it');
+  globalThis.localStorage = real;
+  stored = {};
 }
 
 console.log('\nAuto follows the clock, and reports only when it has moved');
