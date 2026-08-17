@@ -28,6 +28,7 @@ import {
 import { derived } from './derived.js';
 import { installOffline, forgetAccountOffline, clearOfflineCaches } from './offline.js';
 import { mountCellInfo } from './cell-info.js';
+import { mountScaleBar } from './scale-bar.js';
 import { mountRouteInfo } from './route-info.js';
 import { mountImport } from './import.js';
 import { mountStats } from './stats-ui.js';
@@ -7043,7 +7044,19 @@ function updateDetailNow(level = currentLevel) {
         : level === REGION_LEVEL
           ? 'Showing whole regions'
           : `Showing ${cellSizeKm(level)} cells`;
+  // The same fact, on the map rather than inside a panel you have to open.
+  scaleBar.update();
 }
+
+// A distance you can measure the map against, and what one cell of the grid is
+// at this zoom — the two readings that make a field of hexagons legible. The
+// level is read rather than pushed: it changes for reasons that have nothing to
+// do with the map moving (the Detail buttons, a dataset arriving), and a bar
+// refreshed only on `move` would describe the level before last.
+const scaleBar = mountScaleBar({
+  map: () => map,
+  detail: () => cellSizeLabel(currentLevel),
+});
 
 // --- Basemap / overlay controls ----------------------------------------------
 const layersBtn = document.getElementById('layers-btn');
@@ -10552,6 +10565,10 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
       requestAnimationFrame(() => {
         pending = false;
         updateGrid();
+        // On every frame of the move, not just at the end: a bar that only
+        // caught up when you let go is wrong for the whole of a pinch, which is
+        // exactly when somebody is looking at it.
+        scaleBar.update();
         // Don't rebuild the spotlight mid-move — it rides with the map so it
         // stays under the cursor while dragging; moveend re-anchors it.
       });
@@ -10563,7 +10580,11 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
   onMapBuilt(() => map.on('resize', () => {
       updateGrid();
       updateTiles();
+      scaleBar.update();
     }));
+  // And once the map exists at all, so the bar is right on the first paint
+  // rather than at the first drag.
+  onMapBuilt(() => scaleBar.update());
 
   // Until the pointer moves, anchor the spotlight to the viewport center.
   const el = map.getContainer();

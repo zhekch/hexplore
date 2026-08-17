@@ -56,6 +56,19 @@
          the page loads. installGrid() shows it when the map is ready. Anything
          that is always on screen — the search and menu buttons below — stays in
          the markup unhidden, so it paints once and never moves. -->
+    <!-- How big what you are looking at is, in two readings that need each
+         other: a bar of a round distance, and what one cell of the grid is at
+         this zoom. Neither was on screen — a field of hexagons has no landmarks
+         to judge scale against, and the cell size was written only inside the
+         layers menu, which is a panel you open and shut.
+
+         Not translated: "500 m · ≈ 600 m cell" is written by src/scale-bar.js
+         out of numbers and the same wording the info card already uses. -->
+    <div class="scale" id="scale" hidden>
+      <div class="scale-line" id="scale-line"></div>
+      <span class="scale-text" id="scale-text"></span>
+    </div>
+
     <div class="hud" id="hud" hidden>
       <button data-i18n-title="hud-pencil.edit-visited-areas" data-i18n-aria-label="hud-pencil.edit-visited-areas" class="hud-pencil" id="hud-pencil" type="button" aria-label="Edit visited areas" title="Edit visited areas">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

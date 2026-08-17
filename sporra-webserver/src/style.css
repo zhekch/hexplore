@@ -121,6 +121,67 @@ html {
   user-select: none;
 }
 
+/* --- The scale bar ------------------------------------------------------------
+   Bottom left, which is where a map's scale has been for as long as maps have
+   had one, and the only bottom corner not already spoken for: the button
+   cluster is bottom right and the attribution is top right.
+
+   Below the chrome's z-index rather than beside it. Nothing here is pressable —
+   it is a reading, not a control — so it must never be the thing a press lands
+   on, and `pointer-events: none` says that outright rather than relying on it
+   not being in the way. */
+.scale {
+  position: fixed;
+  bottom: calc(20px + var(--safe-b));
+  left: calc(20px + var(--safe-l));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.scale[hidden] {
+  display: none;
+}
+
+/* The bar itself: a line with a foot at each end, which is the drawing every
+   paper map uses and the reason it reads as a measurement rather than a border.
+   Width is set from JS — it is the one number here that means anything. */
+.scale-line {
+  height: 7px;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  border-top: 0;
+  border-radius: 0 0 1px 1px;
+  /* A dark halo, because this sits directly on the map with nothing behind it
+     and the map is a satellite photo about a third of the time. */
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.85));
+}
+
+.scale-text {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 3px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+}
+
+[data-chrome='light'] .scale-line {
+  border-color: rgba(0, 0, 0, 0.75);
+  filter: drop-shadow(0 1px 1.5px rgba(255, 255, 255, 0.8));
+}
+
+[data-chrome='light'] .scale-text {
+  color: rgba(0, 0, 0, 0.82);
+  text-shadow:
+    0 1px 2px rgba(255, 255, 255, 0.9),
+    0 0 3px rgba(255, 255, 255, 0.7);
+}
+
 /* Collapsed state: a round glass pencil button */
 .hud-pencil {
   display: grid;
@@ -8083,6 +8144,18 @@ html[data-client='ios'] :is(.maplibregl-ctrl-top-right, .mapboxgl-ctrl-top-right
   html[data-client='ios'] .hud {
     bottom: calc(127px + var(--safe-b) + var(--lift, 0px));
   }
+}
+
+/* The scale bar sits in the same bottom-left corner the pencil uses inside the
+   app, and there is a tab bar under both. The safe area ends exactly where the
+   tab bar does, so `--safe-b` alone puts the reading against it rather than
+   above it — the same ten pixels the button cluster takes, for the same reason,
+   except that here it is legibility rather than a missed press.
+
+   In a browser there is no tab bar and `--safe-b` is zero or the home
+   indicator, which the base rule already answers. */
+html[data-client='ios'] .scale {
+  bottom: calc(30px + var(--safe-b));
 }
 
 /* Sideways, the pencil is on its own in the bottom-left corner and still has a

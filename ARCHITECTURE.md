@@ -8122,6 +8122,45 @@ was the obvious alternative and is the worse one: a copy of the web app inside
 the app is a second copy that can disagree with the server's, which is the trade
 this project keeps refusing.
 
+## The scale bar
+
+A map of hexagons has nothing in it to judge size against. Every zoom draws the
+same grid, so "is that blob a suburb or a canton" had no answer on screen — and
+the one place the cell size *was* written down was inside the layers menu, a
+panel you open, change something in, and shut. Exactly the wrong home for a fact
+about what you are looking at now.
+
+So `src/scale-bar.js` puts both readings in the bottom-left corner: a bar of a
+round distance, and beside it what one cell is at this zoom — `500 m · ≈ 600 m
+cell`. The second half is `cellSizeLabel`, the same wording the info card uses,
+so the two cannot drift.
+
+**Round first, then measured.** The distance is always 1, 2 or 5 times a power of
+ten, and the bar's *width* is what varies to match it. Doing it the other way —
+a fixed bar, whatever distance it works out to — gives a ruler marked 137 m,
+which nobody multiplies by eye. `scaleStep` walks the ladder downwards and takes
+the longest step that still fits the allowance, so the bar uses the room it has
+rather than a corner of it.
+
+There is deliberately no lower clamp of one metre. At full zoom near the poles a
+hundred pixels is less than a metre of ground — cos(71°) is a third and z22 is
+centimetres per pixel — and forcing "1 m" there drew a bar wider than the space
+it was given rather than admitting the map was that close. Below a metre the
+unit changes rather than the number growing a decimal point: `50 cm`, not
+`0.5 m`.
+
+It updates on every frame of a move rather than on `moveend`, because a bar that
+only catches up when you let go is wrong for the whole of a pinch — which is
+precisely when somebody is watching it. The grid level is *read* rather than
+pushed in, since it also changes for reasons that have nothing to do with the map
+moving (the Detail buttons, a dataset arriving), and a bar refreshed only on
+`move` would sit there describing the level before last.
+
+`pointer-events: none`, because it is a reading and not a control: it must never
+be the thing a press lands on. Inside the iOS app it clears the tab bar the way
+the button cluster does — the safe area ends exactly where the tab bar begins,
+so `--safe-b` alone puts it against the bar rather than above it.
+
 ## The build number, and bumping it
 
 **`SERVER_VERSION` at the top of `server/index.js` must be bumped on every
