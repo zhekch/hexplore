@@ -3540,7 +3540,7 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
 @media (min-width: 900px) {
   .stats-cols {
     display: grid;
-    grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, var(--stats-side-w)) minmax(0, 1fr);
     gap: 30px;
     align-items: start;
   }
@@ -3558,6 +3558,20 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
      column inside it, which has to end exactly where the card does. */
   #stats-overlay {
     --stats-pane: min(68vh, 580px);
+    /* The summary column, and — because they are the same column — the tab
+       strip over it. The strip is sized for a phone (340px, where it is the
+       card), and 340 beside a 320 column is not a wider control, it is a
+       misalignment: every number in the summary ends on one line and the switch
+       above them ends twenty pixels past it. One value, so they cannot drift. */
+    --stats-side-w: 320px;
+  }
+
+  #stats-overlay .stats-tabs {
+    /* `.seg` carries 3px of padding and a hairline and this file has no global
+       box model, so a content-box 320 draws 328 — eight pixels of "nearly", the
+       one amount that reads as a mistake rather than as a wider control. */
+    box-sizing: border-box;
+    width: var(--stats-side-w);
   }
 
   /* Scoped by the overlay's id on purpose: the base `.stats-body` rule is
@@ -3566,10 +3580,10 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
      were silently doing nothing. */
   #stats-overlay .stats-body {
     max-height: var(--stats-pane);
-    /* Up beside the tabs. The tab strip is 340px wide and the card is 1,180, so
-       the whole width to the right of it was empty while the list it belongs to
-       started below — a band of nothing across the top of the dialog, and one
-       fewer row of the list for it.
+    /* Up beside the tabs. The tab strip is one column wide and the card is
+       1,180, so the whole width to the right of it was empty while the list it
+       belongs to started below — a band of nothing across the top of the
+       dialog, and one fewer row of the list for it.
 
        The whole scroller moves rather than the list column alone, and the left
        column pays the offset back as padding so the summary still begins under
