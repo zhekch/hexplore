@@ -3404,6 +3404,13 @@ html {
 .stats-tabs {
   margin-top: 14px;
   width: min(340px, 100%);
+  /* Above the body, which the wide layout pulls up to start level with this
+     strip — and a scroll container overlapping a control is a control you
+     cannot press, because the later sibling takes the pointer whether or not
+     anything is painted there. Both tabs stopped working, which is a whole
+     dialog lost to a margin. */
+  position: relative;
+  z-index: 2;
 }
 
 .stats-tabs .seg-btn {
@@ -3500,21 +3507,25 @@ html {
     z-index: 3;
     padding-bottom: 8px;
     margin-bottom: 0;
-    /* The card it sits in is `rgba(255,255,255,0.08)` over a blurred map, so
-       there is no flat colour to match. `--glass-raised` is the token for
-       exactly this — a surface that had to sit a shade above the glass under it
-       — and the blur is what actually hides the rows sliding beneath, rather
-       than the tint. */
-    background: var(--glass-raised);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
+    /* Opaque, and that is not a preference. Rows scroll *under* this, so
+       anything see-through shows them travelling through the words — a glass
+       tint at 54% and a blur behind it still read as a smudged rectangle with
+       two lists in it. A header that hides what passes beneath is the only kind
+       there is; the hairline is what makes it a header rather than a patch of a
+       different colour. */
+    background: #191920;
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.1);
   }
 
   /* The summary column is sticky as a block, so its own headings need no
      treatment — but the chart's hover chip has to pass over the list beside it
-     rather than under it. */
+     rather than under it.
+
+     Deliberately below the tab strip's 2: this column's own top padding sits
+     behind the tabs (that is what pays back the lift above), and a padding box
+     that outranks them is an invisible sheet over both buttons. */
   .stats-side {
-    z-index: 4;
+    z-index: 1;
   }
 }
 
