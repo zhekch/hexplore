@@ -102,7 +102,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.82.0';
+export const SERVER_VERSION = '0.83.0';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -133,7 +133,7 @@ export const SERVER_VERSION = '0.82.0';
 //   UPDATE_SOURCE=<url>  ask somewhere else — a fork's raw URL, or a file
 const UPDATE_CHECK = !/^(0|false|no|off)$/i.test(String(process.env.UPDATE_CHECK ?? ''));
 const UPDATE_SOURCE = process.env.UPDATE_SOURCE
-  || 'https://raw.githubusercontent.com/zhekch/sporra/main/Sporra-webserver/server/index.js';
+  || 'https://raw.githubusercontent.com/zhekch/sporra/main/sporra-webserver/server/index.js';
 
 /** How long an answer stands. Nobody publishes twice in an afternoon. */
 const UPDATE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -2463,7 +2463,7 @@ function readBody(req, limit = 8 * 1024 * 1024) {
 // **The phone in your pocket must never write into the account you are looking
 // at.** The apps have no login of their own: `SyncClient` copies the web view's
 // cookies into the shared jar after every page load and pushes with whatever is
-// in it (see Sporra-IOS/Sporra/SyncClient.swift). So an admin who opens
+// in it (see sporra-ios/Sporra/SyncClient.swift). So an admin who opens
 // somebody else's map *from inside the app* has just pointed their own
 // background location logging, their Apple Health workouts and their entire
 // photo library at that person's map — silently, minutes later, from a

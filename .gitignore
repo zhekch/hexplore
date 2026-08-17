@@ -1,6 +1,6 @@
 # Rules that apply to the whole repo. Anything true of only one of the three
 # folders belongs in that folder's own .gitignore, where its paths stay
-# relative to the thing they describe — see Sporra-webserver/.gitignore for
+# relative to the thing they describe — see sporra-webserver/.gitignore for
 # the database and the map data, and the two app folders for Xcode's leavings.
 
 # Local Claude Code settings (personal permissions); .claude/ itself is shared

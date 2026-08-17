@@ -4074,7 +4074,7 @@ function redrawClocks() {
 
 // The host saying what a clock reads on this device — a fact the page cannot
 // work out for itself, pushed the way the safe-area insets are (`pushClock()` in
-// Sporra-IOS/Sporra/WebPanel.swift). It arrives before any of this runs on
+// sporra-ios/Sporra/WebPanel.swift). It arrives before any of this runs on
 // the first load and again once the page has finished, which is the one that
 // needs catching. Nothing fires it in a browser.
 window.addEventListener('sporra:clock', () => {
@@ -10368,7 +10368,7 @@ const isCtrl = (e) => e.ctrlKey || e.metaKey;
      * On a Mac the Permissions API is not merely unhelpful, it is wrong. It
      * reports on WebKit's geolocation permission, and this host does not use
      * it — `navigator.geolocation` there is a shim onto CoreLocation (see
-     * `LocationBridge` in Sporra-macOS) — so it answered "prompt" for an
+     * `LocationBridge` in sporra-macos) — so it answered "prompt" for an
      * account whose Mac had been happily giving out positions for months, and
      * the replay offered to ask for something it already had. The bridge is the
      * only thing that can say, so on that host it is asked first.

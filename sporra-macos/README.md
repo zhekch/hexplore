@@ -6,7 +6,7 @@ its login. Settings (⌘,) is the little this app knows that the site does not:
 which server to open, what this Mac records about where it has been, and how to
 forget both.
 
-It is a port of [Sporra for iOS](../Sporra-IOS/README.md), and deliberately
+It is a port of [Sporra for iOS](../sporra-ios/README.md), and deliberately
 the same program: the same web view, the same borrowed session, the same
 uploader, the same photo bridge. This file is about the places where a Mac is
 not a phone, because those are the only places the two differ and the rest is
@@ -246,7 +246,7 @@ rather than minutes.
 From a terminal:
 
 ```sh
-xcodebuild -project Sporra-macOS/Sporra.xcodeproj -scheme Sporra \
+xcodebuild -project sporra-macos/Sporra.xcodeproj -scheme Sporra \
   -derivedDataPath ~/Library/Caches/SporraMac-build build
 ```
 
@@ -306,7 +306,7 @@ taken.
 ### The one genuinely surprising thing
 
 Like the iOS project, this uses **file-system synchronized groups** — **a
-`.swift` file dropped into `Sporra-macOS/Sporra/` is part of the app
+`.swift` file dropped into `sporra-macos/Sporra/` is part of the app
 automatically**. No "add to target" step, no dialog, no chance of the old failure
 where a file exists on disk, appears in the sidebar, and is silently not
 compiled.
@@ -314,7 +314,7 @@ compiled.
 ## Layout
 
 ```
-Sporra-macOS/
+sporra-macos/
   Sporra.xcodeproj        the project you open (with a shared scheme)
   Info.plist                the keys that cannot be build settings
   Sporra.entitlements     sandbox, network, photos, location
@@ -341,7 +341,7 @@ Sporra-macOS/
 lattice, the blob curve and a Metal blur — and its own README explains that the
 app does not link it and it is kept because it is cheap to keep. Copying an
 unused package into a second project would be the part of that bargain with none
-of the reason. It is one `swift test` away in `Sporra-IOS/`, and it is
+of the reason. It is one `swift test` away in `sporra-ios/`, and it is
 platform-independent, so nothing is lost by not duplicating it here.
 
 ## Tests
@@ -351,6 +351,6 @@ the app target is a web view and a handful of settings, and the maths that is
 worth testing lives in `SporraCore` next door and is tested there.
 
 ```sh
-Sporra-IOS/Tools/test-core.sh     # 34 tests, on this Mac, about a second
+sporra-ios/Tools/test-core.sh     # 34 tests, on this Mac, about a second
 npm test                            # the server and the web app, at the repo root
 ```

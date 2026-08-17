@@ -187,7 +187,7 @@ it.
 | **Home Assistant** | *Settings → Sync.* Paste your address and a long-lived token, tick the devices to follow, and the server keeps the map current on its own. It reads history your recorder already wrote — it never wakes your phone |
 | **Strava** | *Settings → Sync.* One-time sign-in, then your activities come across on a schedule |
 | **Komoot** | *Settings → Import → Paste Komoot links.* Paste a tour link; your browser fetches it |
-| **Your phone** | [Sporra for iOS](../Sporra-IOS/README.md) records where you have been in the background and sends it here, with no other app in the middle. It also brings across the Apple Health workouts that went somewhere — a ride, a walk, a run outdoors — as cells and as saved lines, and reads the locations your **photo library** already knows. Set up on the phone; this page shows you whether it is working |
+| **Your phone** | [Sporra for iOS](../sporra-ios/README.md) records where you have been in the background and sends it here, with no other app in the middle. It also brings across the Apple Health workouts that went somewhere — a ride, a walk, a run outdoors — as cells and as saved lines, and reads the locations your **photo library** already knows. Set up on the phone; this page shows you whether it is working |
 
 Before anything is saved you get a preview: what each file was recognised as,
 how many fixes it holds, how many cells that is, **how many are new**, the dates

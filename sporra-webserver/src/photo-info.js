@@ -89,7 +89,7 @@ const SWIPE_ENTER = 22;
 //
 // So the card takes the horizontal wheel itself, and answers it the way the Mac
 // app answers the same gesture over its own gallery (`GalleryView.scrollWheel`
-// in Sporra-macOS): accumulate, and step **once**.
+// in sporra-macos): accumulate, and step **once**.
 
 /** How much sideways travel is one photograph. */
 const WHEEL_STEP = 40;

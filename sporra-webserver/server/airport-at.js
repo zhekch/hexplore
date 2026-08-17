@@ -1,7 +1,7 @@
 // Which airport a point is standing in, if any.
 //
 // This exists for one caller: the phone, which wishes you a happy flight after
-// you have been at an airport for ten minutes (`Sporra-IOS/Sporra/
+// you have been at an airport for ten minutes (`sporra-ios/Sporra/
 // FlightWatch.swift`). The phone cannot answer the question itself — the airport
 // dataset is 5,272 records it has no copy of, and bundling one would mean a
 // generated resource in the Xcode project that goes stale silently. It can ask,

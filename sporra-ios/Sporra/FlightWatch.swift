@@ -30,7 +30,7 @@ import Foundation
 ///
 /// The dataset is 5,272 airports and this phone has no copy of it. Bundling one
 /// would mean a generated resource in the Xcode project, kept in step with
-/// `Sporra-webserver/src/airports-airline.json` by hand, going stale silently.
+/// `sporra-webserver/src/airports-airline.json` by hand, going stale silently.
 /// `GET /api/airport` is one small request made only when a fix has moved far
 /// enough to be worth asking about — and a phone at an airport has a network,
 /// because that is what an airport is.

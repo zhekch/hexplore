@@ -34,7 +34,7 @@ export const CLOCK_MODES = ['auto', '24', '12'];
 //
 // So it is a thing the host is asked to say, exactly like the safe-area insets:
 // a fact about the device that the page has no other way to learn.
-// `pushClock()` in Sporra-IOS/Sporra/WebPanel.swift writes the answer onto
+// `pushClock()` in sporra-ios/Sporra/WebPanel.swift writes the answer onto
 // the root element, before the page runs and again when it has loaded, and
 // fires `sporra:clock` so anything already built can catch up. In a browser
 // nothing writes it and the locale stands, which is the behaviour this has

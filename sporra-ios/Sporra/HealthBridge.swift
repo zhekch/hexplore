@@ -37,7 +37,7 @@ import WebKit
 /// ## Not on the Mac
 ///
 /// There is no HealthKit on macOS at all, so there is no `HealthBridge.swift`
-/// under `Sporra-macOS/` and the row is absent from the card there
+/// under `sporra-macos/` and the row is absent from the card there
 /// (`permissionsFor` in src/intro.js). An older build of *this* app has no such
 /// handler either, and the page falls back to the directions it used to give —
 /// which is why the absence is answered rather than assumed away.

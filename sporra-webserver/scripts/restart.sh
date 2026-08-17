@@ -1,9 +1,9 @@
 #!/bin/bash
 # Pull, build, and restart the server as a detached process.
 #
-#   Sporra-webserver/scripts/restart.sh              port 3001
-#   Sporra-webserver/scripts/restart.sh --no-pull    skip the git pull
-#   PORT=8080 Sporra-webserver/scripts/restart.sh    somewhere else
+#   sporra-webserver/scripts/restart.sh              port 3001
+#   sporra-webserver/scripts/restart.sh --no-pull    skip the git pull
+#   PORT=8080 sporra-webserver/scripts/restart.sh    somewhere else
 #
 # Run it from anywhere; it finds its own folder. That is the whole point of it
 # existing. The command this replaces hardcoded the repo path four times, and by
@@ -49,7 +49,7 @@ if [[ $pull == 1 ]]; then
   # *next* run then dies before it does anything at all:
   #
   #   error: Your local changes to the following files would be overwritten by
-  #   merge: Sporra-webserver/package-lock.json
+  #   merge: sporra-webserver/package-lock.json
   #
   # which is this script having broken its own next run, and it happens on
   # exactly the commits that matter: the ones that changed a dependency, which

@@ -52,7 +52,7 @@ account involved.
 From a terminal, the same thing:
 
 ```sh
-xcodebuild -project Sporra-IOS/Sporra.xcodeproj -scheme Sporra \
+xcodebuild -project sporra-ios/Sporra.xcodeproj -scheme Sporra \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
 
@@ -100,7 +100,7 @@ If you ever need to move it, it is set in two places that must agree:
 
 This project uses **file-system synchronized groups**, which is new and is not
 how Xcode worked for its first twenty years. It means **a `.swift` file dropped
-into `Sporra-IOS/Sporra/` is part of the app automatically** — no "add to
+into `sporra-ios/Sporra/` is part of the app automatically** — no "add to
 target" step, no dialog, no chance of the old failure where a file exists on
 disk, appears in the sidebar, and is silently not compiled.
 
@@ -110,7 +110,7 @@ editor and Xcode simply has them.
 ## Layout
 
 ```
-Sporra-IOS/
+sporra-ios/
   Sporra.xcodeproj        the project you open
   Info.plist                one key that cannot be a build setting — see below
   Sporra.entitlements     reading Apple Health, and being woken for it
@@ -176,7 +176,7 @@ have bought a slightly smaller payload and cost the one definition.
 So the honest position is that the package is finished, correct, tested work for
 a native map nobody currently wants — and the case for keeping it is now only
 that it is cheap to keep and expensive to rewrite. If it is ever genuinely dead,
-`git rm -r Sporra-IOS/SporraCore` and drop the local package reference.
+`git rm -r sporra-ios/SporraCore` and drop the local package reference.
 
 ### The app target no longer links it
 
@@ -218,8 +218,8 @@ the rest of the site.
 34 tests, four suites, and three ways to run them.
 
 ```sh
-Sporra-IOS/Tools/test-core.sh          # on this Mac — about a second
-Sporra-IOS/Tools/test-core.sh --ios    # on the iOS Simulator — about a minute
+sporra-ios/Tools/test-core.sh          # on this Mac — about a second
+sporra-ios/Tools/test-core.sh --ios    # on the iOS Simulator — about a minute
 ```
 
 The Mac run is the one to use while working: no simulator to boot, no signing,
@@ -229,7 +229,7 @@ Metal stack rather than the Mac's. Both are expected to pass; if only one fails,
 that difference is the interesting part.
 
 **In Xcode, open the package, not the project.** `File → Open →
-`Sporra-IOS/SporraCore/Package.swift`` gives you the test navigator, inline
+`sporra-ios/SporraCore/Package.swift`` gives you the test navigator, inline
 results and ⌘U. Pressing ⌘U on `Sporra.xcodeproj` does nothing useful and says
 so — a package dependency's test targets are not built by the app's scheme, and
 wiring them in by hand does not work either ("no test bundles available to
@@ -275,8 +275,8 @@ them.
 Re-run the generators after touching `src/hexgrid.js` or the blob constants:
 
 ```sh
-node Sporra-IOS/Tools/gen-hex-vectors.mjs
-node Sporra-IOS/Tools/gen-blob-vectors.mjs
+node sporra-ios/Tools/gen-hex-vectors.mjs
+node sporra-ios/Tools/gen-blob-vectors.mjs
 ```
 
 **One real difference between the two languages**, and it is invisible until it
@@ -692,7 +692,7 @@ sentence rather than a wrong map.
 `GET /api/airport?lat=&lng=` (`server/airport-at.js`). The dataset is 5,272
 airports and this phone has no copy of it; bundling one would mean a generated
 resource in the Xcode project kept in step with
-`Sporra-webserver/src/airports-airline.json` by hand, going stale silently. The
+`sporra-webserver/src/airports-airline.json` by hand, going stale silently. The
 phone asks, and only when a fix has moved 400 m from wherever it last asked —
 otherwise a one-minute cadence would ask sixty times an hour to be told the same
 thing. A phone at an airport has a network, because that is what an airport is;

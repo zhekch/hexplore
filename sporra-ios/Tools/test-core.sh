@@ -1,8 +1,8 @@
 #!/bin/bash
 # Run the SporraCore tests — the maths and the Metal pipeline.
 #
-#   Sporra-IOS/Tools/test-core.sh          on the Mac, about a second
-#   Sporra-IOS/Tools/test-core.sh --ios    on the iOS Simulator, about a minute
+#   sporra-ios/Tools/test-core.sh          on the Mac, about a second
+#   sporra-ios/Tools/test-core.sh --ios    on the iOS Simulator, about a minute
 #
 # The Mac run is the one to use while working: no simulator to boot, no signing,
 # no Xcode. The --ios run is the one that proves the code works where it is
