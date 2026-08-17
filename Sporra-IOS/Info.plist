@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The rest of Info.plist is generated from build settings
+	     (GENERATE_INFOPLIST_FILE). What lives here is the structured keys, which
+	     cannot be build settings at all, and the prose ones, which can but are
+	     unreadable when they are: an INFOPLIST_KEY_… line in the project file is
+	     a sentence nobody will ever find again. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Not NSAllowsArbitraryLoads. This permits plain http only to local
+		     names — a server at 192.168.x.x or sporra.local, which is exactly
+		     how this app is self-hosted on a home network. Anything on the
+		     public internet still has to be HTTPS, so putting the map behind
+		     `tailscale serve` remains the right way to reach it from outside. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<!-- Recording while the app is not on screen. Without `location` here,
+	     `allowsBackgroundLocationUpdates = true` does not fail politely — it
+	     raises, at the moment tracking is switched on. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Sporra connects to the server you run on your own network.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Sporra uses your location to show where you are on the map.</string>
+	<!-- Both keys, and both needed: iOS shows the When In Use text for the first
+	     prompt and this one for the escalation to Always. An app that asks for
+	     Always without saying what it does with it is an app people say no to. -->
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Sporra fills in your map with the places you go, and can keep doing it while it is in your pocket. Everything it records is sent to the server you run, and nowhere else.</string>
+	<!-- Read-only. The scan reads metadata alone — the coordinate a photo
+	     carries and the date it was taken — and an image is opened only when you
+	     tap one on the map, to show it to you here. Nothing is written, and no
+	     image is ever uploaded. -->
+	<!-- Adding, which is a different and smaller permission than reading above,
+	     and is asked for separately. The only thing that wants it is saving an
+	     exported picture of your map: `a.download` does nothing in a web view,
+	     so the page hands the bytes to `SaveBridge` and it writes them to the
+	     photo library. Nothing is read under this key. -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Sporra saves the pictures you export of your map to your photo library, so they end up where your other pictures are.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Sporra reads the location a photo was taken at, so the places you have photographed appear on your map. Tapping one of those places shows the photo itself, on this phone — no image is ever uploaded.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Sporra reads workouts that recorded a route — a ride, a walk, a run outdoors — and draws them on your map. Workouts with no route are ignored, and nothing is ever written back to Health.</string>
+</dict>
+</plist>

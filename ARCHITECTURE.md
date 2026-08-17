@@ -1,4 +1,4 @@
-# Hexplore — architecture notes
+# Sporra — architecture notes
 
 How the map is built and why it is built that way: the reasoning behind the
 non-obvious code, the constraints that shaped it, and the dead ends that are
@@ -677,7 +677,7 @@ it there and a visit means the same thing either way — see
   date so a cold launch is not automatically due: a photo scan sends the library
   whole, and is the one thing here that is not cheap to repeat.
 
-**Is that address a Hexplore server?** `GET /api/health` is the only route that
+**Is that address a Sporra server?** `GET /api/health` is the only route that
 answers before anybody has signed in, and it exists for the Settings tab: you
 type an address there and, until now, the only way to find out whether it was
 right was to open the Map tab and see whether a web view stayed white. A typo, a
@@ -688,8 +688,8 @@ signed out.
 A 200 is not enough to say yes. On a home network an address with the *wrong*
 thing behind it is commoner than one with nothing — a router's admin page, a NAS,
 another container on the same box — and all of them answer 200 to something. So
-the route names itself, `{app: 'hexplore', version}`, and the phone reports three
-different states in three colours: green for a Hexplore server and its build,
+the route names itself, `{app: 'sporra', version}`, and the phone reports three
+different states in three colours: green for a Sporra server and its build,
 **orange** for something that answered and is not one, red for no answer, with
 the HTTP status or the `URLError` code, which is the part that can be searched
 for.
@@ -707,7 +707,7 @@ in the device list. That matches how every other source works and is the reason
 
 #### And a Mac, pushing through the same door
 
-`HexPlore-macOS/` is the same client for a machine that is not a phone, and it
+`Sporra-macOS/` is the same client for a machine that is not a phone, and it
 posts to the same `/api/device/fixes` with the same `{device, fixes}` body. The
 server does not distinguish them and should not: the contract above — FIFO
 queue, forward-only cursor, retries that are no-ops — is about how a *pushing*
@@ -718,7 +718,7 @@ recording because it is invisible from this side. **macOS does not relaunch an
 app for a location event and does not wake a sleeping machine to take a fix.**
 The significant-change monitor exists there, but the job it does on iOS — being
 the one service that resurrects a terminated app — it cannot do. So a Mac
-records while HexPlore is running and not otherwise, which makes it a real
+records while Sporra is running and not otherwise, which makes it a real
 source for a laptop that travels and close to a dead weight on a desktop. The
 setting therefore starts *off*, and the sparse days that result are honest in
 the same way every other gap here is honest.
@@ -2399,7 +2399,7 @@ it isn't a row, it's a reading of the rows — see
   stack — above the basemap's own labels, not merely above the blobs. The only
   other thing drawn that high is the day/trip highlight, and `syncHomeMarker`
   raises home again whenever that is shown, because a marker you have to hunt
-  for is not a marker. Everything we add to the map carries a `hexplore-`
+  for is not a marker. Everything we add to the map carries a `sporra-`
   prefix where a collision is possible: CARTO's styles ship a layer of their own
   called `rail`, and for as long as ours had that name too, switching to Light
   or Dark left `getLayer('rail')` answering yes about somebody else's layer
@@ -2870,13 +2870,13 @@ runtime is a sentence no translator ever sees (see [Language](#language)).
 `hostKindOf()` reads two signals the app already had:
 
 - `data-client="ios"` on the document, stamped by the server for a User-Agent
-  carrying `HexploreiOS` (`indexForClient` in `server/index.js`).
-- the `hexploreLocation` message handler, which **only the Mac app registers** —
+  carrying `SporraiOS` (`indexForClient` in `server/index.js`).
+- the `sporraLocation` message handler, which **only the Mac app registers** —
   the iPhone's WebKit delivers positions perfectly well and needs no shim (see
   [The button that says where you are](#the-button-that-says-where-you-are)).
 
 The Mac is therefore identified by its geolocation bridge rather than by the
-`HexploreMac` tag it also sets, because the server does not rewrite the document
+`SporraMac` tag it also sets, because the server does not rewrite the document
 for that tag and there is nothing on the page to read.
 
 ### Asking is done by asking
@@ -4771,7 +4771,7 @@ The train tracks failed differently and more quietly. `addRailLayer` asked
 "does a source called `rail` exist" and returned having added nothing — but
 CARTO's styles ship a layer of their own called `rail`, so on Light and Dark the
 question was being answered about somebody else's layer. Ours was namespaced
-(`hexplore-rail` then, `hexplore-orm-…` since the vector rebuild below), and the
+(`sporra-rail` then, `sporra-orm-…` since the vector rebuild below), and the
 guard asks for our own layer by our own id. The general rule: a basemap is
 somebody else's style and its ids are theirs to choose.
 
@@ -4830,8 +4830,8 @@ it has none. It is handled by its shape instead: an `image` operator whose
 argument contributes no prefix is reading the default sprite.
 
 **Its ids.** A basemap is somebody else's style and its layer ids are theirs to
-choose. Sources and layers alike carry `hexplore-orm-`, for the same reason
-`hexplore-rail` did.
+choose. Sources and layers alike carry `sporra-orm-`, for the same reason
+`sporra-rail` did.
 
 **Its tile URLs.** Rewritten to the caching proxy below.
 
@@ -5015,7 +5015,7 @@ ones, nothing anywhere else.
 source's tiles when a filter that reads a changed global-state key changes
 (`getLayoutAffectingGlobalStateRefs` includes the feature filter), and a
 `setFilter` per layer would do that work once per layer. The filters are written
-into the layers at install as `["any", ["global-state", "hexploreTechnical"], …]`
+into the layers at install as `["any", ["global-state", "sporraTechnical"], …]`
 — exactly the shape their own style is written in — so the switch is one property
 set. It is still five properties and so five reloads, because their four
 `showXInfrastructure` switches follow the same toggle; only `Style.setGlobalState`
@@ -5998,7 +5998,7 @@ would otherwise happen the moment a screenshot landed at the top of the library.
 ### The picture crosses as base64, and that is the CSP's doing
 
 The tidier shape would be a custom URL scheme — `WKURLSchemeHandler`, and an
-`<img src="hexplore-photo://…">` the browser could fetch, cache and lazy-load on
+`<img src="sporra-photo://…">` the browser could fetch, cache and lazy-load on
 its own. It does not survive contact with this app's own security headers:
 `img-src` lists `'self' data: blob: https:`, and widening a real
 Content-Security-Policy to make a nicer-looking image URL is the wrong way round.
@@ -6111,7 +6111,7 @@ that arrives as a stream of `wheel` events and reached nothing at all here. A
 swipe over the photograph did nothing to it.
 
 So the **picture** takes the horizontal wheel, and the rule is the Mac app's own
-(`GalleryView.scrollWheel` in `HexPlore-macOS`): accumulate `deltaX`, step at
+(`GalleryView.scrollWheel` in `Sporra-macOS`): accumulate `deltaX`, step at
 `WHEEL_STEP` (40px), and take only wheels that are plainly sideways — a
 two-finger scroll down a trackpad drifts left and right the whole way, and a
 card that changes picture because of that is unusable.
@@ -7944,7 +7944,7 @@ So it is a thing the host is asked to say, exactly like the safe-area insets:
 `pushClock()` in `WebPanel.swift` reads the pattern behind the `j` skeleton (the
 one reading that returns the user's *preference* rather than the region's
 convention), writes `data-hour-cycle` on the root element and fires
-`hexplore:clock`. It is injected at document start, so the very first timestamp
+`sporra:clock`. It is injected at document start, so the very first timestamp
 on screen is right, and pushed again on load, so a web view that reloads after
 the switch was flipped is not repeating what was true at launch. In a browser
 nothing writes it and the locale stands, which is what this has always done.

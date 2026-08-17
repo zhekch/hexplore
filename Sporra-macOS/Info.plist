@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The rest of Info.plist is generated from build settings
+	     (GENERATE_INFOPLIST_FILE). What lives here is the structured keys, which
+	     cannot be build settings at all, and the prose ones, which can but are
+	     unreadable when they are: an INFOPLIST_KEY_… line in the project file is
+	     a sentence nobody will ever find again. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Not NSAllowsArbitraryLoads. This permits plain http only to local
+		     names — a server at 192.168.x.x or sporra.local, which is exactly
+		     how this app is self-hosted on a home network. Anything on the
+		     public internet still has to be HTTPS, so putting the map behind
+		     `tailscale serve` remains the right way to reach it from outside. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Sporra connects to the server you run on your own network.</string>
+	<!-- Three location keys, because macOS has changed its mind about which one
+	     it reads. `NSLocationUsageDescription` is the long-standing Mac key;
+	     the two iOS-shaped ones are honoured from macOS 11 onwards and are what
+	     a modern `requestAlwaysAuthorization` looks for. Missing the one in use
+	     does not warn — the prompt simply never appears and location silently
+	     never works, so all three are present and say the same thing.
+
+	     Note there is no "While Using the App" state on macOS to write a
+	     separate sentence for: the system has one location grant. See
+	     LocationLogger.apply(). -->
+	<key>NSLocationUsageDescription</key>
+	<string>Sporra uses your location to show where you are on the map, and — if you turn it on — to fill in the places this Mac has been.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Sporra uses your location to show where you are on the map.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Sporra fills in your map with the places you go while it is running. Everything it records is sent to the server you run, and nowhere else.</string>
+	<!-- Read-only. The scan reads metadata alone — the coordinate a photo
+	     carries and the date it was taken — and an image is opened only when you
+	     click one on the map, to show it to you here. Nothing is written, and no
+	     image is ever uploaded. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Sporra reads the location a photo was taken at, so the places you have photographed appear on your map. Clicking one of those places shows the photo itself, on this Mac — no image is ever uploaded.</string>
+</dict>
+</plist>

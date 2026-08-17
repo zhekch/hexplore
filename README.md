@@ -1,4 +1,4 @@
-# Hexplore
+# Sporra
 
 An interactive world map covered in a hexagonal grid, where you mark the places
 you've been. Cells are hexagons in storage but never look like it — they're
@@ -11,12 +11,12 @@ Point it at your location history and it fills itself in.
 
 | | |
 |---|---|
-| **[HexPlore-webserver/](HexPlore-webserver/README.md)** | The web app and its Node/SQLite server. This is the product; the other two are ways to carry it. |
-| **[HexPlore-IOS/](HexPlore-IOS/README.md)** | An iPhone app that hosts the web app in a web view and adds the one thing a browser cannot do: record where you have been with the screen off. |
-| **[HexPlore-macOS/](HexPlore-macOS/README.md)** | The same program on a Mac. Its README is written as a diff against the iOS one, because the places the two differ are the only interesting part. |
+| **[Sporra-webserver/](Sporra-webserver/README.md)** | The web app and its Node/SQLite server. This is the product; the other two are ways to carry it. |
+| **[Sporra-IOS/](Sporra-IOS/README.md)** | An iPhone app that hosts the web app in a web view and adds the one thing a browser cannot do: record where you have been with the screen off. |
+| **[Sporra-macOS/](Sporra-macOS/README.md)** | The same program on a Mac. Its README is written as a diff against the iOS one, because the places the two differ are the only interesting part. |
 
 They live in one repo because they are one program. The apps are web views over
-the same site, the Swift hex-grid maths in `HexploreCore` is checked against the
+the same site, the Swift hex-grid maths in `SporraCore` is checked against the
 JavaScript that defines it, and a change to the shape of the app usually lands
 in more than one folder at once.
 
@@ -25,15 +25,15 @@ in more than one folder at once.
 You only need the first folder. Node 20+ is the one requirement.
 
 ```sh
-git clone https://github.com/zhekch/hexplore.git
-cd hexplore/HexPlore-webserver
+git clone https://github.com/zhekch/sporra.git
+cd sporra/Sporra-webserver
 npm install
 npm run dev
 ```
 
 Open <http://localhost:5173> and register an account — **the first account on an
 empty database is always allowed**, and registration closes itself afterwards.
-[HexPlore-webserver/README.md](HexPlore-webserver/README.md) covers running it
+[Sporra-webserver/README.md](Sporra-webserver/README.md) covers running it
 for real, getting your location history in, and the configuration.
 
 Nothing in the two app folders is needed to run the server, and nothing there is
