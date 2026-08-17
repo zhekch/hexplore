@@ -8202,6 +8202,30 @@ than beside the wordmark: the reading can run to about 190px and a small phone i
 320 wide, so centred it starts at 65 while the wordmark ends at 108 — they clear
 each other on the widest phone and not on the narrowest.
 
+## The app icon, and why there are two of it
+
+`Sporra.icon` is an **Icon Composer** document, not an asset catalog icon set:
+`icon.json` plus the artwork it layers, which Xcode 26 compiles into the whole
+family — light, dark, tinted, and the glass treatment — from one 1024px source.
+The picture is the app describing itself: a country's regions filled in on a
+map, which is the only thing this program does.
+
+**Both apps carry their own copy, and that is not laziness.** The one thing
+tried first was a single document at the repo root with a symlink into each
+app's folder, and it fails at build time with *Icon export exited with status
+255, signal 0* — a message that says nothing about symlinks and sends you
+looking at the document instead. Xcode's icon exporter wants a real directory
+inside the target's own synchronized group. So: two copies, byte for byte, and
+`scripts/test/app-icon.mjs` is what stops them drifting. That test also checks
+the halves nothing else would notice — that both configurations of both projects
+name the document (`ASSETCATALOG_COMPILER_APPICON_NAME = Sporra`, which has to
+match the filename or the build fails claiming the *catalog* is wrong), and that
+neither project still has the empty `AppIcon.appiconset` it was created with,
+because two plausible places to edit the icon is one too many.
+
+Editing it means opening either copy in Icon Composer and then making the other
+one match; `npm test` says so if you forget.
+
 ## The build number, and bumping it
 
 **`SERVER_VERSION` at the top of `server/index.js` must be bumped on every
