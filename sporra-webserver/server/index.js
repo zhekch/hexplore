@@ -84,6 +84,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeLimiter, clientIp } from './rate-limit.js';
 import * as derive from './derive.js';
+import { banner } from './banner.js';
 
 // ┌──────────────────────────────────────────────────────────────────────────┐
 // │  BUMP THIS ON EVERY CHANGE TO THE CODE.                                  │
@@ -102,7 +103,7 @@ import * as derive from './derive.js';
 // anything if it moves, so move it — a patch bump for a fix, a minor for
 // anything a user would notice. Stale here is worse than absent: a version that
 // lies is how you rule out the very thing that is wrong.
-export const SERVER_VERSION = '0.83.0';
+export const SERVER_VERSION = '0.83.1';
 
 // --- …and whether somebody has published a newer one ------------------------------
 //
@@ -4299,7 +4300,15 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[visited-map] API on http://localhost:${PORT}` + (SERVE_STATIC ? ' (also serving dist/)' : ''));
+  // The constant is handed over rather than left to banner.js to read back off
+  // this file: what a boot should report is the version it is *running*, and
+  // those two stop being the same thing the moment a pull lands under a server
+  // that has not been restarted yet — which is exactly when it is being read.
+  //
+  // Printed whether or not anything is watching. restart.sh sends this to
+  // server.log, and a log whose every boot is stamped with a version is how you
+  // find out which one started misbehaving.
+  console.log(banner(`http://localhost:${PORT}${SERVE_STATIC ? '  ·  serving dist/' : ''}`, SERVER_VERSION));
   // Anything that happened while the server was down is still in Home
   // Assistant's recorder, so the first tick after a restart backfills it.
   setTimeout(haPollTick, 5000);

@@ -8126,6 +8126,27 @@ version is worse than none at all**: the entire value is that it can be trusted
 to rule the question out, and one that lies rules out the very thing that is
 wrong.
 
+### …before there is a Settings page to read it off
+
+The foot of Settings answers the question only once the app is open and a server
+is already serving it. The three moments you most want the number are all
+earlier than that: a build, which becomes a `dist/` that something serves later
+and elsewhere; a restart, which may or may not have actually pulled anything;
+and a boot, which may have come back up on the code it went down with.
+
+So `server/banner.js` prints it at each of them — `vite build` through a small
+plugin in `vite.config.js`, `scripts/restart.sh` once the new server is
+answering, and `server/index.js` from its `listen` callback. The art is not the
+point; the line under it is.
+
+The server is handed the constant it is *running*, which stops being the same
+thing as the constant on disk the moment a pull lands under a process nobody has
+restarted yet — precisely when someone is reading it. Every other caller reads
+it back off `server/index.js` with the same regex the update check runs against
+the remote copy, because importing that module to ask would open the database
+and bind the port. **That is what pins `SERVER_VERSION` to `server/index.js`**:
+two readers now depend on it living there, spelled that way.
+
 ### …and whether it is still the current one
 
 *Which build am I looking at* and *is that the current one* are the same

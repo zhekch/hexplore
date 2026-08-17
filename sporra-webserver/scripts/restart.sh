@@ -106,7 +106,11 @@ for _ in $(seq 1 40); do
 done
 
 if curl -sf -o /dev/null "http://127.0.0.1:$port/"; then
-  echo "✓ up on http://localhost:$port (pid $(lsof -ti "tcp:$port" | head -1))"
+  # The server prints this too, but into server.log — where nobody is looking
+  # at the moment they want it. The version is the whole reason for restarting,
+  # and reading it back here proves the build that just landed is the one now
+  # answering, rather than the one this script started with.
+  node server/banner.js "http://localhost:$port  ·  pid $(lsof -ti "tcp:$port" | head -1)"
 else
   echo "✗ did not come up — last of server.log:" >&2
   tail -20 server.log >&2
