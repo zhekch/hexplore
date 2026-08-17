@@ -372,6 +372,18 @@ glass look. Click hexagons to mark places you've visited.
   nothing has to be painted, and the heading keeps the card's glass. Narrow, that
   wrapper is `display: contents` and the dialog is the single scrolling column
   it always was.
+- **Both columns are panes, and the box around them does not scroll.** The
+  summary was left to scroll with the dialog, which was fine while the list was
+  the taller of the two and stopped being fine the moment the list got a cap:
+  with the summary now the tallest thing in the grid its `position: sticky` had
+  no room to work in, so it travelled up — behind the tab strip, which is glass,
+  so "behind" meant printed through. Two rows of the summary across "Routes" and
+  "Statistics". So the summary is capped and scrolls its own content too, and
+  `.stats-body` is `overflow: visible`: a box that *can* scroll eventually will,
+  and what sits directly above this one is a translucent control. The offset that
+  holds the summary clear of the tabs is a **margin**, not the padding it was —
+  padding is inside the scroll box and would scroll away with everything else,
+  putting the first rows behind the strip anyway.
 - **Glass tiles**: unvisited cells draw as slightly inset, sharp-cornered
   glass tiles with a whisper-thin stroke — tuned by `TILE_INSET`.
 

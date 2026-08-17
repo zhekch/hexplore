@@ -3545,17 +3545,10 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
     align-items: start;
   }
 
-  /* The summary is the frame of reference for the list beside it, so it stays
-     put while the list is scrolled rather than sliding away at the first flick. */
-  .stats-side {
-    position: sticky;
-    top: 0;
-  }
-
   /* A wide dialog that shows three rows of a list is a wide dialog with nothing
      in it. The cap exists for short windows, and `vh` still answers that.
-     Named because two boxes are cut to it — the dialog's scroller and the list
-     column inside it, which has to end exactly where the card does. */
+     Named because both columns are cut to it, and they have to end level with
+     each other and with the card. */
   #stats-overlay {
     --stats-pane: min(68vh, 580px);
     /* The summary column, and — because they are the same column — the tab
@@ -3579,22 +3572,52 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
      order however far into a media query it is hidden. Both declarations below
      were silently doing nothing. */
   #stats-overlay .stats-body {
-    max-height: var(--stats-pane);
+    /* Nothing here scrolls: the two columns inside are each capped at the pane
+       and each carry a scroller of their own, so this is only the box they sit
+       in. It has to be said outright rather than left to the base rule's
+       `overflow-y: auto`, because a box that *can* scroll eventually will — and
+       what is directly above this one is the tab strip, which is glass. Content
+       travelling up behind it does not disappear, it shows through: two rows of
+       the summary printed across "Routes" and "Statistics". */
+    max-height: none;
+    overflow: visible;
     /* Up beside the tabs. The tab strip is one column wide and the card is
        1,180, so the whole width to the right of it was empty while the list it
        belongs to started below — a band of nothing across the top of the
        dialog, and one fewer row of the list for it.
 
-       The whole scroller moves rather than the list column alone, and the left
-       column pays the offset back as padding so the summary still begins under
-       the tabs rather than behind them. Both numbers are the tab strip's own
-       height plus the margin that was here — measured, not guessed, and checked
-       by eye when either changes. */
+       The whole box moves rather than the list column alone, and the left column
+       pays the offset back so the summary still begins under the tabs rather
+       than behind them. Both numbers are the tab strip's own height plus the
+       margin that was here — measured, not guessed, and checked by eye when
+       either changes. */
     margin-top: calc(14px - var(--stats-tabs-lead));
   }
 
+  /* The summary is a pane like the list beside it, ending level with it and
+     scrolling its own content.
+
+     **`margin-top`, not the `padding-top` this was.** Padding is *inside* the
+     scroll box: the offset that holds the summary clear of the tab strip would
+     itself scroll away, and the first rows would end up behind the strip on the
+     way past — which, the strip being glass, means printed through it. A margin
+     is outside the box, so the pane simply starts below the tabs and its top
+     edge is a wall. Cap and offset are the same one number, taken off the pane
+     so that both columns still end on the same line. */
   .stats-side {
-    padding-top: var(--stats-tabs-lead);
+    margin-top: var(--stats-tabs-lead);
+    max-height: calc(var(--stats-pane) - var(--stats-tabs-lead));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* No rail, the same call as the card and the list: a track down the inside
+       edge of a glass panel reads as a seam in it. */
+    scrollbar-width: none;
+  }
+
+  .stats-side::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
   }
 
   /* --- The heading stays, and nothing scrolls behind it -------------------------
@@ -3620,12 +3643,6 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   .stats-main {
     display: flex;
     flex-direction: column;
-    /* Pinned like the summary beside it. The left column can be the taller of
-       the two — Statistics is a dozen rows and two charts — and when it is, the
-       dialog's own scroller is what moves; this column should stay where it is
-       rather than slide away with it. */
-    position: sticky;
-    top: 0;
     max-height: var(--stats-pane);
   }
 
@@ -3662,16 +3679,6 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
     display: none;
   }
 
-  /* The summary column is sticky as a block, so its own headings need no
-     treatment — but the chart's hover chip has to pass over the list beside it
-     rather than under it.
-
-     Deliberately below the tab strip's 2: this column's own top padding sits
-     behind the tabs (that is what pays back the lift above), and a padding box
-     that outranks them is an invisible sheet over both buttons. */
-  .stats-side {
-    z-index: 1;
-  }
 }
 
 /* (Sizing for these lives with `.stats-tabs` above — one rule, so nothing
