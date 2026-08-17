@@ -3442,6 +3442,17 @@ html {
   .stats-body {
     max-height: min(68vh, 580px);
   }
+
+  /* The list column starts with a heading, and a heading carries 27px of
+     lead-in: a rule, the space over it and the space under it. That is right
+     between two sections of one column and wrong at the top of a second one —
+     it dropped the list a line below the numbers it sits beside, and drew a rule
+     across the top of the card with nothing above it to separate. */
+  .stats-main > .stats-head:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
 }
 
 .stats-tabs .seg-btn {
@@ -3815,6 +3826,21 @@ html {
 .stats-year:hover em,
 .stats-year:focus-visible em {
   opacity: 1;
+}
+
+/* Centred on a 40px bar, the chip is wider than the bar and hangs off both
+   sides — which is fine in the middle of the chart and clipped at its ends,
+   because the column it sits in scrolls. The two outermost bars align their chip
+   to the edge instead of to themselves. */
+.stats-year:first-child em {
+  left: 0;
+  transform: none;
+}
+
+.stats-year:last-child em {
+  left: auto;
+  right: 0;
+  transform: none;
 }
 
 .stats-year i {

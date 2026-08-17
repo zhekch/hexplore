@@ -146,7 +146,7 @@ export function mountStats({
   }
 
   /** A bar chart of one number per year, with the number itself on hover. */
-  function yearChart(entries, describe) {
+  function yearChart(entries, describe, short) {
     const max = Math.max(...entries.map(([, n]) => n));
     const chart = document.createElement('div');
     chart.className = 'stats-years';
@@ -158,9 +158,13 @@ export function mountStats({
       // waits a second, appears wherever the pointer is, and cannot be styled —
       // and it would show *as well as* this one. `aria-label` keeps the same
       // sentence for anything not using a pointer at all.
-      const said = describe(n, year);
-      col.setAttribute('aria-label', said);
-      col.querySelector('em').textContent = said;
+      // The chip says the number and nothing else. It is centred over a bar
+      // about 40px wide inside a column that clips, so every word in it is width
+      // that hangs off one end or the other — and the year is already printed
+      // under the bar being pointed at. `aria-label` keeps the whole sentence,
+      // which has no width to spend.
+      col.setAttribute('aria-label', describe(n, year));
+      col.querySelector('em').textContent = short(n, year);
       col.querySelector('i').style.height = `${Math.max(3, (n / max) * 100)}%`;
       col.querySelector('span').textContent = String(year).slice(2);
       chart.append(col);
@@ -691,7 +695,7 @@ export function mountStats({
     if (byYear.size > 1) {
       side.append(headRow('Distance by year'));
       const years = [...byYear.entries()].sort((a, b) => a[0] - b[0]);
-      side.append(yearChart(years, (m, year) => `${formatDistance(m)} in ${year}`));
+      side.append(yearChart(years, (m, year) => `${formatDistance(m)} in ${year}`, (m) => formatDistance(m)));
     }
 
     const redraw = () => {
@@ -881,7 +885,7 @@ export function mountStats({
 
     if (s.years.length > 1) {
       side.append(headRow('New ground by year'));
-      side.append(yearChart(s.years, (n, year) => `${plural(n, 'cell')} first seen in ${year}`));
+      side.append(yearChart(s.years, (n, year) => `${plural(n, 'cell')} first seen in ${year}`, (n) => plural(n, 'cell')));
     }
 
     if (s.sources.length) {
