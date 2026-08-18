@@ -45,7 +45,7 @@ import {
   allCountries, countryAreaKm2, countryCount, countryGeometry, countryIso, loadCountries,
 } from './countries.js';
 import {
-  countriesInView, fineCountryOutline, loadFineRegions, loadRegions, regionAreaKm2,
+  countriesInView, countryOutline, loadFineRegions, loadRegions, regionAreaKm2,
   regionById, regionGeometry, regionsLoaded, regionsOf,
 } from './regions.js';
 import {
@@ -698,17 +698,43 @@ export const isoOf = countryIso;
 let frameSharp = true;
 
 /**
- * A country's outline at the best resolution in memory — its detailed regions
- * dissolved and trimmed back to the country proper, or the shipped outline.
+ * A country's outline at the best resolution in memory — its regions dissolved
+ * and trimmed back to the country proper, or the shipped outline.
  *
  * The trim is not optional: the region dataset keeps overseas territories on
  * purpose and `countries.json` does not, so an untrimmed dissolve puts French
- * Guiana back into the shape of France. See `fineCountryOutline`.
+ * Guiana back into the shape of France. See `countryOutline`.
+ *
+ * **A country has one shape in a picture, and this is where it is decided.**
+ * `countries.json` is rounded to a 0.01° grid — about 1.1 km — which is the
+ * right economy for a dataset that has to describe the whole world at z4, and
+ * far too blunt to be in the same picture as the admin-1 set. Measured against
+ * their own dissolved regions, the shipped outlines sit a median 1–3 km away
+ * and up to 8 km, so the moment both are drawn the national border is ruled
+ * twice: the land fill and its stroke follow `countries.json` while the region
+ * division lines follow `regions.json`, a few kilometres beside it. Under a
+ * kilometre per pixel — a 5,760 px poster of Europe — that is a visible pair of
+ * lines down every border and around every coast.
+ *
+ * So the dissolve wins wherever there is one, at whichever resolution is in
+ * play, and `countries.json` stands in only for the countries the admin-1 set
+ * does not subdivide. That is what `fineCountryGeometry` already did for the
+ * detailed set; it was the overview half that had no answer.
  */
-const sharpCountryGeometry = (name) => fineCountryOutline(countryIso(name));
+const sharpCountryGeometry = (name) => {
+  const iso = countryIso(name);
+  return countryOutline(iso, true) ?? countryOutline(iso, false);
+};
 
-/** …and the same, held back when this frame is not one the fetch covered. */
-const fineCountryGeometry = (name) => (frameSharp ? sharpCountryGeometry(name) : null);
+/**
+ * …and the resolution this frame is actually drawing at: the detailed dissolve
+ * where the fetch covered it, the overview dissolve otherwise, and null only
+ * for a country that is one region.
+ */
+const fineCountryGeometry = (name) => {
+  const iso = countryIso(name);
+  return (frameSharp ? countryOutline(iso, true) : null) ?? countryOutline(iso, false);
+};
 
 /**
  * The bounding boxes of a country's *pieces*, cached by name.

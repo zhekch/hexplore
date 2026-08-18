@@ -219,19 +219,28 @@ function pushRing(rings, ring) {
  *  ring with it. Both boundary datasets merge their lit shapes exactly this
  *  way — touching areas join with no border between them. */
 export function unionGeometries(geoms) {
-  if (!geoms.length) return { fill: [], rings: [] };
+  if (!geoms.length) return { fill: [], rings: [], exact: true };
   let merged;
+  let exact = true;
   try {
     merged = polygonClipping.union(geoms[0], ...geoms.slice(1));
   } catch (e) {
     // **A dissolve that fails must not cost the picture.** `COORD_SNAP` is why
     // this is now rare, but the sweep-line has no proof behind it and a dataset
     // nobody has seen yet can still tie it in a knot. Undissolved, the same
-    // shapes still draw the same ground — every internal border shows, which is
-    // the seam this file exists to avoid and a great deal better than a blank
+    // shapes still draw the same ground — a great deal better than a blank
     // canvas and a sentence about output rings where a poster should be.
+    //
+    // But every internal border now shows, which is precisely what dissolving
+    // was for, so this is not a shape anything may pass off as a dissolved one.
+    // `exact` is how a caller tells the difference: `countryOutline` throws
+    // the result away rather than hand the renderer a country whose outline is
+    // secretly twenty-six cantons, which draws every canton border twice — once
+    // at the region level and again at the country level — and is how the fix
+    // for one seam produced another.
     console.warn(`[polygon] ${geoms.length} shapes would not dissolve, drawing them unmerged — ${e?.message ?? e}`);
     merged = geoms.flat();
+    exact = false;
   }
   const fill = [];
   const rings = [];
@@ -247,7 +256,7 @@ export function unionGeometries(geoms) {
     // border ringing a gap that is no longer there.
     for (const ring of kept) pushRing(rings, ring);
   }
-  return { fill, rings };
+  return { fill, rings, exact };
 }
 
 /** Normalize either geometry kind to MultiPolygon coordinates. */

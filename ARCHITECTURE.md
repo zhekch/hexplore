@@ -3336,6 +3336,40 @@ failed dissolve escape: undissolved shapes draw the same ground with their
 internal borders showing, which is a seam, where an exception is a blank canvas.
 Both halves are pinned in `scripts/test/union-slivers.mjs`.
 
+**And the 0.01° grid is itself too blunt to share a picture with the admin-1
+set.** Unblocking the large exports made that visible immediately: every country
+came out with a doubled border and a doubled coastline. The land fill and its
+stroke were drawn from `countries.json`, the region division lines from
+`regions.json`, and the two describe the same national border a median ~1 km
+apart — 0.45 to 2 km across the countries measured, which is sub-pixel in a
+600 px preview and one to three pixels of clear daylight in a 5,760 px poster.
+Nothing about it was new; it had simply never been rendered at a scale that
+could show it, because that scale used to throw.
+
+`countryOutline(iso, fine)` in `src/regions.js` is the fix, and it is a
+generalisation of what the detailed path already did: a country's shape is its
+own regions dissolved, at whichever resolution is in play, and `countries.json`
+stands in only for the ~3 countries the admin-1 set does not subdivide. Every
+consumer goes through it — the unvisited land in `renderExport`, `landGeoms`,
+both branches of `divisionGeoms`, and `sharpCountry` in `src/main.js`, which
+draws the *lit* shapes over that land and would otherwise have shown the same
+kilometre as a rim of the wrong colour. The dissolved areas stay within 0.4% of
+the shipped ones, and the statistics are untouched: `countryAreaKm2` still reads
+`countries.json`, because a percentage of a country should not move when a
+poster gets bigger.
+
+The overview dissolve is memoised separately from the fine one, because
+`regions.json` does not change while the app runs and `addFineRegions` — called
+once per country a European frame reaches — would otherwise rebuild every
+overview outline in the frame thirty times over.
+
+What is left is the seam the `frameSharp` comment already described: a country
+whose detail was fetched sits about 0.5–1.2 km from a neighbour that has none,
+because geoBoundaries has no detailed set for it. That is a hairline rather than
+the double line above, it appears only at such a pair, and closing it would mean
+giving up the detail for the whole frame whenever any one country lacks it —
+which is the trade this code has already decided, in the other direction.
+
 **Regions are the finest of the polygon levels.** Level 4's hexagons were ~73 km
 across, which says nothing a canton doesn't say better — "which cantons have I
 been to" is a question with an answer where "which 73 km squares" is not. So the
