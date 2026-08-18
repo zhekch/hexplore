@@ -126,7 +126,7 @@ import { INTRO_SEEN_KEY, INTRO_VERSION, hostKind, shouldIntro } from './intro.js
 import { activeDays, findHome, TRIP_NAME_MAX } from './trips.js';
 import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
-  loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView, countryOutline,
+  loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView, fineCountryOutline,
   regionById, regionTerm, fineRegionsVersion,
 } from './regions.js';
 import { geometryAreaM2 } from './regions.js';
@@ -2809,7 +2809,7 @@ function areaOfCellMemo(kind, id) {
 // One area's geometry, whichever dataset it came from.
 //
 // A country asked for `fine` is its own regions dissolved (trimmed back to the
-// country proper — see countryOutline). That matters for the *export* far
+// country proper — see fineCountryOutline). That matters for the *export* far
 // more than for the map: picking Countries as the detail while the picture is
 // of one country draws a shape four pixels per vertex across, and the seam
 // against the mask around it is the first thing you see.
@@ -2820,16 +2820,8 @@ function areaGeometry(kind, id, fine) {
   return kind === 'region' ? regionGeometry(id, fine) : sharpCountry(id, fine);
 }
 
-// The same rule the export's unvisited land follows, and it has to be the same
-// rule: these are the *lit* shapes drawn over that land, so a country whose
-// visited fill came from `countries.json` while the ground under it came from
-// its dissolved regions would show the 1–3 km the two datasets disagree by as a
-// rim of the wrong colour along its own border. See `sharpCountryGeometry` in
-// src/export-image.js for why the dissolve is the one that wins.
-const sharpCountry = (id, fine) => {
-  const iso = countryIso(id);
-  return (fine ? countryOutline(iso, true) : null) ?? countryOutline(iso, false) ?? countryGeometry(id);
-};
+const sharpCountry = (id, fine) =>
+  (fine ? fineCountryOutline(countryIso(id)) : null) ?? countryGeometry(id);
 
 // Dissolve the lit areas into one shape. Countries and continents go straight to
 // their own merge; regions may include whole-country stand-ins, so those are

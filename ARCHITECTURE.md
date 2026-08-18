@@ -3336,39 +3336,36 @@ failed dissolve escape: undissolved shapes draw the same ground with their
 internal borders showing, which is a seam, where an exception is a blank canvas.
 Both halves are pinned in `scripts/test/union-slivers.mjs`.
 
-**And the 0.01° grid is itself too blunt to share a picture with the admin-1
-set.** Unblocking the large exports made that visible immediately: every country
-came out with a doubled border and a doubled coastline. The land fill and its
-stroke were drawn from `countries.json`, the region division lines from
-`regions.json`, and the two describe the same national border a median ~1 km
-apart — 0.45 to 2 km across the countries measured, which is sub-pixel in a
-600 px preview and one to three pixels of clear daylight in a 5,760 px poster.
-Nothing about it was new; it had simply never been rendered at a scale that
-could show it, because that scale used to throw.
+**A doubled border at poster scale, and why the obvious fix is not one.**
+Unblocking those exports made something visible that had always been true:
+`countries.json` is rounded to a 0.01° grid and simplified for a dataset that
+describes the world at z4, `regions.json` is neither, and the two put the same
+national border a median ~1 km apart (0.45–2 km across the countries measured).
+The land fill and its stroke come from the first, the region division lines from
+the second. That is sub-pixel in a 600 px preview and one to three pixels of
+daylight down every border and around every coast of a 5,760 px poster.
 
-`countryOutline(iso, fine)` in `src/regions.js` is the fix, and it is a
-generalisation of what the detailed path already did: a country's shape is its
-own regions dissolved, at whichever resolution is in play, and `countries.json`
-stands in only for the ~3 countries the admin-1 set does not subdivide. Every
-consumer goes through it — the unvisited land in `renderExport`, `landGeoms`,
-both branches of `divisionGeoms`, and `sharpCountry` in `src/main.js`, which
-draws the *lit* shapes over that land and would otherwise have shown the same
-kilometre as a rim of the wrong colour. The dissolved areas stay within 0.4% of
-the shipped ones, and the statistics are untouched: `countryAreaKm2` still reads
-`countries.json`, because a percentage of a country should not move when a
-poster gets bigger.
+The obvious repair — let a country's shape be its own regions dissolved, at
+whichever resolution is in play, exactly as `fineCountryOutline` already does for
+the detailed set — **was tried and is much worse.** It works for the detailed set
+because national-survey regions share their borders exactly. The overview set is
+the one this whole section is about: each region is simplified against its own
+size, so neighbours do not share the border between them, and dissolving opens a
+gap at every crossing. Those gaps are not all degenerate enough for
+`isSliverHole` to drop — most are 1–13 km² and round — so they survive as holes,
+and a country outline is *stroked*. France came out with **291 holes** where the
+shipped outline has none, Great Britain with 359: a few hundred hairline
+scratches scribbled across the inside of every country in the frame. The
+measurement is in the commit that reverted it.
 
-The overview dissolve is memoised separately from the fine one, because
-`regions.json` does not change while the app runs and `addFineRegions` — called
-once per country a European frame reaches — would otherwise rebuild every
-overview outline in the frame thirty times over.
-
-What is left is the seam the `frameSharp` comment already described: a country
-whose detail was fetched sits about 0.5–1.2 km from a neighbour that has none,
-because geoBoundaries has no detailed set for it. That is a hairline rather than
-the double line above, it appears only at such a pair, and closing it would mean
-giving up the detail for the whole frame whenever any one country lacks it —
-which is the trade this code has already decided, in the other direction.
+So `countries.json` stays the country outline, and the doubling stands. The cure
+is not in the renderer: it is either detailed boundaries for every country in the
+frame — which geoBoundaries does not have for a number of them, and which is the
+same "some countries have no high-quality data" that `frameSharp` is already
+built around — or a `build-regions.mjs` that simplifies the region set
+*topologically*, so that shared borders thin to the same vertices and the dissolve
+is clean. The second is the real answer and it is a build-time job, not a
+drawing one.
 
 **Regions are the finest of the polygon levels.** Level 4's hexagons were ~73 km
 across, which says nothing a canton doesn't say better — "which cantons have I

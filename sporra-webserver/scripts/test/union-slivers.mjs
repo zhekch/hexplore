@@ -25,7 +25,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadRegions, mergeRegions, countryOutline, regionsOf } from '../../src/regions.js';
+import { loadRegions, mergeRegions } from '../../src/regions.js';
 import { loadCountries, allCountries, mergeCountries } from '../../src/countries.js';
 import { ringAreaM2, asMulti, snapGeometry, unionGeometries } from '../../src/polygon.js';
 
@@ -265,63 +265,11 @@ console.log('\nA dissolve that cannot run still hands back a picture');
   }
   check(!threw, 'geometry the clipper refuses does not escape as an exception');
   check(out?.fill.length === 2, 'the shapes come back unmerged instead', `${out?.fill.length}`);
-}
-
-console.log('\nA country has one shape, and both levels draw it');
-{
-  // `countries.json` is rounded to a 0.01° grid and simplified for a dataset
-  // that has to cover the world at z4; `regions.json` is neither. Drawn
-  // together — the land fill and its stroke from one, the region division lines
-  // from the other — a national border comes out ruled twice, about a kilometre
-  // apart. That is invisible in a 600 px preview and a pair of lines down every
-  // border and around every coast of a 5,760 px poster, which is where it was
-  // finally seen. So both levels draw the dissolve of the country's own
-  // regions, and `countries.json` stands in only where there is no dissolve.
-  //
-  // Measured point-to-segment rather than vertex-to-vertex: dissolving drops
-  // the vertices interior to the country and adds its own where rings cross, so
-  // the two polylines are the same *line* without being the same *points*, and
-  // only the distance between them is what anybody can see.
-  const distToRings = (pt, rs) => {
-    const cos = Math.cos((pt[1] * Math.PI) / 180);
-    let best = Infinity;
-    for (const r of rs) {
-      for (let i = 1; i < r.length; i++) {
-        const ax = (r[i - 1][0] - pt[0]) * cos;
-        const ay = r[i - 1][1] - pt[1];
-        const dx = (r[i][0] - pt[0]) * cos - ax;
-        const dy = r[i][1] - pt[1] - ay;
-        const L = dx * dx + dy * dy;
-        let t = L ? -(ax * dx + ay * dy) / L : 0;
-        t = t < 0 ? 0 : t > 1 ? 1 : t;
-        const qx = ax + t * dx;
-        const qy = ay + t * dy;
-        const d = qx * qx + qy * qy;
-        if (d < best) best = d;
-      }
-    }
-    return Math.sqrt(best) * 111; // km
-  };
-  const median = (from, rs) => {
-    const ds = from.map((p) => distToRings(p, rs)).sort((a, b) => a - b);
-    return ds.length ? ds[Math.floor(ds.length / 2)] : NaN;
-  };
-
-  const shipped = new Map(allCountries().filter((c) => c.iso).map((c) => [c.iso, c]));
-  for (const iso of ['FRA', 'DEU', 'ITA', 'CHE']) {
-    const c = shipped.get(iso);
-    const outline = countryOutline(iso, false);
-    if (!c || !outline) { check(false, `${iso} has a dissolve to compare`); continue; }
-    // Outer rings only — a dissolve keeps small interior holes, and sampling
-    // one measures the distance from inside the country to its own coast.
-    const pts = asMulti(outline).flatMap((p) => p[0]).filter((_, i) => i % 23 === 0).slice(0, 300);
-    const toRegions = median(pts, regionsOf(iso).flatMap((r) => asMulti(r.geometry).map((p) => p[0])));
-    const toShipped = median(pts, asMulti(c.geometry).map((p) => p[0]));
-    check(toRegions < 0.05, `${iso}: the country outline sits on the region lines`,
-      `${(toRegions * 1000).toFixed(0)} m away`);
-    check(toShipped > 0.3, `…and countries.json is the dataset it would have doubled`,
-      `${(toShipped * 1000).toFixed(0)} m away — if this is small the fixture proves nothing`);
-  }
+  // …and says so, because a fill may be undissolved and an outline may not: a
+  // country outline is stroked, and stroking a pile of regions rules every
+  // border inside it. `fineCountryOutline` reads this and declines.
+  check(out?.exact === false, 'and it is not passed off as a dissolved shape');
+  check(unionGeometries([asMulti(square)]).exact === true, 'where a real dissolve says it is one');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

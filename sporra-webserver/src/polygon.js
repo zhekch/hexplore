@@ -231,13 +231,11 @@ export function unionGeometries(geoms) {
     // shapes still draw the same ground — a great deal better than a blank
     // canvas and a sentence about output rings where a poster should be.
     //
-    // But every internal border now shows, which is precisely what dissolving
-    // was for, so this is not a shape anything may pass off as a dissolved one.
-    // `exact` is how a caller tells the difference: `countryOutline` throws
-    // the result away rather than hand the renderer a country whose outline is
-    // secretly twenty-six cantons, which draws every canton border twice — once
-    // at the region level and again at the country level — and is how the fix
-    // for one seam produced another.
+    // But every internal border now shows, so this is not a shape anything may
+    // pass off as a dissolved one. `exact` is how a caller tells: an outline is
+    // stroked, and an undissolved pile stroked as a country outline rules every
+    // region border twice. `fineCountryOutline` takes the shipped outline
+    // instead rather than hand one over.
     console.warn(`[polygon] ${geoms.length} shapes would not dissolve, drawing them unmerged — ${e?.message ?? e}`);
     merged = geoms.flat();
     exact = false;

@@ -111,7 +111,6 @@ export function loadRegions(data) {
   if (!loading) {
     loading = (data ? Promise.resolve({ default: data }) : import('./regions.json')).then((m) => {
       REGIONS = m.default;
-      overviewOutlineMemo.clear();
       idIndex = null;
       recordIndex = null;
       byIso = null;
@@ -648,21 +647,10 @@ export function regionGeometry(id, fine = false) {
 // held, because dissolving 26 cantons of a few thousand points each costs real
 // milliseconds and an export redraws on every drag of a slider.
 const fineOutlineMemo = new Map();
-// The overview dissolve is built from `regions.json`, which does not change
-// while the app runs — so it is held separately and survives every fetch. Put
-// it in the map above and a European export, which calls `addFineRegions` once
-// per country it reaches, would throw away and rebuild the overview outlines of
-// every country in the frame thirty times over.
-const overviewOutlineMemo = new Map();
 
 /**
- * The shape of a whole country as its own regions dissolved, trimmed back to
- * the country proper — at the detailed resolution when `fine` and that
- * country's detail has been fetched, at the overview one otherwise.
- *
- * Null for a country the admin-1 set does not subdivide, and for `fine` before
- * `loadFineRegions` has run. Both mean the same thing to a caller: there is no
- * dissolve, so fall back to the shipped outline in `countries.json`.
+ * The sharp shape of a whole country: its detailed regions dissolved, trimmed
+ * back to the country proper. Null until `loadFineRegions` has fetched them.
  *
  * **Trimmed, and that is the whole subtlety.** `src/countries.json` ships with
  * far-detached territories already filtered out, so mainland France is what the
@@ -673,30 +661,27 @@ const overviewOutlineMemo = new Map();
  * (see src/geo-filter.js), so the two datasets agree about the shape of a
  * country however the shape was arrived at.
  */
-export function countryOutline(iso, fine = false) {
-  if (!iso || !REGIONS) return null;
-  const memo = fine ? fineOutlineMemo : overviewOutlineMemo;
-  if (memo.has(iso)) return memo.get(iso);
+export function fineCountryOutline(iso) {
+  if (!iso) return null;
+  if (fineOutlineMemo.has(iso)) return fineOutlineMemo.get(iso);
   let geometry = null;
-  const ids = new Set(regionsOf(iso).map((r) => r.id));
-  // At the detailed resolution, only worth building once the detailed set is
-  // what would be dissolved: otherwise this is the overview answer by a slower
-  // path to it.
-  const worth = ids.size && (!fine || [...ids].some((id) => FINE.has(id)));
-  if (worth) {
-    // `exact` only: an undissolved pile of regions is not a country outline.
-    // Handing one back draws every internal border — at the country level,
-    // over the region level that already drew them — so the shipped outline,
-    // which is one clean ring per country, is the better answer by far.
-    const { fill, exact } = mergeRegions(ids, fine);
-    if (exact && fill.length) geometry = stripDetachedTerritories({ type: 'MultiPolygon', coordinates: fill });
+  if (FINE.size) {
+    const ids = new Set(regionsOf(iso).map((r) => r.id));
+    // Only worth building once the detailed set is what would be dissolved:
+    // otherwise this is the overview geometry with a slower path to it.
+    const anyFine = [...ids].some((id) => FINE.has(id));
+    if (anyFine) {
+      // `exact` only: an undissolved pile of regions is not a country outline.
+      // Stroked as one it draws every internal border, over the region level
+      // already drawing them — so the shipped outline, one clean ring per
+      // country, is the better answer by a distance.
+      const { fill, exact } = mergeRegions(ids, true);
+      if (exact && fill.length) geometry = stripDetachedTerritories({ type: 'MultiPolygon', coordinates: fill });
+    }
   }
-  memo.set(iso, geometry);
+  fineOutlineMemo.set(iso, geometry);
   return geometry;
 }
-
-/** The same at the detailed resolution — null until `loadFineRegions` has run. */
-export const fineCountryOutline = (iso) => countryOutline(iso, true);
 
 /**
  * Union the lit regions into one dissolved shape, exactly as the country level
