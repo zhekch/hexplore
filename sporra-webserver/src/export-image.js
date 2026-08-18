@@ -554,7 +554,7 @@ export const CAPTION_FIELDS = [
   { key: 'first', label: 'First seen', value: (n) => asDate(n.firstAt) },
   { key: 'last', label: 'Last seen', value: (n) => asDate(n.lastAt) },
   { key: 'days', label: 'Days recorded', value: (n) => (n.days ? asDays(n.days) : null) },
-  { key: 'streak', label: 'Longest streak', value: (n) => (n.streakDays ? asDays(n.streakDays) : null) },
+  { key: 'streak', label: 'Days recorded in a row', value: (n) => (n.streakDays ? asDays(n.streakDays) : null) },
   { key: 'cells', label: 'Places', value: (n) => (n.cells ? asCount(n.cells) : null) },
   { key: 'world', label: 'Share of the world', value: (n) => (n.worldPct ? formatPct(n.worldPct) : null) },
 ];

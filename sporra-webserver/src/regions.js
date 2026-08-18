@@ -15,7 +15,7 @@
 // there's a grid index below: the country lookup can afford to scan its ~250
 // bboxes for every one of ~20k cells, and this one cannot.
 
-import { inPolygon, asMulti, ringAreaM2, unionGeometries } from './polygon.js';
+import { inPolygon, asMulti, ringAreaM2, snapGeometry, unionGeometries } from './polygon.js';
 import { stripDetachedTerritories } from './geo-filter.js';
 import { fold, matchRank } from './fold.js';
 
@@ -382,7 +382,9 @@ export function addFineRegions(byId) {
       ignored++;
       continue;
     }
-    FINE.set(id, g);
+    // Snapped at the door: see COORD_SNAP. A border only disagrees with its
+    // neighbour once the two are dissolved together, which is far from here.
+    FINE.set(id, snapGeometry(g));
     n++;
   }
   if (ignored) {

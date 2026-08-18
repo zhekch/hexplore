@@ -8,6 +8,43 @@ import polygonClipping from 'polygon-clipping';
 // twice in two files is how the two slowly stop agreeing about which side of a
 // border a cell is on.
 
+// The grid every coordinate is snapped to before it is dissolved, as a divisor:
+// 1e7 is the seventh decimal place, about 1.1 cm of longitude at the equator.
+//
+// **Not a simplification — a de-noising.** Both boundary datasets are published
+// at seven decimal places or fewer (the overview set is rounded to three), so
+// rounding to this grid cannot move a vertex that was ever really there. What it
+// does move is the vertices that are not: the detailed set arrives with a long
+// tail of 14- and 15-digit coordinates — 45.88366439999999 where the source says
+// 45.8836644 — left behind by whatever reprojected it.
+//
+// That tail is invisible until two datasets meet. `polygonClipping.union` is a
+// sweep-line, and a sweep-line's correctness rests on two rings that share a
+// point sharing the *same float*: one bit of disagreement is a pair of segments
+// that cross instead of touching, and the sweep ends up unable to close an
+// output ring at all — it throws rather than returning a shape. Dissolving a
+// country's own regions never hit it, because those all came from one file with
+// one set of rounding errors. A frame that reaches a neighbour with no detailed
+// set does, because the overview geometry beside it is clean to three places.
+//
+// So a poster of one country saved, and a poster of Europe at a size that asked
+// for the detail died with "Unable to complete output ring" — which is why this
+// runs at the door in `addFineRegions` rather than around the union: it costs
+// ~10 ms once per country fetched, and nothing downstream has to know.
+const COORD_SNAP = 1e7;
+
+const snap = (v) => Math.round(v * COORD_SNAP) / COORD_SNAP;
+const snapRing = (ring) => ring.map(([x, y]) => [snap(x), snap(y)]);
+
+/** The same geometry on the grid above, so shapes from two files can meet. */
+export function snapGeometry(g) {
+  if (!g?.coordinates) return g;
+  const poly = (p) => p.map(snapRing);
+  return g.type === 'Polygon'
+    ? { ...g, coordinates: poly(g.coordinates) }
+    : { ...g, coordinates: g.coordinates.map(poly) };
+}
+
 /**
  * Ray-cast point-in-ring, in lng/lat space.
  *
@@ -183,7 +220,19 @@ function pushRing(rings, ring) {
  *  way — touching areas join with no border between them. */
 export function unionGeometries(geoms) {
   if (!geoms.length) return { fill: [], rings: [] };
-  const merged = polygonClipping.union(geoms[0], ...geoms.slice(1));
+  let merged;
+  try {
+    merged = polygonClipping.union(geoms[0], ...geoms.slice(1));
+  } catch (e) {
+    // **A dissolve that fails must not cost the picture.** `COORD_SNAP` is why
+    // this is now rare, but the sweep-line has no proof behind it and a dataset
+    // nobody has seen yet can still tie it in a knot. Undissolved, the same
+    // shapes still draw the same ground — every internal border shows, which is
+    // the seam this file exists to avoid and a great deal better than a blank
+    // canvas and a sentence about output rings where a poster should be.
+    console.warn(`[polygon] ${geoms.length} shapes would not dissolve, drawing them unmerged — ${e?.message ?? e}`);
+    merged = geoms.flat();
+  }
   const fill = [];
   const rings = [];
   for (const poly of merged) {

@@ -687,11 +687,20 @@ export function nameTrips(trips, placeAt, landmarkFor) {
 }
 
 /**
- * The longest run of consecutive days in a set of them, for "longest streak".
+ * The longest run of consecutive days in a set of them, for "Days recorded in
+ * a row".
+ *
+ * **The days are the ones the history has evidence for, and that is the whole
+ * meaning of the number.** A cell row stores one `firstAt` and one `lastAt` per
+ * source, so twenty years of living somewhere is two dated days and the quiet
+ * middle is not recorded anywhere — see the `daysSeen` sweep in src/stats.js.
+ * The answer is therefore a run of days that each put something new on the map,
+ * which is a trip; it is not time spent, and a label promising time spent
+ * ("Longest streak", as this was called) reads as a claim the data cannot make.
  *
  * Calendar days, counted as calendar days: converting each key to a UTC day
  * number rather than dividing a timestamp means the clocks going forward
- * doesn't shorten a March streak by a day.
+ * doesn't shorten a March run by a day.
  *
  * @param {Iterable<string>} dayKeys "YYYY-MM-DD"
  */

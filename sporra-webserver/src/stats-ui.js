@@ -907,7 +907,9 @@ export function mountStats({
       // phone logging every day, and the span alone can't tell them apart.
       side.append(row('Days recorded', s.days.toLocaleString(), 'days the history has evidence for'));
       if (s.streakDays > 1) {
-        side.append(row('Longest streak', plural(s.streakDays, 'day'), `up to ${dayOf(s.streakEnd)}`));
+        side.append(
+          row('Days recorded in a row', plural(s.streakDays, 'day'), `consecutive days with evidence, up to ${dayOf(s.streakEnd)}`),
+        );
       }
     }
 

@@ -342,8 +342,12 @@ glass look. Click hexagons to mark places you've visited.
   a share of Earth's land and of every country it touches (attributed by the
   country under each cell's center, with country areas computed from the
   boundary polygons), sortable by ground covered or by share, plus how many days
-  the history carries and the longest unbroken run of them, where the cells came
-  from, and how much new ground each year added. Each country **opens to show
+  the history carries and the longest unbroken run of them (**Days recorded** and
+  **Days recorded in a row** — both count *evidence*, not presence, and the
+  second was called "Longest streak" until somebody who has lived in Europe all
+  their life was told their longest streak there was 26 days; see
+  [Days, and what a streak is not](#days-and-what-a-streak-is-not)), where the
+  cells came from, and how much new ground each year added. Each country **opens to show
   its own regions** — see [Coverage](#coverage) for why the bar is always a
   share and why the regions are nested. **Routes** is the
   list of saved tracks: totals, distance by year, and every route — tap one and
@@ -1286,6 +1290,16 @@ Two rules that are not symmetrical, on purpose:
   knows what space there is to give it. A `ResizeObserver` on the column re-fits
   it, so nothing that changes the space — the window, the card, a section folding
   open — has to remember to.
+
+  That observer is also why an error in this dialog used to be unreadable. The
+  error box appearing changes the height of the shell, the observer notices,
+  and it schedules the refresh that opened by clearing the box — so a message
+  erased itself about 200 ms after it arrived, and the failure presented as the
+  Save button doing nothing at all. `schedule(false)` now marks the two callers
+  nobody pressed (that observer and the window resize), and a refresh may only
+  clear what a refresh wrote: anything raised by Save or by the draw itself
+  stands until the user does something about it. A dialog that cannot tell you
+  why it failed is worse than one that fails.
 
 **On a phone it takes the screen including the parts that are not rectangular.**
 The overlay's padding carries the `--safe-*` insets, so the title clears the
@@ -3174,6 +3188,34 @@ than accumulated.
 `scripts/test/whats-new.mjs` pins all four of the decisions above, because every
 one of them is the sort of thing a later reader would "fix" back.
 
+### Days, and what a streak is not
+
+`cell_sources` holds one row per cell per source, and the upsert collapses every
+visit into `MIN(first_at)` and `MAX(last_at)`. So the sweep in `src/stats.js`
+that builds `daysSeen` can only add two days per row — both ends of a cell's
+span, and the quiet middle is not stored anywhere to be added. `activeDays`
+reads the same rows the same way, which is what stops the calendar dots and the
+statistics disagreeing about a day.
+
+The consequence is the whole meaning of the number. **Days recorded** is days the
+history has evidence for, and **Days recorded in a row** is the longest run of
+consecutive such days — which is a run of days that each put something new on the
+map. That is a trip. Living somewhere adds nothing: the home cells were
+first seen years ago and last seen this morning, and the ten thousand days
+between are invisible.
+
+This was called "Longest streak" for as long as it existed, and the name promised
+something the data cannot supply — time spent. Somebody who has never lived
+outside Europe read "Longest streak: 26 days" about Europe, which is a true
+statement about evidence and a false one about them. The label now says which
+of the two it means, and `longestStreak` in `src/trips.js` carries the reason.
+
+One asymmetry is left on purpose: `activeDays` counts route days as well as cell
+days, and the `daysSeen` sweep reads only `cellMeta`. A route through ground
+already covered still moves that cell's `last_at`, so the two normally agree; a
+route stored with no cell coverage at all (see the workout privacy setting) is a
+calendar dot the streak cannot see.
+
 **"Show me" goes where the sentence pointed.** The banner is told how many
 workouts it is about, and hands that number back when it is pressed: one, and it
 opens that route directly (`stats.openRoute`, the same door the route card on the
@@ -3265,6 +3307,34 @@ keeping: `countries.json` rounds every coordinate to a shared 0.01° grid, so
 neighbours land on the same lattice and agree about the border between them.
 Rounding to a common grid is a cruder tool than Douglas–Peucker and it is the
 one that preserves topology.
+
+**The detailed set needed the same lattice, and getting it late cost a picture.**
+Nothing rounds the boundaries `loadFineRegions` fetches, and they arrive with a
+long tail of 14- and 15-digit coordinates — 45.88366439999999 where the source
+publishes 45.8836644 — left behind by whatever reprojected them. That is
+invisible while a country is dissolved on its own, because its regions all carry
+the same rounding errors from the same file. It stops being invisible at a
+national border, where the neighbour is either clean to three places (the
+overview set) or dirty in a different direction.
+
+`polygonClipping.union` is a sweep-line, and a sweep-line's correctness rests on
+two rings that share a point sharing the *same float*. One bit of disagreement is
+a pair of segments that cross where they should touch, and the sweep ends unable
+to close an output ring — it throws rather than returning a shape. So an export
+of one country saved, and an export of Europe at a size large enough to ask for
+the detail died with `Unable to complete output ring`. Size is what selected for
+it: `DETAIL_KM_PX` decides whether the detail is worth fetching, so 2,880 px wide
+stayed coarse and safe while 5,760 px crossed the threshold and dissolved a
+continent's worth of mixed-precision borders.
+
+`COORD_SNAP` in `src/polygon.js` is the same answer as the 0.01° grid above, one
+dataset later: every fetched region is snapped to 1e-7° — about 1.1 cm, finer
+than anything either dataset publishes — as it enters `addFineRegions`. At the
+door rather than around the union, because it costs ~10 ms once per country and
+nothing downstream then has to know. `unionGeometries` also no longer lets a
+failed dissolve escape: undissolved shapes draw the same ground with their
+internal borders showing, which is a seam, where an exception is a blank canvas.
+Both halves are pinned in `scripts/test/union-slivers.mjs`.
 
 **Regions are the finest of the polygon levels.** Level 4's hexagons were ~73 km
 across, which says nothing a canton doesn't say better — "which cantons have I

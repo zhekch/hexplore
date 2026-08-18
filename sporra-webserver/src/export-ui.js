@@ -299,9 +299,26 @@ export function mountExport({ onClose, data }) {
     }
   };
 
-  const fail = (message) => {
+  // Whether the message on screen is one the user asked for by pressing
+  // something, as opposed to one a background refresh put there and can take
+  // away again.
+  //
+  // **An error used to erase itself in about 200 ms.** The box appearing changes
+  // the height of the shell; the shell is under a ResizeObserver; that schedules
+  // a refresh; and `refresh` opened by clearing the box. So the one sentence
+  // saying why a poster had not saved was wiped by its own arrival, and the
+  // failure presented as the Save button doing nothing at all — which is how a
+  // dissolve that could not close a ring stayed unread long enough to be
+  // reported as "nothing happens".
+  //
+  // A refresh may now only clear what a refresh wrote. Anything raised by Save
+  // or by the draw itself stays until the user does something about it.
+  let standing = false;
+
+  const fail = (message, keep = false) => {
     errorBox.textContent = message ?? '';
     errorBox.hidden = !message;
+    standing = Boolean(message) && keep;
   };
 
   /** Wire one plain control: apply it, remember it, re-sync, redraw. */
@@ -918,15 +935,17 @@ export function mountExport({ onClose, data }) {
   const scopeKey = () =>
     (spec.scope.ids.length ? `${spec.scope.kind}:${[...spec.scope.ids].sort().join('|')}` : 'world');
 
-  function schedule() {
+  // `byUser` false for the two callers nobody pressed — the ResizeObserver and
+  // the window resize — so a message stays put while the layout settles under it.
+  function schedule(byUser = true) {
     if (!open_) return;
     clearTimeout(timer);
-    timer = setTimeout(refresh, REDRAW_MS);
+    timer = setTimeout(() => refresh(byUser), REDRAW_MS);
   }
 
-  async function refresh() {
+  async function refresh(byUser = true) {
     if (!open_) return;
-    fail(null);
+    if (byUser || !standing) fail(null);
     try {
       await ensureGeography({ scope: spec.scope.kind, detail: spec.detail });
     } catch {
@@ -1023,7 +1042,7 @@ export function mountExport({ onClose, data }) {
     if (key === fitted) return;
     fitted = key;
     fitFrame();
-    schedule();
+    schedule(false);
   });
   shellWatcher.observe(shell);
 
@@ -1047,7 +1066,7 @@ export function mountExport({ onClose, data }) {
       renderExport(canvas, spec, data, numbers, previewSize());
       note.textContent = describe();
     } catch (e) {
-      fail(`The picture could not be drawn — ${e?.message ?? e}`);
+      fail(`The picture could not be drawn — ${e?.message ?? e}`, true);
     }
   }
 
@@ -1433,12 +1452,12 @@ export function mountExport({ onClose, data }) {
     try {
       renderExport(off, spec, data, numbers);
     } catch (e) {
-      fail(`The picture could not be drawn — ${e?.message ?? e}`);
+      fail(`The picture could not be drawn — ${e?.message ?? e}`, true);
       return;
     }
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
     if (!blob) {
-      fail('The image could not be encoded.');
+      fail('The image could not be encoded.', true);
       return;
     }
     const name = exportFilename(spec, numbers);
@@ -1451,13 +1470,13 @@ export function mountExport({ onClose, data }) {
       try {
         reply = await host.postMessage({ ask: 'png', name, data: await blobToBase64(blob) });
       } catch (e) {
-        fail(`The picture could not be saved — ${e?.message ?? e}`);
+        fail(`The picture could not be saved — ${e?.message ?? e}`, true);
         return;
       }
       if (!reply?.ok) {
         // Every refusal is a sentence somebody has to read: permission not
         // granted, disk full, a name that could not be written.
-        fail(reply?.error ?? 'The picture could not be saved.');
+        fail(reply?.error ?? 'The picture could not be saved.', true);
         return;
       }
       showToast(reply.where ? `Saved to ${reply.where}` : `Saved ${name}`);
@@ -1523,7 +1542,7 @@ export function mountExport({ onClose, data }) {
   // The preview is sized from the element it sits in, so it has to be redrawn
   // when that element changes size — a rotated phone otherwise keeps a picture
   // rendered for the width it used to have.
-  window.addEventListener('resize', () => schedule());
+  window.addEventListener('resize', () => schedule(false));
 
   return { open, close };
 }

@@ -112,7 +112,7 @@ console.log('\nWhat counts as a change');
 
   const streak = changesSince(before, { ...before, streakDays: 11 });
   check(streak.substantial === true, 'a longer streak than ever is always news');
-  check(streak.lines.some((l) => /11-day streak/.test(l)), 'and says how long', streak.lines.join('; '));
+  check(streak.lines.some((l) => /11 recorded days in a row/.test(l)), 'and says how long', streak.lines.join('; '));
 
   // The ordering that matters: a new country is the headline of any week.
   const lots = changesSince(before, { ...before, cells: 1200, countries: 4, regions: 10, km2: 6000 });

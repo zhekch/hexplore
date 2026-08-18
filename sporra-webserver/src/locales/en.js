@@ -516,7 +516,7 @@ export default {
   "whatsNew.places.other": "{count} new places",
   "whatsNew.regions.one": "{count} new region",
   "whatsNew.regions.other": "{count} new regions",
-  "whatsNew.streak": "a {days}-day streak, your longest yet",
+  "whatsNew.streak": "{days} recorded days in a row, your longest yet",
   "whatsNew.substantial": "After substantial changes",
   "whatsNew.title": "Your map has grown",
   "whatsNew.workouts.detail": "On the map now, with the ground it covered.",

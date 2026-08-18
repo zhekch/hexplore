@@ -261,6 +261,7 @@ export async function computeStats(cellIds, cellMeta, only = null) {
     regions,
     regionsReachable,
     // Days the map has evidence for, and the longest unbroken run of them.
+    // Both are counts of *evidence*, not of presence — see longestStreak.
     days: daysSeen.size,
     streakDays: streak.days,
     streakEnd: streak.endsAt,

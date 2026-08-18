@@ -27,7 +27,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRegions, mergeRegions } from '../../src/regions.js';
 import { loadCountries, allCountries, mergeCountries } from '../../src/countries.js';
-import { ringAreaM2, asMulti } from '../../src/polygon.js';
+import { ringAreaM2, asMulti, snapGeometry, unionGeometries } from '../../src/polygon.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const json = async (name) => JSON.parse(await readFile(path.join(ROOT, 'src', name), 'utf8'));
@@ -211,6 +211,60 @@ console.log('\nno ring is handed over longer than a draw segment can hold');
       r.every((p, j) => p[0] === whole[i][j][0] && p[1] === whole[i][j][1]));
   check(same, 'the pieces rejoin into exactly the rings the fill kept whole',
     `${rejoined.length} rejoined vs ${whole.length} kept`);
+}
+
+console.log('\nTwo datasets have to meet on the same grid');
+{
+  // The detailed boundaries arrive with a tail of 14- and 15-digit coordinates
+  // that the source never had, and the overview set beside them is rounded to
+  // three places. Two neighbours whose shared border is described by two
+  // different floats do not share it at all: the union leaves the seam in, and
+  // on real geometry the sweep-line gives up mid-ring and throws — which is how
+  // a poster of Europe at a size that asked for the detail came back as "Unable
+  // to complete output ring" instead of a picture. See COORD_SNAP.
+  const noisy = (v) => v + 1e-14 * (v || 1);
+  const square = (x0) => ({
+    type: 'Polygon',
+    coordinates: [[[x0, 0], [x0 + 1, 0], [x0 + 1, 1], [x0, 1], [x0, 0]]],
+  });
+  const drifted = {
+    type: 'Polygon',
+    coordinates: square(1).coordinates.map((r) => r.map(([x, y]) => [noisy(x), noisy(y)])),
+  };
+
+  const raw = unionGeometries([asMulti(square(0)), asMulti(drifted)]);
+  check(raw.fill.length === 2, 'ungrided, two touching squares stay two shapes',
+    `${raw.fill.length} — if this is 1, the fixture no longer drifts`);
+
+  const snapped = unionGeometries([asMulti(snapGeometry(square(0))), asMulti(snapGeometry(drifted))]);
+  check(snapped.fill.length === 1, 'and on the grid they dissolve into one',
+    `${snapped.fill.length} shapes`);
+
+  // Lossless where it matters: the published precision has to survive.
+  const kept = snapGeometry({ type: 'Polygon', coordinates: [[[8.541, 47.376], [8.542, 47.376]]] });
+  check(kept.coordinates[0][0][0] === 8.541 && kept.coordinates[0][0][1] === 47.376,
+    'a coordinate the dataset really published is left alone');
+  const cleaned = snapGeometry({ type: 'Polygon', coordinates: [[[15.688496, 45.88366439999999]]] });
+  check(cleaned.coordinates[0][0][1] === 45.8836644,
+    'and one that is only float noise is put back where it was meant to be',
+    String(cleaned.coordinates[0][0][1]));
+}
+
+console.log('\nA dissolve that cannot run still hands back a picture');
+{
+  // The grid makes this rare rather than impossible: the sweep-line has no proof
+  // behind it. Undissolved shapes draw the same ground with their internal
+  // borders showing, which beats a blank canvas by a distance.
+  const square = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] };
+  let threw = false;
+  let out = null;
+  try {
+    out = unionGeometries([[[['a', 'b'], ['c', 'd']]], asMulti(square)]);
+  } catch {
+    threw = true;
+  }
+  check(!threw, 'geometry the clipper refuses does not escape as an exception');
+  check(out?.fill.length === 2, 'the shapes come back unmerged instead', `${out?.fill.length}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
