@@ -102,6 +102,7 @@ struct SettingsView: View {
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } else if settings.isConfigured {
                 connectionRow
+                offlineRow
             }
         } header: {
             Text("Server")
@@ -150,6 +151,35 @@ struct SettingsView: View {
         case .notSporra: return .orange
         case .http, .unreachable: return .red
         case .unset, .checking: return .secondary
+        }
+    }
+
+    /// Whether this build will keep an offline copy of the address above.
+    ///
+    /// It is here, under the field, because it is a fact about *that address*
+    /// and because the alternative is finding out on a plane. iOS hands a web
+    /// view service workers and Cache Storage only for the domains in
+    /// `WKAppBoundDomains`, and an app pointed anywhere else opens on nothing
+    /// the first time it has no network — with no error anywhere to connect the
+    /// two. See ``AppBoundDomains``.
+    ///
+    /// Only shown when the answer is no. A row that says "yes, as expected" on
+    /// every launch is a row people stop reading, and this one has something to
+    /// say only when there is something to do about it.
+    @ViewBuilder
+    private var offlineRow: some View {
+        if let host = settings.baseURL?.host, !AppBoundDomains.covers(settings.baseURL) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: "wifi.slash")
+                    Text("No offline copy")
+                }
+                .font(.footnote)
+                .foregroundStyle(.orange)
+                Text("iOS keeps one only for declared domains. Add \(host) to WKAppBoundDomains in Info.plist and rebuild.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

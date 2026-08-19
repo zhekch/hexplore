@@ -24,6 +24,33 @@
 	<array>
 		<string>location</string>
 	</array>
+	<!-- **Put your own server here to get an offline copy.**
+
+	     iOS gives a WKWebView service workers and Cache Storage only for the
+	     domains listed under this key. Undeclared, `navigator.serviceWorker
+	     .register()` quietly never produces a registration — no error, nothing
+	     in the console, and no storage on disk — so the app works every day and
+	     then opens on an empty rectangle the first time it has no network. macOS
+	     has no such rule, which is why this survived every test run there. See
+	     `AppBoundDomains.swift`, and "The offline shell" in ARCHITECTURE.md.
+
+	     Left out of the box because the list is fixed when the app is built and
+	     only you know where your server is; the Settings tab says whether the
+	     address you typed is covered. Hosts only, no scheme or port, ten at most,
+	     and each covers its subdomains.
+
+	     `strava.com` is in the template for a reason that is easy to miss: with
+	     this key in force the web view may navigate *nowhere else*, and
+	     connecting Strava is a full-page navigation to its sign-in (`connect()`
+	     in src/strava-ui.js). Leave it out and that button lands on a screen
+	     saying so instead. Nothing else here ever leaves your own origin.
+
+	<key>WKAppBoundDomains</key>
+	<array>
+		<string>sporra.your-tailnet.ts.net</string>
+		<string>strava.com</string>
+	</array>
+	-->
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sporra connects to the server you run on your own network.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

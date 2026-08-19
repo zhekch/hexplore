@@ -22,6 +22,9 @@ struct WebPanel: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> WebViewController {
         let controller = WebViewController()
+        // Before the view loads, because the answer decides the configuration
+        // and a configuration is copied the moment the web view is made.
+        controller.startURL = url
         controller.load(url: url, token: reloadToken)
         return controller
     }
@@ -42,10 +45,52 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     private var loaded: (url: URL, token: Int)?
     private let locations = CLLocationManager()
 
+    /// The address this web view was *built* for, which is not the same question
+    /// as the one it is showing. See `AppBoundDomains` and `rebuildIfNeeded`.
+    private var builtForAppBoundHost = false
+
+    /// Where the app is pointed at the moment the web view is created. Set by
+    /// `WebPanel` before the view loads, because whether this is an app-bound
+    /// domain has to be decided *before* the configuration is copied.
+    var startURL: URL?
+
     override func viewDidLoad() {
         super.viewDidLoad()
+        installWebView(appBound: AppBoundDomains.covers(startURL))
+    }
+
+    /// Build the web view. Called again if the answer to "is this address one of
+    /// ours" changes, because a `WKWebViewConfiguration` cannot be changed after
+    /// the view is made from it.
+    private func installWebView(appBound: Bool) {
+        webView?.removeFromSuperview()
+        builtForAppBoundHost = appBound
 
         let configuration = WKWebViewConfiguration()
+        // **This is what gives the app an offline copy at all, on iOS.**
+        //
+        // A `WKWebView` gets service workers and Cache Storage only for domains
+        // the app has declared app-bound — `WKAppBoundDomains` in Info.plist.
+        // Undeclared, the registration is refused: not with an error, not with a
+        // console warning, but by `navigator.serviceWorker.register()` quietly
+        // never producing anything, and by the storage directories the worker
+        // would live in never being created. The app then works perfectly, every
+        // day, until the first time it is opened with no network — and shows a
+        // blank rectangle, because the navigation has nowhere to come from.
+        //
+        // macOS has no such rule, which is what made this so hard to see: the
+        // identical configuration, against the identical server, registers a
+        // worker and fills its caches on a Mac. Every test that "verified"
+        // offline had been run there.
+        //
+        // Set only when the address really is one of the declared ones. With it
+        // on, this web view may navigate *nowhere else* — so a build whose
+        // Info.plist does not name your server would refuse to open your server,
+        // which is a far worse failure than not having an offline copy. Off, the
+        // app is exactly what it was: online, with every bridge and injection
+        // working (measured — the safe-area push still reports 83px against an
+        // undeclared host).
+        configuration.limitsNavigationsToAppBoundDomains = appBound
         // The persistent store, so the session survives the app being closed.
         // Signing in every launch would be its own reason not to use this.
         //
@@ -166,7 +211,61 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         guard isViewLoaded else { return }
         guard loaded?.url != url || loaded?.token != token else { return }
         loaded = (url, token)
+        // Moving between a declared server and an undeclared one changes what
+        // the web view has to be, not just what it is showing — and that is a
+        // property of the configuration, which is frozen. So it is rebuilt. The
+        // cost is nothing that matters: the session, the caches and the worker
+        // all live in the data store, which this does not touch.
+        if AppBoundDomains.covers(url) != builtForAppBoundHost {
+            installWebView(appBound: AppBoundDomains.covers(url))
+            pushSafeArea()
+        }
         webView.load(URLRequest(url: url))
+    }
+
+    // MARK: - When the page does not arrive
+
+    /// What a web view does with a navigation it cannot make is show nothing at
+    /// all — the same flat colour whether the server is down, the address is
+    /// wrong, or WebKit refused the destination. This whole investigation began
+    /// with somebody looking at that rectangle, so it now says which of those
+    /// happened.
+    private lazy var failureLabel: UILabel = {
+        let label = UILabel()
+        label.numberOfLines = 0
+        label.textAlignment = .center
+        label.textColor = UIColor(white: 0.95, alpha: 1)
+        label.font = .preferredFont(forTextStyle: .callout)
+        label.isHidden = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    private func showFailure(_ error: Error) {
+        let error = error as NSError
+        // Cancelled is not a failure: it is what a load that was replaced by the
+        // next one reports, and the next one is already on its way.
+        guard !(error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled) else { return }
+
+        if failureLabel.superview == nil {
+            view.addSubview(failureLabel)
+            NSLayoutConstraint.activate([
+                failureLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+                failureLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
+                failureLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -32),
+            ])
+        }
+
+        // The app-bound one deserves its own sentence. It happens when the page
+        // sends the web view somewhere this build did not declare — Strava's
+        // sign-in, most likely, which `src/strava-ui.js` reaches by navigating
+        // the whole page — and it is the one failure here that is a *setting*
+        // rather than a network.
+        let appBound = error.domain == "WKErrorDomain" && error.code == WKError.Code.navigationAppBoundDomain.rawValue
+        failureLabel.text = appBound
+            ? "This build will not open \(loaded?.url.host ?? "that address").\n\nIt is not in WKAppBoundDomains, and this app limits itself to what is — which is also what buys the offline copy. Add it in Info.plist and rebuild."
+            : "\(loaded?.url.absoluteString ?? "The server") could not be opened.\n\n\(error.localizedDescription) (\(error.code))"
+        failureLabel.isHidden = false
     }
 
     // MARK: - Telling the page where the edges are
@@ -236,6 +335,22 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
     private func pushClock() {
         guard isViewLoaded, let webView else { return }
         webView.evaluateJavaScript(Self.clockScript)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        showFailure(error)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        showFailure(error)
+    }
+
+    /// A page arrived, so whatever the last one said is no longer true. Hidden
+    /// at `didCommit` rather than `didFinish`: the content is on screen from the
+    /// commit, and a sentence about a failed load sitting over a working map for
+    /// the length of a page load is its own small lie.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        failureLabel.isHidden = true
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

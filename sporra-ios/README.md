@@ -554,12 +554,27 @@ a ride out of range of the phone saves it hours later and quietly.
 
 ## Offline
 
-**There is nothing native here, and that is the finding.** The site registers a
-service worker (`public/sw.js`), WebKit has run service workers in a `WKWebView`
-since iOS 14, and `configuration.websiteDataStore = .default()` — set in
-`WebPanel.swift` so the *session* survives a relaunch — is also what persists the
-worker's registration and its Cache Storage. So the app opens with no server, on
-the map you last saw, having written no Swift for it.
+**Almost nothing native here, and the "almost" is the finding.** The site
+registers a service worker (`public/sw.js`), WebKit has run service workers in a
+`WKWebView` since iOS 14, and `configuration.websiteDataStore = .default()` —
+set in `WebPanel.swift` so the *session* survives a relaunch — is also what
+persists the worker's registration and its Cache Storage. So the app opens with
+no server, on the map you last saw, having written no Swift for it.
+
+**But only if you tell it which server is yours.** iOS hands a web view service
+workers and Cache Storage for **app-bound domains only** — the hosts under
+`WKAppBoundDomains` in `Info.plist`. Without that key the registration silently
+comes to nothing: no error, no console message, no storage on disk, and an app
+that works every day until the first time it is opened with no network, when it
+shows an empty rectangle. Add your host (and `strava.com`, since connecting
+Strava navigates the whole page to its sign-in), rebuild, and the next launch
+with a network builds the offline copy. The plist ships with the block commented
+out and the instructions in it; the Settings tab tells you when the address you
+typed is not covered. See `AppBoundDomains.swift`.
+
+macOS has no such rule, which is worth knowing before testing anything about
+offline on a Mac and believing it applies here — it does not, and for a long
+time it did not.
 
 What is cached and what is not is decided in one place for every client; see
 **The offline shell** in [ARCHITECTURE.md](../ARCHITECTURE.md). The short version:

@@ -8286,15 +8286,59 @@ API cache. The URLs say nothing about whose account they describe, so without
 that the next person to sign in on the device would be shown the last one's map
 for as long as their own request took to arrive.
 
-**iOS gets all of it for nothing.** The Map tab is a `WKWebView` with
-`websiteDataStore = .default()`, and WebKit has supported service workers in a
-web view since iOS 14 — registration and Cache Storage included, persisted by
-that store across launches. So the shell, the gazetteer and the last view of the
-map are cached by the same code that does it in Safari, with nothing native
-written and nothing bundled into the IPA. Bundling the built site into the app
-was the obvious alternative and is the worse one: a copy of the web app inside
-the app is a second copy that can disagree with the server's, which is the trade
-this project keeps refusing.
+**iOS gets all of it for one line of Info.plist, and got none of it for a long
+time without.** The Map tab is a `WKWebView` with `websiteDataStore =
+.default()`, and WebKit has supported service workers in a web view since iOS 14
+— registration and Cache Storage included, persisted by that store across
+launches. So the shell, the gazetteer and the last view of the map are cached by
+the same code that does it in Safari, with nothing native written and nothing
+bundled into the IPA. Bundling the built site into the app was the obvious
+alternative and is the worse one: a copy of the web app inside the app is a
+second copy that can disagree with the server's, which is the trade this project
+keeps refusing.
+
+### The line, and how long it took to find
+
+**On iOS a web view is given service workers and Cache Storage only for
+app-bound domains** — the hosts under `WKAppBoundDomains` in Info.plist, with
+`limitsNavigationsToAppBoundDomains` set. There was no such key here, so on a
+phone `navigator.serviceWorker.register()` returned a registration object and
+then nothing ever came of it: no worker, no caches, and no directory on disk
+where either would live. The site's own registration failure path could not
+report it, because from the page's side nothing failed.
+
+What that looks like is an app that works perfectly for months and then, the
+first time it is opened in aeroplane mode, shows a flat `#12141A` rectangle —
+the web view's own background, because the navigation had nowhere to come from.
+Everything above about opening on your map was true of Safari and true of the
+Mac app and never once true of the phone.
+
+It took a simulator to see, and the reason is worth keeping: **macOS has no
+app-bound domains at all.** The same web view configuration, against the same
+server, registers a worker and fills its caches there. So every test of this —
+including the one written up above — had been run on the one platform where the
+restriction does not exist. On iOS 27 in the simulator, with the key absent, the
+origin's storage holds `LocalStorage` and nothing else; with it declared,
+`ServiceWorkers/ServiceWorkerRegistrations-8.sqlite3` and `CacheStorage` appear
+on the first launch.
+
+Three consequences shape how `sporra-ios/Sporra/AppBoundDomains.swift` uses it:
+
+- **The list is fixed at build time**, so a server address typed into Settings
+  afterwards cannot get into it. For an app compiled by the person who runs the
+  server that is a fair trade, but it means the address lives in two places —
+  and the Settings tab now says so when they disagree, rather than leaving it to
+  be discovered at an airport.
+- **The flag is set only when the address is actually declared.** With it on the
+  web view may navigate nowhere else, so a build whose plist does not name your
+  server would refuse to open your server — much worse than having no offline
+  copy. Undeclared, the app is exactly what it was, every bridge and injection
+  intact; measured, not assumed, against an undeclared host.
+- **Leaving the origin is what the flag costs.** Connecting Strava is a
+  full-page navigation to its sign-in (`connect()` in `src/strava-ui.js`), so
+  `strava.com` belongs in the list beside your own host. A navigation that is
+  refused now draws a sentence saying which address and why, rather than the
+  blank the whole of this section is about.
 
 ## The scale bar
 
