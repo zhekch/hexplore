@@ -2752,6 +2752,8 @@ those cells were first seen (`showTrack`/`trackFC` in `src/main.js`,
   calendar day recorded, and the map draws them with the same code. Until then
   a dot in the calendar was the end of the road: it said the day had ground on
   it and gave you no way to look at it.
+- **And a day can be swiped along, because a day is one of a series.** See
+  [Swiping the day chip](#swiping-the-day-chip).
 - **Framing a trip lets go of "my location" first** (`releaseCameraLock`).
   MapLibre's tracking control hands the camera back when it sees a move it
   didn't cause, but deliberately ignores one that arrives mid-zoom so a pinch
@@ -2763,6 +2765,52 @@ those cells were first seen (`showTrack`/`trackFC` in `src/main.js`,
   because that guard asks whether the camera is moving *right now* and the
   answer is still yes a good while after the last flight — measured true 600 ms
   after a 300 ms `fitBounds`.
+
+### Swiping the day chip
+
+A trip is one thing; a day is one of a series, and the question after *where was
+I on the Monday* is always the day either side of it. Answering it used to mean
+the palette, the month grid, and a day picked out of it — four moves to step one
+day. So the chip takes a **horizontal swipe** (`src/chip-swipe.js`), which is
+what the photograph card already does with the same numbers scaled down:
+`SWIPE_COMMIT` 48 px or `SWIPE_FLICK` 0.4 px/ms, either will do, and
+`SWIPE_CLAIM` 8 px before the gesture is ours at all. Smaller than the
+photograph's, because the thing being dragged is a chip rather than most of the
+screen.
+
+Three things it is not:
+
+- **Not the next square on the calendar.** `nextRecordedDay` steps to the next
+  day with something on it — the set the grid puts dots on — because a phone
+  that was off on the Sunday leaves an empty key, and a step onto an empty map
+  reads as the gesture having failed. Keys are compared as strings, which is
+  what dates being written biggest-part-first is for.
+- **Not asked while the finger is moving.** `activeDays` is a sweep of every
+  stored cell, and the gesture asks *is there anything that way* on every
+  pointer event it sees. The two neighbours are worked out once, in
+  `updateTrackChip`, when the day being shown changes — a sweep per day rather
+  than a sweep per frame — and the drag reads a lookup.
+- **Not two invisible buttons.** The chip follows the finger, is resisted to a
+  quarter of the movement where there is no such day, and can be changed its
+  mind about by putting it back. It also swallows the click a drag ending where
+  it began still dispatches, or a swipe that started on *Stop* would stop
+  showing the day it was asking for the next of.
+
+The two arrows either side of the text are the whole of the discoverability:
+nothing about a chip suggests dragging it. They nudge outwards every 2.6 s,
+carry no behaviour of their own — a 12 px target on a chip that is mostly text
+is a tap you would miss more often than hit — and appear only for a day, since
+there is no "the trip after this one" that means anything. `prefers-reduced-motion`
+takes the animation away and leaves the arrows, which still say which way the
+chip goes standing still.
+
+`scripts/test/chip-swipe.mjs` holds the arithmetic — how far is far enough, what
+counts as a flick, which way a pull means — the way `scroll-chain` does, without
+a browser: what a browser would add here is layout, and there is no layout in "a
+50 px pull is the next day". The one case that is a real bug rather than a
+number: two pointer events in the same frame make a 1 px twitch the fastest
+flick ever thrown, so nothing below the claim distance is a swipe however fast
+it happened.
 
 ### In the calendar
 
@@ -7942,6 +7990,29 @@ every distance a third of an inch off the edge the rest of the list ends at. So
 it is overlaid instead. Hidden, it also gives up `pointer-events`: an invisible
 button lying across the tail of "1127 km away" is a thing you can plausibly aim
 at and miss.
+
+**Closing the palette is part of using it, so it comes back where it was.**
+The thing you searched for is on the map *behind* the palette, which means
+looking at it means closing it — and the palette then opened on an empty field
+and today's month, so walking along a holiday cost the whole search again: type
+`jul 6`, pick the year, pick the day, look, and start over for the 7th.
+`RESUME_MS` (five minutes) is how long a closed palette remembers its query, its
+month and the day it had selected. Five minutes is the length of a look at the
+map; an hour later the palette is a fresh question rather than somebody else's
+half-finished one. The restored query is **selected**, so it is one keystroke
+from being replaced rather than something to clear first, and a restored day is
+re-read through `selectDay` rather than re-searched — the same split `refresh`
+makes, because a day picked out of the grid is not something the query can
+reproduce. It lives in memory only: a reload is a new session, and a palette
+opening on last night's search is answering a question nobody has asked yet.
+
+**A trip's counts are the half a phone drops.** `Jul 2 – Jul 9, 2026 · 554
+cells · 7 routes` does not fit a 390 px row, and what an ellipsis cuts is the
+end of it — leaving `· 7 r…`, which reads as a broken row rather than an
+abbreviated one, while squeezing the dates that are how you recognise which trip
+this is. So the counts are their own element (`tripCounts` → `.hit-aside`) and
+the 560 px rule that already reshapes the palette takes them away outright,
+separator and all. Dropping is not truncating: what is left is a whole phrase.
 
 **The controls above the list are captioned, and grouping is one pill.** Two
 rows of pills side by side are two questions, and which pill answers which is

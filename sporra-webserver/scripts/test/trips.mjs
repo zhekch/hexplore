@@ -13,7 +13,7 @@
 
 import {
   buildTrips, nameTrips, findHome, activeDays, dayDetail, dayCells, tripDays, dayKey, distanceKm,
-  longestStreak,
+  longestStreak, nextRecordedDay,
 } from '../../src/trips.js';
 import { cellCenter, project } from '../../src/hexgrid.js';
 
@@ -643,6 +643,29 @@ check(leavingTrips.length === 1 && leavingTrips[0].days === 3, 'a day you leave 
 const farDayTrips = buildTrips(merge(homeCells, saturdayOut(9.84, 46.50, '2024-06-15', 20)), [], { home });
 check(farDayTrips.length === 1 && farDayTrips[0].days === 1, 'but a day out is still a day somewhere',
   farDayTrips.map((t) => `${dayKey(t.start)} (${t.days}d)`).join(' | ') || '(none)');
+
+console.log('\nthe day either side of a day');
+{
+  // What the chip on the map steps through when it is swiped: the days with
+  // something on them, which is the same set the calendar dots.
+  const recorded = ['2026-07-06', '2026-07-02', '2026-07-13', '2025-12-31', '2026-08-01'];
+  check(nextRecordedDay(recorded, '2026-07-06', 1) === '2026-07-13',
+    'forwards skips the days the phone was off', nextRecordedDay(recorded, '2026-07-06', 1));
+  check(nextRecordedDay(recorded, '2026-07-06', -1) === '2026-07-02', 'and backwards does too');
+  check(nextRecordedDay(recorded, '2026-08-01', 1) === null, 'the last day has nothing after it');
+  check(nextRecordedDay(recorded, '2025-12-31', -1) === null, 'nor the first before it');
+  // Compared as strings, so the year and the month have to carry rather than
+  // the day being read on its own.
+  check(nextRecordedDay(recorded, '2026-07-13', 1) === '2026-08-01', 'it crosses a month');
+  check(nextRecordedDay(recorded, '2025-12-31', 1) === '2026-07-02', 'and a year');
+  // A day nothing was recorded on is where a swipe lands from a trip that was
+  // shown instead — it still has neighbours, and is not one of them.
+  check(nextRecordedDay(recorded, '2026-07-07', -1) === '2026-07-06',
+    'a day that is not in the set still has a day before it');
+  check(nextRecordedDay(recorded, '2026-07-07', 1) === '2026-07-13', 'and one after it');
+  check(nextRecordedDay([], '2026-07-06', 1) === null, 'an empty history is not a crash');
+  check(nextRecordedDay(recorded, '', 1) === null, 'and neither is stepping from nowhere');
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -6384,6 +6384,107 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* --- A chip you can swipe ------------------------------------------------------
+   The day chip, and only while it is showing a day: see src/chip-swipe.js.
+
+   `touch-action: pan-y` rather than the `manipulation` inherited from the
+   document, and it has to be in the stylesheet rather than in the handler — the
+   browser decides whether a touch is a gesture or a pan of the map before the
+   first `pointermove` arrives, and by then JavaScript saying otherwise is too
+   late. Sideways on this chip is ours; nothing else here uses it.
+
+   `user-select: none` because a drag across a line of text selects it, and a
+   swiped chip that leaves the date highlighted looks like a slip. */
+.route-solo.can-swipe {
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: translate 0.18s ease;
+}
+
+/* While the finger is on it the chip *is* the finger — a transition here would
+   make it lag behind by its own duration, which reads as the chip being heavy
+   rather than being dragged. */
+.route-solo.can-swipe.swiping {
+  transition: none;
+}
+
+/* The arrows. Small, dim, and only where there is something to swipe to: they
+   are a hint that the gesture exists, not a pair of buttons — pressing one does
+   nothing, deliberately, because a 12px target on a chip that is already mostly
+   text is a tap you would miss more often than hit.
+
+   Negative margins because the chip's own 10px gap is the space between a
+   sentence and a button, which is far too much between an arrow and the word it
+   is pointing at. */
+.chip-arrow {
+  display: none;
+}
+
+.route-solo.can-swipe > .chip-arrow {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin: 0 -5px;
+  opacity: 0.5;
+  animation-duration: 2.6s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+/* Outwards, both at once, and barely: the movement has to be noticeable in the
+   corner of the eye and unnoticeable when you are reading the date between
+   them. Two sets of keyframes rather than one and a mirrored arrow, because
+   mirroring an arrow is how you end up with two pointing the same way. */
+.route-solo.can-swipe > .chip-arrow-l {
+  animation-name: chip-nudge-l;
+}
+
+.route-solo.can-swipe > .chip-arrow-r {
+  animation-name: chip-nudge-r;
+}
+
+@keyframes chip-nudge-l {
+  0%,
+  70%,
+  100% {
+    translate: 0 0;
+    opacity: 0.4;
+  }
+
+  35% {
+    translate: -2px 0;
+    opacity: 0.75;
+  }
+}
+
+@keyframes chip-nudge-r {
+  0%,
+  70%,
+  100% {
+    translate: 0 0;
+    opacity: 0.4;
+  }
+
+  35% {
+    translate: 2px 0;
+    opacity: 0.75;
+  }
+}
+
+/* A hint is the one thing worth giving up first: somebody who has asked for
+   less movement has asked for exactly this, and the arrows still say which way
+   the chip goes standing still. */
+@media (prefers-reduced-motion: reduce) {
+  .route-solo.can-swipe {
+    transition: none;
+  }
+
+  .route-solo.can-swipe > .chip-arrow {
+    animation: none;
+  }
+}
+
 /* The card's own toggle, when this route is the only one drawn. */
 .route-info-actions .modal-btn.active {
   background: rgba(96, 172, 255, 0.22);
@@ -6909,6 +7010,12 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   white-space: nowrap;
 }
 
+/* The tail of a sub-line, and the half a phone does without — see `tripCounts`
+   in src/search-ui.js. `<i>` for one line of markup, not for italics. */
+.hit-aside {
+  font-style: normal;
+}
+
 .search-hit-right {
   flex: none;
   font-size: 11.5px;
@@ -7417,6 +7524,15 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
        whose top 59px belong to the status bar is taller than the space there
        is, and the card overflowed the bottom of it. */
     max-height: calc(88dvh - var(--safe-t) - var(--safe-b));
+  }
+
+  /* A trip's counts, dropped rather than cut. At this width the sub-line has
+     room for the dates and not for what follows them, and an ellipsis in the
+     middle of "7 routes" reads as a row that is broken rather than one that is
+     abbreviated — while the dates, which are how you recognise which trip this
+     is, are what gets squeezed to make room for it. */
+  .hit-aside {
+    display: none;
   }
 }
 

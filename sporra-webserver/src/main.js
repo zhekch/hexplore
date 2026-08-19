@@ -123,7 +123,10 @@ import { mountSearch } from './search-ui.js';
 import { mountHome } from './home-ui.js';
 import { mountIntro } from './intro-ui.js';
 import { INTRO_SEEN_KEY, INTRO_VERSION, hostKind, shouldIntro } from './intro.js';
-import { activeDays, findHome, TRIP_NAME_MAX } from './trips.js';
+import {
+  activeDays, dayDetail, dayLabel, findHome, nextRecordedDay, TRIP_NAME_MAX,
+} from './trips.js';
+import { swipeChip } from './chip-swipe.js';
 import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
   loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView, fineCountryOutline,
@@ -5068,12 +5071,45 @@ function showDayOnMap(key, detail) {
   fitBboxOnMap(bboxOfPoints(detail.points));
 }
 
+// Which days a swipe on the chip would reach, and why it is worked out here
+// rather than when the finger asks: `activeDays` is a sweep of every stored
+// cell, and the gesture asks "is there anything that way" on every pointer
+// event it sees. Once per day shown is a sweep an hour; once per event is a
+// sweep a frame.
+let dayStep = {};
+
+const daysEitherSideOf = (key) => {
+  const keys = [...activeDays(cellMeta, listedRoutes()).keys()];
+  return { '-1': nextRecordedDay(keys, key, -1), 1: nextRecordedDay(keys, key, 1) };
+};
+
+/**
+ * The day before or after the one on the map, in answer to a swipe.
+ *
+ * The next day *with something on it*, not the next square on the calendar —
+ * see `nextRecordedDay`. Read through the same path the calendar picks a day
+ * with, so a day arrived at by swiping is the same object as one arrived at by
+ * searching for it, down to what it is called.
+ */
+function showAdjacentDay(dir) {
+  const key = dayStep[dir];
+  if (!key || shownTrack?.kind !== 'day') return;
+  const detail = dayDetail(key, statsUi?.trips() ?? [], listedRoutes(), cellMeta);
+  showDayOnMap(key, { ...detail, label: dayLabel(key) });
+}
+
 // The chip is the way back out that doesn't mean reopening a panel, so it lives
 // on the map — the same bargain the isolated-route chip makes.
 function updateTrackChip() {
   const chip = document.getElementById('trip-chip');
   if (!chip) return;
   chip.hidden = !shownTrack;
+  // A day is one of a series and a trip is not: there is no "the trip after
+  // this one" that means anything, so the arrows and the gesture belong to the
+  // day and the chip says so.
+  const day = shownTrack?.kind === 'day' ? shownTrack.id : null;
+  dayStep = day ? daysEitherSideOf(day) : {};
+  chip.classList.toggle('can-swipe', !!(dayStep[-1] || dayStep[1]));
   if (!shownTrack) return;
   document.getElementById('trip-chip-text').textContent = `Showing ${shownTrack.label}`;
 }
@@ -8845,6 +8881,13 @@ function wireLayersControl() {
     routeInfo?.setSolo(false);
   });
   document.getElementById('trip-chip-clear').addEventListener('click', () => showTrack(null));
+  // Sideways on the chip is the day either side of it. The neighbours are
+  // already worked out (see `updateTrackChip`), so this asks a lookup rather
+  // than a sweep of the history on every pointer event.
+  swipeChip(document.getElementById('trip-chip'), {
+    can: (dir) => !!dayStep[dir],
+    onStep: showAdjacentDay,
+  });
   document.getElementById('routes-toggle').addEventListener('change', (e) => setRoutesOn(e.target.checked));
   document.getElementById('routes-options-toggle').addEventListener('click', () => {
     routeOptionsOpen = !routeOptionsOpen;

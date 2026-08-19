@@ -141,6 +141,28 @@ export function dayKey(sec) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+const dayLabelFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+
+/**
+ * What one calendar day is *called* — "6 Jul 2026", in whatever order the
+ * reader's locale writes it.
+ *
+ * Here rather than in whichever panel happens to be naming a day, because three
+ * of them do: the row in the search palette, the heading over its results, and
+ * the chip on the map that says which day is being shown. The chip is now
+ * something you can step along, so the name it puts up has to be the same name
+ * the palette used to reach it — two formatters would eventually disagree about
+ * a day and leave the map claiming to be showing a different one.
+ *
+ * @param {string} key "YYYY-MM-DD"
+ */
+export function dayLabel(key) {
+  const [y, m, d] = String(key).split('-').map(Number);
+  return Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d)
+    ? dayLabelFmt.format(new Date(y, m - 1, d))
+    : String(key);
+}
+
 /**
  * A day key as a number that can be compared and stepped through.
  *
@@ -849,4 +871,32 @@ export function activeDays(cellMeta, routes) {
   }
   for (const r of routes ?? []) bump(r.firstAt || r.lastAt, 'routes');
   return days;
+}
+
+/**
+ * The nearest day either side of this one that has anything on it.
+ *
+ * "The next day" is not the day after: a phone that was off on the Sunday
+ * leaves an empty key, and stepping onto it would show an empty map and read as
+ * the step having failed. What is wanted is the next day there is something to
+ * look at — which is exactly the set the calendar puts dots on, so this walks
+ * the same map that draws them.
+ *
+ * Keys are compared as strings, which is the whole reason dates are written
+ * biggest-part-first: `"2026-07-06" < "2026-07-13"` with no arithmetic and no
+ * month lengths.
+ *
+ * @param {Iterable<string>} keys the days with something on them, in any order
+ * @param {string} from the day being stepped away from
+ * @param {number} dir -1 for the day before, +1 for the day after
+ * @returns {string|null} null at either end of the history
+ */
+export function nextRecordedDay(keys, from, dir) {
+  if (!from || !dir) return null;
+  let best = null;
+  for (const k of keys ?? []) {
+    if (dir > 0 ? k <= from : k >= from) continue;
+    if (!best || (dir > 0 ? k < best : k > best)) best = k;
+  }
+  return best;
 }

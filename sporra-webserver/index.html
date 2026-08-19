@@ -574,8 +574,20 @@
         <span id="as-user-text"></span>
         <button data-i18n="as-user-leave.leave" type="button" id="as-user-leave">Leave</button>
       </div>
+      <!-- Showing one day is showing one of a series, so the chip is swipeable:
+           sideways over it is the day either side, which is the question the
+           day after this one always is. The two arrows are the only thing that
+           says so — nothing about a chip suggests dragging it — and they are
+           there only while there is a series to be in, which a trip is not.
+           See src/chip-swipe.js. -->
       <div class="route-solo" id="trip-chip" hidden>
+        <span class="chip-arrow chip-arrow-l" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l-6 6 6 6"/></svg>
+        </span>
         <span data-i18n="trip-chip-text.showing-a-trip" id="trip-chip-text">Showing a trip</span>
+        <span class="chip-arrow chip-arrow-r" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6l6 6-6 6"/></svg>
+        </span>
         <button data-i18n="trip-chip-clear.stop" type="button" id="trip-chip-clear">Stop</button>
       </div>
       <div class="route-solo" id="route-solo" hidden>

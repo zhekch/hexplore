@@ -15,7 +15,7 @@
 import { loadPlaces, searchPlaces } from './places.js';
 import { loadRegions, searchRegions } from './regions.js';
 import { loadCountries, searchCountries, countryIdAt } from './countries.js';
-import { dayKey, dayDetail, TRIP_NAME_MAX } from './trips.js';
+import { dayKey, dayLabel, dayDetail, TRIP_NAME_MAX } from './trips.js';
 import { mountCalendar, MONTHS } from './calendar.js';
 import { formatDistance } from './routes.js';
 import { onBackdropClick } from './dismiss.js';
@@ -34,6 +34,41 @@ function tripDates(t) {
   const sameDay = dayKey(t.start) === dayKey(t.end);
   return sameDay ? dayFmt.format(a) : `${spanFmt.format(a)} – ${dayFmt.format(b)}`;
 }
+
+/**
+ * How much ground a trip covered, and how many rides are on it.
+ *
+ * Split from the dates rather than written into the same string, because on a
+ * phone it is the half that goes: "Jul 2 – Jul 9, 2026 · 554 cells · 7 r…" is a
+ * sub-line whose last word is cut in the middle, and what it cuts is a count
+ * nobody is scanning a list of trips for. The dates are how you recognise the
+ * trip; the counts are detail about one you have already found. See
+ * `.hit-aside` in src/style.css, which is where the width decides.
+ */
+function tripCounts(t) {
+  const cells = `${t.cells.length.toLocaleString()} cells`;
+  return t.routes.length
+    ? `${cells} · ${t.routes.length} route${t.routes.length === 1 ? '' : 's'}`
+    : cells;
+}
+
+/**
+ * How long a closed palette goes on remembering where it had got to.
+ *
+ * Finding a day is several moves — type "jul 6", pick the year, pick the day —
+ * and looking at what you found means closing the palette, because the thing
+ * you found is on the map behind it. Re-opening it then landed on an empty
+ * field and today's month, so the next day of the same holiday cost the whole
+ * search again. Five minutes is the length of a look at the map: long enough
+ * that going back for the day after is free, short enough that opening search
+ * an hour later is a fresh question rather than somebody else's half-finished
+ * one.
+ *
+ * Kept in memory only. A reload is a new session of the app, and a palette that
+ * opened on last night's search would be answering a question nobody had asked
+ * yet.
+ */
+const RESUME_MS = 5 * 60_000;
 
 // A typed date, in the forms people actually type. Returns one of
 //
@@ -228,7 +263,14 @@ export function mountSearch({
 
   // --- Results ----------------------------------------------------------------
 
-  function resultRow({ icon, title, sub, right, onPick }) {
+  /**
+   * `aside` is the part of the sub-line a narrow screen does without. Its own
+   * element rather than more text, because the alternative is asking the row to
+   * ellipsis a sentence and hoping the cut lands somewhere readable — and it
+   * never does: the separator goes with it, so what is left is a whole phrase
+   * rather than the beginning of one.
+   */
+  function resultRow({ icon, title, sub, aside, right, onPick }) {
     const el = document.createElement('button');
     el.type = 'button';
     el.className = 'search-hit';
@@ -238,6 +280,12 @@ export function mountSearch({
       + '<span class="search-hit-right"></span>';
     el.querySelector('b').textContent = title;
     el.querySelector('small').textContent = sub ?? '';
+    if (aside) {
+      const extra = document.createElement('i');
+      extra.className = 'hit-aside';
+      extra.textContent = ` · ${aside}`;
+      el.querySelector('small').append(extra);
+    }
     el.querySelector('.search-hit-right').textContent = right ?? '';
     el.addEventListener('click', onPick);
     return el;
@@ -325,7 +373,8 @@ export function mountSearch({
     const go = resultRow({
       icon: ICON.trip,
       title: t.name,
-      sub: `${tripDates(t)} · ${t.cells.length.toLocaleString()} cells${t.routes.length ? ` · ${t.routes.length} route${t.routes.length === 1 ? '' : 's'}` : ''}`,
+      sub: tripDates(t),
+      aside: tripCounts(t),
       right: t.farKm ? `${t.farKm} km away` : '',
       onPick: () => {
         close();
@@ -532,10 +581,10 @@ export function mountSearch({
 
   /** One day, as a row you can open — the same thing a calendar dot means. */
   function addDayRow(key, has) {
-    const [y, m, d] = key.split('-').map(Number);
+    const [y, m] = key.split('-').map(Number);
     const el = resultRow({
       icon: ICON.day,
-      title: dayFmt.format(new Date(y, m - 1, d)),
+      title: dayLabel(key),
       sub: [
         has.cells ? `${has.cells.toLocaleString()} new cell${has.cells === 1 ? '' : 's'}` : '',
         has.routes ? `${has.routes} route${has.routes === 1 ? '' : 's'}` : '',
@@ -781,7 +830,8 @@ export function mountSearch({
     const el = resultRow({
       icon: ICON.trip,
       title: t.name,
-      sub: `${tripDates(t)} · ${t.cells.length.toLocaleString()} cells${t.routes.length ? ` · ${t.routes.length} route${t.routes.length === 1 ? '' : 's'}` : ''}`,
+      sub: tripDates(t),
+      aside: tripCounts(t),
       right: t.farKm ? `${t.farKm} km away` : '',
       onPick: () => {
         close();
@@ -801,8 +851,7 @@ export function mountSearch({
     const detail = dayDetail(key, trips(), routes(), meta());
     resultsEl.replaceChildren();
     items = [];
-    const [y, m, d] = key.split('-').map(Number);
-    const label = dayFmt.format(new Date(y, m - 1, d));
+    const label = dayLabel(key);
     resultsEl.append(section(label));
     if (!detail.routes.length && !detail.cells && !detail.trip) {
       resultsEl.append(note('Nothing recorded that day.'));
@@ -904,19 +953,61 @@ export function mountSearch({
   });
 
   // --- Opening and closing ----------------------------------------------------
+  //
+  // Where the palette had got to when it was last closed, and when that was.
+  // The looking is done on the map, which means the palette has to be out of
+  // the way for it — so closing is part of using this, not the end of using it,
+  // and a search that has to be typed again every time the map is looked at is
+  // a search you type three times to walk along one holiday. See RESUME_MS.
+
+  let resume = null;
 
   function open() {
     overlay.hidden = false;
-    input.value = '';
-    cal.select(null);
-    openCalendar(false);
-    render('');
+    // Read once and dropped: whatever happens next is what will be remembered,
+    // and a stale one left standing would be restored again on the open after
+    // this one however long ago it was.
+    const back = resume && Date.now() - resume.at < RESUME_MS ? resume : null;
+    resume = null;
+    if (back) {
+      input.value = back.query;
+      cal.show(back.month);
+      openCalendar(back.calOpen);
+      // The places dataset is a lazy chunk that the first keystroke starts —
+      // and a restored query has no keystroke, so a resumed text search would
+      // list your trips and routes and quietly no towns.
+      if (back.query.trim()) warmGazetteers();
+      // The same split `refresh()` makes: a day picked out of the grid is not
+      // something the query can reproduce, so it is re-read rather than
+      // re-searched.
+      if (back.day) selectDay(back.day);
+      else render(back.query);
+    } else {
+      input.value = '';
+      cal.select(null);
+      openCalendar(false);
+      render('');
+    }
     input.focus();
+    // Selected rather than left with the caret at the end, so the restored
+    // query is one keystroke from being replaced. It is a starting point, not
+    // something you have to clear before asking for anything else.
+    if (back?.query) input.select();
     onOpen?.();
   }
 
   function close() {
     overlay.hidden = true;
+    // The month is copied because the calendar hands back the Date it is
+    // standing on, and it is the *palette* that is being remembered here, not
+    // whatever the grid does between now and the next opening.
+    resume = {
+      at: Date.now(),
+      query: input.value,
+      day: cal.selected(),
+      month: new Date(cal.month()),
+      calOpen,
+    };
   }
 
   input.addEventListener('input', () => {
