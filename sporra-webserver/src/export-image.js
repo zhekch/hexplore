@@ -675,9 +675,10 @@ export const isoOf = countryIso;
  * by `renderExport`.
  *
  * It used to mean *is every country in the frame already sharp*, and that is a
- * question nothing can answer yes to. Hungary can never be sharp (its detailed
- * set pairs 11 of our 43 regions and the rest would seam, so `loadFineRegions`
- * correctly keeps the overview one), and a frame around Bern contains Hungary.
+ * question nothing can answer yes to. Norway's regions can never be sharp (its
+ * detailed set pairs 11 of our 21 and the rest would seam, so `loadFineRegions`
+ * correctly keeps the overview ones), and a frame around Bern contains
+ * countries in that position.
  * One such country anywhere in the picture held the whole picture back, so the
  * subject was drawn from the overview set — the one that opens a bay along every
  * border two of its regions share. Waiting for perfect uniformity bought a
@@ -687,9 +688,9 @@ export const isoOf = countryIso;
  * scale is one where the detail shows, and the frame is small enough that
  * `ensureSharpBoundaries` asked for all of it. Both are decided from the camera,
  * so this and the fetch cannot drift apart. Everything then draws at the best
- * resolution it has, and a country that will never have one — Hungary, and a
- * handful of others — carries the seam at its own border instead of exporting it
- * to the rest of the map.
+ * resolution it has, and a country that will never have one — Norway, Ireland,
+ * New Zealand and a handful of others — carries the seam at its own border
+ * instead of exporting it to the rest of the map.
  *
  * A module-level flag because `renderExport` is synchronous start to finish, so
  * nothing can interleave with it, and threading a boolean through nine drawing

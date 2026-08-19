@@ -113,9 +113,8 @@ export const regionsLoaded = () => REGIONS !== null;
  *
  * Both, because both are things the map can be drawn from and the gate that
  * reads this decides whether to draw sharply *at all*. Counting only the
- * regions is what kept Hungary and Luxembourg blunt after their outlines had
- * been fetched: there was something sharper to draw and nothing would look at
- * it.
+ * regions is what kept a country blunt after its outline had been fetched:
+ * there was something sharper to draw and nothing would look at it.
  */
 export const fineRegionsLoaded = () => FINE.size > 0 || FINE_OUTLINE.size > 0;
 /** Which countries have been asked for already, so nothing is fetched twice. */
@@ -327,10 +326,12 @@ export function geometryAreaM2(g) {
  *   genuinely contains one of our 110 provinces' centres, so geometry alone
  *   "paired" them and one province painted a fifth of the country.
  *
- * Partial answers are kept. Natural Earth counts Hungary's 23 city-counties as
- * admin-1 units and geoBoundaries folds them into their counties, so twenty of
- * our forty-three pair and the rest keep the overview shape — every drawn shape
- * still being the right shape for what it represents.
+ * Partial answers are kept. Norway is the standing example: eleven of our
+ * twenty-one pair, because the country merged its counties in 2020 and the two
+ * datasets are on opposite sides of that. Every shape that does pair is still
+ * the right shape for what it represents, which is why a partial answer is
+ * worth having at all — whether the partial set can be *laid down* is the
+ * separate question `seamedRegion` asks.
  *
  * @param {string} iso  ISO3 country code
  * @param {Array<object>} features  GeoJSON features with a `shapeName`
@@ -445,10 +446,15 @@ const boxesOverlap = (a, b) => !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[
  * one, the two disagree about their shared border by up to the overview set's
  * ~1 km simplification — so the border is drawn twice a hairline apart, and the
  * union of the two leaves a sliver of unfilled ground running between them.
- * Hungary is the case that shows it: Natural Earth counts its 24 city-counties
+ * Hungary was the case that showed it: Natural Earth counted its city-counties
  * as admin-1 units and geoBoundaries folds them into the counties around them,
- * so 17 of our 43 pair — each of the 17 wrapped in one that did not — and a
- * poster of the country came out double-ruled and full of holes.
+ * so 18 of our 43 paired — each of the 18 wrapped in one that did not — and a
+ * poster of the country came out double-ruled and full of holes. Hungary's
+ * regions are built from the detailed set now and pair 19 of 19 (see
+ * `REPLACE_FROM_FINE` in scripts/build-regions.mjs), which is the other way out
+ * of this and the better one where it is available. Norway, whose counties were
+ * merged in 2020 on one side of the datasets and not the other, is what the
+ * rule catches today.
  *
  * `pairFineRegions` is still right to keep a partial answer: every shape it
  * returns is the right shape for what it names. This is the separate question of
@@ -462,7 +468,7 @@ const boxesOverlap = (a, b) => !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[
  * poster of the Netherlands came out with blunt provinces inside a sharp
  * coastline. What matters is whether an unpaired region *touches* a paired one,
  * which is what this asks. France's five overseas départements pass for the same
- * reason; Hungary's city-counties, which sit inside their counties, do not.
+ * reason; a city-county sitting inside the county around it does not.
  *
  * Bounding boxes rather than geometry: two regions that share a border always
  * have overlapping boxes, so this cannot miss a seam. It can invent one — two
@@ -724,7 +730,7 @@ export function fineCountryOutline(iso) {
   }
   // Nothing to dissolve, or a dissolve that came out inexact: the country's own
   // outline, where the server was able to fetch one. This is the whole of what
-  // Hungary and Luxembourg get, and it is four to twelve times what they had.
+  // Norway and Ireland get, and it is several times what they had.
   if (!geometry) geometry = FINE_OUTLINE.get(iso) ?? null;
   fineOutlineMemo.set(iso, geometry);
   return geometry;
@@ -760,6 +766,12 @@ export function mergeRegions(litIds, fine = false) {
 // them — Italy's regioni, Chile's regiones, Czechia's kraje, Denmark's regioner.
 const REGION_TERM = {
   CHE: 'Canton',
+  // Both of these are true only because their regions were rebuilt from the
+  // detailed source (see `REPLACE_FROM_FINE` in scripts/build-regions.mjs).
+  // Hungary's 43 Natural Earth units were 19 counties, 23 city-counties and a
+  // capital, for which no single word is right; its 19 are all counties.
+  HUN: 'County',
+  LUX: 'Canton',
   LIE: 'Municipality',
   FRA: 'Département',
   DEU: 'State',

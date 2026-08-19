@@ -260,6 +260,104 @@ export function unionGeometries(geoms) {
 /** Normalize either geometry kind to MultiPolygon coordinates. */
 export const asMulti = (g) => (g.type === 'Polygon' ? [g.coordinates] : g.coordinates);
 
+// --- Thinning a ring ------------------------------------------------------------
+//
+// Here rather than in the build script it came from, because two things need it
+// now and they must not answer differently: `scripts/build-regions.mjs` thins
+// the overview set that ships, and `server/regions-fine.js` thins the country
+// outlines it fetches, which are drawn *over* the same map at the same zooms. A
+// second implementation of Douglas–Peucker is a second set of rounding
+// decisions, and the seam between two of them is exactly the kind of hairline
+// nobody finds by reading.
+
+// Perpendicular distance from p to the segment a→b, in degrees. Planar is fine
+// here: it is only ever comparing distances against a tolerance in the same
+// units, over spans of a few degrees.
+function segDist(p, a, b) {
+  let x = a[0];
+  let y = a[1];
+  let dx = b[0] - x;
+  let dy = b[1] - y;
+  if (dx !== 0 || dy !== 0) {
+    const t = ((p[0] - x) * dx + (p[1] - y) * dy) / (dx * dx + dy * dy);
+    if (t > 1) {
+      x = b[0];
+      y = b[1];
+    } else if (t > 0) {
+      x += dx * t;
+      y += dy * t;
+    }
+  }
+  dx = p[0] - x;
+  dy = p[1] - y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Douglas–Peucker, iterative so a 200k-point Russian coastline can't blow the
+ * stack. Keeps the first and last point, which for a ring are the same one.
+ *
+ * @param {Array<[number, number]>} points
+ * @param {number} tol in degrees
+ */
+export function simplifyRing(points, tol) {
+  if (points.length < 3) return points;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  const stack = [[0, points.length - 1]];
+  while (stack.length) {
+    const [lo, hi] = stack.pop();
+    let far = -1;
+    let best = tol;
+    for (let i = lo + 1; i < hi; i++) {
+      const d = segDist(points[i], points[lo], points[hi]);
+      if (d > best) {
+        best = d;
+        far = i;
+      }
+    }
+    if (far > 0) {
+      keep[far] = 1;
+      stack.push([lo, far], [far, hi]);
+    }
+  }
+  const out = [];
+  for (let i = 0; i < points.length; i++) if (keep[i]) out.push(points[i]);
+  return out;
+}
+
+/**
+ * …and the same over a whole geometry, dropping rings thinning has reduced to
+ * nothing. A ring needs four points to be a shape: three corners and the
+ * repeat of the first.
+ *
+ * @param {object} g Polygon or MultiPolygon
+ * @param {number} tol in degrees
+ */
+export function simplifyGeometry(g, tol) {
+  if (!g || !tol) return g;
+  const polys = [];
+  for (const poly of asMulti(g)) {
+    const rings = poly.map((ring) => simplifyRing(ring, tol)).filter((ring) => ring.length >= 4);
+    if (rings.length) polys.push(rings);
+  }
+  if (!polys.length) return g; // thinned out of existence: keep what we had
+  return g.type === 'Polygon' && polys.length === 1
+    ? { type: 'Polygon', coordinates: polys[0] }
+    : { type: 'MultiPolygon', coordinates: polys };
+}
+
+/** How many points a geometry is made of. */
+export function pointCount(g) {
+  let n = 0;
+  for (const poly of asMulti(g ?? { type: 'MultiPolygon', coordinates: [] })) {
+    for (const ring of poly) n += ring.length;
+  }
+  return n;
+}
+
+
 // --- Areas --------------------------------------------------------------------
 // Ring area on a sphere, from the standard spherical-excess sum. Good to ~0.2%
 // against published country areas, which is well inside the error of the

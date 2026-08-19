@@ -23,7 +23,11 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bboxOfGeometry } from '../src/geo-filter.js';
-import { asMulti, unionGeometries, inPolygon } from '../src/polygon.js';
+import { asMulti, unionGeometries, inPolygon, simplifyRing as simplify } from '../src/polygon.js';
+// The same pin, and the same URL, the server fetches detailed boundaries with.
+// One place, so the overview set and the detail can never be built against two
+// different releases of the same dataset.
+import { fileUrl as fineFileUrl } from '../server/regions-fine.js';
 
 const SRC =
   'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson';
@@ -70,58 +74,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outFile = path.join(root, 'src', 'regions.json');
 
 const round = (n) => +n.toFixed(DECIMALS);
-
-// Perpendicular distance from p to the segment a→b, in degrees. Planar is fine
-// here: it is only ever comparing distances against a tolerance in the same
-// units, over spans of a few degrees.
-function segDist(p, a, b) {
-  let x = a[0];
-  let y = a[1];
-  let dx = b[0] - x;
-  let dy = b[1] - y;
-  if (dx !== 0 || dy !== 0) {
-    const t = ((p[0] - x) * dx + (p[1] - y) * dy) / (dx * dx + dy * dy);
-    if (t > 1) {
-      x = b[0];
-      y = b[1];
-    } else if (t > 0) {
-      x += dx * t;
-      y += dy * t;
-    }
-  }
-  dx = p[0] - x;
-  dy = p[1] - y;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-// Douglas–Peucker, iterative so a 200k-point Russian coastline can't blow the
-// stack. Keeps the first and last point, which for a ring are the same one.
-function simplify(points, tol) {
-  if (points.length < 3) return points;
-  const keep = new Uint8Array(points.length);
-  keep[0] = 1;
-  keep[points.length - 1] = 1;
-  const stack = [[0, points.length - 1]];
-  while (stack.length) {
-    const [lo, hi] = stack.pop();
-    let far = -1;
-    let best = tol;
-    for (let i = lo + 1; i < hi; i++) {
-      const d = segDist(points[i], points[lo], points[hi]);
-      if (d > best) {
-        best = d;
-        far = i;
-      }
-    }
-    if (far > 0) {
-      keep[far] = 1;
-      stack.push([lo, far], [far, hi]);
-    }
-  }
-  const out = [];
-  for (let i = 0; i < points.length; i++) if (keep[i]) out.push(points[i]);
-  return out;
-}
 
 // Shoelace area in square degrees — only ever used to compare the pieces of one
 // multipolygon against each other, so the latitude distortion cancels out.
@@ -194,6 +146,93 @@ function toleranceFor(geometry) {
 // the right level, and folding those together would be silently answering a
 // different question than the one asked.
 const DISSOLVE_BY_REGION = new Set(['ITA']);
+
+// --- …and countries whose admin-1 units come from the detailed source instead --
+//
+// Dissolving fixes a country whose units are *finer* than the level anyone
+// means. It cannot fix one whose units do not exist in the detailed data at all,
+// and two countries are in exactly that position:
+//
+//   - **Hungary.** Natural Earth counts the 23 city-counties as admin-1 units
+//     alongside the 19 counties and Budapest, which is 43. Nobody else models it
+//     that way: geoBoundaries has 19 counties, with Budapest inside Pest, and so
+//     do the national statistics. Eighteen of our 43 paired and the rest would
+//     have seamed, so the whole country kept the overview geometry for ever.
+//   - **Luxembourg.** Our three units are the districts, which the country
+//     abolished in 2015. The detailed set has the twelve cantons. Nothing pairs
+//     at all: not one name, and three shapes against twelve.
+//
+// So for these, the detailed set *is* the answer to "what are this country's
+// regions", and the overview shapes are built by simplifying it rather than by
+// pairing against it. Everything then agrees by construction: the names are the
+// same names, so the runtime pairing is exact, and the country finally sharpens
+// like its neighbours.
+//
+// The price is stated plainly because somebody will notice it: Hungary no
+// longer has Budapest as a region of its own. A day in Budapest lights Pest,
+// which is what every source with real boundaries says it is. Forty-three
+// units nothing can draw is the alternative.
+const REPLACE_FROM_FINE = new Map([['HUN', 'ADM1'], ['LUX', 'ADM1']]);
+// Their names carry the word for the unit; ours carry the bare name and let
+// `regionTerm` in src/regions.js supply the word. "Canton Echternach" would
+// otherwise show up as "Canton Echternach Canton" in the search box.
+const TERM_PREFIX = /^(Canton|County|Province|District|Region|Governorate|Department)\s+/;
+
+/**
+ * Swap in one country's detailed units, simplified the same way everything else
+ * here is.
+ *
+ * Fails the build rather than skipping a country: a silent skip writes a
+ * regions.json that looks complete, ships the units this exists to replace, and
+ * is indistinguishable from a successful run until somebody zooms in.
+ */
+async function replaceFromFine(features) {
+  if (!REPLACE_FROM_FINE.size) return features;
+  const kept = [];
+  const countryOf = new Map();
+  const dropped = new Map();
+  for (const f of features) {
+    const iso = f.properties?.adm0_a3 ?? f.properties?.iso_a3 ?? f.properties?.sov_a3 ?? null;
+    if (!iso || !REPLACE_FROM_FINE.has(iso)) {
+      kept.push(f);
+      continue;
+    }
+    // What Natural Earth calls the country, so region ids keep their prefix and
+    // nothing else in the app has to know this happened.
+    if (!countryOf.has(iso)) countryOf.set(iso, f.properties?.admin ?? f.properties?.geonunit ?? iso);
+    dropped.set(iso, (dropped.get(iso) ?? 0) + 1);
+  }
+  for (const [iso, level] of REPLACE_FROM_FINE) {
+    const country = countryOf.get(iso);
+    if (!country) {
+      console.error(`${iso} is not in the source at all — nothing to replace, and no name to file it under.`);
+      process.exit(1);
+    }
+    const res = await fetch(fineFileUrl(iso, level));
+    if (!res.ok) {
+      console.error(`${iso} ${level}: ${res.status} ${res.statusText} — refusing to fall back to the units this replaces.`);
+      process.exit(1);
+    }
+    const geo = await res.json();
+    let n = 0;
+    for (const f of geo.features ?? []) {
+      const name = String(f.properties?.shapeName ?? '').replace(TERM_PREFIX, '').trim();
+      if (!name || !f.geometry) continue;
+      kept.push({
+        type: 'Feature',
+        properties: { name, admin: country, adm0_a3: iso, type_en: level },
+        geometry: f.geometry,
+      });
+      n++;
+    }
+    if (!n) {
+      console.error(`${iso} ${level}: the file has no usable features.`);
+      process.exit(1);
+    }
+    console.log(`  ${iso}: ${dropped.get(iso)} Natural Earth units replaced by ${n} from geoBoundaries ${level}`);
+  }
+  return kept;
+}
 // Natural Earth gives two of the twenty in English where it gives the other
 // eighteen in Italian. `name` is documented as the local short form throughout
 // this file, and using it also lands both on the name geoBoundaries uses.
@@ -339,7 +378,7 @@ if (!res.ok) {
   process.exit(1);
 }
 const geo = await res.json();
-const sourceFeatures = dissolveByRegion(geo.features);
+const sourceFeatures = await replaceFromFine(dissolveByRegion(geo.features));
 for (const iso of DISSOLVE_BY_REGION) {
   const before = geo.features.filter((f) => (f.properties?.adm0_a3 ?? f.properties?.iso_a3) === iso).length;
   const after = sourceFeatures.filter((f) => (f.properties?.adm0_a3 ?? f.properties?.iso_a3) === iso).length;

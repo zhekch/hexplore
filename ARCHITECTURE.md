@@ -7741,6 +7741,76 @@ whether to draw sharply at all would go on saying no while holding something
 sharper. `PAIRING_VERSION` went to 3, because a cached payload written before
 this carries no outline and the cache never expires.
 
+#### Two countries take their regions from the detailed set instead
+
+Dissolving fixes a country whose units are *finer* than the level anyone means —
+that is Italy, above. It cannot fix one whose units do not exist in the detailed
+data at all, and two were in exactly that position:
+
+- **Hungary.** Natural Earth counts the 23 city-counties as admin-1 units
+  alongside the 19 counties and Budapest, which is 43. Nobody else models it that
+  way — geoBoundaries has 19 counties with Budapest inside Pest, and so do the
+  national statistics. 18 of our 43 paired, the rest would have seamed, and the
+  country kept the overview geometry for ever.
+- **Luxembourg.** Our three units were the districts, which the country
+  abolished in 2015. The detailed set has the twelve cantons: not one name
+  pairs, and three shapes against twelve pair no better by geometry.
+
+`REPLACE_FROM_FINE` in `scripts/build-regions.mjs` builds those two countries'
+overview shapes *from* geoBoundaries ADM1, simplified by the same rules as
+everything else in that file, rather than pairing against it afterwards.
+Everything then agrees by construction: the names are the same names, so the
+runtime pairing is exact — 19 of 19 and 12 of 12 — and both countries sharpen
+like their neighbours. Measured: Hungary's region level went from 540 points to
+8,776 on flying to Budapest, where before it could not sharpen at all.
+
+The price is worth stating, because somebody will notice it: **Hungary no longer
+has Budapest as a region of its own.** A day there lights Pest, which is what
+every source with real boundaries says it is. Forty-three units nothing can draw
+is the alternative. It also makes two entries in `REGION_TERM` true that were
+not — Hungary's 19 are all counties and Luxembourg's 12 are all cantons — and
+the build strips the term out of geoBoundaries' names (`Canton Echternach` →
+`Echternach`), because the UI supplies the word.
+
+The build fails rather than skipping a country whose file it cannot fetch: a
+silent skip writes a `regions.json` that looks complete, ships the units the
+override exists to replace, and is indistinguishable from a good run until
+somebody zooms in.
+
+#### The code a country is filed under is not always the code we call it
+
+Our region set is Natural Earth's, which coins its own three-letter codes where
+ISO 3166 has not settled: `KOS` for Kosovo (ISO's user-assigned `XKX`), `SDS`
+for South Sudan (`SSD`), `PSX` for the West Bank (`PSE`). geoBoundaries files
+all three under the ISO codes, so those countries were being asked for under
+codes that have never existed — a 404, remembered as *nobody has boundaries for
+this country*. South Sudan's ten states pair exactly against our ten; Kosovo's
+30 pair against 30.
+
+`gbIso` maps the three, in the URL and nowhere else: everything downstream of
+the fetch is keyed by our own code, because our region ids are. Natural Earth's
+other coinages — Northern Cyprus, Somaliland, the Cyprus base areas, Baykonur —
+are not in the table because there is nothing to point them at.
+
+#### An outline too big to send is thinned, not dropped
+
+"Simplified" means different things to different coastlines. Hungary's ADM0 is
+895 points and Luxembourg's 562; **Norway's is 85,311** — 2.6 MB of fjord at
+ten-metre fidelity, for a shape that is at most a screen wide when anybody is
+looking at it. So a fetched outline over `OUTLINE_MAX_POINTS` (20,000, about
+600 KB) is thinned by the first tolerance on a ladder from 55 m to 900 m that
+brings it under. Norway comes down to 13,926 points, still seven times the 1,973
+the overview set spends on it, and the coarsest rung is finer than the ~1 km
+simplification it is replacing — so the worst case is still an improvement
+rather than a different kind of blunt.
+
+Douglas–Peucker itself moved to `src/polygon.js` (`simplifyRing`,
+`simplifyGeometry`) when the second caller appeared. The build script and the
+server thin shapes that are drawn over each other at the same zooms, and two
+implementations of the same algorithm are two sets of rounding decisions with a
+hairline between them. The move is checked the only way that means anything:
+`npm run build:regions` produces a byte-identical `regions.json`.
+
 **Nothing on the card is counted in cells.** It used to lead with *Cells
 inside*, which is the unit the storage happens to keep ground in and not a thing
 anybody has a feel for: "1,284 cells inside" asks the reader to know what a cell

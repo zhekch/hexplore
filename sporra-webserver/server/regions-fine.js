@@ -30,19 +30,44 @@ import path from 'node:path';
 import {
   pairFineRegions, regionsInCountry, countryForIso, regionsOf, seamedRegion,
 } from '../src/regions.js';
+import { simplifyGeometry, pointCount } from '../src/polygon.js';
 
-const GB_COMMIT = '9469f09';
+export const GB_COMMIT = '9469f09';
+
+/**
+ * The code geoBoundaries files a country under, where we spell it differently.
+ *
+ * Our region set is built from Natural Earth, which uses its own three-letter
+ * codes for the places ISO 3166 has not settled: `KOS` for Kosovo (ISO's
+ * user-assigned `XKX`), `SDS` for South Sudan (`SSD` — Natural Earth keeps
+ * `SDN` for the north and coins its own for the south), `PSX` for the West Bank
+ * (`PSE`). Everything downstream of the fetch is keyed by *our* code, so this
+ * only ever touches the URL.
+ *
+ * It is worth the three lines: South Sudan's ten states pair exactly against
+ * our ten, and were being asked for under a code that has never existed. The
+ * answer was a 404, remembered as "nobody has boundaries for this country".
+ *
+ * Natural Earth's other coinages are not in here because there is nothing to
+ * point them at — Northern Cyprus, Somaliland, the Cyprus base areas, Baykonur
+ * and the rest are not countries geoBoundaries publishes at all.
+ */
+const GB_ISO = { KOS: 'XKX', SDS: 'SSD', PSX: 'PSE' };
+
+/** @param {string} iso our code → the one their files are under */
+export const gbIso = (iso) => GB_ISO[iso] ?? iso;
+
 // The media host, not github.com or jsDelivr: these files are stored in Git LFS,
 // so every other route serves a 131-byte pointer instead of a boundary.
-const fileUrl = (iso, level) =>
+export const fileUrl = (iso, level) =>
   `https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/${GB_COMMIT}`
-  + `/releaseData/gbOpen/${iso}/${level}/geoBoundaries-${iso}-${level}_simplified.geojson`;
+  + `/releaseData/gbOpen/${gbIso(iso)}/${level}/geoBoundaries-${gbIso(iso)}-${level}_simplified.geojson`;
 // The country's own outline — ADM0, one shape, and the level every country in
 // the world has. See `outlineFor`.
 const outlineUrl = (iso) => fileUrl(iso, 'ADM0');
 // Asked only how many units a level has — a 1.7 KB answer that saves
 // downloading the wrong file.
-const apiUrl = (iso, level) => `https://www.geoboundaries.org/api/current/gbOpen/${iso}/${level}/`;
+const apiUrl = (iso, level) => `https://www.geoboundaries.org/api/current/gbOpen/${gbIso(iso)}/${level}/`;
 
 // "Admin-1" does not mean the same thing in the two datasets, and it is not off
 // by a consistent amount either: France's départements are our admin-1 and their
@@ -51,10 +76,10 @@ const apiUrl = (iso, level) => `https://www.geoboundaries.org/api/current/gbOpen
 // units as we have wins.
 const LEVELS = ['ADM1', 'ADM2', 'ADM3'];
 // A level has to pair this share of the smaller of the two counts to be worth
-// keeping. Partial is fine — Hungary pairs 20 of our 43, because Natural Earth
-// counts its city-counties as admin-1 units and geoBoundaries folds them into
-// counties — but a handful out of hundreds means the level is describing
-// something else and the country is better left at one resolution.
+// keeping. Partial is fine — Norway pairs 11 of our 21, because the country
+// merged its counties in 2020 and the two datasets sit on opposite sides of it —
+// but a handful out of hundreds means the level is describing something else and
+// the country is better left at one resolution.
 const MIN_PAIRED_SHARE = 0.4;
 // Bumped whenever the answer can change without either dataset moving, because
 // the cache is keyed on the inputs and never expires. 2: a name miss now votes
@@ -65,6 +90,28 @@ const MIN_PAIRED_SHARE = 0.4;
 const PAIRING_VERSION = 3;
 const MIN_PAIRED = 3;
 const FETCH_TIMEOUT_MS = 30000;
+
+/**
+ * How much of a country outline is worth sending, and what to thin it with.
+ *
+ * "Simplified" means different things to different coastlines. Hungary's ADM0
+ * is 895 points and Luxembourg's is 562 — nothing to think about. Norway's is
+ * **85,311**, a 2.6 MB answer to "what shape is Norway", and Ireland's is
+ * 14,231; those are fjords and sea lochs at ten-metre fidelity, on a shape that
+ * is at most a screen wide when anybody is looking at it.
+ *
+ * So the outline is thinned until it fits, by trying the ladder in order and
+ * keeping the first tolerance that does. Small countries never reach the ladder
+ * at all and are sent exactly as fetched. 20,000 points is about 600 KB of
+ * JSON, and still an order of magnitude more than the overview set spends on
+ * the same country — Norway ships 1,973 points today.
+ *
+ * The tolerances are in degrees: 55 m to 900 m. The coarsest is finer than the
+ * ~1 km simplification of the overview outline this is replacing, so the worst
+ * case is still an improvement rather than a different kind of blunt.
+ */
+const OUTLINE_MAX_POINTS = 20000;
+const OUTLINE_TOLERANCES = [0.0005, 0.001, 0.002, 0.004, 0.008];
 
 const ISO_RE = /^[A-Z]{3}$/;
 
@@ -173,11 +220,15 @@ export function createFineRegions({ dir, log = () => {} }) {
    * sharpen.
    *
    * ADM1 does not mean the same thing in the two datasets, and where they
-   * disagree there is nothing to pair: Hungary's 43 units against their 20,
-   * Luxembourg's three abolished districts against their twelve cantons. Those
-   * countries kept the overview outline at *every* zoom — a shape simplified to
-   * about a kilometre, 46 points for the whole of Luxembourg — because the only
-   * sharp country outline this app had was its own regions dissolved.
+   * disagree there is not enough to dissolve: Norway's 21 units against their
+   * 11, Ireland's 34 against 4 and 166. Those countries kept the overview
+   * outline at *every* zoom — a shape simplified to about a kilometre — because
+   * the only sharp country outline this app had was its own regions dissolved.
+   *
+   * Where the disagreement is total rather than partial, the better answer is
+   * to rebuild that country's regions from this dataset instead; Hungary and
+   * Luxembourg were moved that way and now pair completely. This is for the
+   * countries where that is not on the table.
    *
    * ADM0 needs no pairing at all: it is one shape, it is the same country ours
    * is, and every country in the world has one. It is not as sharp as a
@@ -199,7 +250,27 @@ export function createFineRegions({ dir, log = () => {} }) {
       log(`${iso} ADM0: no single outline to take`);
       return null;
     }
-    return g;
+    return fitOutline(iso, g);
+  }
+
+  /** Thin an outline until it is worth sending. See OUTLINE_MAX_POINTS. */
+  function fitOutline(iso, g) {
+    let points = pointCount(g);
+    if (points <= OUTLINE_MAX_POINTS) return g;
+    for (const tol of OUTLINE_TOLERANCES) {
+      const thinned = simplifyGeometry(g, tol);
+      points = pointCount(thinned);
+      if (points <= OUTLINE_MAX_POINTS) {
+        log(`${iso} ADM0: ${pointCount(g)} points thinned to ${points} at ${Math.round(tol * 111000)} m`);
+        return thinned;
+      }
+    }
+    // A coastline that will not come down to the budget is sent at the coarsest
+    // tolerance rather than dropped: it is still far sharper than the overview
+    // shape it replaces, which is the only comparison that matters here.
+    const last = simplifyGeometry(g, OUTLINE_TOLERANCES[OUTLINE_TOLERANCES.length - 1]);
+    log(`${iso} ADM0: ${pointCount(g)} points would not fit; sending ${pointCount(last)}`);
+    return last;
   }
 
   async function build(iso) {
