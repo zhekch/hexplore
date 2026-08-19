@@ -90,6 +90,24 @@ body {
   touch-action: manipulation;
 }
 
+/* And the browser's own sideways gesture, which is *go back a page*.
+   
+   There is nothing to scroll horizontally on this page, so every horizontal
+   swipe is either ours — along the days on the chip, along the months in the
+   calendar — or nothing at all; and what a browser does with a horizontal
+   gesture it thinks nobody wants is navigate, on a page whose back is the login
+   screen. The handlers claim their own gestures from the first event
+   (src/swipe.js), which suppresses it where they run; this is the other half,
+   for everywhere else and for the frame or two before a handler is reached.
+
+   `none` rather than `contain`: contain still allows the overscroll *effect*,
+   and it is the effect — the whole page sliding sideways under a swipe that was
+   meant for a chip — that reads as the app coming apart. */
+html,
+body {
+  overscroll-behavior-x: none;
+}
+
 /* The grey square a phone flashes over whatever you just pressed.
 
    It is a *rectangle*, drawn over the element's border box, and nothing in this
@@ -6414,52 +6432,75 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   transition: none;
 }
 
-/* What the chip says, in two parts: the day, and what is true about it. On a
-   laptop they are one line with a separator between them. */
+/* What the chip says, in two lines: what is being shown, and — for a day —
+   what is on it, with the button that walks through the activities sitting in
+   that second line rather than out at the end of the chip. "Show" beside a date
+   is a button with no visible object; "3 activities · Show" says what it will
+   show. See `setChipText` in src/main.js. */
 #trip-chip-text {
   display: flex;
   min-width: 0;
-  align-items: baseline;
-  gap: 5px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
 .chip-name,
-.chip-sub {
+.chip-sub-text {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .chip-sub {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+
+.chip-sub-text {
   opacity: 0.62;
 }
 
-.chip-sub::before {
-  content: '· ';
+/* Smaller than the chip's own button, because it acts on the line it is in
+   rather than on the chip: Clear ends the whole thing, Show is one step inside
+   it, and two buttons of the same weight would put those on a level. */
+.route-solo > #trip-chip-text .chip-sub > button {
+  appearance: none;
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-/* On a phone the second half goes underneath. 362px of chip, less two arrows
-   and two buttons, leaves about 150px for the text, and "Jul 6, 2026 · ≈ 28 km
-   · 3 activities" is closer to 220 — so the choice is between a pill that grows
-   downwards and a date cut off in the middle of a word. The date is the thing
-   being named and it stays whole; the numbers under it are what the pill was
-   expanded to carry, and stacking them is the only way to carry both. */
-@media (max-width: 560px) {
-  #trip-chip-text {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0;
-    line-height: 1.25;
-  }
+.route-solo > #trip-chip-text .chip-sub > button:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
 
-  .chip-sub {
-    font-size: 11px;
-  }
+.route-solo > #trip-chip-text .chip-sub > button[hidden] {
+  display: none;
+}
 
-  .chip-sub::before {
-    content: none;
-  }
+[data-theme='light'] .route-solo > #trip-chip-text .chip-sub > button {
+  border-color: rgba(15, 23, 42, 0.18);
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+[data-theme='light'] .route-solo > #trip-chip-text .chip-sub > button:hover {
+  background: rgba(15, 23, 42, 0.16);
 }
 
 /* The arrows.
@@ -7510,32 +7551,22 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   color: rgba(255, 255, 255, 0.9);
 }
 
-/* The distance makes room for the × as it appears, and takes the column back
-   when it goes. */
-.trip-row .search-hit-right {
-  transition: translate 0.12s ease;
-}
-
-/* Further than the rest of the row: a trip's distance has to clear both buttons
-   as well as tuck in, so it keeps going past the inner column. */
-.search-results .trip-row:hover .search-hit > .search-hit-right,
-.search-results .trip-row:has(.trip-hide:focus-visible) .search-hit > .search-hit-right,
-.search-results .trip-row:has(.trip-rename:focus-visible) .search-hit > .search-hit-right {
-  translate: -54px 0;
-}
-
-/* Nothing to point at, so the × is always there and the column is permanently
-   the narrower one — which is at least a column. */
+/* Nothing to point at, so the × is always there. */
 @media (hover: none) {
   .trip-hide,
   .trip-rename {
     opacity: 1;
     pointer-events: auto;
   }
+}
 
-  .search-results .trip-row .search-hit > .search-hit-right {
-    translate: -54px 0;
-  }
+/* A trip row's right-hand column is empty now — the distance moved to the
+   sub-line, where it stopped colliding with long names (see `tripSub` in
+   src/search-ui.js) — so the rules that shifted it 54px left to clear the two
+   overlaid buttons went with it. The sub-line needs no such shift: it is short,
+   and it ends well before the buttons begin. */
+.trip-row .search-hit-text small {
+  padding-right: 46px;
 }
 
 /* The row, while it is a field. Full width and the row's own shape, so nothing

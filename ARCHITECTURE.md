@@ -2792,13 +2792,48 @@ the map already has a way to say *this one, on its own*, and the route chip that
 appears under this one names it, where a list on top of a map is a menu covering
 the answer it is offering.
 
+The button lives **in the second line, beside the count it acts on**. "Show", at
+the end of a chip that says a date, is a button with no visible object; "3
+activities · Show" says what it will show. It is *moved* into that line rather
+than rebuilt in it (`setChipText`), because a button rebuilt on every step is a
+listener re-attached on every step — and parked back on the chip before the line
+is rewritten, or `replaceChildren` takes it away for good, which is exactly what
+happened the first time a trip was shown after a day.
+
+**Stepping off a day undoes what showing an activity did.** Isolating one is a
+detour, not a setting: it turned the routes overlay on if it was off and
+narrowed it to a single line, and both belong to the day that was on the chip.
+`dropChipRoute` puts back what it found — including the overlay being off — so
+the next day does not arrive with yesterday's run as the only route on the map
+and a banner naming it, which is a sentence about a day you are no longer
+looking at.
+
+**And the photographs follow the chip.** While a day or a trip is being shown,
+the photo overlay is narrowed to the pictures taken inside it (`setPhotoWindow`
+→ `photoGeoJson`'s `window`). The overlay on its own is a map of everywhere you
+have ever taken a picture, which is what it is for; over one Tuesday it is
+eighty thousand pins and one relevant afternoon. Three things about it:
+
+- The filter is in the **source**, not a layer filter, because the source
+  clusters: a layer filter hides leaves after the clustering has counted them,
+  so a group of forty from four different years would go on saying forty while
+  showing three.
+- A feature's `i` is its index into the **library**, not into what is drawn. It
+  is what every later question is asked by — fetch it, play it, open it full
+  screen — so the filter skips rather than renumbers.
+- A trip's window is **whole days at both ends**, not its first and last
+  evidence: a trip's ends are timestamps of fixes, and the photographs from
+  after the last one are as much part of the trip as the ones from before it. A
+  photograph with no time at all is outside every window and inside no window at
+  all.
+
 **A trip has no next, but it has days.** So the trip chip takes a pull
 *downwards* instead, into the day it began (`showFirstDayOfTrip`), and from
 there the sideways steps take over. One chevron rather than two, pointing down,
 because that is the only direction that means anything: there is nothing above a
 trip.
 
-**Three ways in, because there are three kinds of hand** (`src/swipe.js`):
+**Four ways in, because there are four kinds of hand** (`src/swipe.js`):
 
 - **A finger.** `SWIPE_COMMIT` 48 px or `SWIPE_FLICK` 0.4 px/ms, either will
   do, `SWIPE_CLAIM` 8 px before the gesture is claimed at all, and the axis is
@@ -2807,7 +2842,8 @@ trip.
   chip, and that is not a detail: it said `pan-y` first, which reserves the
   vertical axis for the *browser*, and two moves into a downward pull the page
   took the gesture and cancelled our pointer — the pull-down did nothing at all
-  and nothing said why.
+  and nothing said why. The calendar keeps `pan-y`, because there the vertical
+  axis really is the card's to scroll.
 - **A trackpad.** A two-finger swipe is not a pointer gesture at all; it is a
   stream of `wheel` events, which is why this worked on a phone and did nothing
   on a Mac — where what the mouse *could* do was drag the chip, a gesture nobody
@@ -2817,17 +2853,39 @@ trip.
   fine)`. They go through the gesture's own `step`, so a clicked step and a
   swiped one cannot drift apart: the arrows would be the half that quietly
   stopped animating.
+- **The arrow keys**, ← and → along the days and ↓ into a trip — captured on the
+  window, which is the whole of the fix the photograph card needed for the same
+  keys: MapLibre listens on the map's own container, and the container is where
+  the focus is after a tap on the map, so a listener on the document heard the
+  key after the map had already panned. Only while the chip is up, and never
+  over a field being typed into, the palette (where the arrows move the
+  highlighted row) or the photograph card (where they are the next picture).
+
+Both trackpad axes are read, so a two-finger swipe *down* over a trip chip goes
+into its days — `wheelStepper` per axis, because a sideways flick and a downward
+one are two gestures and must not spend each other's step. The direction agrees
+with the finger: pulling content down brings in what was above it.
 
 Each arrow stands for a direction there is something in, so the first day in a
 history has no arrow backwards. They nudge outwards every 2.6 s, which is the
 whole of the discoverability — nothing about a chip suggests dragging it — and
 `prefers-reduced-motion` takes the animation away and leaves them.
 
-**On a phone the chip grows downwards.** 362 px of chip, less two arrows and two
-buttons, leaves about 150 px for the text and the line is closer to 220, so
-under 560 px the second half moves under the first (`.chip-sub`). The date is
-what is being named and stays whole; the numbers under it are what the pill was
-widened to carry, and stacking is the only way to keep both.
+**A sideways swipe must not be *go back a page*.** That is what a browser does
+with a horizontal gesture it thinks nobody wants, on a page whose back is the
+login screen. Two halves: the handlers claim their own gestures from the first
+event, which suppresses it wherever they run, and `overscroll-behavior-x: none`
+on `html, body` covers everywhere else and the frame or two before a handler is
+reached. `none` rather than `contain` — contain still allows the overscroll
+*effect*, and it is the whole page sliding sideways under a swipe meant for a
+chip that reads as the app coming apart.
+
+**The chip is two lines.**, less two arrows and two
+buttons, leaves about 150 px for the text and one line of all of it is closer to
+220. So the day is the first line and what is true about it is the second
+(`.chip-sub`) — on every width, not only on a phone, because that is also where
+the activities button belongs. The date is what is being named and stays whole;
+the numbers under it are what the pill was widened to carry.
 
 #### One flick is one step
 
@@ -8107,6 +8165,14 @@ shortcut to a field, and one you have to click afterwards is a shortcut to
 nothing. The restored query is never *selected*, either: every character
 highlighted is one stray keystroke from gone, and it is the thing you came back
 for.
+
+**A trip's distance sits under its name, not beside it.** The rename and
+put-away buttons are *overlaid* on the right of a row rather than held in the
+flow — the alternative was a 34 px lane on every row for something invisible
+until you point at one — so the right-hand column has to shift left to clear
+them, and a name long enough to reach that far was ellipsised straight into it:
+`'s-Hertogenbosch, Netherl…568 km away`. On the second line there is room for
+both, and where it was and when belong together anyway (`tripSub`).
 
 **A trip's counts are the half a phone drops.** `Jul 2 – Jul 9, 2026 · 554
 cells · 7 routes` does not fit a 390 px row, and what an ellipsis cuts is the

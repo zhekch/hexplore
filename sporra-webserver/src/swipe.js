@@ -188,13 +188,14 @@ export function swipeStep(d, ms) {
  * @param {HTMLElement} [opts.slides] what actually moves, if it is not `el` —
  *   the calendar takes the gesture on its panel and moves the grid inside it,
  *   but the chip moves the whole of itself
- * @returns {{step:(step:number, axis?:string) => void}} the same step a swipe
- *   makes, for the buttons that stand in for one. A click and a swipe should
- *   not be two implementations of the same movement — the arrows would be the
- *   ones that quietly stopped animating.
+ * @returns {{step:(step:number, axis?:string) => void, can:(step:number,
+ *   axis?:string) => boolean}} the same step a swipe makes, for the buttons and
+ *   the arrow keys that stand in for one, and the same question it asks first.
+ *   A click, a key and a swipe should not be three implementations of one
+ *   movement — the arrows would be the ones that quietly stopped animating.
  */
 export function mountSwipe(el, { can, onStep, wheel = true, slides = null }) {
-  if (!el) return { step: () => {} };
+  if (!el) return { step: () => {}, can: () => false };
   const moving = slides ?? el;
   let drag = null;
   // A drag that ends where it began still dispatches a click, so a swipe that
@@ -292,21 +293,32 @@ export function mountSwipe(el, { can, onStep, wheel = true, slides = null }) {
     ev.preventDefault();
   }, true);
 
-  if (!wheel) return { step: take };
+  const handle = { step: take, can: (step, axis = 'x') => !!can(step, axis) };
+  if (!wheel) return handle;
 
-  const wheels = wheelStepper();
+  // One stepper per axis, because a gesture belongs to an axis: a sideways
+  // flick and a downward one are two gestures and must not spend each other's
+  // step, and a stream that drifts across both is answered by whichever axis it
+  // is plainly on.
+  const wheels = { x: wheelStepper(), y: wheelStepper() };
+
   el.addEventListener('wheel', (e) => {
-    // Sideways only, and only when it is plainly sideways. A two-finger scroll
-    // down a trackpad drifts left and right by a few pixels the whole way, and
-    // a month that changes because of that is unusable.
-    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-    if (!can(1, 'x') && !can(-1, 'x')) return;
+    // Plainly along one axis. A two-finger scroll down a trackpad drifts left
+    // and right by a few pixels the whole way, and a month that changes because
+    // of that is unusable — and the same in reverse for a sideways swipe with a
+    // little vertical wobble in it.
+    const axis = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? 'x' : 'y';
+    const delta = axis === 'x' ? e.deltaX : e.deltaY;
+    if (!delta || Math.abs(delta) <= Math.abs(axis === 'x' ? e.deltaY : e.deltaX)) return;
+    if (!can(1, axis) && !can(-1, axis)) return;
     // Ours from here, spent or not. The tail of a flick has to be swallowed as
     // well as the flick, or a swipe this has already answered goes on to scroll
-    // whatever is underneath — one gesture, two answers.
+    // whatever is underneath — one gesture, two answers. It is also what stops
+    // the browser reading a sideways swipe as *go back a page*: the gesture is
+    // claimed from its first event, which is before that decision is made.
     e.preventDefault();
-    take(wheels.feed(e.deltaX, e.timeStamp), 'x');
+    take(wheels[axis].feed(delta, e.timeStamp), axis);
   }, { passive: false });
 
-  return { step: take };
+  return handle;
 }

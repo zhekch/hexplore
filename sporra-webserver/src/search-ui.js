@@ -54,6 +54,22 @@ function tripCounts(t) {
 }
 
 /**
+ * A trip row's sub-line: when it was, and how far from home it happened.
+ *
+ * The distance used to be the row's right-hand column, and it collided with the
+ * name. Those buttons — rename, and put away — are overlaid on the right of the
+ * row rather than held in the flow (a 34px lane on every row for something
+ * invisible until you point at it), so the column carrying the distance has to
+ * shift left to clear them, and a name long enough to reach that far was
+ * ellipsised straight into it: "'s-Hertogenbosch, Netherl…568 km away".
+ *
+ * A second line has room for both, and the pairing reads better anyway — where
+ * it was and when belong together, and the trip's name stands on its own line
+ * with the whole width to be long in.
+ */
+const tripSub = (t) => [tripDates(t), t.farKm ? `${t.farKm} km away` : ''].filter(Boolean).join(' · ');
+
+/**
  * How long a closed palette goes on remembering where it had got to.
  *
  * Finding a day is several moves — type "jul 6", pick the year, pick the day —
@@ -401,9 +417,8 @@ export function mountSearch({
     const go = resultRow({
       icon: ICON.trip,
       title: t.name,
-      sub: tripDates(t),
+      sub: tripSub(t),
       aside: tripCounts(t),
-      right: t.farKm ? `${t.farKm} km away` : '',
       onPick: () => {
         close();
         onTrip?.(t);
@@ -858,9 +873,8 @@ export function mountSearch({
     const el = resultRow({
       icon: ICON.trip,
       title: t.name,
-      sub: tripDates(t),
+      sub: tripSub(t),
       aside: tripCounts(t),
-      right: t.farKm ? `${t.farKm} km away` : '',
       onPick: () => {
         close();
         onTrip?.(t);

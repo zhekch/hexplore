@@ -178,16 +178,33 @@ export const viewPhoto = (i, group) => ask({ ask: 'view', scan, i, group });
  * `i` travels as a property rather than as the feature id: with clustering on,
  * the id belongs to the cluster index, and a leaf's is not ours to rely on.
  */
-export function photoGeoJson(photos) {
-  return {
-    type: 'FeatureCollection',
-    features: photos.map((p, i) => ({
+export function photoGeoJson(photos, window = null) {
+  const features = [];
+  photos.forEach((p, i) => {
+    // `i` is the index into the *library*, not into what is drawn. It has to
+    // stay that way through the filter: it is what every later question about
+    // this photograph is asked by — fetch it, play it, open it full screen —
+    // and renumbering the survivors would answer all three about a different
+    // picture. Hence the loop rather than the `map` this was.
+    if (window && !inWindow(p[2], window)) return;
+    features.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [p[1], p[0]] },
       properties: { i, t: p[2], v: p[3] ? 1 : 0 },
-    })),
-  };
+    });
+  });
+  return { type: 'FeatureCollection', features };
 }
+
+/**
+ * Was this taken while that was happening?
+ *
+ * A photograph with no time at all is *out* when a window is asked for, and in
+ * when none is. It cannot be placed in the day being looked at, and a picture
+ * that might be from any year is not an answer to "what did I see on Tuesday" —
+ * whereas on the map as a whole it is still somewhere you have been.
+ */
+const inWindow = (at, [from, to]) => !!at && at >= from && at < to;
 
 const CLUSTER = `${NS}-cluster`;
 const COUNT = `${NS}-count`;
@@ -288,9 +305,15 @@ export function photoLayers({ theme, font }) {
  * Idempotent, like the airports': a basemap switch rebuilds the whole style and
  * needs a fresh install, a new scan needs only new data, and the caller should
  * not have to know which case it is in.
+ *
+ * `window` is `[from, to]` in unix seconds, and narrows the overlay to the
+ * photographs taken inside it — the day or the trip the chip is showing. Every
+ * picture from every other August is noise while you are looking at one
+ * Tuesday, and the overlay is at its least useful exactly when the map is at
+ * its most specific.
  */
-export function installPhotos(map, { before, theme, font }) {
-  const data = photoGeoJson(points);
+export function installPhotos(map, { before, theme, font, window = null }) {
+  const data = photoGeoJson(points, window);
   if (!map.getSource(SOURCE)) {
     map.addSource(SOURCE, {
       type: 'geojson',

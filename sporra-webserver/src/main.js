@@ -124,7 +124,8 @@ import { mountHome } from './home-ui.js';
 import { mountIntro } from './intro-ui.js';
 import { INTRO_SEEN_KEY, INTRO_VERSION, hostKind, shouldIntro } from './intro.js';
 import {
-  activeDays, dayDetail, dayKey, dayLabel, distanceKm, findHome, nextRecordedDay, TRIP_NAME_MAX,
+  activeDays, dayBounds, dayDetail, dayKey, dayLabel, distanceKm, findHome, nextRecordedDay,
+  TRIP_NAME_MAX,
 } from './trips.js';
 import { mountSwipe } from './swipe.js';
 import {
@@ -5096,12 +5097,20 @@ function showTrack(what) {
       km: trackKm(what.points ?? []),
     }
     : null;
+  // Whatever the chip did to the map for the *last* thing it was showing is
+  // undone before the next one is drawn: the isolated activity and the banner
+  // naming it belong to a day you have stepped off. Nothing about "Monday" is
+  // answered by a run from Sunday still being the only route on the map.
+  dropChipRoute();
   // The series this belongs to, worked out once here rather than per pointer
   // event — see `dayStep`. Both are reset for a trip and for nothing at all, so
   // the chip cannot offer a step along a series it has left.
   dayStep = what?.kind === 'day' ? daysEitherSideOf(what.id) : {};
   dayRoutes = what?.kind === 'day' ? (what.routes ?? []) : [];
   dayRouteAt = -1;
+  // The photographs follow the chip: while one day is on the map, the overlay
+  // is that day's pictures. See `setPhotoWindow`.
+  setPhotoWindow(what?.from && what?.to ? [what.from, what.to] : null);
   const src = map.getSource('trip');
   if (src) src.setData(what ? trackFC(what.points) : EMPTY);
   // Raised on every showing rather than positioned once: a saved route sits
@@ -5125,6 +5134,13 @@ const showTripOnMap = (trip) =>
     label: trip.name,
     points: trip.spots ?? [],
     first: trip.start ? dayKey(trip.start) : null,
+    // Whole days at both ends, not the first and last thing recorded. A trip's
+    // ends are evidence timestamps — the last fix of the last evening — and the
+    // photographs from after it are as much part of the trip as the ones from
+    // before.
+    ...(trip.start && trip.end
+      ? { from: dayBounds(dayKey(trip.start))[0], to: dayBounds(dayKey(trip.end))[1] }
+      : {}),
   });
 
 /** One calendar day, drawn the same way a trip is. Both calendars land here. */
@@ -5135,6 +5151,8 @@ function showDayOnMap(key, detail) {
     label: detail.label,
     points: detail.points,
     routes: detail.routes ?? [],
+    from: detail.start,
+    to: detail.end,
   });
   fitBboxOnMap(bboxOfPoints(detail.points));
 }
@@ -5177,6 +5195,10 @@ let dayStep = {};
 // saying *Next*.
 let dayRoutes = [];
 let dayRouteAt = -1;
+// The map as the chip found it, while an activity of the day's is isolated.
+let chipRouteWas = null;
+// The span the photo overlay is narrowed to, or null for the whole library.
+let photoWindow = null;
 
 const daysEitherSideOf = (key) => {
   const keys = [...activeDays(cellMeta, listedRoutes()).keys()];
@@ -5219,6 +5241,10 @@ function showFirstDayOfTrip() {
  */
 async function showNextDayRoute() {
   if (!dayRoutes.length) return;
+  // What the map looked like before the chip touched it, taken once at the
+  // start of the excursion rather than on every press — the second press would
+  // otherwise record the state the first one had already changed.
+  if (!chipRouteWas) chipRouteWas = { on: routesOn, solo: soloRoute };
   dayRouteAt = (dayRouteAt + 1) % dayRoutes.length;
   const route = dayRoutes[dayRouteAt];
   updateTrackChip(); // *Show* becomes *Next* before anything is fetched
@@ -5229,8 +5255,49 @@ async function showNextDayRoute() {
 }
 
 /**
- * What the chip says about a day beyond its date: roughly how far you went, and
- * how many activities are on it.
+ * Put the routes back the way the chip found them.
+ *
+ * Isolating an activity is a detour, not a setting: it turned the overlay on if
+ * it was off and narrowed it to one line, and both of those belong to the day
+ * that was on the chip. Stepping to another day undoes them — otherwise the
+ * next day arrives with yesterday's run as the only route on the map and a
+ * banner naming it, which is a sentence about a day you are no longer looking
+ * at.
+ */
+function dropChipRoute() {
+  if (!chipRouteWas) return;
+  const was = chipRouteWas;
+  chipRouteWas = null;
+  dayRouteAt = -1;
+  setSoloRoute(was.solo);
+  if (!was.on) setRoutesOn(false);
+}
+
+/**
+ * Which photographs the overlay is drawing: all of them, or the ones taken
+ * while the thing on the chip was happening.
+ *
+ * Only while something *is* on the chip. The overlay on its own is a map of
+ * everywhere you have taken a picture, which is what it is for; over one day it
+ * is eighty thousand pins and one relevant afternoon, and the map is at its
+ * most specific exactly where the overlay is at its least useful.
+ *
+ * The filter lives in the source rather than in a layer filter because the
+ * source *clusters*: a layer filter hides leaves after the clustering has
+ * counted them, so a group of forty from four different years would go on
+ * saying forty while showing three.
+ */
+function setPhotoWindow(span) {
+  const same = (a, b) => (!a && !b) || !!(a && b && a[0] === b[0] && a[1] === b[1]);
+  if (same(photoWindow, span)) return;
+  photoWindow = span;
+  // Nothing to redraw if the overlay is off or has never been read; turning it
+  // on will pick this up on its own.
+  if (photosOn && styleReady && photoScanned) syncPhotoLayer();
+}
+
+/**
+ * How far the day went, as the chip puts it.
  *
  * Rounded harder than `formatDistance` rounds, because this is a measurement
  * between the centres of mile-wide hexagons and 27.7 of them is a decimal place
@@ -5242,36 +5309,46 @@ async function showNextDayRoute() {
  * naming, and there is nothing else it could be doing — and it cost the room
  * this needs.
  */
-function dayChipSub(track) {
-  const parts = [];
-  if (track.km >= 0.5) parts.push(`≈ ${track.km >= 10 ? Math.round(track.km) : track.km.toFixed(1)} km`);
-  // One activity is announced by the button beside it; a number is only worth
-  // the width when it is a number you have to cycle through.
-  if (dayRoutes.length > 1) parts.push(pluralKey(dayRoutes.length, 'tripChip.activities'));
-  return parts.join(' · ');
+function dayChipDistance(track) {
+  if (!(track.km >= 0.5)) return '';
+  return `≈ ${track.km >= 10 ? Math.round(track.km) : track.km.toFixed(1)} km`;
 }
 
 /**
- * The chip's line, in two parts — what this is, and what is true about it.
+ * The chip's contents: what is being shown, and — for a day — a second line
+ * carrying what is on it and the button that walks through the activities.
  *
- * Two elements rather than one string because a phone has not got the width for
- * one: 362px of chip, less two arrows and two buttons, leaves about 150 for the
- * text, and "Jul 6, 2026 · ≈ 28 km · 3 activities" is 220. So on a narrow
- * screen the second half goes *under* the first and the pill grows downwards
- * instead of being cut off in the middle of a word. See `.chip-sub` in
- * src/style.css; there is room for one line on a laptop and it stays one line.
+ * The button is *in* that line rather than beside the date, and that is the
+ * whole point of the line existing. "Show", sitting at the end of a chip that
+ * says a date, is a button with no visible object; "3 activities · Show" says
+ * what it will show. It is moved rather than rebuilt — the element from the
+ * markup, with its listener, put where it belongs — because a button rebuilt on
+ * every step is a listener re-attached on every step, or forgotten on one.
  */
 function setChipText(label, sub) {
   const el = document.getElementById('trip-chip-text');
+  const route = document.getElementById('trip-chip-route');
+  // Parked back on the chip before the line is rebuilt. The button lives inside
+  // a line that is thrown away and rewritten on every step, and `replaceChildren`
+  // takes whatever is in there with it — which cost the button, permanently, the
+  // first time a trip was shown after a day. Before *Clear*, so the parked
+  // position is also the sensible one if it is ever seen.
+  document.getElementById('trip-chip').insertBefore(route, document.getElementById('trip-chip-clear'));
   const name = document.createElement('span');
   name.className = 'chip-name';
   name.textContent = label;
   el.replaceChildren(name);
-  if (!sub) return;
-  const extra = document.createElement('span');
-  extra.className = 'chip-sub';
-  extra.textContent = sub;
-  el.append(extra);
+  if (!sub && route.hidden) return;
+  const line = document.createElement('span');
+  line.className = 'chip-sub';
+  if (sub) {
+    const what = document.createElement('span');
+    what.className = 'chip-sub-text';
+    what.textContent = sub;
+    line.append(what);
+  }
+  line.append(route);
+  el.append(line);
 }
 
 // The chip is the way back out that doesn't mean reopening a panel, so it lives
@@ -5293,10 +5370,19 @@ function updateTrackChip() {
   next.hidden = !day || !dayStep[1];
   down.hidden = !trip || !shownTrack.first;
   route.hidden = !dayRoutes.length;
+  // *Show* until one of them is on the map, then *Next* — which is only a
+  // different word when there is somewhere else to go.
   route.textContent = dayRouteAt < 0 || dayRoutes.length < 2 ? t('trip-chip-route.show') : t('tripChip.next');
   chip.classList.toggle('can-swipe', !(prev.hidden && next.hidden && down.hidden));
   if (!shownTrack) return;
-  setChipText(shownTrack.label, day ? dayChipSub(shownTrack) : '');
+  // Every count, including one. It used to start at two, on the grounds that a
+  // single activity was announced by the button existing — which is true of the
+  // button and not of the line it now sits in: "Show" on its own says nothing
+  // about what there is, and a day with one ride on it should say it has one.
+  const parts = day
+    ? [dayChipDistance(shownTrack), dayRoutes.length ? pluralKey(dayRoutes.length, 'tripChip.activities') : '']
+    : [];
+  setChipText(shownTrack.label, parts.filter(Boolean).join(' · '));
 }
 
 // Any edit or a new look at the map drops it — it marks one answer to one
@@ -7954,6 +8040,7 @@ function syncPhotoLayer() {
       before: PHOTO_BEFORE(),
       theme: STYLES[styleKey].theme,
       font: styleFont(),
+      window: photoWindow,
     });
     updateLayersUi();
   };
@@ -9086,6 +9173,35 @@ function wireLayersControl() {
   document.getElementById('trip-chip-prev').addEventListener('click', () => chipSwipe.step(-1, 'x'));
   document.getElementById('trip-chip-next').addEventListener('click', () => chipSwipe.step(1, 'x'));
   document.getElementById('trip-chip-down').addEventListener('click', () => chipSwipe.step(-1, 'y'));
+
+  // …and the same three without a hand on anything.
+  //
+  // **In the capture phase, on the window**, which is the whole of the fix the
+  // photograph card needed for the same keys: MapLibre listens on the map's own
+  // container, and the container is where the focus is after a tap on the map —
+  // so by the time a listener on the document heard the key, the map had
+  // already panned and `preventDefault` was a sentence too late.
+  //
+  // Only while the chip is up, and never over anything that has its own idea
+  // about arrows: a field being typed into, the palette (where they move the
+  // highlighted row), or the photograph card (where they are the next picture).
+  window.addEventListener('keydown', (e) => {
+    if (!shownTrack || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    if (!/^Arrow(Left|Right|Down)$/.test(e.key)) return;
+    if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]')) {
+      return;
+    }
+    if (!document.getElementById('search-overlay')?.hidden) return;
+    if (document.getElementById('photo-info') && !document.getElementById('photo-info').hidden) return;
+    const [step, axis] = e.key === 'ArrowLeft' ? [-1, 'x'] : e.key === 'ArrowRight' ? [1, 'x'] : [-1, 'y'];
+    if (!chipSwipe.can(step, axis)) return;
+    // Stopped rather than merely defaulted, so nothing below is asked at all —
+    // a day that steps *and* pans the map underneath it is two answers to one
+    // key.
+    e.preventDefault();
+    e.stopPropagation();
+    chipSwipe.step(step, axis);
+  }, true);
   document.getElementById('routes-toggle').addEventListener('change', (e) => setRoutesOn(e.target.checked));
   document.getElementById('routes-options-toggle').addEventListener('click', () => {
     routeOptionsOpen = !routeOptionsOpen;

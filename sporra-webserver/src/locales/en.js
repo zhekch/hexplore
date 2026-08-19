@@ -499,7 +499,7 @@ export default {
   "trails.trails-near-here": "Trails near here",
   "trails.unnamed-route": "Unnamed route",
   "trails.winter-hiking": "Winter hiking",
-  "trip-chip-clear.stop": "Stop",
+  "trip-chip-clear.clear": "Clear",
   "trip-chip-down.the-days-of-this-trip": "The days of this trip",
   "trip-chip-next.the-day-after": "The day after",
   "trip-chip-prev.the-day-before": "The day before",

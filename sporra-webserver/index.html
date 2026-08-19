@@ -595,8 +595,13 @@
         <button data-i18n-aria-label="trip-chip-next.the-day-after" class="chip-arrow chip-arrow-r" type="button" id="trip-chip-next" hidden>
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6l6 6-6 6"/></svg>
         </button>
+        <!-- Moved into the second line of the text by `setChipText`, beside the
+             count it acts on: "3 activities · Show" says what Show shows, and a
+             Show sitting on its own next to a date does not. It lives here in
+             the markup so it can be keyed and found by id like everything
+             else. -->
         <button data-i18n="trip-chip-route.show" type="button" id="trip-chip-route" hidden>Show</button>
-        <button data-i18n="trip-chip-clear.stop" type="button" id="trip-chip-clear">Stop</button>
+        <button data-i18n="trip-chip-clear.clear" type="button" id="trip-chip-clear">Clear</button>
       </div>
       <div class="route-solo" id="route-solo" hidden>
         <span data-i18n="route-solo-text.showing-one-route" id="route-solo-text">Showing one route</span>

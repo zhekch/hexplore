@@ -119,6 +119,29 @@ console.log('\nA point lands where the photograph was taken');
   check(photoGeoJson([]).features.length === 0, 'an empty library is an empty collection, not a throw');
 }
 
+console.log('\nAnd only the ones taken while the day on the chip was happening');
+{
+  // The window is what the map narrows to while a day or a trip is being shown
+  // — every picture from every other August is noise over one Tuesday.
+  const DAY = [1_693_699_200, 1_693_785_600]; // 3 Sep 2023, UTC
+  const library = [
+    [47.37, 8.54, 1_693_742_400],       // that afternoon
+    [47.38, 8.55, 1_600_000_000],       // two years earlier
+    [47.39, 8.56, 1_693_785_600],       // the first second of the next day
+    [47.40, 8.57, 0],                   // no time on it at all
+  ];
+  const fc = photoGeoJson(library, DAY);
+  check(fc.features.length === 1, 'one of the four is inside the day', `${fc.features.length}`);
+  // The one that matters, and the reason this is a filter over an index rather
+  // than a filtered list: `i` is what every later question about a photograph is
+  // asked by — fetch it, play it, open it full screen — so renumbering the
+  // survivors would answer all three about a different picture.
+  check(fc.features[0].properties.i === 0, 'and it keeps its index into the library');
+  check(photoGeoJson(library.slice(1), DAY).features.length === 0,
+    'the end of the window is exclusive, and an undated photograph is out');
+  check(photoGeoJson(library).features.length === 4, 'with no window, the whole library stands');
+}
+
 console.log('\nThe layers say what they draw');
 {
   const layers = photoLayers({ theme: 'dark', font: ['Open Sans Regular'] });

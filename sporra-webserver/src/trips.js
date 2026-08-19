@@ -755,7 +755,7 @@ export function longestStreak(dayKeys) {
 }
 
 /** The seconds spanned by one local calendar day. */
-const dayBounds = (key) => {
+export const dayBounds = (key) => {
   const start = new Date(`${key}T00:00:00`).getTime() / 1000;
   return [start, start + DAY];
 };
