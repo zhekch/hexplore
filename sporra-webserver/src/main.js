@@ -149,7 +149,7 @@ import { showToast } from './toast.js';
 import { busy } from './busy.js';
 import { routesToFC, totalLength, formatDistance, canonicalSport, duplicateRoutes } from './routes.js';
 import { paletteFor, randomPalette } from './route-colors.js';
-import { reconcilePrefs, remoteToken } from './prefs.js';
+import { reconcilePrefs, remoteToken, readHome } from './prefs.js';
 import { loadPlaces, describeRoute, nearestTown } from './places.js';
 import { createBlobLayer, blobsSupported, BLOB_ALPHA, BLOB_HEAT_ALPHA } from './blob-canvas.js';
 // The one place that asks the map where its camera is, and the only arithmetic
@@ -3998,7 +3998,68 @@ let pushViewTimer = null;
 // until you say otherwise, and then it's whatever you said — a guess about
 // something this personal should be correctable, and everything about the trip
 // list is measured from it.
-let homePlace = null; // { lng, lat, name } | null = use the guess
+//
+// **Kept here as well as in the account, which every other synced preference
+// already was.** Home was the one field of the preferences blob with no copy on
+// the device, and that is a whole bug on its own: the blob is pushed as a
+// *whole*, assembled from whatever this browser currently holds, and this
+// browser held nothing until a sync had landed. So any push that went up before
+// one — a colour changed in the first seconds, a change made offline and
+// re-sent on the next load, a load whose `getPrefs` failed — carried
+// `home: null` and wiped the account's. Every device then fell back to the
+// guess, which is how somebody who lives in Bern found themselves living in
+// Thun. Nothing else in the blob could do this, because everything else in it
+// is mirrored to localStorage by `touchPrefs`.
+const HOME_KEY = 'visited-map:home:v1';
+let homePlace = readStoredHome(); // { lng, lat, name } | null = use the guess
+
+/** This browser's own copy of where home is. */
+function readStoredHome() {
+  try {
+    return readHome(JSON.parse(localStorage.getItem(HOME_KEY) ?? 'null'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether this browser has ever been told anything about home — which is not
+ * the same question as whether it has one.
+ *
+ * Three states, not two, and the third one has to be written down: the key
+ * *absent* is "nobody has ever said", the key holding `null` is "there is
+ * deliberately none" (the Clear button in the home dialog), and the key holding
+ * a place is the place. Collapsing the first two loses the difference between a
+ * device that has nothing to say about home and one that has been told there is
+ * no home — and the first must not overwrite the account, while the second must.
+ */
+const homeTold = () => {
+  try {
+    return localStorage.getItem(HOME_KEY) !== null;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Keep the local copy in step with `homePlace`.
+ *
+ * Called from both sides of the sync: from `touchPrefs`, where this device has
+ * just decided something, and from `adoptPrefs`, where the account has. The
+ * second is the one that is easy to leave out and expensive to leave out — a
+ * device that adopted a new home and never touched anything again would go on
+ * holding the old one, and push it back over the top on the next load.
+ */
+function rememberHome() {
+  try {
+    // Written even when it is null, which is the whole of `homeTold` — see
+    // there. Only signing out removes the key, because only then does this
+    // browser genuinely stop knowing.
+    localStorage.setItem(HOME_KEY, JSON.stringify(homePlace ?? null));
+  } catch {
+    /* private mode, quota — the account's copy is still the one that matters */
+  }
+}
 
 // Which introduction this person has already been through, as its version
 // number. Read from this browser to begin with and raised by whatever the
@@ -4149,6 +4210,7 @@ function touchPrefs() {
   } catch {
     /* private mode, quota — the server copy is still attempted */
   }
+  rememberHome();
   // Both colour keys, through the one writer that keeps them agreeing — this
   // used to mirror `accent`, which is now whichever of the two the basemap on
   // screen calls for and so the wrong thing to put under the single-value key.
@@ -4213,10 +4275,12 @@ function adoptPrefs(prefs) {
       .map(([id, name]) => [id, name.trim().slice(0, TRIP_NAME_MAX)]),
   );
   derived.setTripNames(tripNames);
-  const h = prefs.home;
-  homePlace = h && Number.isFinite(+h.lng) && Number.isFinite(+h.lat)
-    ? { lng: +h.lng, lat: +h.lat, name: String(h.name ?? '').slice(0, 80) }
-    : null;
+  // Read the same way this browser's own copy is read, and written back to it:
+  // adopting is the account telling this device where home is, and a device
+  // that heard it and did not write it down would push the old one back up the
+  // next time anything at all changed.
+  homePlace = readHome(prefs.home);
+  rememberHome();
   // Repaint only if the formatters actually changed, since every list that
   // shows a time has to be rebuilt to pick it up.
   if (setClock(prefs.clock)) redrawClocks();
@@ -4329,6 +4393,21 @@ async function syncPrefs() {
     adoptPrefs(remote);
     if (migrate) touchPrefs();
   } else if (verdict === 'push') {
+    // The account is behind, so this browser's copy goes up — *whole*, which is
+    // the trap. A device that has never been told where home is has no opinion
+    // about home, and an opinion is what the blob is about to state on its
+    // behalf. Nothing else in it can be in that position: every other field is
+    // mirrored to localStorage, so a device that has one has it here.
+    //
+    // Asked as "has anything ever said" rather than "is there one", because
+    // there is deliberately none is also an answer and must be allowed to
+    // overwrite the account — that is what the Clear button in the home dialog
+    // means. See `homeTold`.
+    if (!homeTold() && readHome(remote?.home)) {
+      homePlace = readHome(remote.home);
+      rememberHome();
+      syncHomeMarker();
+    }
     prefsDirty = true;
     pushPrefs();
   }
@@ -11186,6 +11265,7 @@ const authState = mountAuth({
     applyColors();
     try {
       localStorage.removeItem(ROUTE_VIEW_KEY);
+      localStorage.removeItem(HOME_KEY);
       localStorage.removeItem(PREFS_STAMP_KEY);
       localStorage.removeItem(CLOCK_KEY);
       localStorage.removeItem(COLOR_KEY);

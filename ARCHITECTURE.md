@@ -8489,6 +8489,44 @@ silence. Silence beside a browser that *has* a token is the third case in
 the token up, exactly as it does for an account written before the light and dark
 washes were told apart.
 
+**Home was the one field with no copy on the device, and it reset itself.** The
+blob is pushed *whole*, assembled from whatever the browser is holding at the
+time — so every field in it needs a local copy for the same reason the clock
+does, and every field had one except this. A push that went up before a sync had
+landed therefore carried `home: null` and wiped the account's answer: a colour
+changed in the first seconds of a load, a change made offline and re-sent on the
+next one, or any load whose `getPrefs` failed. Every device then fell back to
+the derived guess, which for somebody who lives in Bern and paddles at Spiez is
+about twenty-five kilometres out — they found themselves living in Thun, more
+than once, with nothing on screen to say why.
+
+`visited-map:home:v1` is that copy, written by `rememberHome()` from *both*
+sides of the sync: from `touchPrefs`, where this device has just decided, and
+from `adoptPrefs`, where the account has. The second is the one that is easy to
+leave out and expensive to leave out — a device that adopted a new home and
+never touched anything again would go on holding the old one and push it back
+over the top on the next load.
+
+**Three states, not two, and the third has to be written down.** The key absent
+means *nobody has ever told this browser anything*; the key holding `null` means
+*there is deliberately no home*, which is what Clear in the home dialog means
+and which has to be allowed to overwrite the account; the key holding a place is
+the place. `homeTold()` asks the first question, and `syncPrefs` uses it in the
+one branch where the difference decides something: on a **push** verdict — the
+account is behind, so this browser's whole blob goes up — a device that has
+never been told adopts the account's home first rather than stating an opinion
+it does not have. Nothing else in the blob can be in that position, because
+everything else in it is mirrored.
+
+`readHome()` lives in `src/prefs.js` beside `reconcilePrefs` and `remoteToken`,
+because two callers have to read it identically — the account's blob off the
+network and this browser's copy out of `localStorage`. A home that survived one
+reader and not the other would be a home that resets on some loads and not
+others, which is the shape of the bug all over again. Both sources are outside
+the program, so every field is re-checked: coordinates that arrive as strings
+are numbers, a longitude that has left the planet is corrupt rather than wound
+round, and a name is cut to 80 characters.
+
 **Preferences stopped being entirely opaque.** The server stored the preferences
 blob and gave it back without reading it. It now reads one key — `home` — because
 a derived home that ignored the answer you gave when the guess was wrong would be

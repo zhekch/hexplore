@@ -9,7 +9,7 @@
 //
 //   node scripts/test/prefs-sync.mjs
 
-import { reconcilePrefs, remoteToken } from '../../src/prefs.js';
+import { reconcilePrefs, remoteToken, readHome } from '../../src/prefs.js';
 
 let pass = 0;
 let fail = 0;
@@ -119,6 +119,41 @@ eq(remoteToken(null), null, 'nor a missing blob');
 // to remove one either.
 eq(remoteToken({ mapboxToken: 42 }), null, 'a token that is not a string is not an opinion');
 eq(remoteToken({ mapboxToken: null }), null, 'and neither is an explicit null');
+
+console.log('\nwhere home is, read the same way from both copies');
+// The bug this ends: home was the one field of the preferences blob with no
+// copy on the device. The blob is pushed *whole*, assembled from what this
+// browser holds — so any push that went up before a sync had landed (a colour
+// changed in the first seconds, a change made offline and re-sent on the next
+// load, a load whose getPrefs failed) carried `home: null` and wiped the
+// account's. Every device then fell back to the guess, and somebody who lives
+// in Bern found themselves living in Thun.
+//
+// Two readers now, of one function: `main.js` reads the account's blob with it
+// and this browser's localStorage copy with it. A home that survived one and
+// not the other would be a home that resets on some loads and not others.
+{
+  const home = { lng: 7.447, lat: 46.948, name: 'Bern' };
+  const got = readHome(JSON.parse(JSON.stringify(home)));
+  eq(got?.lng, 7.447, 'a home comes back with its longitude');
+  eq(got?.lat, 46.948, '…its latitude');
+  eq(got?.name, 'Bern', '…and its name');
+  // Both sources are outside the program: one is the network, the other is a
+  // string somebody could have edited.
+  eq(readHome(null), null, 'nothing is not a home');
+  eq(readHome({}), null, 'and neither is an empty object');
+  eq(readHome({ lng: 7.4 }), null, 'half a coordinate is not a home');
+  eq(readHome({ lng: 'x', lat: 46.9 }), null, 'nor is one that is not a number');
+  eq(readHome({ lng: NaN, lat: 46.9 }), null, 'nor NaN, which is a number');
+  eq(readHome({ lng: 999, lat: 46.9 }), null, 'nor a longitude that has left the planet');
+  eq(readHome({ lng: 7.4, lat: 91 }), null, 'nor a latitude past the pole');
+  // Strings that came off the network as strings are still coordinates.
+  eq(readHome({ lng: '7.447', lat: '46.948' })?.lng, 7.447, 'numbers arriving as text are read');
+  eq(readHome({ lng: 0, lat: 0 })?.lng, 0, 'and null island is a real place to live');
+  eq(readHome({ lng: 7.4, lat: 46.9 })?.name, '', 'a home with no name keeps working');
+  eq(readHome({ lng: 7.4, lat: 46.9, name: 'x'.repeat(200) })?.name.length, 80,
+    'and a name from nowhere good is cut to length');
+}
 
 console.log(`\n${fail ? 'FAILED' : 'passed'}: ${pass} ok, ${fail} failed`);
 process.exit(fail ? 1 : 0);

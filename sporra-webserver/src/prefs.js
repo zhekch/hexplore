@@ -59,3 +59,32 @@ export function reconcilePrefs({ localStamp = 0, dirty = false, remote } = {}) {
 export function remoteToken(prefs) {
   return typeof prefs?.mapboxToken === 'string' ? prefs.mapboxToken.trim() : null;
 }
+
+/** The longest name a home is allowed to carry. */
+const HOME_NAME_MAX = 80;
+
+/**
+ * Where a stored blob says home is, or null if it does not say.
+ *
+ * Here rather than inline in main.js because *two* places read it and they have
+ * to read it the same way: the account's copy when a sync lands, and this
+ * browser's own copy on the way up from localStorage. A home that survives one
+ * of those and not the other is a home that resets on some loads and not
+ * others, which is exactly the bug this pair exists to end.
+ *
+ * Every field is re-checked because both sources are outside the program — one
+ * is the network, the other is a string a person could have edited.
+ *
+ * @param {object|null} value  `{ lng, lat, name }`, from anywhere
+ * @returns {{lng:number, lat:number, name:string}|null}
+ */
+export function readHome(value) {
+  const lng = Number(value?.lng);
+  const lat = Number(value?.lat);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  // A home outside the world is not a home. `wrapLng` is not used: this is a
+  // stored answer rather than a computed one, and a longitude that has left the
+  // planet is corrupt, not wound round.
+  if (lng < -180 || lng > 180 || lat < -90 || lat > 90) return null;
+  return { lng, lat, name: String(value?.name ?? '').slice(0, HOME_NAME_MAX) };
+}
