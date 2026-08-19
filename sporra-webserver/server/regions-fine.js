@@ -27,7 +27,9 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { pairFineRegions, regionsInCountry, countryForIso, regionsOf } from '../src/regions.js';
+import {
+  pairFineRegions, regionsInCountry, countryForIso, regionsOf, seamedRegion,
+} from '../src/regions.js';
 
 const GB_COMMIT = '9469f09';
 // The media host, not github.com or jsDelivr: these files are stored in Git LFS,
@@ -35,6 +37,9 @@ const GB_COMMIT = '9469f09';
 const fileUrl = (iso, level) =>
   `https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/${GB_COMMIT}`
   + `/releaseData/gbOpen/${iso}/${level}/geoBoundaries-${iso}-${level}_simplified.geojson`;
+// The country's own outline — ADM0, one shape, and the level every country in
+// the world has. See `outlineFor`.
+const outlineUrl = (iso) => fileUrl(iso, 'ADM0');
 // Asked only how many units a level has — a 1.7 KB answer that saves
 // downloading the wrong file.
 const apiUrl = (iso, level) => `https://www.geoboundaries.org/api/current/gbOpen/${iso}/${level}/`;
@@ -51,11 +56,13 @@ const LEVELS = ['ADM1', 'ADM2', 'ADM3'];
 // counties — but a handful out of hundreds means the level is describing
 // something else and the country is better left at one resolution.
 const MIN_PAIRED_SHARE = 0.4;
-// Bumped whenever pairFineRegions can answer differently, because the cache is
-// keyed on the inputs and this is a change to the function. 2: a name miss now
-// votes over the interior points of their shape instead of taking one of them,
-// which is what pairs a province shaped like a ring around its capital.
-const PAIRING_VERSION = 2;
+// Bumped whenever the answer can change without either dataset moving, because
+// the cache is keyed on the inputs and never expires. 2: a name miss now votes
+// over the interior points of their shape instead of taking one of them, which
+// is what pairs a province shaped like a ring around its capital. 3: the payload
+// carries a country outline for the countries whose regions did not all pair,
+// and a cached answer written before that would go on being served without one.
+const PAIRING_VERSION = 3;
 const MIN_PAIRED = 3;
 const FETCH_TIMEOUT_MS = 30000;
 
@@ -161,12 +168,53 @@ export function createFineRegions({ dir, log = () => {} }) {
     );
   }
 
+  /**
+   * The country's own outline, for the countries the region pairing cannot
+   * sharpen.
+   *
+   * ADM1 does not mean the same thing in the two datasets, and where they
+   * disagree there is nothing to pair: Hungary's 43 units against their 20,
+   * Luxembourg's three abolished districts against their twelve cantons. Those
+   * countries kept the overview outline at *every* zoom — a shape simplified to
+   * about a kilometre, 46 points for the whole of Luxembourg — because the only
+   * sharp country outline this app had was its own regions dissolved.
+   *
+   * ADM0 needs no pairing at all: it is one shape, it is the same country ours
+   * is, and every country in the world has one. It is not as sharp as a
+   * dissolve of paired regions (Switzerland: 2,368 points against 10,111), so
+   * it is fetched only where the dissolve cannot be built — which is exactly
+   * where it is the only thing there is.
+   *
+   * Never fatal: a country whose outline cannot be fetched keeps the shipped
+   * one, which is what it had before.
+   */
+  async function outlineFor(iso) {
+    const geo = await getJson(outlineUrl(iso));
+    const features = geo?.features ?? [];
+    // One feature is the whole point of ADM0; anything else is a file that is
+    // not what this is for, and a country outline assembled out of guesses is
+    // worse than the plain one we ship.
+    const g = features.length === 1 ? features[0]?.geometry : null;
+    if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) {
+      log(`${iso} ADM0: no single outline to take`);
+      return null;
+    }
+    return g;
+  }
+
   async function build(iso) {
     // The country name our own dataset uses, and how many regions it has.
     const country = countryForIso(iso);
     if (!country) return { iso, level: null, regions: {}, note: 'unknown country code' };
     const mine = regionsInCountry(iso);
-    if (!mine) return { iso, level: null, regions: {}, note: 'no regions here' };
+    if (!mine) {
+      // Nothing to pair and nothing to dissolve, which is not the same as
+      // nothing to sharpen: the country still has an outline.
+      return {
+        iso, level: null, fingerprint: fingerprintOf(iso), regions: {},
+        outline: await outlineFor(iso), note: 'no regions here',
+      };
+    }
 
     for (const { level, count } of await rankLevels(iso, mine)) {
       const geo = await getJson(fileUrl(iso, level));
@@ -179,14 +227,26 @@ export function createFineRegions({ dir, log = () => {} }) {
         continue;
       }
       log(`${iso} ${level}: ${paired.size} of ${mine} regions gained detail`);
-      return { iso, level, fingerprint: fingerprintOf(iso), regions: Object.fromEntries(paired) };
+      const regions = Object.fromEntries(paired);
+      const payload = { iso, level, fingerprint: fingerprintOf(iso), regions };
+      // A pairing that would *seam* is one the browser throws away (see
+      // `seamedRegion`), and a country whose regions it has thrown away has
+      // nothing sharp left for the country level — which is a separate question
+      // with an answer of its own. Asked here rather than sending the outline
+      // whenever anything is missing: the Netherlands misses three islands in
+      // the Caribbean, which seam against nothing and cost the country nothing.
+      if (seamedRegion(iso, regions)) payload.outline = await outlineFor(iso);
+      return payload;
     }
-    // Nothing matched. Remembered, so it is not tried again on every zoom.
+    // No level matched. Remembered, so it is not tried again on every zoom — and
+    // the country outline is fetched anyway, because "we cannot tell your
+    // regions from theirs" says nothing about the shape of the country.
     return {
       iso,
       level: null,
       fingerprint: fingerprintOf(iso),
       regions: {},
+      outline: await outlineFor(iso),
       note: 'no level matches this map’s regions',
     };
   }

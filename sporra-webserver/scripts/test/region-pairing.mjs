@@ -22,7 +22,7 @@
 
 import {
   loadRegions, pairFineRegions, interiorPoints, regionAt, addFineRegions, fineRegionsVersion,
-  seamedRegion,
+  seamedRegion, addFineOutline, fineCountryOutline, fineRegionsLoaded,
 } from '../../src/regions.js';
 
 let pass = 0;
@@ -125,6 +125,25 @@ check(fineRegionsVersion() > before, 'and the version moves',
 const still = fineRegionsVersion();
 check(addFineRegions({ 'Nowhere/At all': poly([OUR_CAPITAL]) }) === 0, 'geometry for regions we do not have is ignored');
 check(fineRegionsVersion() === still, '…and does not move it', `${still} → ${fineRegionsVersion()}`);
+
+console.log('\nand a country whose regions never pair still gets an outline');
+{
+  // Hungary's 43 units against their 20, Luxembourg's three abolished districts
+  // against their twelve cantons: there is nothing to pair, so there is nothing
+  // to dissolve, so the country level had the shipped outline at every zoom.
+  // ADM0 needs no pairing — it is one shape, and every country has one.
+  const OUTLINE = poly([[[9, 49], [13, 49], [13, 53], [9, 53], [9, 49]]]);
+  check(fineCountryOutline('NOP') === null, 'a country nothing has been fetched for has none');
+  const before = fineRegionsVersion();
+  check(addFineOutline('NOP', OUTLINE) === 1, 'an outline lands');
+  check(fineRegionsVersion() > before, 'and the version moves, so anything holding built shapes rebuilds');
+  check(fineCountryOutline('NOP') !== null, 'and the country now has a sharp shape');
+  check(addFineOutline('NOP', OUTLINE) === 0, 'the same one twice is not news');
+  // The gate that decides whether the map draws sharply at all used to count
+  // only regions, so a fetched outline was something sharper to draw that
+  // nothing would look at.
+  check(fineRegionsLoaded(), 'and an outline on its own is enough to draw sharply');
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

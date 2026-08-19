@@ -160,6 +160,33 @@ export function searchCountries(query, limit = 2) {
 // individually instead of dissolving them together.
 export const countryGeometry = (id) => COUNTRIES?.find((c) => c.id === id)?.geometry ?? null;
 
+/**
+ * The given countries whose shapes touch the given view — which is the set
+ * worth fetching detailed boundaries for, and nothing else.
+ *
+ * The country level's answer to `countriesInView` in src/regions.js, and it
+ * returns the same shape so one loop can take either. A country is asked about
+ * by ISO3 and named by its own id, because the fetch is keyed by the first and
+ * the "loading…" line is read by a person.
+ *
+ * @param {Iterable<string>} ids  lit country ids
+ * @param {[number, number, number, number]} view  [w, s, e, n]
+ * @returns {Array<{iso:string, country:string}>}
+ */
+export function countriesInBox(ids, view) {
+  if (!COUNTRIES) return [];
+  const wanted = new Set(ids);
+  const [w, s, e, n] = view;
+  const out = [];
+  for (const c of COUNTRIES) {
+    if (!wanted.has(c.id) || !c.iso) continue;
+    const [cw, cs, ce, cn] = c.bbox;
+    if (ce < w || cw > e || cn < s || cs > n) continue;
+    out.push({ iso: c.iso, country: c.id });
+  }
+  return out;
+}
+
 // Union the lit countries into one dissolved shape: touching countries merge
 // with no border between them. Returns the fill (MultiPolygon coordinates) and
 // every boundary ring (outer rings + holes) for the outline.

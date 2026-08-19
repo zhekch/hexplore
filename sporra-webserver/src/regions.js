@@ -69,6 +69,12 @@ let loading = null;
 export const AREA_MATCH = [0.3, 3.2];
 
 let FINE = new Map(); // region id → detailed geometry
+// A country's own detailed outline, for the countries whose regions cannot be
+// paired against ours — see `outlineFor` in server/regions-fine.js. Keyed by
+// ISO3, and separate from FINE because it answers a different question: FINE is
+// "what shape is this canton", this is "what shape is this country", and a
+// country can have an answer to the second and none to the first.
+const FINE_OUTLINE = new Map(); // ISO3 → the country's own detailed outline
 const fineDone = new Set(); // iso codes fetched (or failed — don't retry a 404)
 const finePending = new Set();
 
@@ -101,8 +107,17 @@ function buildIndex() {
 }
 
 export const regionsLoaded = () => REGIONS !== null;
-/** True once any country's detailed boundaries are in memory. */
-export const fineRegionsLoaded = () => FINE.size > 0;
+/**
+ * True once there is any sharper geometry in memory at all — a country's
+ * regions, or just its own outline.
+ *
+ * Both, because both are things the map can be drawn from and the gate that
+ * reads this decides whether to draw sharply *at all*. Counting only the
+ * regions is what kept Hungary and Luxembourg blunt after their outlines had
+ * been fetched: there was something sharper to draw and nothing would look at
+ * it.
+ */
+export const fineRegionsLoaded = () => FINE.size > 0 || FINE_OUTLINE.size > 0;
 /** Which countries have been asked for already, so nothing is fetched twice. */
 export const fineCountryKnown = (iso) => fineDone.has(iso) || finePending.has(iso);
 
@@ -364,6 +379,21 @@ let fineVersion = 0;
 /** How many times the detailed set has grown. See addFineRegions. */
 export const fineRegionsVersion = () => fineVersion;
 
+/**
+ * Take a country's detailed outline, as fetched.
+ *
+ * @returns {number} 1 if it is new to us, 0 otherwise — the same currency
+ *   `addFineRegions` deals in, because the caller's question is only ever "did
+ *   anything change".
+ */
+export function addFineOutline(iso, geometry) {
+  if (!iso || !geometry || FINE_OUTLINE.has(iso)) return 0;
+  FINE_OUTLINE.set(iso, stripDetachedTerritories(geometry));
+  fineOutlineMemo.delete(iso);
+  fineVersion++;
+  return 1;
+}
+
 /** Take detailed geometry the server worked out: { "<id>": geometry, … }. */
 export function addFineRegions(byId) {
   fineOutlineMemo.clear();
@@ -456,9 +486,15 @@ export function seamedRegion(iso, byId) {
 }
 
 /**
- * Ask our own server for one country's detailed boundaries. Never rejects: a
- * country nobody has boundaries for at our granularity keeps the overview
- * geometry, and is remembered so it isn't asked for twice.
+ * Ask our own server for one country's detailed boundaries — its regions, its
+ * own outline, or both.
+ *
+ * Never rejects: a country nobody has boundaries for at our granularity keeps
+ * the overview geometry, and is remembered so it isn't asked for twice.
+ *
+ * @returns {Promise<number>} how many things this changed. Callers only read it
+ *   as "was there any news", and there are two kinds of news now — a country
+ *   whose regions all seam can still come back with a sharp outline.
  */
 export async function loadFineRegions(iso) {
   if (!iso || fineDone.has(iso) || finePending.has(iso)) return 0;
@@ -468,17 +504,21 @@ export async function loadFineRegions(iso) {
     const res = await fetch(`/api/regions/${encodeURIComponent(iso)}?r=${regionSetTag(iso)}`);
     if (!res.ok) return 0;
     const body = await res.json();
+    // The country's own outline is taken whatever happens to its regions: they
+    // are two different questions, and the country level asks the second one.
+    const outline = addFineOutline(iso, body?.outline);
     const seam = seamedRegion(iso, body?.regions);
     if (seam) {
       // Loud, because this is a country quietly drawn blunter than the data
       // allows, and the next person to wonder why should not have to find it.
       console.info(
         `[regions] ${iso}: ${seam} has no detailed boundary and touches one that does`
-        + ' — keeping the overview set, which at least agrees with itself.',
+        + ' — keeping the overview set, which at least agrees with itself.'
+        + (outline ? ' The country outline is sharp; only its regions are not.' : ''),
       );
-      return 0;
+      return outline;
     }
-    return addFineRegions(body?.regions);
+    return addFineRegions(body?.regions) + outline;
   } catch {
     return 0;
   } finally {
@@ -664,6 +704,9 @@ const fineOutlineMemo = new Map();
 export function fineCountryOutline(iso) {
   if (!iso) return null;
   if (fineOutlineMemo.has(iso)) return fineOutlineMemo.get(iso);
+  // The dissolve of paired regions is the sharper of the two where it can be
+  // built — Switzerland's 26 cantons come to 10,111 points against ADM0's 2,368
+  // — so the fetched outline is the fallback rather than the answer.
   let geometry = null;
   if (FINE.size) {
     const ids = new Set(regionsOf(iso).map((r) => r.id));
@@ -679,6 +722,10 @@ export function fineCountryOutline(iso) {
       if (exact && fill.length) geometry = stripDetachedTerritories({ type: 'MultiPolygon', coordinates: fill });
     }
   }
+  // Nothing to dissolve, or a dissolve that came out inexact: the country's own
+  // outline, where the server was able to fetch one. This is the whole of what
+  // Hungary and Luxembourg get, and it is four to twelve times what they had.
+  if (!geometry) geometry = FINE_OUTLINE.get(iso) ?? null;
   fineOutlineMemo.set(iso, geometry);
   return geometry;
 }

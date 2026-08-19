@@ -3612,6 +3612,16 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
     margin-top: calc(14px - var(--stats-tabs-lead));
   }
 
+  /* …but only while the body *is* the two columns. One route's detail is a
+     single column that starts at the top of the body, so the lift put its back
+     button and its title straight over the tab strip — "‹ All routes" printed
+     across "Routes", on top of a control it was covering. Asked as `:has`
+     rather than tracked with a class, because the question really is "what is
+     in this box": whatever renders into it next cannot forget to answer. */
+  #stats-overlay .stats-body:not(:has(> .stats-cols)) {
+    margin-top: 14px;
+  }
+
   /* The summary is a pane like the list beside it, ending level with it and
      scrolling its own content.
 
@@ -6468,19 +6478,21 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   opacity: 0.62;
 }
 
-/* Smaller than the chip's own button, because it acts on the line it is in
-   rather than on the chip: Clear ends the whole thing, Show is one step inside
-   it, and two buttons of the same weight would put those on a level. */
+/* The same button as *Clear*, in the same size, because they are the same kind
+   of thing — a press that does something to what the chip is showing. It was
+   smaller for a while on the argument that one ends the chip and the other is a
+   step inside it, which is a distinction the eye reads as "this one is less
+   finished" rather than "this one is smaller in scope". */
 .route-solo > #trip-chip-text .chip-sub > button {
   appearance: none;
   flex: none;
-  padding: 1px 8px;
+  padding: 4px 11px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }

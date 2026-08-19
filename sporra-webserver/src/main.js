@@ -21,6 +21,7 @@ import {
   countryIdAt,
   mergeCountries,
   countryGeometry,
+  countriesInBox,
 } from './countries.js';
 import {
   auth, connection, mountAuth, serverBuild, serverUpdate, isAdmin, asAdmin, forgetSession,
@@ -2719,13 +2720,19 @@ function neighbourVectorLevel(level, zoom) {
   return null;
 }
 
-// Four caches, not three: the regions are held at both resolutions, because the
-// coarse geometry is the right thing to tile when you are looking at a
-// continent and the wrong thing when you are looking at a valley.
-const areaFC = { region: EMPTY, regionFine: EMPTY, country: EMPTY, continent: EMPTY };
-// The region ids the last build lit, so considerFineRegions() knows which
-// countries are worth asking about.
+// Five caches, not three: the regions *and the countries* are held at both
+// resolutions, because the coarse geometry is the right thing to tile when you
+// are looking at a continent and the wrong thing when you are looking at a
+// valley. A country's sharp outline is its own detailed regions dissolved
+// (`fineCountryOutline`), so both levels are sharpened by the same fetch.
+const areaFC = {
+  region: EMPTY, regionFine: EMPTY, country: EMPTY, countryFine: EMPTY, continent: EMPTY,
+};
+// The ids the last build lit, so considerFineRegions() knows which countries are
+// worth asking about — from either level, because either can be the one being
+// zoomed into with Detail pinned.
 let litRegionIds = null;
+let litCountryIds = null;
 
 // Past this zoom, region outlines are being read rather than glanced at, and the
 // overview set's ~1 km simplification starts to show — a canton border cutting
@@ -2771,7 +2778,8 @@ function useFineRegions() {
 }
 
 // Which cache a request lands in.
-const areaCacheKey = (kind) => (kind === 'region' && useFineRegions() ? 'regionFine' : kind);
+const areaCacheKey = (kind) =>
+  ((kind === 'region' || kind === 'country') && useFineRegions() ? `${kind}Fine` : kind);
 let countryDirty = true;
 // Bumped alongside it, for readers that must not *consume* the flag.
 // `countryDirty` is a message to `ensureAreaFC` and is cleared by it; the image
@@ -2951,7 +2959,8 @@ function buildAreaFC(kind, { fine = false, mode = heatMode, record = true } = {}
 
   // Recorded before the heat branch, which returns without reaching the merge:
   // considerFineRegions() needs this whichever colouring mode is on.
-  if (isRegionKind && record) litRegionIds = litIds;
+  if (record && isRegionKind) litRegionIds = litIds;
+  if (record && kind === 'country') litCountryIds = litIds;
 
   const labels = isContinentKind ? continentLabels(countriesIn) : [];
 
@@ -3046,16 +3055,13 @@ function ensureAreaFC(kind) {
     return EMPTY;
   }
   if (countryDirty) {
-    areaFC.region = EMPTY;
-    areaFC.regionFine = EMPTY;
-    areaFC.country = EMPTY;
-    areaFC.continent = EMPTY;
+    for (const slot of Object.keys(areaFC)) areaFC[slot] = EMPTY;
     countryDirty = false;
   }
   const slot = areaCacheKey(kind);
   // Built on demand and then held: setVecData() tells "same data" from "rebuilt"
   // by identity, and re-feeding a source it already holds re-tiles the world.
-  if (areaFC[slot] === EMPTY) areaFC[slot] = buildAreaFC(kind, { fine: slot === 'regionFine' });
+  if (areaFC[slot] === EMPTY) areaFC[slot] = buildAreaFC(kind, { fine: slot.endsWith('Fine') });
   return areaFC[slot];
 }
 
@@ -3369,8 +3375,12 @@ window.visitedMap = {
       bearing: +map.getBearing().toFixed(1),
       pitch: +map.getPitch().toFixed(1),
       lit: litRegionIds ? [...litRegionIds] : null,
+      litCountries: litCountryIds ? [...litCountryIds] : null,
       view: view.map((n) => +n.toFixed(2)),
+      // Both levels ask for detail now, and which one is asking is exactly the
+      // thing you are looking at this to find out.
       candidates: litRegionIds ? countriesInView(litRegionIds, view) : null,
+      countryCandidates: litCountryIds ? countriesInBox(litCountryIds, view) : null,
     };
   },
   visited,
@@ -6823,18 +6833,29 @@ const VECTOR_WARM_ZOOM = levelBoundary(FIRST_VECTOR_LEVEL - 1) + 1.2;
 // boundary too, so ordinary zooming between those levels never touches it.
 const VECTOR_COOL_ZOOM = levelBoundary(FIRST_VECTOR_LEVEL - 2) + 1;
 
-// Zoomed in far enough that region outlines are being read rather than glanced
-// at, and the overview geometry's straight lines across real borders start to
-// show. Fetch the detailed boundaries — for the countries actually on screen,
-// one at a time, once each — and rebuild as they land.
+// Zoomed in far enough that boundaries are being read rather than glanced at,
+// and the overview geometry's straight lines across real borders start to show.
+// Fetch the detailed boundaries — for the countries actually on screen, one at a
+// time, once each — and rebuild as they land.
 //
-// Only reachable with Detail pinned to Region: on Auto this level never survives
-// past ~z5, where the overview geometry is the right thing to draw anyway.
+// **Both vector levels, not only the regions.** A country's sharp outline is its
+// own detailed regions dissolved, so the country level is sharpened by exactly
+// the same fetch — and it did not ask for it. Pinning Detail to Country and
+// zooming into a coastline left it drawn at the overview set's ~1 km
+// simplification for ever, while the identical zoom with Detail on Region
+// sharpened as you went: the level that most obviously *is* a single outline was
+// the one that never got a good one.
+//
+// Either level is only reachable this far in with Detail pinned; on Auto the map
+// has moved on to hexagons long before, where the overview geometry is the right
+// thing to draw anyway.
 function considerFineRegions(level) {
-  if (level !== REGION_LEVEL || map.getZoom() < REGION_FINE_ZOOM) return;
-  if (!regionsLoaded() || !litRegionIds) return;
+  if (map.getZoom() < REGION_FINE_ZOOM || !regionsLoaded()) return;
+  const lit = level === REGION_LEVEL ? litRegionIds : level === COUNTRY_LEVEL ? litCountryIds : null;
+  if (!lit) return;
   const view = lngLatBox(viewMerc());
-  for (const { iso, country } of countriesInView(litRegionIds, view)) fetchFineRegions(iso, country);
+  const inView = level === REGION_LEVEL ? countriesInView(lit, view) : countriesInBox(lit, view);
+  for (const { iso, country } of inView) fetchFineRegions(iso, country);
 }
 
 /**
@@ -6855,9 +6876,14 @@ function fetchFineRegions(iso, label) {
   // look like one that isn't going to.
   const done = busy(`Loading ${label} boundaries…`);
   loadFineRegions(iso)
-    .then((paired) => {
-      if (!paired) return;
-      areaFC.regionFine = EMPTY; // rebuild at the new resolution
+    .then((news) => {
+      // Anything at all: a country whose regions all seam can still have come
+      // back with a sharp outline of its own, and the country level draws it.
+      if (!news) return;
+      // Both, because both are drawn from these: the regions themselves, and
+      // the country outline that is those regions dissolved.
+      areaFC.regionFine = EMPTY;
+      areaFC.countryFine = EMPTY;
       updateGrid(true);
       updateSelection(); // and the outlined shape, if one is being looked at
     })

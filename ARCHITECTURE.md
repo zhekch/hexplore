@@ -2792,8 +2792,11 @@ the map already has a way to say *this one, on its own*, and the route chip that
 appears under this one names it, where a list on top of a map is a menu covering
 the answer it is offering.
 
-The button lives **in the second line, beside the count it acts on**. "Show", at
-the end of a chip that says a date, is a button with no visible object; "3
+The button lives **in the second line, beside the count it acts on**, and is
+the same size as *Clear* — they are the same kind of thing, a press that does
+something to what the chip is showing, and a smaller one read as less finished
+rather than as smaller in scope. "Show", at the end of a chip that says a date,
+is a button with no visible object; "3
 activities · Show" says what it will show. It is *moved* into that line rather
 than rebuilt in it (`setChipText`), because a button rebuilt on every step is a
 listener re-attached on every step — and parked back on the chip before the line
@@ -7696,6 +7699,48 @@ right, because there is nothing there to describe.
 The card says `None yet` rather than `0.0 km² · 0%` for the ground covered.
 Zero is the answer, but printed as a measurement it reads like a rounding of one.
 
+### The country level sharpens too, and where it cannot, ADM0 does
+
+Zooming in with Detail pinned to **Region** fetched detailed boundaries and
+sharpened as you went. Zooming in with it pinned to **Country** did not: the
+level that most obviously *is* a single outline kept the overview set's ~1 km
+simplification at every zoom, and the identical gesture one level down sharpened.
+`considerFineRegions` asked only at the region level, and the country cache had
+only one resolution to land in.
+
+Both are fixed by the same fetch, because a country's sharp outline is its own
+detailed regions dissolved (`fineCountryOutline`): the country level records its
+lit set (`litCountryIds`), asks `countriesInBox` which of them the view actually
+touches, and holds its geometry in a `countryFine` slot beside the regions'.
+
+**But a dissolve needs regions that paired, and some countries have none.** ADM1
+does not mean the same thing in the two datasets, and where they disagree there
+is nothing to pair: Hungary's 43 units against geoBoundaries' 20 (Natural Earth
+counts its 23 city-counties as admin-1; nobody else does), Luxembourg's three
+districts — abolished in 2015 — against their twelve cantons. Those countries
+kept the shipped outline for ever: 46 points for the whole of Luxembourg.
+
+So the server also fetches **ADM0**, the country's own outline, which needs no
+pairing at all — one shape, the same country ours is, and every country in the
+world has one. It is fetched only where the dissolve cannot be built, decided by
+running `seamedRegion` server-side rather than by asking whether anything is
+missing: the Netherlands misses three islands in the Caribbean, which seam
+against nothing and cost the country nothing. `fineCountryOutline` prefers the
+dissolve where there is one, because it is sharper — Switzerland's cantons come
+to 10,111 points against ADM0's 2,368 — and falls back to the outline where
+there is not: Hungary 211 → 895 points, Luxembourg 46 → 562.
+
+Measured on the map: the country level drew 968 points across four lit countries
+before the fetch and 9,691 after flying to Budapest with Detail on Country.
+Every small dependency in the same position — Jersey, Guernsey, the Faroes,
+Aruba, Curaçao, Bermuda, French Polynesia, New Caledonia — has an ADM0 and no
+ADM1, so all of them sharpen by the same route.
+
+`fineRegionsLoaded` counts outlines as well as regions, or the gate that decides
+whether to draw sharply at all would go on saying no while holding something
+sharper. `PAIRING_VERSION` went to 3, because a cached payload written before
+this carries no outline and the cache never expires.
+
 **Nothing on the card is counted in cells.** It used to lead with *Cells
 inside*, which is the unit the storage happens to keep ground in and not a thing
 anybody has a feel for: "1,284 cells inside" asks the reader to know what a cell
@@ -8181,6 +8226,16 @@ abbreviated one, while squeezing the dates that are how you recognise which trip
 this is. So the counts are their own element (`tripCounts` → `.hit-aside`) and
 the 560 px rule that already reshapes the palette takes them away outright,
 separator and all. Dropping is not truncating: what is left is a whole phrase.
+
+**One route's detail is not two columns, and must not be lifted like them.**
+The wide layout pulls `.stats-body` up by the tab strip's own height so the list
+starts level with the tabs, and the summary column pays it back. A single
+route's detail has neither column: it started at the top of the body and was
+lifted with it, so "‹ All routes" was printed across "Routes" — a button on top
+of a control it was covering. The lift is now asked for with
+`:has(> .stats-cols)` rather than tracked with a class, because the question
+really is *what is in this box*: whatever renders into it next cannot forget to
+answer.
 
 **The controls above the list are captioned, and grouping is one pill.** Two
 rows of pills side by side are two questions, and which pill answers which is
