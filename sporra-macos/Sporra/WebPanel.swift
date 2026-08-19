@@ -127,6 +127,18 @@ final class WebViewController: NSViewController, WKUIDelegate, WKNavigationDeleg
         // white, and a white flash on every load is the one thing you cannot
         // help noticing.
         webView.underPageBackgroundColor = NSColor(red: 0.07, green: 0.078, blue: 0.102, alpha: 1)
+
+        // Safari's Web Inspector, pointed at this web view. Off by default since
+        // macOS 13.3 — a web view an app has not declared inspectable simply
+        // never appears in the Develop menu, and nothing says why. Same reason
+        // as the iOS app, where the silence cost more: the site is the whole
+        // app, so being able to open its console is the difference between
+        // reading an error and inferring one. DEBUG only; a release build has
+        // no reason to leave the door open.
+        #if DEBUG
+        if #available(macOS 13.3, *) { webView.isInspectable = true }
+        #endif
+
         view.addSubview(webView)
         view.layer?.backgroundColor = webView.underPageBackgroundColor.cgColor
     }

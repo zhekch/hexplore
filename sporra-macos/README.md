@@ -177,7 +177,10 @@ declared to be the point.
 - **The web view is the app.** Same `WKWebView`, same persistent
   `websiteDataStore` — so the session survives a quit, and so does the service
   worker's registration and its Cache Storage, which is the whole of how offline
-  works here with no Swift written for it.
+  works here with no Swift written for it. Same `isInspectable` under `#if DEBUG`
+  too, so a debug build's page opens in Safari's Develop menu; a Mac needs it
+  less than a phone does, but a web view that is inspectable on one platform and
+  silently not on the other is its own afternoon.
 - **Signing in happens in the web view**, and the uploader borrows that session
   by copying the site's cookies into `HTTPCookieStorage` after every page load.
   There is no native login and there should not be one.

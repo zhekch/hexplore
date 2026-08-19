@@ -8229,6 +8229,50 @@ What it buys, in order:
   — which is the whole of what view-only offline should mean, and the app already
   knew how to say it.
 
+### That verification was weaker than it read, and a phone found out
+
+Killing the server is not the same as having no network, and the difference is
+not academic. `/assets/…` is served `immutable, max-age=31536000`, so **the
+browser's own HTTP cache answers for those files without consulting this worker
+at all** — and a desktop keeps them for a year. Every test that killed only the
+server was being rescued by a cache nobody was testing. Deleting
+`sporra-assets-v1` outright and reloading offline still produced a working app,
+which is how the rescue was finally noticed: the files came *back* into the
+worker's cache, from WebKit.
+
+A phone does not keep them. What happened there was that the shell survived —
+it has its own cache and is refreshed on every load — while some of what it
+names did not, and an offline launch got a page it could not start. The
+stylesheet was the casualty, which is the worst one available: `main.js` imports
+it, so `boot.js` took its failure path, and that path wrote its explanation into
+a page with no CSS on it. Default black text, no background, and in the iOS app
+a transparent page over `#12141A`. The screen was blank, it scrolled, and the
+sentence saying what had gone wrong was on it the whole time.
+
+Three changes came out of that, and they are the reason the code no longer
+matches the paragraph above word for word:
+
+- **The failure is legible without the stylesheet.** `index.html` paints its
+  background and declares `color-scheme: dark` unconditionally rather than only
+  while `booting`, and `showFailure` in `src/boot.js` styles its own panel
+  inline — including the URL of the file that was missing, which is the one line
+  worth reading off a screen.
+- **The offline copy repairs itself.** `primeShellAssets` in `public/sw.js`
+  reads the cached shell for the `/assets/…` it references and makes sure of
+  each one, after every navigation and on activate. The list comes out of the
+  HTML that is already here, so this is still not a build-time manifest — the
+  rule that file is written around survives. The lazily-loaded geography is
+  deliberately not included: those are megabytes each and keep their
+  "cached once used" bargain.
+- **A cache that refuses a write no longer fails the request.** `keep()` used to
+  let a `QuotaExceededError` reject `respondWith`, which in a browser is not a
+  missed cache entry but a script tag that did not load — the app broken
+  *online* because it could not be made to work offline.
+
+`scripts/test/offline-shell.mjs` runs the worker with no browser at all and
+holds it to each of those, because the one thing a browser cannot be relied on
+to tell you is which cache answered.
+
 Three things it deliberately does not do. **Basemap tiles** are CARTO's,
 OpenFreeMap's and Esri's, and keeping someone else's tiles for offline use is
 their bandwidth and their terms rather than a technical question — so offline you

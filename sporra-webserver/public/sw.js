@@ -16,6 +16,13 @@
 //                                                        back to the shell
 //   anything else  someone else's server               → not ours to cache
 //
+// With one addition to "because the page asked for it", and it is the only
+// place this file goes looking for something: the assets the **cached shell
+// names** are made sure of after every navigation. That list is read out of the
+// HTML that is already here rather than written at build time, so it is still
+// not a manifest to keep in step with anything — see `primeShellAssets`, and
+// the failure that put it there.
+//
 // **What this buys, in order of how much it matters.**
 //
 // The geography. `places.json`, `regions.json` and `countries.json` are 8.5 MB
@@ -25,8 +32,8 @@
 // survive, so searching for a town costs nothing on the second day.
 //
 // The airports are the same deal with one extra property worth keeping: they
-// ship as one file per group, and because nothing here is pre-fetched, a group
-// left switched off is never requested and never stored. Switching one on pays
+// ship as one file per group, and because nothing outside the shell is
+// pre-fetched, a group left switched off is never requested and never stored. Switching one on pays
 // for it once — see "The airports, from a file rather than an API" in
 // ARCHITECTURE.md.
 //
@@ -69,9 +76,11 @@ const OURS = [SHELL, ASSETS, DATA];
 const PREFIXES = ['sporra-', 'hexplore-'];
 
 self.addEventListener('install', (event) => {
-  // Nothing is pre-fetched. Everything this caches, it caches because the page
-  // asked for it — which means the cache can never hold a file the running
-  // build does not use, and there is no list to keep in step with the build.
+  // Nothing is pre-fetched *here*, where there is nothing to go on: a worker
+  // being installed has no shell yet, so a fetch at this point would be a
+  // guess at filenames — exactly the baked-in manifest this file refuses to
+  // carry. The making-sure happens once there is a cached shell to read it out
+  // of, on activate and after each navigation.
   event.waitUntil(self.skipWaiting());
 });
 
@@ -83,6 +92,9 @@ self.addEventListener('activate', (event) => {
       if (PREFIXES.some((p) => name.startsWith(p)) && !OURS.includes(name)) await caches.delete(name);
     }
     await self.clients.claim();
+    // A worker that has just taken over is the first chance to notice that the
+    // shell it is holding names files nobody has here.
+    await primeShellAssets();
   })());
 });
 
@@ -98,8 +110,17 @@ self.addEventListener('message', (event) => {
 /** Keep it only if it is a real answer. See the note about 401 above. */
 async function keep(cacheName, request, response) {
   if (!response || response.status !== 200 || response.type !== 'basic') return response;
-  const cache = await caches.open(cacheName);
-  await cache.put(request, response.clone());
+  try {
+    const cache = await caches.open(cacheName);
+    await cache.put(request, response.clone());
+  } catch {
+    // A cache that will not take it — a device with no room, an origin over its
+    // quota — must not also cost you the response. This function's rejection is
+    // `respondWith`'s rejection, which is a script tag that failed rather than a
+    // cache entry that was missed: the app would break *online* because it could
+    // not be made to work offline, which is exactly backwards. The file is
+    // simply not kept, and the next load asks for it again.
+  }
   return response;
 }
 
@@ -126,10 +147,83 @@ async function networkFirst(cacheName, request, fallback) {
   try {
     return await keep(cacheName, request, await fetch(request));
   } catch {
-    const hit = await caches.match(fallback ?? request, { cacheName });
+    // What was asked for first, and only then what stands in for it. The other
+    // order — which is what this did — has a hole in it: a navigation is stored
+    // under the URL that was navigated to, so an app opened at `/somewhere`
+    // filled the cache with `/somewhere` and then, offline, asked for `/` and
+    // was told there was nothing there. Everything was there.
+    const hit = (await caches.match(request, { cacheName }))
+      ?? (fallback ? await caches.match(fallback, { cacheName }) : undefined);
     if (hit) return hit;
     throw new Error('offline and nothing cached');
   }
+}
+
+/**
+ * The last shell that was read, and what it named.
+ *
+ * Only the *reading* is remembered, never the conclusion. A worker that had
+ * recorded "this build is complete" would be blind to the eviction that happens
+ * an hour later — which is the whole failure this exists to catch, so the one
+ * thing it must not do is take its own word for it.
+ */
+let shellAssets = { etag: null, urls: [] };
+
+/**
+ * The shell names the files it cannot start without, so nothing else has to.
+ *
+ * Everything here is otherwise cached because the page asked for it, which is
+ * what keeps this file free of a build-time manifest — and is also a promise
+ * with a gap in it. A file the page asked for *once*, on a load this worker did
+ * not see or on a device that later evicted it, is a file the app will look for
+ * offline and not find. The shell survives that (it has its own cache, and it
+ * is refreshed on every load), so what you get is a page that loads and then
+ * cannot start: no stylesheet, no map, nothing on screen. That is the failure
+ * this whole section exists to prevent, and it was reachable from the moment
+ * anything fell out of the cache.
+ *
+ * So the shell is read for the `/assets/…` it references and each one is made
+ * sure of. The list is derived from the *cached* HTML rather than from the
+ * build, which keeps the rule this file is written around: there is no fourth
+ * place that has to agree with anything, and a shell that has just been
+ * replaced by a newer deploy names the newer files by construction.
+ *
+ * It does not reach for the lazily-loaded geography — those are megabytes each,
+ * they are not in the shell, and a group of airports nobody switched on should
+ * still cost nothing. Those keep the "cached once used" bargain they always had.
+ */
+async function primeShellAssets() {
+  const cache = await caches.open(SHELL);
+  const [key] = await cache.keys();
+  if (!key) return;
+  const shell = await cache.match(key);
+  if (!shell) return;
+
+  // The parse is what gets skipped when the shell has not moved — 150 KB of
+  // HTML re-read on every launch to find the same three filenames is work with
+  // nothing at the end of it. What is *not* skipped is the looking: the cache
+  // is asked about every one of them, every time, because a file that was here
+  // an hour ago is exactly the kind that is gone now.
+  const etag = shell.headers.get('ETag');
+  let urls = shellAssets.urls;
+  if (!etag || etag !== shellAssets.etag) {
+    const html = await shell.text();
+    urls = [...new Set([...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]))];
+    shellAssets = { etag, urls };
+  }
+
+  const assets = await caches.open(ASSETS);
+  await Promise.all(urls.map(async (url) => {
+    if (await assets.match(url)) return;
+    try {
+      const response = await fetch(url);
+      if (response.status !== 200 || response.type !== 'basic') throw new Error(String(response.status));
+      await assets.put(url, response);
+    } catch {
+      // Offline, or a cache that would not take it. Nothing to do about either
+      // here, and the next load with a network tries again.
+    }
+  }));
 }
 
 self.addEventListener('fetch', (event) => {
@@ -141,10 +235,16 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
   // A navigation is a request for the app itself, whatever path it carries.
-  // The fallback is the shell rather than the URL asked for, because offline
-  // there is only ever one page to give.
+  // The fallback is the root, because offline there is only ever one page to
+  // give — tried after the URL actually asked for, which is where this
+  // navigation's own copy lives.
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(SHELL, request, '/'));
+    const shell = networkFirst(SHELL, request, '/');
+    event.respondWith(shell);
+    // Afterwards, and only afterwards: the shell may have just been replaced by
+    // a newer build, and it is the newer build's files that have to be here.
+    // Behind `waitUntil` so the page is never waiting on it.
+    event.waitUntil(shell.then(() => primeShellAssets()).catch(() => {}));
     return;
   }
 

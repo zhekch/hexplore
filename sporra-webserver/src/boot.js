@@ -51,13 +51,68 @@ Promise.all([
 ])
   .then(() => import('./main.js'))
   .then(reveal)
-  .catch((e) => {
-    reveal();
-    // Neither library loaded, which means there is going to be no map at all.
-    // Said out loud rather than left as a blank page: the alternative is a
-    // window that looks like the app is simply broken, with nothing in it that
-    // says the download failed.
-    console.error('No map library could be loaded.', e);
-    const el = document.getElementById('map');
-    if (el) el.textContent = 'The map library could not be loaded. Check the connection and reload.';
-  });
+  .catch(showFailure);
+
+/**
+ * Say what went wrong, in a way that survives the thing that went wrong.
+ *
+ * Anything awaited above can be missing: a map library, the language file, and
+ * — since `main.js` imports it — **the stylesheet**. That last one is what made
+ * the previous version of this handler useless. It wrote its sentence into
+ * `#map` and trusted the page's own CSS to make it legible, so on the one load
+ * where the CSS was the casualty it drew default black text on an unstyled
+ * page. In a browser that is ugly. In the iOS app, where the web view is
+ * transparent over a near-black background, it is invisible: a phone in
+ * airplane mode showed an empty grey rectangle, scrollable, with this message
+ * on it the whole time.
+ *
+ * So every rule here is inline, and it says which piece was missing. That
+ * detail is the difference between "it is broken" and "it is offline and the
+ * offline copy has a hole in it", and only one of those tells you to reconnect
+ * once and open it again.
+ */
+function showFailure(error) {
+  reveal();
+  console.error('Sporra could not finish loading.', error);
+
+  const panel = document.createElement('div');
+  panel.style.cssText = [
+    'position:fixed', 'inset:0', 'z-index:2147483647',
+    'display:flex', 'flex-direction:column', 'gap:12px',
+    'align-items:center', 'justify-content:center',
+    'padding:24px', 'box-sizing:border-box',
+    'background:#0b0b10', 'color:#f2f2f7',
+    'font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
+    'text-align:center',
+  ].join(';');
+
+  const headline = document.createElement('p');
+  headline.textContent = 'Sporra could not finish loading.';
+  headline.style.cssText = 'margin:0;font-size:19px;font-weight:600';
+
+  const advice = document.createElement('p');
+  advice.textContent = navigator.onLine
+    ? 'Part of the app could not be downloaded. Check the connection and reload.'
+    : 'This device is offline and part of the app was not in its offline copy. Connect once, open Sporra again, and it will repair itself.';
+  advice.style.cssText = 'margin:0;max-width:32em;color:#b9b9c6';
+
+  // The URL, where there is one. A failed dynamic import names the file it
+  // could not get, and that file is the whole answer to what the cache is
+  // missing — the one line worth reading off a screen and into a bug report.
+  const detail = document.createElement('p');
+  detail.textContent = String(error?.message ?? error);
+  detail.style.cssText =
+    'margin:0;max-width:36em;color:#7c7c8a;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all';
+
+  const retry = document.createElement('button');
+  retry.textContent = 'Reload';
+  retry.style.cssText = [
+    'margin-top:4px', 'padding:10px 22px', 'border:0', 'border-radius:10px',
+    'background:#f2f2f7', 'color:#0b0b10', 'font:inherit', 'font-weight:600',
+    'cursor:pointer',
+  ].join(';');
+  retry.addEventListener('click', () => location.reload());
+
+  panel.append(headline, advice, detail, retry);
+  document.body.append(panel);
+}

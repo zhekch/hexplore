@@ -572,6 +572,19 @@ Offline is **view-only**, and the site already knew how to say so: the "cannot
 reach the server" banner appears and edits queue rather than claiming to have
 saved.
 
+**An offline copy with a hole in it repairs itself**, and says so in the meantime.
+A phone under storage pressure can lose part of what was cached while keeping the
+rest, and what that used to look like was a launch with nothing on the screen at
+all — the page was there, its stylesheet was not, and the explanation was drawn
+in black on a black background. Now the worker makes sure of everything the shell
+names on every load with a network, and a launch that still cannot start says
+which file it could not get. See **The offline shell** in ARCHITECTURE.md, which
+also explains why the original test of all this passed for the wrong reason.
+
+**Debug builds are inspectable.** `webView.isInspectable` is on under `#if DEBUG`,
+so a build from Xcode appears in Safari's Develop menu on the Mac and the site's
+own console can be read from the phone. Release builds leave that door shut.
+
 The alternative was to bundle the built site into the IPA. It would have worked
 and it is the worse answer — a copy of the web app inside the app is a second
 copy that can disagree with the server's, which is the trade this whole project

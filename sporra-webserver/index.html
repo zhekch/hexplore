@@ -27,10 +27,22 @@
 
          The background is the stylesheet's own, repeated here rather than
          imported, so the wait is the app's dark rather than the browser's
-         white — one flash fewer than hiding alone would give. -->
+         white — one flash fewer than hiding alone would give.
+
+         **Unconditional, rather than scoped to `.booting` as both once were.**
+         There is a load where these two lines are not a head start on the
+         stylesheet but the entire styling of the page: one where the stylesheet
+         never arrives at all, which offline is a cache with a hole in it. The
+         app then draws with browser defaults — black text, no background — and
+         in the iOS app that transparent page sits over a near-black web view,
+         so everything on it is black on black. The failure message boot.js is
+         careful to write was on screen the whole time and could not be read.
+         `color-scheme` is the half that makes the defaults dark; the background
+         is the half that stops the host showing through. -->
     <style>
-      html.booting {
+      html {
         background: #0b0b10;
+        color-scheme: dark;
       }
 
       html.booting body {

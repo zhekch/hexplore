@@ -126,6 +126,23 @@ final class WebViewController: UIViewController, WKUIDelegate, WKNavigationDeleg
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.isOpaque = false
         webView.backgroundColor = UIColor(red: 0.07, green: 0.078, blue: 0.102, alpha: 1)
+
+        // Safari's Web Inspector, on the Mac, pointed at this web view.
+        //
+        // Off by default since iOS 16.4: an app's web view is not inspectable
+        // unless it says so, and nothing about a web view that refuses to appear
+        // in the Develop menu explains why. That silence cost a long evening —
+        // an offline launch showed nothing but this background colour, and the
+        // page's own console, which had the answer on it, was unreachable from
+        // a phone. The site is the whole app here; being able to open it is the
+        // difference between reading the error and inferring it.
+        //
+        // DEBUG only, because inspectability is a door and a release build has
+        // no reason to leave one open.
+        #if DEBUG
+        if #available(iOS 16.4, *) { webView.isInspectable = true }
+        #endif
+
         view.addSubview(webView)
         view.backgroundColor = webView.backgroundColor
     }
