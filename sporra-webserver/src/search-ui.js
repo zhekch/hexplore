@@ -20,6 +20,7 @@ import { mountCalendar, MONTHS } from './calendar.js';
 import { formatDistance } from './routes.js';
 import { onBackdropClick } from './dismiss.js';
 import { fold, matchRank } from './fold.js';
+import { mountSwipe } from './swipe.js';
 
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -233,6 +234,12 @@ export function mountSearch({
   const twoColumn = window.matchMedia('(min-width: 720px) and (min-height: 560px)');
   const calPinned = () => twoColumn.matches;
 
+  // Is there a keyboard already, or would focusing the field fetch one? The
+  // same question `(hover: none)` answers elsewhere in this file's stylesheet,
+  // asked the positive way round: a fine pointer with hover is a mouse or a
+  // trackpad, and a machine with one has a keyboard sitting under it.
+  const typing = window.matchMedia('(hover: hover) and (pointer: fine)');
+
   // Trips live here rather than in a tab of their own. They used to be in both
   // — this palette listed them, and Routes and statistics listed them again
   // with its own field and its own calendar — which is two menus doing one
@@ -259,6 +266,27 @@ export function mountSearch({
     days,
     trips,
     onPick: (key) => selectDay(key),
+  });
+
+  // A month is one of a series, so it is swiped like one — the same gesture,
+  // the same numbers and the same arrows-as-buttons as the chip on the map
+  // (src/swipe.js). The two little chevrons either side of the month name were
+  // always there; what was missing is that a month grid on a phone is a thing
+  // people swipe at before they look for them, and on a trackpad the swipe went
+  // nowhere at all.
+  //
+  // **Sideways only.** The panel is inside a card that scrolls, and a gesture
+  // that claimed the vertical axis would take the scroll with it. The whole
+  // panel takes the gesture rather than the grid alone, so a swipe that begins
+  // on the month's name is still a swipe; the grid is what moves, so the
+  // heading stays put and the days slide under it.
+  //
+  // There is always a month either side — the calendar is infinite in both
+  // directions — so nothing here ever resists.
+  const calSwipe = mountSwipe(calEl, {
+    can: (_step, axis) => axis === 'x',
+    onStep: (step) => cal.step(step),
+    slides: calGrid,
   });
 
   // --- Results ----------------------------------------------------------------
@@ -988,11 +1016,18 @@ export function mountSearch({
       openCalendar(false);
       render('');
     }
-    input.focus();
-    // Selected rather than left with the caret at the end, so the restored
-    // query is one keystroke from being replaced. It is a starting point, not
-    // something you have to clear before asking for anything else.
-    if (back?.query) input.select();
+    // Focused where a keyboard is a thing that is already there, and not where
+    // focusing one *summons* it. On a phone the palette is opened as often to
+    // look at the calendar as to type, and a keyboard half the screen tall
+    // arrives over the month grid — over the answer — and has to be dismissed
+    // before anything can be picked. On a desktop the opposite is true: ⌘K is a
+    // shortcut to a field, and one that has to be clicked afterwards is a
+    // shortcut to nothing.
+    //
+    // And never selected. A restored query with every character highlighted is
+    // one stray keystroke from being gone, and it is the thing you came back
+    // for; the caret goes to the end, where more typing extends it.
+    if (typing.matches) input.focus();
     onOpen?.();
   }
 
@@ -1018,8 +1053,8 @@ export function mountSearch({
     openCalendar(!calOpen);
     if (!calOpen) render(input.value);
   });
-  calPrev.addEventListener('click', () => cal.step(-1));
-  calNext.addEventListener('click', () => cal.step(1));
+  calPrev.addEventListener('click', () => calSwipe.step(-1));
+  calNext.addEventListener('click', () => calSwipe.step(1));
   $('search-close').addEventListener('click', close);
   onBackdropClick(overlay, close);
 

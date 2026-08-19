@@ -2753,7 +2753,7 @@ those cells were first seen (`showTrack`/`trackFC` in `src/main.js`,
   a dot in the calendar was the end of the road: it said the day had ground on
   it and gave you no way to look at it.
 - **And a day can be swiped along, because a day is one of a series.** See
-  [Swiping the day chip](#swiping-the-day-chip).
+  [The chip, and stepping along the days](#the-chip-and-stepping-along-the-days).
 - **Framing a trip lets go of "my location" first** (`releaseCameraLock`).
   MapLibre's tracking control hands the camera back when it sees a move it
   didn't cause, but deliberately ignores one that arrives mid-zoom so a pinch
@@ -2766,51 +2766,113 @@ those cells were first seen (`showTrack`/`trackFC` in `src/main.js`,
   answer is still yes a good while after the last flight — measured true 600 ms
   after a 300 ms `fitBounds`.
 
-### Swiping the day chip
+### The chip, and stepping along the days
 
 A trip is one thing; a day is one of a series, and the question after *where was
 I on the Monday* is always the day either side of it. Answering it used to mean
 the palette, the month grid, and a day picked out of it — four moves to step one
-day. So the chip takes a **horizontal swipe** (`src/chip-swipe.js`), which is
-what the photograph card already does with the same numbers scaled down:
-`SWIPE_COMMIT` 48 px or `SWIPE_FLICK` 0.4 px/ms, either will do, and
-`SWIPE_CLAIM` 8 px before the gesture is ours at all. Smaller than the
-photograph's, because the thing being dragged is a chip rather than most of the
-screen.
+day. So the chip is the thing you step with, and it says enough to be worth
+stepping to.
 
-Three things it is not:
+**What it says.** `Jul 6, 2026 · ≈ 28 km · 3 activities`, and no longer
+"Showing" — a word explaining the chip's own existence, on a chip that sits on
+the map over the thing it is naming. The distance is the length of the thread
+actually drawn (`trackKm`, measured off `trackFC` so the cuts a gap or a shared
+timestamp make are cuts here too — otherwise the flight home is a straight line
+across a country and counted). It is a distance between the centres of
+mile-wide hexagons, so it is rounded to whole kilometres over ten and carries an
+`≈`, the same admission the scale bar makes. The count of activities appears
+only when there is more than one; a single one is announced by the button beside
+it.
 
-- **Not the next square on the calendar.** `nextRecordedDay` steps to the next
-  day with something on it — the set the grid puts dots on — because a phone
-  that was off on the Sunday leaves an empty key, and a step onto an empty map
-  reads as the gesture having failed. Keys are compared as strings, which is
-  what dates being written biggest-part-first is for.
-- **Not asked while the finger is moving.** `activeDays` is a sweep of every
-  stored cell, and the gesture asks *is there anything that way* on every
-  pointer event it sees. The two neighbours are worked out once, in
-  `updateTrackChip`, when the day being shown changes — a sweep per day rather
-  than a sweep per frame — and the drag reads a lookup.
-- **Not two invisible buttons.** The chip follows the finger, is resisted to a
-  quarter of the movement where there is no such day, and can be changed its
-  mind about by putting it back. It also swallows the click a drag ending where
-  it began still dispatches, or a swipe that started on *Stop* would stop
-  showing the day it was asking for the next of.
+**And the activities are a thing you can act on.** *Show* isolates the day's
+first activity and becomes *Next*, which walks round them and back to the first
+— `showNextDayRoute`, one press per activity. Isolating rather than listing:
+the map already has a way to say *this one, on its own*, and the route chip that
+appears under this one names it, where a list on top of a map is a menu covering
+the answer it is offering.
 
-The two arrows either side of the text are the whole of the discoverability:
-nothing about a chip suggests dragging it. They nudge outwards every 2.6 s,
-carry no behaviour of their own — a 12 px target on a chip that is mostly text
-is a tap you would miss more often than hit — and appear only for a day, since
-there is no "the trip after this one" that means anything. `prefers-reduced-motion`
-takes the animation away and leaves the arrows, which still say which way the
-chip goes standing still.
+**A trip has no next, but it has days.** So the trip chip takes a pull
+*downwards* instead, into the day it began (`showFirstDayOfTrip`), and from
+there the sideways steps take over. One chevron rather than two, pointing down,
+because that is the only direction that means anything: there is nothing above a
+trip.
 
-`scripts/test/chip-swipe.mjs` holds the arithmetic — how far is far enough, what
-counts as a flick, which way a pull means — the way `scroll-chain` does, without
-a browser: what a browser would add here is layout, and there is no layout in "a
-50 px pull is the next day". The one case that is a real bug rather than a
-number: two pointer events in the same frame make a 1 px twitch the fastest
-flick ever thrown, so nothing below the claim distance is a swipe however fast
-it happened.
+**Three ways in, because there are three kinds of hand** (`src/swipe.js`):
+
+- **A finger.** `SWIPE_COMMIT` 48 px or `SWIPE_FLICK` 0.4 px/ms, either will
+  do, `SWIPE_CLAIM` 8 px before the gesture is claimed at all, and the axis is
+  whichever the movement is plainly along. The chip follows the finger and is
+  resisted to a quarter where there is no such day. `touch-action: none` on the
+  chip, and that is not a detail: it said `pan-y` first, which reserves the
+  vertical axis for the *browser*, and two moves into a downward pull the page
+  took the gesture and cancelled our pointer — the pull-down did nothing at all
+  and nothing said why.
+- **A trackpad.** A two-finger swipe is not a pointer gesture at all; it is a
+  stream of `wheel` events, which is why this worked on a phone and did nothing
+  on a Mac — where what the mouse *could* do was drag the chip, a gesture nobody
+  makes. See below.
+- **A cursor**, which has neither. The arrows are buttons, and bigger where
+  there is a fine pointer to aim them with — `@media (hover: hover) and (pointer:
+  fine)`. They go through the gesture's own `step`, so a clicked step and a
+  swiped one cannot drift apart: the arrows would be the half that quietly
+  stopped animating.
+
+Each arrow stands for a direction there is something in, so the first day in a
+history has no arrow backwards. They nudge outwards every 2.6 s, which is the
+whole of the discoverability — nothing about a chip suggests dragging it — and
+`prefers-reduced-motion` takes the animation away and leaves them.
+
+**On a phone the chip grows downwards.** 362 px of chip, less two arrows and two
+buttons, leaves about 150 px for the text and the line is closer to 220, so
+under 560 px the second half moves under the first (`.chip-sub`). The date is
+what is being named and stays whole; the numbers under it are what the pill was
+widened to carry, and stacking is the only way to keep both.
+
+#### One flick is one step
+
+The trackpad is where a swipe becomes arithmetic, because a `wheel` event does
+not say which part of a gesture it is: a firm flick and its second of coasting
+afterwards are one indistinguishable stream, and counting the coasting is how
+one swipe becomes five months. `wheelStepper` is that state machine, kept out of
+the listener so it can be fed a flick in a test rather than by hand on a laptop.
+
+Travel accumulates to `WHEEL_STEP` (40 px) and is then **spent**: everything
+after it is swallowed until the gesture ends. Three things can end one, and the
+third is the one this needed a second attempt at.
+
+- **Silence** past `WHEEL_GAP_MS` (120 ms) — fingers up, coasting over.
+- **Winding down and picking up again**: below `WHEEL_LULL` (6) the stream has
+  decayed, and only then does anything above `WHEEL_WAKE` (12) mean a hand. On
+  its own, silence made a second flick thrown into the first one feel like a
+  cooldown.
+- **`WHEEL_DONE_MS` (400 ms)**, which is the fix for the complaint that named
+  this section. A tail decays into events a frame apart, then further apart, and
+  a gap between two of them can exceed 120 ms while the fingers have been off
+  the glass for half a second — the gesture is declared over, its own coasting
+  is read as a fresh push, and 40 px of tail is another month. So a *short*
+  silence only starts a new gesture if what breaks it is above the wake
+  threshold, which coasting by then never is; a long one starts a new gesture
+  whatever it looks like, because a slow deliberate push does begin below that
+  threshold and must not be swallowed for as long as somebody keeps swiping.
+
+`scripts/test/swipe.mjs` feeds it a real flick — a burst that accelerates and a
+sixteen-event tail that decays — and insists on exactly one step, including when
+the tail arrives in fits with 200 ms between events, which is the case that was
+actually wrong and which no amount of swiping by hand reproduces on demand. It
+also holds the pointer arithmetic, the way `scroll-chain` does: what a browser
+would add here is layout, and there is no layout in "a 50 px pull is the next
+day". The one pointer case that is a bug rather than a number — two events in
+the same frame make a 1 px twitch the fastest flick ever thrown, so nothing
+below the claim distance is a swipe however fast it happened.
+
+**The next day is the next day with something on it.** `nextRecordedDay` steps
+through the set the calendar puts dots on, because a phone that was off on the
+Sunday leaves an empty key and a step onto an empty map reads as the gesture
+having failed. Keys are compared as strings, which is what dates being written
+biggest-part-first is for. The two neighbours are worked out once per day shown
+(`showTrack`), not per pointer event: `activeDays` is a sweep of every stored
+cell, and the gesture asks *is there anything that way* on every event it sees.
 
 ### In the calendar
 
@@ -7576,6 +7638,19 @@ right, because there is nothing there to describe.
 The card says `None yet` rather than `0.0 km² · 0%` for the ground covered.
 Zero is the answer, but printed as a measurement it reads like a rounding of one.
 
+**Nothing on the card is counted in cells.** It used to lead with *Cells
+inside*, which is the unit the storage happens to keep ground in and not a thing
+anybody has a feel for: "1,284 cells inside" asks the reader to know what a cell
+is before it says anything, and then says nothing anyway, because whether that
+is a corner of France or most of it depends on a number the card never showed. A
+continent already answered better underneath — *Countries visited, 3 of 54* —
+and a country now does the same with its own divisions: **Regions visited, 11 of
+26**, cantons or counties or provinces, whatever that country is made of. It is
+counted off the cells already gathered for the card (`regionsVisitedIn`), so it
+costs a memo lookup each rather than a second sweep, and a country the dataset
+never subdivided has no denominator and so gets no row. `rollUpIds` stopped
+returning the count at all, rather than leaving it for something else to print.
+
 **Ground covered is measured per cell, at its own latitude.** The grid is
 Mercator, so a cell's ground area shrinks with `cos²(lat)`; summing a constant
 would tell someone in Tromsø they have covered twice what they have. The share
@@ -8005,6 +8080,33 @@ re-read through `selectDay` rather than re-searched — the same split `refresh`
 makes, because a day picked out of the grid is not something the query can
 reproduce. It lives in memory only: a reload is a new session, and a palette
 opening on last night's search is answering a question nobody has asked yet.
+
+**A month is one of a series too, so it is swiped like one.** The same gesture,
+the same numbers and the same arrows-as-buttons as the chip on the map — see
+[One flick is one step](#one-flick-is-one-step). The whole panel takes the
+gesture and the grid is what moves, so a swipe that starts on the month's name
+still works and the heading stays put while the days slide under it. Sideways
+only: the panel is inside a card that scrolls, and a gesture claiming the
+vertical axis would take the scroll with it, which is why the calendar keeps
+`touch-action: pan-y` where the chip needs `none`. Nothing ever resists here —
+the calendar is infinite in both directions.
+
+**A tapped day stayed grey.** `.cal-day:hover` is three classes to `.cal-day.picked`'s
+two, so pointing at the day you had just chosen turned it from blue back to
+grey — and on a phone, where `:hover` sticks to whatever was last touched until
+something else is, it stayed that way. Both halves of the fix are one rule:
+`@media (hover: hover)` for the phone, `:not(.picked)` for the cursor.
+
+**Opening the palette does not always mean typing.** The field is focused where
+a keyboard is a thing that is already there — `(hover: hover) and (pointer:
+fine)` — and not where focusing one *summons* it. On a phone the palette is
+opened as often to look at the calendar as to search, and a keyboard half the
+screen tall arrives over the month grid, over the answer, and has to be
+dismissed before anything can be picked. On a laptop the opposite holds: ⌘K is a
+shortcut to a field, and one you have to click afterwards is a shortcut to
+nothing. The restored query is never *selected*, either: every character
+highlighted is one stray keystroke from gone, and it is the thing you came back
+for.
 
 **A trip's counts are the half a phone drops.** `Jul 2 – Jul 9, 2026 · 554
 cells · 7 routes` does not fit a 390 px row, and what an ellipsis cuts is the

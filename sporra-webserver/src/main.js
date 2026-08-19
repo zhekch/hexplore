@@ -124,9 +124,9 @@ import { mountHome } from './home-ui.js';
 import { mountIntro } from './intro-ui.js';
 import { INTRO_SEEN_KEY, INTRO_VERSION, hostKind, shouldIntro } from './intro.js';
 import {
-  activeDays, dayDetail, dayLabel, findHome, nextRecordedDay, TRIP_NAME_MAX,
+  activeDays, dayDetail, dayKey, dayLabel, distanceKm, findHome, nextRecordedDay, TRIP_NAME_MAX,
 } from './trips.js';
-import { swipeChip } from './chip-swipe.js';
+import { mountSwipe } from './swipe.js';
 import {
   loadRegions, regionsLoaded, regionAt, regionNear, regionGeometry, mergeRegions, regionsInCountry,
   loadFineRegions, fineRegionsLoaded, fineCountryKnown, countriesInView, fineCountryOutline,
@@ -3434,7 +3434,10 @@ function rollUpIds(ids) {
   // stored — the import, sync and Sources screens report them — but as facts
   // about a place they answer questions about the recording rather than about
   // where you were: how often a recorder sampled, and which app was running.
-  return { cellCount: ids.length, hits, addedAt, firstAt, lastAt };
+  // The number of cells is not rolled up either, and for the same reason: it
+  // was a count of the storage's own units, and the card that used to lead with
+  // it says how much ground and how much of the place instead.
+  return { hits, addedAt, firstAt, lastAt };
 }
 
 function gatherInfo(L, col, row) {
@@ -3568,6 +3571,38 @@ function countriesVisitedIn(name) {
   return seen.size;
 }
 
+/**
+ * How many of a country's regions the map has been in, out of how many there
+ * are.
+ *
+ * The country card's answer to "how much of this have I seen" that a person can
+ * actually picture. It used to count *cells*, which is the unit the storage
+ * happens to use and not a thing anybody has a feel for: "1,284 cells inside"
+ * says nothing about whether that is a corner of France or most of it, and it
+ * asks the reader to know what a cell is before it says anything at all. The
+ * regions are the country's own divisions — cantons, counties, provinces — and
+ * *11 of 26* is an answer in the country's own terms.
+ *
+ * Counted off the cells already gathered for the card, so it costs a lookup per
+ * cell of that country rather than a second sweep. Null when the dataset does
+ * not divide this country up, which is both the small countries and a region
+ * file that has not been loaded: no denominator, no row.
+ *
+ * @param {Array<string>} ids the country's stored cells, from `storedInArea`
+ * @param {string|null} iso the country's ISO3 code
+ */
+function regionsVisitedIn(ids, iso) {
+  const of = iso ? regionsInCountry(iso) : 0;
+  if (!of) return null;
+  const seen = new Set();
+  for (const id of ids) {
+    const region = areaOfCellMemo('region', id);
+    // A country standing in as its own region is not one of its regions.
+    if (region && !region.startsWith(WHOLE_COUNTRY)) seen.add(region);
+  }
+  return { label: 'Regions visited', n: seen.size, of };
+}
+
 /** Ground area of a set of cells, each measured at its own latitude. */
 function groundKm2(ids) {
   let km2 = 0;
@@ -3680,10 +3715,15 @@ function showAreaInfo(area) {
     // where it could not be compared with the ground covered underneath it.
     // They are different questions: crossing the top of Africa by road covers
     // ground in four countries, and living in Luxembourg covers one.
+    //
+    // A country answers with its regions for the same reason: crossing a
+    // corner of Germany is 1 of its 16, and living there is all of them.
     inside:
       area.kind === 'continent'
         ? { label: 'Countries visited', n: countriesVisitedIn(area.id), of: countriesInContinent(area.id) }
-        : null,
+        : area.kind === 'country'
+          ? regionsVisitedIn(ids, isoOfArea(area))
+          : null,
   });
   // Drawn from whatever is in memory, and then again from the national survey's
   // own outline when it arrives. Natural Earth cannot supply this at any
@@ -5047,8 +5087,21 @@ const TRACK_LAYERS = ['trip-glow', 'trip-link', 'trip-dot'];
 
 function showTrack(what) {
   shownTrack = what
-    ? { kind: what.kind, id: what.id, label: what.label, points: what.points ?? [] }
+    ? {
+      kind: what.kind,
+      id: what.id,
+      label: what.label,
+      points: what.points ?? [],
+      first: what.first ?? null,
+      km: trackKm(what.points ?? []),
+    }
     : null;
+  // The series this belongs to, worked out once here rather than per pointer
+  // event — see `dayStep`. Both are reset for a trip and for nothing at all, so
+  // the chip cannot offer a step along a series it has left.
+  dayStep = what?.kind === 'day' ? daysEitherSideOf(what.id) : {};
+  dayRoutes = what?.kind === 'day' ? (what.routes ?? []) : [];
+  dayRouteAt = -1;
   const src = map.getSource('trip');
   if (src) src.setData(what ? trackFC(what.points) : EMPTY);
   // Raised on every showing rather than positioned once: a saved route sits
@@ -5062,26 +5115,80 @@ function showTrack(what) {
   updateTrackChip();
 }
 
+// A trip carries the day it started, because a trip is not one of a series but
+// it *contains* one: pulling the chip down goes into the trip's own days, and
+// the first of them is where that starts. See `showFirstDayOfTrip`.
 const showTripOnMap = (trip) =>
-  showTrack(trip && { kind: 'trip', id: trip.id, label: trip.name, points: trip.spots ?? [] });
+  showTrack(trip && {
+    kind: 'trip',
+    id: trip.id,
+    label: trip.name,
+    points: trip.spots ?? [],
+    first: trip.start ? dayKey(trip.start) : null,
+  });
 
 /** One calendar day, drawn the same way a trip is. Both calendars land here. */
 function showDayOnMap(key, detail) {
-  showTrack({ kind: 'day', id: key, label: detail.label, points: detail.points });
+  showTrack({
+    kind: 'day',
+    id: key,
+    label: detail.label,
+    points: detail.points,
+    routes: detail.routes ?? [],
+  });
   fitBboxOnMap(bboxOfPoints(detail.points));
 }
 
-// Which days a swipe on the chip would reach, and why it is worked out here
-// rather than when the finger asks: `activeDays` is a sweep of every stored
-// cell, and the gesture asks "is there anything that way" on every pointer
-// event it sees. Once per day shown is a sweep an hour; once per event is a
-// sweep a frame.
+/**
+ * How far the thread on the map runs — which is as far as the map can tell you
+ * went that day.
+ *
+ * Measured off `trackFC`, the same feature collection the line is drawn from,
+ * rather than off the points: the thread is cut where a gap or a shared
+ * timestamp means the order cannot be trusted (see `TRACK_LINK_GAP_SEC`), and a
+ * distance that ignored those cuts would quietly include the flight home and
+ * the drive to the airport as one straight line across a country.
+ *
+ * It is a distance between cell centres, so it is an estimate and says so on
+ * the chip: `≈`. A day spent walking around one hexagon reads as nothing at
+ * all, which is the honest answer from a map whose smallest unit is a mile
+ * across.
+ */
+function trackKm(points) {
+  let km = 0;
+  for (const f of trackFC(points).features) {
+    if (f.geometry.type !== 'LineString') continue;
+    const line = f.geometry.coordinates;
+    for (let i = 1; i < line.length; i++) {
+      km += distanceKm(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1]);
+    }
+  }
+  return km;
+}
+
+// What a swipe on the chip would reach, worked out when the track changes
+// rather than when a finger asks: `activeDays` is a sweep of every stored cell,
+// and the gesture asks "is there anything that way" on every pointer event it
+// sees. Once per day shown is a sweep an hour; once per event is a sweep a
+// frame.
 let dayStep = {};
+// The day's activities, and which of them is currently isolated. −1 is "none of
+// them yet", which is the difference between the button saying *Show* and
+// saying *Next*.
+let dayRoutes = [];
+let dayRouteAt = -1;
 
 const daysEitherSideOf = (key) => {
   const keys = [...activeDays(cellMeta, listedRoutes()).keys()];
   return { '-1': nextRecordedDay(keys, key, -1), 1: nextRecordedDay(keys, key, 1) };
 };
+
+/** One day, read the same way the calendar reads it. Every step lands here. */
+function showDayKey(key) {
+  if (!key) return;
+  const detail = dayDetail(key, statsUi?.trips() ?? [], listedRoutes(), cellMeta);
+  showDayOnMap(key, { ...detail, label: dayLabel(key) });
+}
 
 /**
  * The day before or after the one on the map, in answer to a swipe.
@@ -5092,10 +5199,79 @@ const daysEitherSideOf = (key) => {
  * searching for it, down to what it is called.
  */
 function showAdjacentDay(dir) {
-  const key = dayStep[dir];
-  if (!key || shownTrack?.kind !== 'day') return;
-  const detail = dayDetail(key, statsUi?.trips() ?? [], listedRoutes(), cellMeta);
-  showDayOnMap(key, { ...detail, label: dayLabel(key) });
+  if (shownTrack?.kind !== 'day') return;
+  showDayKey(dayStep[dir]);
+}
+
+/** Into a trip, at the day it began — the answer to a pull downwards. */
+function showFirstDayOfTrip() {
+  if (shownTrack?.kind !== 'trip') return;
+  showDayKey(shownTrack.first);
+}
+
+/**
+ * One of the day's activities, and then the next one, and round again.
+ *
+ * The chip says how many there are; this is what makes that a thing you can
+ * act on. Isolating each in turn rather than listing them: the map already has
+ * a way to say *this one, on its own* — the route chip below this one — and a
+ * list on top of a map is a menu covering the answer it is offering.
+ */
+async function showNextDayRoute() {
+  if (!dayRoutes.length) return;
+  dayRouteAt = (dayRouteAt + 1) % dayRoutes.length;
+  const route = dayRoutes[dayRouteAt];
+  updateTrackChip(); // *Show* becomes *Next* before anything is fetched
+  if (!routesOn) setRoutesOn(true);
+  if (!routeGeom) await loadRoutes(true);
+  setSoloRoute(route.id);
+  zoomToRoute(route);
+}
+
+/**
+ * What the chip says about a day beyond its date: roughly how far you went, and
+ * how many activities are on it.
+ *
+ * Rounded harder than `formatDistance` rounds, because this is a measurement
+ * between the centres of mile-wide hexagons and 27.7 of them is a decimal place
+ * pretending to know something. The `≈` in front of it is the same admission
+ * the scale bar makes.
+ *
+ * "Showing" is gone from the front of the whole line. It was a word explaining
+ * the chip's own existence — the chip is on the map, over the thing it is
+ * naming, and there is nothing else it could be doing — and it cost the room
+ * this needs.
+ */
+function dayChipSub(track) {
+  const parts = [];
+  if (track.km >= 0.5) parts.push(`≈ ${track.km >= 10 ? Math.round(track.km) : track.km.toFixed(1)} km`);
+  // One activity is announced by the button beside it; a number is only worth
+  // the width when it is a number you have to cycle through.
+  if (dayRoutes.length > 1) parts.push(pluralKey(dayRoutes.length, 'tripChip.activities'));
+  return parts.join(' · ');
+}
+
+/**
+ * The chip's line, in two parts — what this is, and what is true about it.
+ *
+ * Two elements rather than one string because a phone has not got the width for
+ * one: 362px of chip, less two arrows and two buttons, leaves about 150 for the
+ * text, and "Jul 6, 2026 · ≈ 28 km · 3 activities" is 220. So on a narrow
+ * screen the second half goes *under* the first and the pill grows downwards
+ * instead of being cut off in the middle of a word. See `.chip-sub` in
+ * src/style.css; there is room for one line on a laptop and it stays one line.
+ */
+function setChipText(label, sub) {
+  const el = document.getElementById('trip-chip-text');
+  const name = document.createElement('span');
+  name.className = 'chip-name';
+  name.textContent = label;
+  el.replaceChildren(name);
+  if (!sub) return;
+  const extra = document.createElement('span');
+  extra.className = 'chip-sub';
+  extra.textContent = sub;
+  el.append(extra);
 }
 
 // The chip is the way back out that doesn't mean reopening a panel, so it lives
@@ -5104,14 +5280,23 @@ function updateTrackChip() {
   const chip = document.getElementById('trip-chip');
   if (!chip) return;
   chip.hidden = !shownTrack;
-  // A day is one of a series and a trip is not: there is no "the trip after
-  // this one" that means anything, so the arrows and the gesture belong to the
-  // day and the chip says so.
-  const day = shownTrack?.kind === 'day' ? shownTrack.id : null;
-  dayStep = day ? daysEitherSideOf(day) : {};
-  chip.classList.toggle('can-swipe', !!(dayStep[-1] || dayStep[1]));
+  const day = shownTrack?.kind === 'day';
+  const trip = shownTrack?.kind === 'trip';
+  const prev = document.getElementById('trip-chip-prev');
+  const next = document.getElementById('trip-chip-next');
+  const down = document.getElementById('trip-chip-down');
+  const route = document.getElementById('trip-chip-route');
+  // Each arrow stands for a direction there is something in. The day at the
+  // near end of a history has no arrow backwards, because there is no such day
+  // — an arrow that does nothing is worse than the absence of one.
+  prev.hidden = !day || !dayStep[-1];
+  next.hidden = !day || !dayStep[1];
+  down.hidden = !trip || !shownTrack.first;
+  route.hidden = !dayRoutes.length;
+  route.textContent = dayRouteAt < 0 || dayRoutes.length < 2 ? t('trip-chip-route.show') : t('tripChip.next');
+  chip.classList.toggle('can-swipe', !(prev.hidden && next.hidden && down.hidden));
   if (!shownTrack) return;
-  document.getElementById('trip-chip-text').textContent = `Showing ${shownTrack.label}`;
+  setChipText(shownTrack.label, day ? dayChipSub(shownTrack) : '');
 }
 
 // Any edit or a new look at the map drops it — it marks one answer to one
@@ -8881,13 +9066,26 @@ function wireLayersControl() {
     routeInfo?.setSolo(false);
   });
   document.getElementById('trip-chip-clear').addEventListener('click', () => showTrack(null));
-  // Sideways on the chip is the day either side of it. The neighbours are
-  // already worked out (see `updateTrackChip`), so this asks a lookup rather
-  // than a sweep of the history on every pointer event.
-  swipeChip(document.getElementById('trip-chip'), {
-    can: (dir) => !!dayStep[dir],
-    onStep: showAdjacentDay,
+  document.getElementById('trip-chip-route').addEventListener('click', showNextDayRoute);
+  // Sideways on the chip is the day either side of it; downwards on a trip is
+  // into its days. The series is already worked out (see `showTrack`), so this
+  // asks a lookup rather than a sweep of the history on every pointer event.
+  //
+  // A step down the screen is a step *back*, in the same sense that a pull to
+  // the left is a step forward — the content follows the finger, and what
+  // arrives is what was on the side it came from. There is nothing above a
+  // trip, so only the one direction answers.
+  const chipSwipe = mountSwipe(document.getElementById('trip-chip'), {
+    can: (step, axis) =>
+      (axis === 'x' ? !!dayStep[step] : step < 0 && shownTrack?.kind === 'trip' && !!shownTrack.first),
+    onStep: (step, axis) => (axis === 'x' ? showAdjacentDay(step) : showFirstDayOfTrip()),
   });
+  // The arrows are the same three steps for a hand that has neither a
+  // touchscreen nor a trackpad, and they go through the gesture's own path so a
+  // clicked step arrives with the same little slide a swiped one does.
+  document.getElementById('trip-chip-prev').addEventListener('click', () => chipSwipe.step(-1, 'x'));
+  document.getElementById('trip-chip-next').addEventListener('click', () => chipSwipe.step(1, 'x'));
+  document.getElementById('trip-chip-down').addEventListener('click', () => chipSwipe.step(-1, 'y'));
   document.getElementById('routes-toggle').addEventListener('change', (e) => setRoutesOn(e.target.checked));
   document.getElementById('routes-options-toggle').addEventListener('click', () => {
     routeOptionsOpen = !routeOptionsOpen;

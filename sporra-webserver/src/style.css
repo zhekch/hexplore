@@ -6366,7 +6366,7 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   white-space: nowrap;
 }
 
-.route-solo > button {
+.route-solo > button:not(.chip-arrow) {
   appearance: none;
   flex: none;
   padding: 4px 11px;
@@ -6380,23 +6380,28 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   cursor: pointer;
 }
 
-.route-solo > button:hover {
+.route-solo > button:not(.chip-arrow):hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
 /* --- A chip you can swipe ------------------------------------------------------
-   The day chip, and only while it is showing a day: see src/chip-swipe.js.
+   The day chip (sideways, along the days) and the trip chip (downwards, into
+   the trip's own days): see src/swipe.js.
 
-   `touch-action: pan-y` rather than the `manipulation` inherited from the
-   document, and it has to be in the stylesheet rather than in the handler — the
-   browser decides whether a touch is a gesture or a pan of the map before the
+   `touch-action: none`, and it has to be in the stylesheet rather than in the
+   handler — the browser decides whether a touch is its own gesture before the
    first `pointermove` arrives, and by then JavaScript saying otherwise is too
-   late. Sideways on this chip is ours; nothing else here uses it.
+   late. `none` rather than `pan-y`, which is what this said first and what made
+   the downward pull on a trip do nothing at all: `pan-y` reserves the vertical
+   axis for the *browser*, so two moves into a downward drag the page took the
+   gesture and our pointer was cancelled mid-swipe. Both axes are the chip's,
+   which costs nothing — the chip floats over a map, and nothing behind it
+   scrolls.
 
    `user-select: none` because a drag across a line of text selects it, and a
    swiped chip that leaves the date highlighted looks like a slip. */
 .route-solo.can-swipe {
-  touch-action: pan-y;
+  touch-action: none;
   -webkit-user-select: none;
   user-select: none;
   transition: translate 0.18s ease;
@@ -6409,39 +6414,127 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   transition: none;
 }
 
-/* The arrows. Small, dim, and only where there is something to swipe to: they
-   are a hint that the gesture exists, not a pair of buttons — pressing one does
-   nothing, deliberately, because a 12px target on a chip that is already mostly
-   text is a tap you would miss more often than hit.
+/* What the chip says, in two parts: the day, and what is true about it. On a
+   laptop they are one line with a separator between them. */
+#trip-chip-text {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.chip-name,
+.chip-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-sub {
+  opacity: 0.62;
+}
+
+.chip-sub::before {
+  content: '· ';
+}
+
+/* On a phone the second half goes underneath. 362px of chip, less two arrows
+   and two buttons, leaves about 150px for the text, and "Jul 6, 2026 · ≈ 28 km
+   · 3 activities" is closer to 220 — so the choice is between a pill that grows
+   downwards and a date cut off in the middle of a word. The date is the thing
+   being named and it stays whole; the numbers under it are what the pill was
+   expanded to carry, and stacking them is the only way to carry both. */
+@media (max-width: 560px) {
+  #trip-chip-text {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    line-height: 1.25;
+  }
+
+  .chip-sub {
+    font-size: 11px;
+  }
+
+  .chip-sub::before {
+    content: none;
+  }
+}
+
+/* The arrows.
+
+   Buttons, not decorations, and that is the second attempt: they started as a
+   hint that the gesture existed, on the grounds that a 12px target on a chip
+   that is mostly text is a tap you would miss more often than hit. That is true
+   of a thumb and irrelevant to a cursor — and a cursor is exactly the case with
+   neither a finger nor a trackpad swipe, so on a Mac with a mouse the chip
+   could be *dragged* and could not be swiped, which is a gesture nobody makes.
+   So they take a click, and on a pointer that can hit them they are bigger.
 
    Negative margins because the chip's own 10px gap is the space between a
    sentence and a button, which is far too much between an arrow and the word it
    is pointing at. */
-.chip-arrow {
-  display: none;
-}
-
-.route-solo.can-swipe > .chip-arrow {
+.route-solo > .chip-arrow {
   display: grid;
   flex: none;
   place-items: center;
+  appearance: none;
   margin: 0 -5px;
+  padding: 2px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
   opacity: 0.5;
+  cursor: pointer;
   animation-duration: 2.6s;
   animation-timing-function: ease-in-out;
   animation-iteration-count: infinite;
 }
 
+.route-solo > .chip-arrow[hidden] {
+  display: none;
+}
+
+.route-solo > .chip-arrow:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+[data-theme='light'] .route-solo > .chip-arrow:hover {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+/* Bigger where there is a cursor. A finger's target is the whole chip — it
+   swipes — so the arrows there can stay the small mark they are; a mouse has to
+   land on the arrow itself, and 13px of chevron is a thing you aim at twice. */
+@media (hover: hover) and (pointer: fine) {
+  .route-solo > .chip-arrow {
+    padding: 4px;
+    margin: 0 -4px;
+  }
+
+  .route-solo > .chip-arrow svg {
+    width: 17px;
+    height: 17px;
+  }
+}
+
 /* Outwards, both at once, and barely: the movement has to be noticeable in the
    corner of the eye and unnoticeable when you are reading the date between
-   them. Two sets of keyframes rather than one and a mirrored arrow, because
-   mirroring an arrow is how you end up with two pointing the same way. */
-.route-solo.can-swipe > .chip-arrow-l {
+   them. A set of keyframes per direction rather than one and a mirrored arrow,
+   because mirroring an arrow is how you end up with two pointing the same way. */
+.route-solo > .chip-arrow-l {
   animation-name: chip-nudge-l;
 }
 
-.route-solo.can-swipe > .chip-arrow-r {
+.route-solo > .chip-arrow-r {
   animation-name: chip-nudge-r;
+}
+
+.route-solo > .chip-arrow-d {
+  animation-name: chip-nudge-d;
 }
 
 @keyframes chip-nudge-l {
@@ -6472,6 +6565,20 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   }
 }
 
+@keyframes chip-nudge-d {
+  0%,
+  70%,
+  100% {
+    translate: 0 0;
+    opacity: 0.4;
+  }
+
+  35% {
+    translate: 0 2px;
+    opacity: 0.75;
+  }
+}
+
 /* A hint is the one thing worth giving up first: somebody who has asked for
    less movement has asked for exactly this, and the arrows still say which way
    the chip goes standing still. */
@@ -6480,32 +6587,9 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
     transition: none;
   }
 
-  .route-solo.can-swipe > .chip-arrow {
+  .route-solo > .chip-arrow {
     animation: none;
   }
-}
-
-/* The card's own toggle, when this route is the only one drawn. */
-.route-info-actions .modal-btn.active {
-  background: rgba(96, 172, 255, 0.22);
-  border-color: rgba(96, 172, 255, 0.5);
-  color: #fff;
-}
-
-[data-theme='light'] .route-solo {
-  background: rgba(248, 250, 252, 0.94);
-  border-color: rgba(15, 23, 42, 0.16);
-  color: rgba(15, 23, 42, 0.9);
-}
-
-[data-theme='light'] .route-solo > button {
-  border-color: rgba(15, 23, 42, 0.18);
-  background: rgba(15, 23, 42, 0.08);
-  color: #0f172a;
-}
-
-[data-theme='light'] .route-solo > button:hover {
-  background: rgba(15, 23, 42, 0.15);
 }
 
 /* Somebody else's account, opened by an admin. The same chip as the two above
@@ -7054,9 +7138,27 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
    Its own grid rather than <input type="date">. The native picker is an opaque
    OS panel that cannot show which days have anything on them, and that — "which
    weekend was that?" — is the only reason to open a calendar here at all. */
+/* `touch-action: pan-y` because sideways in here is a month, not a scroll — and
+   it has to be in the stylesheet rather than in the handler, since the browser
+   decides whether a touch is a gesture or a scroll of the card before the first
+   `pointermove` arrives. Up and down is still the card's, which is the half a
+   phone actually needs: the results below the grid are a list. */
 .search-calendar {
   padding: 10px 14px 4px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  touch-action: pan-y;
+}
+
+/* The month follows the finger, and springs back if the swipe was not enough.
+   `.swiping` is on while a finger is down — a transition then would make the
+   grid lag behind by its own duration, which reads as weight rather than as
+   being dragged. */
+.cal-grid {
+  transition: translate 0.18s ease;
+}
+
+.cal-grid.swiping {
+  transition: none;
 }
 
 .search-calendar[hidden] {
@@ -7129,8 +7231,17 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
   cursor: default;
 }
 
-.cal-day:hover:not(.cal-blank) {
-  background: rgba(255, 255, 255, 0.1);
+/* Only where hovering is a thing that happens. A phone has no cursor, so a tap
+   leaves `:hover` standing on whatever was tapped until something else is
+   touched — and this rule outranks `.cal-day.picked` (three classes to two), so
+   the day you had just chosen went grey instead of blue and stayed that way.
+   Wrapping it is the fix for the phone; `:not(.picked)` is the fix for the
+   desktop, where pointing at the chosen day did the same thing for as long as
+   the cursor was over it. */
+@media (hover: hover) {
+  .cal-day:hover:not(.cal-blank):not(.picked) {
+    background: rgba(255, 255, 255, 0.1);
+  }
 }
 
 /* A day with something on it is the only thing anyone is looking for in here,
@@ -7659,9 +7770,14 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
 
 [data-theme='light'] .search-hit:hover,
 [data-theme='light'] .search-hit.active,
-[data-theme='light'] .trip-row:hover,
-[data-theme='light'] .cal-day:hover:not(.cal-blank) {
+[data-theme='light'] .trip-row:hover {
   background: rgba(15, 23, 42, 0.07);
+}
+
+@media (hover: hover) {
+  [data-theme='light'] .cal-day:hover:not(.cal-blank):not(.picked) {
+    background: rgba(15, 23, 42, 0.07);
+  }
 }
 
 [data-theme='light'] .cal-day {
@@ -8229,9 +8345,14 @@ body:has(:is(.maplibregl-ctrl-logo, .mapboxgl-ctrl-logo)) {
 
 [data-chrome='light'] .search-card .search-hit:hover,
 [data-chrome='light'] .search-card .search-hit.active,
-[data-chrome='light'] .search-card .trip-row:hover,
-[data-chrome='light'] .search-card .cal-day:hover:not(.cal-blank) {
+[data-chrome='light'] .search-card .trip-row:hover {
   background: rgba(15, 23, 42, 0.07);
+}
+
+@media (hover: hover) {
+  [data-chrome='light'] .search-card .cal-day:hover:not(.cal-blank):not(.picked) {
+    background: rgba(15, 23, 42, 0.07);
+  }
 }
 
 [data-chrome='light'] .search-card .cal-day {

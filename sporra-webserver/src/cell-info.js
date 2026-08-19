@@ -89,12 +89,20 @@ export function mountCellInfo({ onClose } = {}) {
     // "Added to map" is a fact about the import, not about the place — it says
     // when a file was dropped in, which is never the question anyone opened this
     // card to ask.
-    if (info.cellCount > 1) row('Cells inside', info.cellCount.toLocaleString());
+    //
+    // Neither is a count of *cells*, which this card used to lead with. A cell
+    // is the unit the storage happens to keep ground in, and "1,284 cells
+    // inside" asks the reader to know what one is before it tells them
+    // anything — and then tells them nothing, because whether that is a corner
+    // of France or most of it depends on a number the card never showed. Every
+    // question it was standing in for is answered better below: how much
+    // ground, what share of the place, how many of its own parts.
+    //
     // How many of the smaller places inside it you have been to — countries in
-    // a continent. It sits above the ground covered because the two answer
-    // genuinely different questions and this is the one that scales with a
-    // trip: crossing the top of Africa covers a rounding error of its ground
-    // and four of its countries.
+    // a continent, regions in a country. It sits above the ground covered
+    // because the two answer genuinely different questions and this is the one
+    // that scales with a trip: crossing the top of Africa covers a rounding
+    // error of its ground and four of its countries.
     if (info.inside) {
       row(
         info.inside.label,
